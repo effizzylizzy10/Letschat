@@ -1,0 +1,13 @@
+{
+  "appId": "com.loop.chat",
+  "appName": "Loop",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#05070A",
+  "android": {
+    "backgroundColor": "#05070A"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
