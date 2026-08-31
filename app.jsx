@@ -551,7 +551,7 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
       e.target.value = "";
     }
   };
-
+}
   const save = async () => {
     setSaving(true); setError("");
     try {
