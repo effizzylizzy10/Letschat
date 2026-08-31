@@ -57,20 +57,88 @@ function timeLabel(ts) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function Ring({ size = 52, color, initials, online, ring }) {
+// ---- crop an image file to a centered square and shrink it, returns a base64 data URL ----
+function resizeImageToDataURL(file, maxSize = 512) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2;
+        const sy = (img.height - side) / 2;
+        const canvas = document.createElement("canvas");
+        canvas.width = maxSize;
+        canvas.height = maxSize;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, maxSize, maxSize);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => reject(new Error("Could not read that image"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("Could not read that file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
   return (
-    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+    <div onClick={onClick} style={{ position: "relative", width: size, height: size, flexShrink: 0, cursor: onClick ? "pointer" : "default" }}>
       {ring && (
         <div style={{ position: "absolute", inset: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` }} />
       )}
-      <div style={{
-        position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
-        background: color + "26", color, display: "flex", alignItems: "center",
-        justifyContent: "center", fontFamily: "Sora", fontWeight: 700,
-        fontSize: size * 0.34, border: `1px solid ${color}55`,
-      }}>{initials}</div>
+      {photo ? (
+        <img
+          src={photo}
+          alt=""
+          onContextMenu={e => e.preventDefault()}
+          draggable={false}
+          style={{
+            position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+            width: `calc(100% - ${ring ? 6 : 0}px)`, height: `calc(100% - ${ring ? 6 : 0}px)`,
+            objectFit: "cover", border: `1px solid ${color}55`,
+            userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+          }}
+        />
+      ) : (
+        <div style={{
+          position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+          background: color + "26", color, display: "flex", alignItems: "center",
+          justifyContent: "center", fontFamily: "Sora", fontWeight: 700,
+          fontSize: size * 0.34, border: `1px solid ${color}55`,
+        }}>{initials}</div>
+      )}
       {online && (
         <div style={{ position: "absolute", bottom: -1, right: -1, width: 13, height: 13, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116" }} />
+      )}
+    </div>
+  );
+}
+
+// ---- fullscreen tap-to-zoom viewer for a profile picture ----
+function ImageZoomModal({ photo, initials, color, onClose }) {
+  return (
+    <div onClick={onClose} style={{
+      position: "absolute", inset: 0, background: "#000000E6", zIndex: 30,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer" }}>
+        <X size={26} />
+      </button>
+      {photo ? (
+        <img
+          src={photo}
+          alt=""
+          onContextMenu={e => e.preventDefault()}
+          draggable={false}
+          style={{
+            width: "82%", maxWidth: 340, aspectRatio: "1 / 1", borderRadius: "50%",
+            objectFit: "cover", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+          }}
+        />
+      ) : (
+        <div style={{ width: 220, height: 220, borderRadius: "50%", background: color + "26", color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 70, border: `1px solid ${color}55` }}>{initials}</div>
       )}
     </div>
   );
@@ -129,9 +197,7 @@ function Banner({ text, tone = "error", onClose }) {
       {onClose && <button onClick={onClose} style={{ background: "none", border: "none", color: colors.fg, cursor: "pointer", padding: 0 }}><X size={15} /></button>}
     </div>
   );
-}
-
-// ---- New chat modal: look up a phone number and start / open a conversation ----
+  // ---- New chat modal: look up a phone number and start / open a conversation ----
 function NewChatModal({ token, onClose, onStarted }) {
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
@@ -188,7 +254,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
           <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
             <Search size={20} color="#9BA7B4" />
             <div onClick={onProfile} style={{ cursor: "pointer" }}>
-              <Ring size={30} color="#35D0BA" initials={profile.initials} online />
+              <Ring size={30} color="#35D0BA" initials={profile.initials} photo={profile.avatar} online />
             </div>
           </div>
         }
@@ -256,7 +322,7 @@ function StatusScreen({ profile }) {
       <div style={{ padding: "4px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0" }}>
           <div style={{ position: "relative" }}>
-            <Ring size={52} color="#35D0BA" initials={profile.initials} />
+            <Ring size={52} color="#35D0BA" initials={profile.initials} photo={profile.avatar} />
             <div style={{ position: "absolute", bottom: -1, right: -1, width: 19, height: 19, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0E1116" }}>
               <Plus size={12} color="#0E1116" />
             </div>
@@ -299,10 +365,7 @@ function ToolsScreen({ onProfile }) {
         })}
       </div>
     </div>
-  );
-}
-
-function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence }) {
+  );function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -425,17 +488,21 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
 }
 
 function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
+  const [zoomed, setZoomed] = useState(false);
   const rows = [
     { label: "Name", value: profile.name },
     { label: "About", value: profile.about },
     { label: "Phone", value: "+" + profile.phone },
   ];
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }}
+      onContextMenu={e => e.preventDefault()}
+    >
       <TopBar title="Profile" onBack={onBack} />
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" }}>
-          <Ring size={110} color="#35D0BA" initials={profile.initials} ring />
+          <Ring size={110} color="#35D0BA" initials={profile.initials} photo={profile.avatar} ring onClick={() => setZoomed(true)} />
         </div>
         {rows.map(r => (
           <div key={r.label} onClick={r.label !== "Phone" ? onEdit : undefined} style={{ padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: r.label !== "Phone" ? "pointer" : "default" }}>
@@ -452,6 +519,9 @@ function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
           </button>
         </div>
       </div>
+      {zoomed && (
+        <ImageZoomModal photo={profile.avatar} initials={profile.initials} color="#35D0BA" onClose={() => setZoomed(false)} />
+      )}
     </div>
   );
 }
@@ -459,13 +529,30 @@ function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
 function EditProfileScreen({ onBack, profile, token, onSave }) {
   const [name, setName] = useState(profile.name);
   const [about, setAbout] = useState(profile.about);
+  const [avatar, setAvatar] = useState(profile.avatar || null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  const pickPhoto = () => fileRef.current?.click();
+
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await resizeImageToDataURL(file, 512);
+      setAvatar(dataUrl);
+    } catch (err) {
+      setError(err.message || "Couldn't process that image — try a different one.");
+    } finally {
+      e.target.value = "";
+    }
+  };
 
   const save = async () => {
     setSaving(true); setError("");
     try {
-      const { user } = await api("/api/me", { method: "PATCH", token, body: { name, about } });
+      const { user } = await api("/api/me", { method: "PATCH", token, body: { name, about, avatar } });
       onSave(user);
     } catch (e) {
       setError(e.message);
@@ -479,7 +566,17 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
       <TopBar title="Edit profile" onBack={onBack} />
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 24px" }}>
-          <Ring size={100} color="#35D0BA" initials={profile.initials} ring />
+          <div style={{ position: "relative" }}>
+            <Ring size={100} color="#35D0BA" initials={profile.initials} photo={avatar} ring />
+            <button onClick={pickPhoto} style={{
+              position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
+              background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
+              justifyContent: "center", cursor: "pointer", padding: 0,
+            }}>
+              <Camera size={15} color="#0E1116" />
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" onChange={onFileChange} style={{ display: "none" }} />
+          </div>
         </div>
         {error && <Banner text={error} />}
         <div style={{ padding: "0 20px 20px" }}>
@@ -495,10 +592,7 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
         </button>
       </div>
     </div>
-  );
-}
-
-function LoginScreen({ onContinue }) {
+  );function LoginScreen({ onContinue }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [needsName, setNeedsName] = useState(false);
@@ -695,7 +789,10 @@ function App() {
     </div>
   );
 }
-
+  
 // ---- mount ----
 const rootEl = document.getElementById("root");
 ReactDOM.createRoot(rootEl).render(React.createElement(App));
+}
+}
+}
