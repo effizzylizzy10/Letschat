@@ -57,7 +57,7 @@ function initials(name) {
   );
 }
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, about: u.about, initials: u.initials, color: u.color };
+  return { id: u.id, name: u.name, phone: u.phone, about: u.about, initials: u.initials, color: u.color, avatar: u.avatar || null };
 }
 const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
 function colorFor(id) {
@@ -68,7 +68,7 @@ function colorFor(id) {
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN === "*" ? "*" : CLIENT_ORIGIN.split(",") }));
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 function signToken(user) {
   return jwt.sign({ sub: user.id }, JWT_SECRET, { expiresIn: "90d" });
