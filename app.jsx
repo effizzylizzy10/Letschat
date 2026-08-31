@@ -198,7 +198,8 @@ function Banner({ text, tone = "error", onClose }) {
     </div>
   );
 }
-  // ---- New chat modal: look up a phone number and start / open a conversation ----
+
+// ---- New chat modal: look up a phone number and start / open a conversation ----
 function NewChatModal({ token, onClose, onStarted }) {
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
@@ -368,6 +369,7 @@ function ToolsScreen({ onProfile }) {
     </div>
   );
 }
+
 function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
@@ -597,6 +599,7 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
     </div>
   );
 }
+
 function LoginScreen({ onContinue }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
@@ -678,41 +681,41 @@ function App() {
   const socketRef = useRef(null);
 
   useEffect(() => {
-  const link = document.createElement("link");
-  link.rel = "stylesheet"; link.href = FONT_LINK;
-  document.head.appendChild(link);
-  return () => document.head.removeChild(link);
-}, []);
+    const link = document.createElement("link");
+    link.rel = "stylesheet"; link.href = FONT_LINK;
+    document.head.appendChild(link);
+    return () => document.head.removeChild(link);
+  }, []);
 
-const refreshConversations = useCallback(async () => {
-  if (!session) return;
-  try {
-    const { conversations } = await api("/api/conversations", { token: session.token });
-    setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
-    setConvError("");
-  } catch (e) {
-    setConvError(e.message);
-  }
-}, [session]);
+  const refreshConversations = useCallback(async () => {
+    if (!session) return;
+    try {
+      const { conversations } = await api("/api/conversations", { token: session.token });
+      setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
+      setConvError("");
+    } catch (e) {
+      setConvError(e.message);
+    }
+  }, [session]);
 
-// connect socket once logged in
-useEffect(() => {
-  if (!session) return;
-  const socket = io(SOCKET_URL, { auth: { token: session.token } });
-  socketRef.current = socket;
-  socket.on("presence:update", ({ userId, online }) => {
-    setPresence(prev => ({ ...prev, [userId]: online }));
-  });
-  socket.on("message:new", () => refreshConversations());
-  socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
-  return () => socket.disconnect();
-}, [session, refreshConversations]);
+  // connect socket once logged in
+  useEffect(() => {
+    if (!session) return;
+    const socket = io(SOCKET_URL, { auth: { token: session.token } });
+    socketRef.current = socket;
+    socket.on("presence:update", ({ userId, online }) => {
+      setPresence(prev => ({ ...prev, [userId]: online }));
+    });
+    socket.on("message:new", () => refreshConversations());
+    socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
+    return () => socket.disconnect();
+  }, [session, refreshConversations]);
 
-useEffect(() => {
-  if (!session) return;
-  setConvLoading(true);
-  refreshConversations().finally(() => setConvLoading(false));
-}, [session, refreshConversations]);
+  useEffect(() => {
+    if (!session) return;
+    setConvLoading(true);
+    refreshConversations().finally(() => setConvLoading(false));
+  }, [session, refreshConversations]);
 
   const handleLogin = async (phone, name) => {
     const { token, user } = await api("/api/auth/register-or-login", { method: "POST", body: { phone, name } });
@@ -794,10 +797,141 @@ useEffect(() => {
     </div>
   );
 }
-  
+
 // ---- mount ----
 const rootEl = document.getElementById("root");
 ReactDOM.createRoot(rootEl).render(React.createElement(App));
+function App() {
+  const [session, setSession] = useState(() => loadJSON("session", null)); // { token, user }
+  const [conversations, setConversations] = useState([]);
+  const [convError, setConvError] = useState("");
+  const [convLoading, setConvLoading] = useState(false);
+  const [presence, setPresence] = useState({});
+  const [tab, setTab] = useState("chats");
+  const [activeConvo, setActiveConvo] = useState(null);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showNewChat, setShowNewChat] = useState(false);
+  const socketRef = useRef(null);
+
+  useEffect(() => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet"; link.href = FONT_LINK;
+    document.head.appendChild(link);
+    return () => document.head.removeChild(link);
+  }, []);
+
+  const refreshConversations = useCallback(async () => {
+    if (!session) return;
+    try {
+      const { conversations } = await api("/api/conversations", { token: session.token });
+      setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
+      setConvError("");
+    } catch (e) {
+      setConvError(e.message);
+    }
+  }, [session]);
+
+  // connect socket once logged in
+  useEffect(() => {
+    if (!session) return;
+    const socket = io(SOCKET_URL, { auth: { token: session.token } });
+    socketRef.current = socket;
+    socket.on("presence:update", ({ userId, online }) => {
+      setPresence(prev => ({ ...prev, [userId]: online }));
+    });
+    socket.on("message:new", () => refreshConversations());
+    socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
+    return () => socket.disconnect();
+  }, [session, refreshConversations]);
+
+  useEffect(() => {
+    if (!session) return;
+    setConvLoading(true);
+    refreshConversations().finally(() => setConvLoading(false));
+  }, [session, refreshConversations]);
+
+  const handleLogin = async (phone, name) => {
+    const { token, user } = await api("/api/auth/register-or-login", { method: "POST", body: { phone, name } });
+    saveJSON("session", { token, user });
+    setSession({ token, user });
+  };
+
+  const handleLogOut = () => {
+    socketRef.current?.disconnect();
+    clearJSON("session");
+    setSession(null);
+    setConversations([]);
+    setActiveConvo(null);
+    setShowProfile(false);
+  };
+
+  const handleNewChatStarted = (conversation) => {
+    setShowNewChat(false);
+    refreshConversations();
+    setActiveConvo({ id: conversation.id, other: conversation.other });
+  };
+
+  const frame = {
+    width: "100%", maxWidth: 400, height: 780, margin: "0 auto", background: "#0E1116",
+    borderRadius: 28, overflow: "hidden", position: "relative", display: "flex",
+    flexDirection: "column", fontFamily: "Inter, sans-serif",
+    boxShadow: "0 30px 70px -20px rgba(0,0,0,0.6)", border: "1px solid #1B212B",
+  };
+
+  let body;
+  if (!session) {
+    body = <LoginScreen onContinue={handleLogin} />;
+  } else if (activeConvo) {
+    body = (
+      <ChatDetail
+        conversation={activeConvo}
+        myId={session.user.id}
+        socket={socketRef.current}
+        token={session.token}
+        presence={presence}
+        onBack={() => { setActiveConvo(null); refreshConversations(); }}
+        onLocalUpdate={() => {}}
+      />
+    );
+  } else if (showEdit) {
+    body = <EditProfileScreen profile={session.user} token={session.token} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
+  } else if (showProfile) {
+    body = <ProfileScreen profile={session.user} onBack={() => setShowProfile(false)} onEdit={() => setShowEdit(true)} onLogOut={handleLogOut} />;
+  } else {
+    body = (
+      <>
+        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          {tab === "chats" && (
+            <ChatsScreen
+              token={session.token}
+              profile={session.user}
+              conversations={conversations}
+              loading={convLoading}
+              error={convError}
+              presence={presence}
+              onOpenChat={setActiveConvo}
+              onProfile={() => setShowProfile(true)}
+              onNewChat={() => setShowNewChat(true)}
+            />
+          )}
+          {tab === "calls" && <CallsScreen />}
+          {tab === "status" && <StatusScreen profile={session.user} />}
+          {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} />}
+          {showNewChat && <NewChatModal token={session.token} onClose={() => setShowNewChat(false)} onStarted={handleNewChatStarted} />}
+        </div>
+        <TabBar active={tab} setActive={setTab} />
+      </>
+    );
+  }
+
+  return (
+    <div style={{ background: "#05070A", minHeight: "100vh", padding: "24px 12px", display: "flex", alignItems: "center" }}>
+      <div style={frame}>{body}</div>
+    </div>
+  );
 }
-}
-}
+
+// ---- mount ----
+const rootEl = document.getElementById("root");
+ReactDOM.createRoot(rootEl).render(React.createElement(App));
