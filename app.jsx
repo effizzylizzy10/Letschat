@@ -197,6 +197,7 @@ function Banner({ text, tone = "error", onClose }) {
       {onClose && <button onClick={onClose} style={{ background: "none", border: "none", color: colors.fg, cursor: "pointer", padding: 0 }}><X size={15} /></button>}
     </div>
   );
+}
   // ---- New chat modal: look up a phone number and start / open a conversation ----
 function NewChatModal({ token, onClose, onStarted }) {
   const [phone, setPhone] = useState("");
