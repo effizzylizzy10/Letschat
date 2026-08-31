@@ -57,7 +57,15 @@ function initials(name) {
   );
 }
 function publicUser(u) {
-  return { id: u.id, name: u.name, phone: u.phone, about: u.about, initials: u.initials, color: u.color, avatar: u.avatar || null };
+  return { 
+    id: u.id, 
+    name: u.name, 
+    phone: u.phone, 
+    about: u.about, 
+    initials: u.initials, 
+    color: u.color, 
+    avatar: u.avatar || null 
+  };
 }
 const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
 function colorFor(id) {
@@ -68,7 +76,7 @@ function colorFor(id) {
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN === "*" ? "*" : CLIENT_ORIGIN.split(",") }));
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "10mb" })); // Increased for larger avatar images
 
 function signToken(user) {
   return jwt.sign({ sub: user.id }, JWT_SECRET, { expiresIn: "90d" });
@@ -108,6 +116,7 @@ app.post("/api/auth/register-or-login", (req, res) => {
       about: "Hey there! I'm using Letschat Africa.",
       initials: initials(name),
       color: colorFor(phone),
+      avatar: null, // ADDED: Initialize avatar field
       createdAt: Date.now(),
     };
     db.users.push(user);
@@ -125,6 +134,8 @@ app.get("/api/me", authMiddleware, (req, res) => {
 app.patch("/api/me", authMiddleware, (req, res) => {
   const db = readDB();
   const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  
   if (req.body.name) {
     user.name = String(req.body.name).trim();
     user.initials = initials(user.name);
@@ -253,7 +264,10 @@ io.on("connection", (socket) => {
   io.emit("presence:update", { userId, online: true });
 
   socket.on("message:send", ({ conversationId, text }, ack) => {
-    if (!text || !text.trim()) return;
+    if (!text || !text.trim()) {
+      if (ack) ack({ error: "Message text required" });
+      return;
+    }
     const db = readDB();
     const convo = db.conversations.find((c) => c.id === conversationId);
     if (!convo || !convo.participantIds.includes(userId)) {
