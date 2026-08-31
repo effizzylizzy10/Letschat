@@ -595,7 +595,9 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
         </button>
       </div>
     </div>
-  );function LoginScreen({ onContinue }) {
+  );
+}
+function LoginScreen({ onContinue }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [needsName, setNeedsName] = useState(false);
