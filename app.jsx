@@ -366,7 +366,9 @@ function ToolsScreen({ onProfile }) {
         })}
       </div>
     </div>
-  );function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence }) {
+  );
+}
+function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
