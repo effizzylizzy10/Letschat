@@ -678,41 +678,41 @@ function App() {
   const socketRef = useRef(null);
 
   useEffect(() => {
-    const link = document.createElement("link");
-    link.rel = "stylesheet"; link.href = FONT_LINK;
-    document.head.appendChild(link);
-    return () => document.head.removeChild(link);
-  }, []);
+  const link = document.createElement("link");
+  link.rel = "stylesheet"; link.href = FONT_LINK;
+  document.head.appendChild(link);
+  return () => document.head.removeChild(link);
+}, []);
 
-  // connect socket once logged in
-  useEffect(() => {
-    if (!session) return;
-    const socket = io(SOCKET_URL, { auth: { token: session.token } });
-    socketRef.current = socket;
-    socket.on("presence:update", ({ userId, online }) => {
-      setPresence(prev => ({ ...prev, [userId]: online }));
-    });
-    socket.on("message:new", () => refreshConversations());
-    socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
-    return () => socket.disconnect();
-  }, [session]);
+const refreshConversations = useCallback(async () => {
+  if (!session) return;
+  try {
+    const { conversations } = await api("/api/conversations", { token: session.token });
+    setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
+    setConvError("");
+  } catch (e) {
+    setConvError(e.message);
+  }
+}, [session]);
 
-  const refreshConversations = async () => {
-    if (!session) return;
-    try {
-      const { conversations } = await api("/api/conversations", { token: session.token });
-      setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
-      setConvError("");
-    } catch (e) {
-      setConvError(e.message);
-    }
-  };
+// connect socket once logged in
+useEffect(() => {
+  if (!session) return;
+  const socket = io(SOCKET_URL, { auth: { token: session.token } });
+  socketRef.current = socket;
+  socket.on("presence:update", ({ userId, online }) => {
+    setPresence(prev => ({ ...prev, [userId]: online }));
+  });
+  socket.on("message:new", () => refreshConversations());
+  socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
+  return () => socket.disconnect();
+}, [session, refreshConversations]);
 
-  useEffect(() => {
-    if (!session) return;
-    setConvLoading(true);
-    refreshConversations().finally(() => setConvLoading(false));
-  }, [session]);
+useEffect(() => {
+  if (!session) return;
+  setConvLoading(true);
+  refreshConversations().finally(() => setConvLoading(false));
+}, [session, refreshConversations]);
 
   const handleLogin = async (phone, name) => {
     const { token, user } = await api("/api/auth/register-or-login", { method: "POST", body: { phone, name } });
