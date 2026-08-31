@@ -130,6 +130,9 @@ app.patch("/api/me", authMiddleware, (req, res) => {
     user.initials = initials(user.name);
   }
   if (typeof req.body.about === "string") user.about = req.body.about.trim();
+  if (typeof req.body.avatar === "string" || req.body.avatar === null) {
+    user.avatar = req.body.avatar;
+  }
   writeDB(db);
   res.json({ user: publicUser(user) });
 });
