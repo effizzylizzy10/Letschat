@@ -1,1 +1,41 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Letschat Africa</title>
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#0E1116" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #05070A;
+      overflow-x: hidden;
+    }
+    #root {
+      min-height: 100vh;
+    }
+  </style>
+
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel: lets the browser understand JSX directly, no build step needed -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Socket.io client -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <!-- Your server config (must load before app.jsx) -->
+  <script src="./config.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Your app, written in JSX, transformed live by Babel in the browser -->
+  <script type="text/babel" data-presets="react" src="./app.jsx"></script>
+</body>
+</html>
