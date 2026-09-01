@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17,6 +16,19 @@
     #root {
       min-height: 100vh;
     }
+    #error-box {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #1a0000;
+      color: #ff8080;
+      font-family: monospace;
+      font-size: 13px;
+      padding: 16px;
+      white-space: pre-wrap;
+      overflow: auto;
+      z-index: 9999;
+    }
   </style>
 
   <!-- React -->
@@ -31,9 +43,21 @@
 
   <!-- Your server config (must load before app.jsx) -->
   <script src="./config.js"></script>
+
+  <!-- TEMPORARY: catch and display any error visibly, for debugging on mobile -->
+  <script>
+    window.addEventListener("error", function (e) {
+      var box = document.getElementById("error-box");
+      if (box) {
+        box.style.display = "block";
+        box.textContent = "ERROR:\n" + e.message + "\n\nFile: " + e.filename + "\nLine: " + e.lineno + ":" + e.colno + "\n\n" + (e.error && e.error.stack ? e.error.stack : "");
+      }
+    });
+  </script>
 </head>
 <body>
   <div id="root"></div>
+  <div id="error-box"></div>
 
   <!-- Your app, written in JSX, transformed live by Babel in the browser -->
   <script type="text/babel" data-presets="react" src="./app.jsx"></script>
