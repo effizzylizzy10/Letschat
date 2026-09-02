@@ -60,6 +60,7 @@
   <div id="error-box"></div>
 
   <!-- Your app, written in JSX, transformed live by Babel in the browser -->
-  <script type="text/babel" data-presets="react" src="./app.jsx"></script>
+  <!-- FIX: Added data-type="module" so Babel allows 'import' statements -->
+  <script type="text/babel" data-presets="react" data-type="module" src="./app.jsx"></script>
 </body>
 </html>
