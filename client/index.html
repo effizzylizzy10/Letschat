@@ -36,6 +36,8 @@
   <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
   <script crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script crossorigin="anonymous" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
   <!-- Your server config (must load before app.js) -->
@@ -45,6 +47,13 @@
 // the localhost defaults work as long as your phone and computer are on the
 // same Wi-Fi and you swap "localhost" for your computer's LAN IP.
 window.LETSCHAT_CONFIG = {
+  // Paste these from Firebase console > Project settings > Your apps > Web app
+  FIREBASE: {
+    apiKey: "PASTE_API_KEY",
+    authDomain: "letschatafrica-1df0c.firebaseapp.com",
+    projectId: "letschatafrica-1df0c",
+    appId: "PASTE_APP_ID",
+  },
   API_URL: "https://letschat-9c11.onrender.com",
   SOCKET_URL: "https://letschat-9c11.onrender.com",
 };
@@ -57,7 +66,7 @@ window.LETSCHAT_CONFIG = {
 
   <!-- Your app, precompiled from app.jsx -->
   <script>
-// AUTO-GENERATED from app.jsx — edit app.jsx, then recompile (see README note).
+// AUTO-GENERATED from app.jsx
 "use strict";
 // ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
 const { useState, useRef, useEffect, useCallback } = React;
@@ -113,7 +122,10 @@ const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16
           --coral #FF6B5D  --ink-0 #F5F7FA --ink-1 #9BA7B4 --ink-2 #5B6673
    Type: Display 'Sora' / Body 'Inter'
    ============================================================ */
-const { API_URL, SOCKET_URL } = window.LETSCHAT_CONFIG;
+const { API_URL, SOCKET_URL, FIREBASE } = window.LETSCHAT_CONFIG;
+const FIREBASE_READY = !!(FIREBASE && FIREBASE.apiKey && !String(FIREBASE.apiKey).startsWith("PASTE"));
+if (FIREBASE_READY)
+    firebase.initializeApp(FIREBASE);
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
 // ---- local persistence (device-only: session token, cached profile) ----
 function loadJSON(key, fallback) {
@@ -149,10 +161,10 @@ async function api(path, { method = "GET", token, body } = {}) {
         },
         body: body ? JSON.stringify(body) : undefined,
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok)
-        throw new Error(data.error || `Request failed (${res.status})`);
-    return data;
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload.success === false)
+        throw new Error((payload.error && payload.error.message) || `Request failed (${res.status})`);
+    return payload.data;
 }
 function timeLabel(ts) {
     const d = new Date(ts);
@@ -263,7 +275,7 @@ function NewChatModal({ token, onClose, onStarted }) {
         setBusy(true);
         setError("");
         try {
-            const { conversation } = await api("/api/conversations", { method: "POST", token, body: { phone } });
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone } });
             onStarted(conversation);
         }
         catch (e) {
@@ -283,11 +295,10 @@ function NewChatModal({ token, onClose, onStarted }) {
             } },
             React.createElement("div", { style: { width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 18px" } }),
             React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, "Start a new chat"),
-            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 } }, "Enter the Letschat Africa phone number of the person you want to message. They need to have signed in to Letschat Africa at least once."),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 } }, "Enter the phone number (with country code) or Google email of the person you want to message. They need to have signed in to Letschat Africa at least once."),
             error && React.createElement(Banner, { text: error }),
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 } },
-                React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, color: "#8891A0" } }, "+"),
-                React.createElement("input", { value: phone, onChange: e => setPhone(e.target.value.replace(/[^\d+]/g, "")), placeholder: "234801234567", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 } })),
+                React.createElement("input", { value: phone, onChange: e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "Phone (234801234567) or email", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 } })),
             React.createElement("button", { onClick: start, disabled: busy || !phone.trim(), style: {
                     width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
                     background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1,
@@ -378,7 +389,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
-        api(`/api/conversations/${conversation.id}/messages`, { token })
+        api(`/api/v1/conversations/${conversation.id}/messages`, { token })
             .then(({ messages }) => { if (!cancelled)
             setMsgs(messages); })
             .catch(e => setError(e.message))
@@ -470,18 +481,18 @@ function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
     const rows = [
         { label: "Name", value: profile.name },
         { label: "About", value: profile.about },
-        { label: "Phone", value: "+" + profile.phone },
+        profile.phone ? { label: "Phone", value: "+" + profile.phone, ro: true } : { label: "Email", value: profile.email || "", ro: true },
     ];
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }, onContextMenu: e => e.preventDefault() },
         React.createElement(TopBar, { title: "Profile", onBack: onBack }),
         React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
             React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" } },
                 React.createElement(Ring, { size: 110, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true, onClick: () => setZoomed(true) })),
-            rows.map(r => (React.createElement("div", { key: r.label, onClick: r.label !== "Phone" ? onEdit : undefined, style: { padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: r.label !== "Phone" ? "pointer" : "default" } },
+            rows.map(r => (React.createElement("div", { key: r.label, onClick: !r.ro ? onEdit : undefined, style: { padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" } },
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 } }, r.label),
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                     React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, r.value),
-                    r.label !== "Phone" && React.createElement(Pencil, { size: 15, color: "#5B6673" }))))),
+                    !r.ro && React.createElement(Pencil, { size: 15, color: "#5B6673" }))))),
             React.createElement("div", { style: { padding: "24px 20px" } },
                 React.createElement("button", { onClick: onLogOut, style: { width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" } },
                     React.createElement(LogOut, { size: 16 }),
@@ -516,7 +527,7 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
         setSaving(true);
         setError("");
         try {
-            const { user } = await api("/api/me", { method: "PATCH", token, body: { name, about, avatar } });
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name, about, avatar } });
             onSave(user);
         }
         catch (e) {
@@ -548,54 +559,114 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
                 React.createElement("input", { value: about, onChange: e => setAbout(e.target.value), style: { width: "100%", background: "none", border: "none", borderBottom: "1px solid #262E3A", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, padding: "8px 0", outline: "none", marginTop: 4 } })),
             React.createElement("button", { onClick: save, disabled: saving, style: { margin: "10px 20px", padding: "13px", borderRadius: 12, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: saving ? "default" : "pointer", width: "calc(100% - 40px)", opacity: saving ? 0.7 : 1 } }, saving ? "Saving…" : "Save changes"))));
 }
+function friendlyAuthError(e) {
+    const map = {
+        "auth/invalid-phone-number": "Enter the number with its country code, digits only (e.g. 234801234567).",
+        "auth/invalid-verification-code": "That code is wrong. Check it and try again.",
+        "auth/code-expired": "That code has expired. Go back and request a new one.",
+        "auth/too-many-requests": "Too many attempts. Please wait a while and try again.",
+        "auth/popup-closed-by-user": "Google sign-in was cancelled.",
+        "auth/popup-blocked": "Your browser blocked the Google pop-up. Allow pop-ups for this site and try again.",
+        "auth/unauthorized-domain": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
+        "auth/network-request-failed": "Network problem. Check your connection and try again.",
+    };
+    return map[e && e.code] || (e && e.message) || "Something went wrong.";
+}
 function LoginScreen({ onContinue }) {
     const [phone, setPhone] = useState("");
+    const [code, setCode] = useState("");
     const [name, setName] = useState("");
-    const [needsName, setNeedsName] = useState(false);
+    const [confirmation, setConfirmation] = useState(null);
+    const [pendingToken, setPendingToken] = useState(null); // signed in with Firebase, still needs a name
     const [busy, setBusy] = useState(false);
-    const [error, setError] = useState("");
-    const submit = async () => {
+    const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
+    const run = async (fn) => {
         setBusy(true);
         setError("");
         try {
-            await onContinue(phone, name);
+            await fn();
         }
         catch (e) {
-            if (e.message.includes("Name required"))
-                setNeedsName(true);
-            else
-                setError(e.message);
+            setError(friendlyAuthError(e));
         }
         finally {
             setBusy(false);
         }
     };
-    return (React.createElement("div", { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)" } },
-        React.createElement("div", { style: { textAlign: "center", marginBottom: 36 } },
+    const resetCaptcha = () => { try {
+        window.__rv && window.__rv.clear();
+    }
+    catch (e) { } window.__rv = null; };
+    const finish = async (idToken, nm) => {
+        try {
+            await onContinue(idToken, nm);
+        }
+        catch (e) {
+            if (/Name required/.test(e.message))
+                setPendingToken(idToken);
+            else
+                throw e;
+        }
+    };
+    const sendCode = () => run(async () => {
+        try {
+            if (!window.__rv)
+                window.__rv = new firebase.auth.RecaptchaVerifier("recaptcha-container", { size: "invisible" });
+            setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + phone, window.__rv));
+        }
+        catch (e) {
+            resetCaptcha();
+            throw e;
+        }
+    });
+    const verify = () => run(async () => {
+        const cred = await confirmation.confirm(code.trim());
+        await finish(await cred.user.getIdToken(), "");
+    });
+    const google = () => run(async () => {
+        const cred = await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider());
+        await finish(await cred.user.getIdToken(), "");
+    });
+    const createAccount = () => run(() => finish(pendingToken, name.trim()));
+    const box = { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
+    const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
+    const btn = (on) => ({ padding: "15px", borderRadius: 14, border: "none", cursor: busy ? "default" : "pointer", background: on ? "#35D0BA" : "#1E2530", color: on ? "#0E1116" : "#5B6673", fontFamily: "Sora", fontWeight: 700, fontSize: 15, width: "100%" });
+    const stage = pendingToken ? "name" : confirmation ? "code" : "phone";
+    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?" };
+    const subs = {
+        phone: "We'll text you a verification code. Or continue with Google.",
+        code: "We sent a code to +" + phone + ".",
+        name: "This is what people you chat with will see.",
+    };
+    return (React.createElement("div", { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
+        React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
             React.createElement("div", { style: { width: 76, height: 76, borderRadius: 22, margin: "0 auto 20px", background: "conic-gradient(from 120deg, #35D0BA, #F2B84B, #35D0BA)", display: "flex", alignItems: "center", justifyContent: "center" } },
                 React.createElement("div", { style: { width: 66, height: 66, borderRadius: 18, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center" } },
                     React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#35D0BA" } },
                         "L",
                         React.createElement("span", { style: { color: "#F2B84B" } }, "A")))),
             React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, letterSpacing: 1, color: "#35D0BA", textTransform: "uppercase", marginBottom: 10 } }, "Letschat Africa"),
-            React.createElement("h1", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" } }, needsName ? "What's your name?" : "Enter your number"),
-            React.createElement("p", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 } }, needsName ? "This is what people you chat with will see." : "This becomes your Letschat Africa ID — share it so others can message you.")),
+            React.createElement("h1", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" } }, titles[stage]),
+            React.createElement("p", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 } }, subs[stage])),
         error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
-        !needsName ? (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 } },
-            React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, color: "#8891A0", fontSize: 15 } }, "+"),
-            React.createElement("input", { value: phone, onChange: e => setPhone(e.target.value.replace(/[^\d+]/g, "")), placeholder: "234801234567", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 } }))) : (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 } },
-            React.createElement("input", { value: name, onChange: e => setName(e.target.value), placeholder: "Your name", autoFocus: true, style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16 } }))),
-        React.createElement("button", { disabled: busy || (needsName ? !name.trim() : phone.length < 7), onClick: submit, style: {
-                padding: "15px", borderRadius: 14, border: "none",
-                cursor: busy ? "default" : "pointer",
-                background: (needsName ? name.trim() : phone.length >= 7) ? "#35D0BA" : "#1E2530",
-                color: (needsName ? name.trim() : phone.length >= 7) ? "#0E1116" : "#5B6673",
-                fontFamily: "Sora", fontWeight: 700, fontSize: 15,
-            } }, busy ? "Please wait…" : needsName ? "Create account" : "Continue"),
-        React.createElement("p", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 22, lineHeight: 1.6 } },
-            "Letschat Africa connects two people over the internet in realtime \u2014 ",
-            React.createElement("br", null),
-            "no phone verification code is actually sent yet.")));
+        stage === "phone" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, color: "#8891A0", fontSize: 15 } }, "+"),
+                React.createElement("input", { value: phone, onChange: e => setPhone(e.target.value.replace(/\D/g, "")), onKeyDown: e => e.key === "Enter" && phone.length >= 7 && !busy && sendCode(), placeholder: "234801234567", inputMode: "numeric", style: inputStyle })),
+            React.createElement("button", { disabled: busy || phone.length < 7 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 7 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
+            React.createElement("div", { style: { textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
+            React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"))),
+        stage === "code" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { value: code, onChange: e => setCode(e.target.value.replace(/\D/g, "")), onKeyDown: e => e.key === "Enter" && code.length >= 6 && !busy && verify(), placeholder: "123456", inputMode: "numeric", autoFocus: true, style: { ...inputStyle, letterSpacing: 6, textAlign: "center" } })),
+            React.createElement("button", { disabled: busy || code.length < 6, onClick: verify, style: btn(code.length >= 6) }, busy ? "Please wait…" : "Verify code"),
+            React.createElement("button", { onClick: () => { setConfirmation(null); setCode(""); resetCaptcha(); }, style: { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer" } }, "Use a different number"))),
+        stage === "name" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { value: name, onChange: e => setName(e.target.value), onKeyDown: e => e.key === "Enter" && name.trim() && !busy && createAccount(), placeholder: "Your name", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !name.trim(), onClick: createAccount, style: btn(!!name.trim()) }, busy ? "Please wait…" : "Create account"))),
+        React.createElement("div", { id: "recaptcha-container" }),
+        React.createElement("p", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 22, lineHeight: 1.6 } }, "Your phone number or Google email is your Letschat Africa ID, so others can find and message you.")));
 }
 function App() {
     const [session, setSession] = useState(() => loadJSON("session", null)); // { token, user }
@@ -620,7 +691,7 @@ function App() {
         if (!session)
             return;
         try {
-            const { conversations } = await api("/api/conversations", { token: session.token });
+            const { conversations } = await api("/api/v1/conversations", { token: session.token });
             setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
             setConvError("");
         }
@@ -647,14 +718,18 @@ function App() {
         setConvLoading(true);
         refreshConversations().finally(() => setConvLoading(false));
     }, [session, refreshConversations]);
-    const handleLogin = async (phone, name) => {
-        const { token, user } = await api("/api/auth/register-or-login", { method: "POST", body: { phone, name } });
+    const handleLogin = async (idToken, name) => {
+        const { token, user } = await api("/api/v1/auth/firebase", { method: "POST", body: { idToken, name } });
         saveJSON("session", { token, user });
         setSession({ token, user });
     };
     const handleLogOut = () => {
         var _a;
         (_a = socketRef.current) === null || _a === void 0 ? void 0 : _a.disconnect();
+        try {
+            firebase.auth().signOut();
+        }
+        catch (e) { }
         clearJSON("session");
         setSession(null);
         setConversations([]);
