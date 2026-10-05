@@ -7,60 +7,701 @@
   <link rel="manifest" href="./manifest.json" />
   <meta name="theme-color" content="#0E1116" />
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #05070A;
-      overflow-x: hidden;
-    }
-    #root {
-      min-height: 100vh;
-    }
+    html, body { margin: 0; padding: 0; background: #05070A; overflow-x: hidden; }
+    #root { min-height: 100vh; }
+    #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding-top: 40vh; }
     #error-box {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: #1a0000;
-      color: #ff8080;
-      font-family: monospace;
-      font-size: 13px;
-      padding: 16px;
-      white-space: pre-wrap;
-      overflow: auto;
-      z-index: 9999;
+      display: none; position: fixed; inset: 0; background: #1a0000; color: #ff8080;
+      font-family: monospace; font-size: 13px; padding: 16px; white-space: pre-wrap;
+      overflow: auto; z-index: 9999;
     }
   </style>
 
-  <!-- React -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
-  <!-- Babel: lets the browser understand JSX directly, no build step needed -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- Socket.io client -->
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
-  <!-- Your server config (must load before app.jsx) -->
-  <script src="./config.js"></script>
-
-  <!-- TEMPORARY: catch and display any error visibly, for debugging on mobile -->
+  <!-- Shows ANY problem on screen (script failed to load, runtime error, promise error) -->
   <script>
+    function showErr(msg) {
+      var b = document.getElementById("error-box");
+      if (b) { b.style.display = "block"; b.textContent = msg; }
+    }
+    // capture phase (true) is required to see <script> load failures
     window.addEventListener("error", function (e) {
-      var box = document.getElementById("error-box");
-      if (box) {
-        box.style.display = "block";
-        box.textContent = "ERROR:\n" + e.message + "\n\nFile: " + e.filename + "\nLine: " + e.lineno + ":" + e.colno + "\n\n" + (e.error && e.error.stack ? e.error.stack : "");
-      }
+      if (e.target && e.target.tagName === "SCRIPT") { showErr("FAILED TO LOAD SCRIPT:\n" + e.target.src); return; }
+      showErr("ERROR:\n" + e.message + "\n\nFile: " + e.filename + "\nLine: " + e.lineno + ":" + e.colno + "\n\n" + (e.error && e.error.stack ? e.error.stack : ""));
+    }, true);
+    window.addEventListener("unhandledrejection", function (e) {
+      showErr("PROMISE ERROR:\n" + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
     });
+  </script>
+
+  <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
+  <script crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin="anonymous" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <!-- Your server config (must load before app.js) -->
+  <script>
+// Point these at your deployed server (see server/README section in the
+// repo README). For local testing with the server running on your machine,
+// the localhost defaults work as long as your phone and computer are on the
+// same Wi-Fi and you swap "localhost" for your computer's LAN IP.
+window.LETSCHAT_CONFIG = {
+  API_URL: "https://letschat-9c11.onrender.com",
+  SOCKET_URL: "https://letschat-9c11.onrender.com",
+};
+
   </script>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root"><div id="boot">Loading Letschat Africa…</div></div>
   <div id="error-box"></div>
 
-  <!-- Your app, written in JSX, transformed live by Babel in the browser -->
-  <!-- FIX: Added data-type="module" so Babel allows 'import' statements -->
-  <script type="text/babel" data-presets="react" data-type="module" src="./app.jsx"></script>
+  <!-- Your app, precompiled from app.jsx -->
+  <script>
+// AUTO-GENERATED from app.jsx — edit app.jsx, then recompile (see README note).
+"use strict";
+// ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
+const { useState, useRef, useEffect, useCallback } = React;
+function makeIcon(nodes) {
+    return function Icon({ size = 24, color = "currentColor", strokeWidth = 2, style }) {
+        return (React.createElement("svg", { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: strokeWidth, strokeLinecap: "round", strokeLinejoin: "round", style: { display: "inline-block", verticalAlign: "middle", ...style } }, nodes.map((n, i) => {
+            if (n[0] === "p")
+                return React.createElement("path", { key: i, d: n[1] });
+            if (n[0] === "c")
+                return React.createElement("circle", { key: i, cx: n[1], cy: n[2], r: n[3] });
+            if (n[0] === "r")
+                return React.createElement("rect", { key: i, x: n[1], y: n[2], width: n[3], height: n[4], rx: n[5] });
+            if (n[0] === "g")
+                return React.createElement("polygon", { key: i, points: n[1] });
+            return null;
+        })));
+    };
+}
+const PHONE = "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z";
+const Search = makeIcon([["c", 11, 11, 8], ["p", "m21 21-4.3-4.3"]]);
+const Phone = makeIcon([["p", PHONE]]);
+const Video = makeIcon([["g", "23 7 16 12 23 17 23 7"], ["r", 1, 5, 15, 14, 2]]);
+const MoreVertical = makeIcon([["c", 12, 12, 1], ["c", 12, 5, 1], ["c", 12, 19, 1]]);
+const ArrowLeft = makeIcon([["p", "m12 19-7-7 7-7"], ["p", "M19 12H5"]]);
+const Camera = makeIcon([["p", "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"], ["c", 12, 13, 3]]);
+const Send = makeIcon([["p", "m22 2-7 20-4-9-9-4Z"], ["p", "M22 2 11 13"]]);
+const Smile = makeIcon([["c", 12, 12, 10], ["p", "M8 14s1.5 2 4 2 4-2 4-2"], ["p", "M9 9h.01"], ["p", "M15 9h.01"]]);
+const Paperclip = makeIcon([["p", "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"]]);
+const Mic = makeIcon([["p", "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"], ["p", "M19 10v2a7 7 0 0 1-14 0v-2"], ["p", "M12 19v3"]]);
+const MessageCircle = makeIcon([["p", "M7.9 20A9 9 0 1 0 4 16.1L2 22Z"]]);
+const PhoneCall = makeIcon([["p", PHONE], ["p", "M14.05 2a9 9 0 0 1 8 7.94"], ["p", "M14.05 6A5 5 0 0 1 18 10"]]);
+const Radio = makeIcon([["c", 12, 12, 2], ["p", "M4.93 19.07a10 10 0 0 1 0-14.14"], ["p", "M7.76 16.24a6 6 0 0 1 0-8.48"], ["p", "M16.24 7.76a6 6 0 0 1 0 8.48"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
+const Grid3x3 = makeIcon([["r", 3, 3, 18, 18, 2], ["p", "M3 9h18"], ["p", "M3 15h18"], ["p", "M9 3v18"], ["p", "M15 3v18"]]);
+const Check = makeIcon([["p", "M20 6 9 17l-5-5"]]);
+const CheckCheck = makeIcon([["p", "M18 6 7 17l-5-5"], ["p", "m22 10-7.5 7.5L13 16"]]);
+const Plus = makeIcon([["p", "M5 12h14"], ["p", "M12 5v14"]]);
+const Edit3 = makeIcon([["p", "M12 20h9"], ["p", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"]]);
+const ChevronRight = makeIcon([["p", "m9 18 6-6-6-6"]]);
+const Bell = makeIcon([["p", "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"], ["p", "M10.3 21a1.94 1.94 0 0 0 3.4 0"]]);
+const Lock = makeIcon([["r", 3, 11, 18, 11, 2], ["p", "M7 11V7a5 5 0 0 1 10 0v4"]]);
+const HelpCircle = makeIcon([["c", 12, 12, 10], ["p", "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"], ["p", "M12 17h.01"]]);
+const Users = makeIcon([["p", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"], ["c", 9, 7, 4], ["p", "M22 21v-2a4 4 0 0 0-3-3.87"], ["p", "M16 3.13a4 4 0 0 1 0 7.75"]]);
+const Star = makeIcon([["g", "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"]]);
+const LogOut = makeIcon([["p", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"], ["p", "m16 17 5-5-5-5"], ["p", "M21 12H9"]]);
+const User = makeIcon([["p", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"], ["c", 12, 7, 4]]);
+const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
+const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
+const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
+/* ============================================================
+   LETSCHAT AFRICA — realtime chat client
+   Talks to the Letschat Africa server (Express + Socket.io) configured in config.js.
+   Color: --ink #0E1116 --panel #161B22 --accent #35D0BA --amber #F2B84B
+          --coral #FF6B5D  --ink-0 #F5F7FA --ink-1 #9BA7B4 --ink-2 #5B6673
+   Type: Display 'Sora' / Body 'Inter'
+   ============================================================ */
+const { API_URL, SOCKET_URL } = window.LETSCHAT_CONFIG;
+const FONT_LINK = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
+// ---- local persistence (device-only: session token, cached profile) ----
+function loadJSON(key, fallback) {
+    try {
+        const raw = window.localStorage.getItem("letschat-africa:" + key);
+        return raw === null ? fallback : JSON.parse(raw);
+    }
+    catch {
+        return fallback;
+    }
+}
+function saveJSON(key, value) {
+    try {
+        window.localStorage.setItem("letschat-africa:" + key, JSON.stringify(value));
+    }
+    catch (e) {
+        console.error("Storage save failed", e);
+    }
+}
+function clearJSON(key) {
+    try {
+        window.localStorage.removeItem("letschat-africa:" + key);
+    }
+    catch { }
+}
+// ---- API helper ----
+async function api(path, { method = "GET", token, body } = {}) {
+    const res = await fetch(`${API_URL}${path}`, {
+        method,
+        headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok)
+        throw new Error(data.error || `Request failed (${res.status})`);
+    return data;
+}
+function timeLabel(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    if (sameDay)
+        return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+// ---- crop an image file to a centered square and shrink it, returns a base64 data URL ----
+function resizeImageToDataURL(file, maxSize = 512) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const side = Math.min(img.width, img.height);
+                const sx = (img.width - side) / 2;
+                const sy = (img.height - side) / 2;
+                const canvas = document.createElement("canvas");
+                canvas.width = maxSize;
+                canvas.height = maxSize;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, sx, sy, side, side, 0, 0, maxSize, maxSize);
+                resolve(canvas.toDataURL("image/jpeg", 0.85));
+            };
+            img.onerror = () => reject(new Error("Could not read that image"));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error("Could not read that file"));
+        reader.readAsDataURL(file);
+    });
+}
+function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
+    return (React.createElement("div", { onClick: onClick, style: { position: "relative", width: size, height: size, flexShrink: 0, cursor: onClick ? "pointer" : "default" } },
+        ring && (React.createElement("div", { style: { position: "absolute", inset: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` } })),
+        photo ? (React.createElement("img", { src: photo, alt: "", onContextMenu: e => e.preventDefault(), draggable: false, style: {
+                position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+                width: `calc(100% - ${ring ? 6 : 0}px)`, height: `calc(100% - ${ring ? 6 : 0}px)`,
+                objectFit: "cover", border: `1px solid ${color}55`,
+                userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+            } })) : (React.createElement("div", { style: {
+                position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+                background: color + "26", color, display: "flex", alignItems: "center",
+                justifyContent: "center", fontFamily: "Sora", fontWeight: 700,
+                fontSize: size * 0.34, border: `1px solid ${color}55`,
+            } }, initials)),
+        online && (React.createElement("div", { style: { position: "absolute", bottom: -1, right: -1, width: 13, height: 13, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116" } }))));
+}
+// ---- fullscreen tap-to-zoom viewer for a profile picture ----
+function ImageZoomModal({ photo, initials, color, onClose }) {
+    return (React.createElement("div", { onClick: onClose, style: {
+            position: "absolute", inset: 0, background: "#000000E6", zIndex: 30,
+            display: "flex", alignItems: "center", justifyContent: "center",
+        } },
+        React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer" } },
+            React.createElement(X, { size: 26 })),
+        photo ? (React.createElement("img", { src: photo, alt: "", onContextMenu: e => e.preventDefault(), draggable: false, style: {
+                width: "82%", maxWidth: 340, aspectRatio: "1 / 1", borderRadius: "50%",
+                objectFit: "cover", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+            } })) : (React.createElement("div", { style: { width: 220, height: 220, borderRadius: "50%", background: color + "26", color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 70, border: `1px solid ${color}55` } }, initials))));
+}
+function TabBar({ active, setActive }) {
+    const tabs = [
+        { id: "chats", icon: MessageCircle, label: "Chats" },
+        { id: "calls", icon: PhoneCall, label: "Calls" },
+        { id: "status", icon: Radio, label: "Status" },
+        { id: "tools", icon: Grid3x3, label: "Tools" },
+    ];
+    return (React.createElement("div", { style: { display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 } }, tabs.map(t => {
+        const Icon = t.icon;
+        const isActive = active === t.id;
+        return (React.createElement("button", { key: t.id, onClick: () => setActive(t.id), style: {
+                flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
+                alignItems: "center", gap: 4, cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
+            } },
+            React.createElement(Icon, { size: 22, strokeWidth: isActive ? 2.4 : 1.8 }),
+            React.createElement("span", { style: { fontSize: 11, fontFamily: "Inter", fontWeight: isActive ? 600 : 500 } }, t.label)));
+    })));
+}
+function TopBar({ title, onBack, right }) {
+    return (React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 14, flexShrink: 0, background: "#0E1116" } },
+        onBack && (React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
+            React.createElement(ArrowLeft, { size: 22 }))),
+        React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA" } }, title),
+        right));
+}
+function Banner({ text, tone = "error", onClose }) {
+    const colors = tone === "error" ? { bg: "#FF6B5D18", border: "#FF6B5D55", fg: "#FF6B5D" } : { bg: "#35D0BA18", border: "#35D0BA55", fg: "#35D0BA" };
+    return (React.createElement("div", { style: {
+            margin: "0 16px 10px", padding: "10px 12px", borderRadius: 10, background: colors.bg,
+            border: `1px solid ${colors.border}`, color: colors.fg, fontFamily: "Inter", fontSize: 13,
+            display: "flex", alignItems: "center", gap: 8,
+        } },
+        React.createElement(AlertCircle, { size: 15, style: { flexShrink: 0 } }),
+        React.createElement("span", { style: { flex: 1 } }, text),
+        onClose && React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", color: colors.fg, cursor: "pointer", padding: 0 } },
+            React.createElement(X, { size: 15 }))));
+}
+// ---- New chat modal: look up a phone number and start / open a conversation ----
+function NewChatModal({ token, onClose, onStarted }) {
+    const [phone, setPhone] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const start = async () => {
+        if (!phone.trim())
+            return;
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/conversations", { method: "POST", token, body: { phone } });
+            onStarted(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { style: {
+            position: "absolute", inset: 0, background: "#000000B0", display: "flex",
+            alignItems: "flex-end", zIndex: 20,
+        }, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: {
+                width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22,
+                padding: "20px 20px 28px", borderTop: "1px solid #262E3A",
+            } },
+            React.createElement("div", { style: { width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 18px" } }),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, "Start a new chat"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 } }, "Enter the Letschat Africa phone number of the person you want to message. They need to have signed in to Letschat Africa at least once."),
+            error && React.createElement(Banner, { text: error }),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 } },
+                React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, color: "#8891A0" } }, "+"),
+                React.createElement("input", { value: phone, onChange: e => setPhone(e.target.value.replace(/[^\d+]/g, "")), placeholder: "234801234567", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 } })),
+            React.createElement("button", { onClick: start, disabled: busy || !phone.trim(), style: {
+                    width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
+                    background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1,
+                } }, busy ? "Looking up…" : "Start chat"))));
+}
+function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, presence }) {
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: React.createElement("span", null,
+                "Lets",
+                React.createElement("span", { style: { color: "#35D0BA" } }, "chat")), right: React.createElement("div", { style: { display: "flex", gap: 18, alignItems: "center" } },
+                React.createElement(Search, { size: 20, color: "#9BA7B4" }),
+                React.createElement("div", { onClick: onProfile, style: { cursor: "pointer" } },
+                    React.createElement(Ring, { size: 30, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, online: true }))) }),
+        error && React.createElement(Banner, { text: error }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
+            loading && (React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading chats\u2026")),
+            !loading && conversations.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                React.createElement(MessageCircle, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No chats yet"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Tap the pencil to message someone by their phone number."))),
+            conversations.map(c => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer" } },
+                React.createElement(Ring, { size: 52, color: c.other.color, initials: c.other.initials, online: !!presence[c.other.id] }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 3 } },
+                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, c.other.name),
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" } }, c.lastMessage ? timeLabel(c.lastMessage.time) : "")),
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 } }, c.lastMessage ? (c.lastMessage.senderId === c.myId ? "You: " : "") + c.lastMessage.text : "Say hello 👋"),
+                        c.unread > 0 && (React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter", padding: "0 5px" } }, c.unread)))))))),
+        React.createElement("button", { onClick: onNewChat, style: {
+                position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27,
+                background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 8px 20px #35D0BA44", cursor: "pointer",
+            } },
+            React.createElement(Edit3, { size: 22, color: "#0E1116" }))));
+}
+function CallsScreen() {
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Calls" }),
+        React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+            React.createElement(PhoneCall, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No calls yet"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Voice & video calling isn't wired up yet \u2014 chat works over the internet right now."))));
+}
+function StatusScreen({ profile }) {
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Status" }),
+        React.createElement("div", { style: { padding: "4px 16px" } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 0" } },
+                React.createElement("div", { style: { position: "relative" } },
+                    React.createElement(Ring, { size: 52, color: "#35D0BA", initials: profile.initials, photo: profile.avatar }),
+                    React.createElement("div", { style: { position: "absolute", bottom: -1, right: -1, width: 19, height: 19, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0E1116" } },
+                        React.createElement(Plus, { size: 12, color: "#0E1116" }))),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, "My status"),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Not available yet \u2014 coming soon"))))));
+}
+function ToolsScreen({ onProfile }) {
+    const items = [
+        { icon: User, label: "Profile", sub: "Edit your details" },
+        { icon: Star, label: "Favourites", sub: "Quick access chats" },
+        { icon: Users, label: "Communities", sub: "Manage your groups" },
+        { icon: Bell, label: "Notifications", sub: "Sound & alerts" },
+        { icon: Lock, label: "Privacy", sub: "Blocked, read receipts" },
+        { icon: HelpCircle, label: "Help", sub: "FAQ, contact us" },
+    ];
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Tools" }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, items.map(it => {
+            const Icon = it.icon;
+            return (React.createElement("div", { key: it.label, onClick: it.label === "Profile" ? onProfile : undefined, style: { display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+                React.createElement("div", { style: { width: 40, height: 40, borderRadius: 12, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } },
+                    React.createElement(Icon, { size: 19, color: "#35D0BA" })),
+                React.createElement("div", { style: { flex: 1 } },
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.label),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, it.sub)),
+                React.createElement(ChevronRight, { size: 17, color: "#5B6673" })));
+        }))));
+}
+function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence }) {
+    const [msgs, setMsgs] = useState([]);
+    const [draft, setDraft] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [peerTyping, setPeerTyping] = useState(false);
+    const endRef = useRef(null);
+    const typingTimeout = useRef(null);
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        api(`/api/conversations/${conversation.id}/messages`, { token })
+            .then(({ messages }) => { if (!cancelled)
+            setMsgs(messages); })
+            .catch(e => setError(e.message))
+            .finally(() => !cancelled && setLoading(false));
+        return () => { cancelled = true; };
+    }, [conversation.id]);
+    useEffect(() => {
+        if (!socket)
+            return;
+        const onNew = (m) => {
+            if (m.conversationId !== conversation.id)
+                return;
+            setMsgs(prev => [...prev, m]);
+        };
+        const onTyping = ({ conversationId, userId, typing }) => {
+            if (conversationId === conversation.id && userId !== myId)
+                setPeerTyping(typing);
+        };
+        socket.on("message:new", onNew);
+        socket.on("typing", onTyping);
+        return () => { socket.off("message:new", onNew); socket.off("typing", onTyping); };
+    }, [socket, conversation.id, myId]);
+    useEffect(() => { var _a; (_a = endRef.current) === null || _a === void 0 ? void 0 : _a.scrollIntoView(); }, [msgs, peerTyping]);
+    useEffect(() => { onLocalUpdate(conversation.id, msgs); }, [msgs]);
+    const notifyTyping = (isTyping) => {
+        if (!socket)
+            return;
+        socket.emit("typing", { conversationId: conversation.id, typing: isTyping });
+        clearTimeout(typingTimeout.current);
+        if (isTyping)
+            typingTimeout.current = setTimeout(() => socket.emit("typing", { conversationId: conversation.id, typing: false }), 1500);
+    };
+    const send = () => {
+        if (!draft.trim() || !socket)
+            return;
+        const text = draft.trim();
+        setDraft("");
+        notifyTyping(false);
+        socket.emit("message:send", { conversationId: conversation.id, text }, (ack) => {
+            if (ack === null || ack === void 0 ? void 0 : ack.error)
+                setError(ack.error);
+        });
+    };
+    const online = !!presence[conversation.other.id];
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B" } },
+            React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
+                React.createElement(ArrowLeft, { size: 22 })),
+            React.createElement(Ring, { size: 38, color: conversation.other.color, initials: conversation.other.initials, online: online }),
+            React.createElement("div", { style: { flex: 1 } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" } }, conversation.other.name),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: peerTyping ? "#35D0BA" : online ? "#35D0BA" : "#5B6673" } }, peerTyping ? "typing…" : online ? "online" : "offline")),
+            React.createElement(Video, { size: 19, color: "#5B6673", style: { marginRight: 16, opacity: 0.5 } }),
+            React.createElement(Phone, { size: 18, color: "#5B6673", style: { marginRight: 16, opacity: 0.5 } }),
+            React.createElement(MoreVertical, { size: 19, color: "#9BA7B4" })),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" } },
+            loading && React.createElement("div", { style: { margin: "auto", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading conversation\u2026"),
+            error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+            !loading && msgs.length === 0 && (React.createElement("div", { style: { margin: "auto", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } },
+                "No messages yet.",
+                React.createElement("br", null),
+                "Say hello to ",
+                conversation.other.name.split(" ")[0],
+                " \uD83D\uDC4B")),
+            msgs.map(m => {
+                const mine = m.senderId === myId;
+                return (React.createElement("div", { key: m.id, style: {
+                        alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%",
+                        background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
+                        borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
+                        padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
+                    } },
+                    React.createElement("div", null, m.text),
+                    React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
+                        React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, timeLabel(m.time)),
+                        mine && (m.read ? React.createElement(CheckCheck, { size: 13, color: "#35D0BA" }) : React.createElement(Check, { size: 13, color: "#B9C2CC" })))));
+            }),
+            peerTyping && (React.createElement("div", { style: { alignSelf: "flex-start", background: "#1E2530", borderRadius: 14, borderBottomLeftRadius: 3, padding: "9px 13px", color: "#8891A0", fontFamily: "Inter", fontSize: 13 } }, "typing\u2026")),
+            React.createElement("div", { ref: endRef })),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#0E1116" } },
+            React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "9px 12px" } },
+                React.createElement(Smile, { size: 19, color: "#8891A0" }),
+                React.createElement("input", { value: draft, onChange: e => { setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => e.key === "Enter" && send(), placeholder: "Message", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
+                React.createElement(Paperclip, { size: 18, color: "#8891A0" })),
+            React.createElement("button", { onClick: send, style: { width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, draft.trim() ? React.createElement(Send, { size: 17, color: "#0E1116" }) : React.createElement(Mic, { size: 17, color: "#0E1116" })))));
+}
+function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
+    const [zoomed, setZoomed] = useState(false);
+    const rows = [
+        { label: "Name", value: profile.name },
+        { label: "About", value: profile.about },
+        { label: "Phone", value: "+" + profile.phone },
+    ];
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }, onContextMenu: e => e.preventDefault() },
+        React.createElement(TopBar, { title: "Profile", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" } },
+                React.createElement(Ring, { size: 110, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true, onClick: () => setZoomed(true) })),
+            rows.map(r => (React.createElement("div", { key: r.label, onClick: r.label !== "Phone" ? onEdit : undefined, style: { padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: r.label !== "Phone" ? "pointer" : "default" } },
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 } }, r.label),
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, r.value),
+                    r.label !== "Phone" && React.createElement(Pencil, { size: 15, color: "#5B6673" }))))),
+            React.createElement("div", { style: { padding: "24px 20px" } },
+                React.createElement("button", { onClick: onLogOut, style: { width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" } },
+                    React.createElement(LogOut, { size: 16 }),
+                    " Log out"))),
+        zoomed && (React.createElement(ImageZoomModal, { photo: profile.avatar, initials: profile.initials, color: "#35D0BA", onClose: () => setZoomed(false) }))));
+}
+function EditProfileScreen({ onBack, profile, token, onSave }) {
+    const [name, setName] = useState(profile.name);
+    const [about, setAbout] = useState(profile.about);
+    const [avatar, setAvatar] = useState(profile.avatar || null);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+    const fileRef = useRef(null);
+    const pickPhoto = () => { var _a; return (_a = fileRef.current) === null || _a === void 0 ? void 0 : _a.click(); };
+    const onFileChange = async (e) => {
+        var _a;
+        const file = (_a = e.target.files) === null || _a === void 0 ? void 0 : _a[0];
+        if (!file)
+            return;
+        try {
+            const dataUrl = await resizeImageToDataURL(file, 512);
+            setAvatar(dataUrl);
+        }
+        catch (err) {
+            setError(err.message || "Couldn't process that image — try a different one.");
+        }
+        finally {
+            e.target.value = "";
+        }
+    };
+    const save = async () => {
+        setSaving(true);
+        setError("");
+        try {
+            const { user } = await api("/api/me", { method: "PATCH", token, body: { name, about, avatar } });
+            onSave(user);
+        }
+        catch (e) {
+            setError(e.message);
+        }
+        finally {
+            setSaving(false);
+        }
+    };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Edit profile", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
+            React.createElement("div", { style: { display: "flex", justifyContent: "center", padding: "10px 0 24px" } },
+                React.createElement("div", { style: { position: "relative" } },
+                    React.createElement(Ring, { size: 100, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true }),
+                    React.createElement("button", { onClick: pickPhoto, style: {
+                            position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
+                            background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
+                            justifyContent: "center", cursor: "pointer", padding: 0,
+                        } },
+                        React.createElement(Camera, { size: 15, color: "#0E1116" })),
+                    React.createElement("input", { ref: fileRef, type: "file", accept: "image/*", onChange: onFileChange, style: { display: "none" } }))),
+            error && React.createElement(Banner, { text: error }),
+            React.createElement("div", { style: { padding: "0 20px 20px" } },
+                React.createElement("label", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 } }, "Name"),
+                React.createElement("input", { value: name, onChange: e => setName(e.target.value), style: { width: "100%", background: "none", border: "none", borderBottom: "1px solid #262E3A", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 18, padding: "8px 0", outline: "none", marginTop: 4 } })),
+            React.createElement("div", { style: { padding: "0 20px 20px" } },
+                React.createElement("label", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 } }, "About"),
+                React.createElement("input", { value: about, onChange: e => setAbout(e.target.value), style: { width: "100%", background: "none", border: "none", borderBottom: "1px solid #262E3A", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, padding: "8px 0", outline: "none", marginTop: 4 } })),
+            React.createElement("button", { onClick: save, disabled: saving, style: { margin: "10px 20px", padding: "13px", borderRadius: 12, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: saving ? "default" : "pointer", width: "calc(100% - 40px)", opacity: saving ? 0.7 : 1 } }, saving ? "Saving…" : "Save changes"))));
+}
+function LoginScreen({ onContinue }) {
+    const [phone, setPhone] = useState("");
+    const [name, setName] = useState("");
+    const [needsName, setNeedsName] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const submit = async () => {
+        setBusy(true);
+        setError("");
+        try {
+            await onContinue(phone, name);
+        }
+        catch (e) {
+            if (e.message.includes("Name required"))
+                setNeedsName(true);
+            else
+                setError(e.message);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)" } },
+        React.createElement("div", { style: { textAlign: "center", marginBottom: 36 } },
+            React.createElement("div", { style: { width: 76, height: 76, borderRadius: 22, margin: "0 auto 20px", background: "conic-gradient(from 120deg, #35D0BA, #F2B84B, #35D0BA)", display: "flex", alignItems: "center", justifyContent: "center" } },
+                React.createElement("div", { style: { width: 66, height: 66, borderRadius: 18, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center" } },
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#35D0BA" } },
+                        "L",
+                        React.createElement("span", { style: { color: "#F2B84B" } }, "A")))),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, letterSpacing: 1, color: "#35D0BA", textTransform: "uppercase", marginBottom: 10 } }, "Letschat Africa"),
+            React.createElement("h1", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" } }, needsName ? "What's your name?" : "Enter your number"),
+            React.createElement("p", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 } }, needsName ? "This is what people you chat with will see." : "This becomes your Letschat Africa ID — share it so others can message you.")),
+        error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        !needsName ? (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 } },
+            React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, color: "#8891A0", fontSize: 15 } }, "+"),
+            React.createElement("input", { value: phone, onChange: e => setPhone(e.target.value.replace(/[^\d+]/g, "")), placeholder: "234801234567", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 } }))) : (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 } },
+            React.createElement("input", { value: name, onChange: e => setName(e.target.value), placeholder: "Your name", autoFocus: true, style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16 } }))),
+        React.createElement("button", { disabled: busy || (needsName ? !name.trim() : phone.length < 7), onClick: submit, style: {
+                padding: "15px", borderRadius: 14, border: "none",
+                cursor: busy ? "default" : "pointer",
+                background: (needsName ? name.trim() : phone.length >= 7) ? "#35D0BA" : "#1E2530",
+                color: (needsName ? name.trim() : phone.length >= 7) ? "#0E1116" : "#5B6673",
+                fontFamily: "Sora", fontWeight: 700, fontSize: 15,
+            } }, busy ? "Please wait…" : needsName ? "Create account" : "Continue"),
+        React.createElement("p", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 22, lineHeight: 1.6 } },
+            "Letschat Africa connects two people over the internet in realtime \u2014 ",
+            React.createElement("br", null),
+            "no phone verification code is actually sent yet.")));
+}
+function App() {
+    const [session, setSession] = useState(() => loadJSON("session", null)); // { token, user }
+    const [conversations, setConversations] = useState([]);
+    const [convError, setConvError] = useState("");
+    const [convLoading, setConvLoading] = useState(false);
+    const [presence, setPresence] = useState({});
+    const [tab, setTab] = useState("chats");
+    const [activeConvo, setActiveConvo] = useState(null);
+    const [showProfile, setShowProfile] = useState(false);
+    const [showEdit, setShowEdit] = useState(false);
+    const [showNewChat, setShowNewChat] = useState(false);
+    const socketRef = useRef(null);
+    useEffect(() => {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = FONT_LINK;
+        document.head.appendChild(link);
+        return () => document.head.removeChild(link);
+    }, []);
+    const refreshConversations = useCallback(async () => {
+        if (!session)
+            return;
+        try {
+            const { conversations } = await api("/api/conversations", { token: session.token });
+            setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
+            setConvError("");
+        }
+        catch (e) {
+            setConvError(e.message);
+        }
+    }, [session]);
+    // connect socket once logged in
+    useEffect(() => {
+        if (!session)
+            return;
+        const socket = io(SOCKET_URL, { auth: { token: session.token } });
+        socketRef.current = socket;
+        socket.on("presence:update", ({ userId, online }) => {
+            setPresence(prev => ({ ...prev, [userId]: online }));
+        });
+        socket.on("message:new", () => refreshConversations());
+        socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
+        return () => socket.disconnect();
+    }, [session, refreshConversations]);
+    useEffect(() => {
+        if (!session)
+            return;
+        setConvLoading(true);
+        refreshConversations().finally(() => setConvLoading(false));
+    }, [session, refreshConversations]);
+    const handleLogin = async (phone, name) => {
+        const { token, user } = await api("/api/auth/register-or-login", { method: "POST", body: { phone, name } });
+        saveJSON("session", { token, user });
+        setSession({ token, user });
+    };
+    const handleLogOut = () => {
+        var _a;
+        (_a = socketRef.current) === null || _a === void 0 ? void 0 : _a.disconnect();
+        clearJSON("session");
+        setSession(null);
+        setConversations([]);
+        setActiveConvo(null);
+        setShowProfile(false);
+    };
+    const handleNewChatStarted = (conversation) => {
+        setShowNewChat(false);
+        refreshConversations();
+        setActiveConvo({ id: conversation.id, other: conversation.other });
+    };
+    const frame = {
+        width: "100%", maxWidth: 400, height: 780, margin: "0 auto", background: "#0E1116",
+        borderRadius: 28, overflow: "hidden", position: "relative", display: "flex",
+        flexDirection: "column", fontFamily: "Inter, sans-serif",
+        boxShadow: "0 30px 70px -20px rgba(0,0,0,0.6)", border: "1px solid #1B212B",
+    };
+    let body;
+    if (!session) {
+        body = React.createElement(LoginScreen, { onContinue: handleLogin });
+    }
+    else if (activeConvo) {
+        body = (React.createElement(ChatDetail, { conversation: activeConvo, myId: session.user.id, socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { } }));
+    }
+    else if (showEdit) {
+        body = React.createElement(EditProfileScreen, { profile: session.user, token: session.token, onBack: () => setShowEdit(false), onSave: (user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); } });
+    }
+    else if (showProfile) {
+        body = React.createElement(ProfileScreen, { profile: session.user, onBack: () => setShowProfile(false), onEdit: () => setShowEdit(true), onLogOut: handleLogOut });
+    }
+    else {
+        body = (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { flex: 1, overflow: "hidden", position: "relative" } },
+                tab === "chats" && (React.createElement(ChatsScreen, { token: session.token, profile: session.user, conversations: conversations, loading: convLoading, error: convError, presence: presence, onOpenChat: setActiveConvo, onProfile: () => setShowProfile(true), onNewChat: () => setShowNewChat(true) })),
+                tab === "calls" && React.createElement(CallsScreen, null),
+                tab === "status" && React.createElement(StatusScreen, { profile: session.user }),
+                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowProfile(true) }),
+                showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
+            React.createElement(TabBar, { active: tab, setActive: setTab })));
+    }
+    return (React.createElement("div", { style: { background: "#05070A", minHeight: "100vh", padding: "24px 12px", display: "flex", alignItems: "center" } },
+        React.createElement("div", { style: frame }, body)));
+}
+// ---- mount ----
+const rootEl = document.getElementById("root");
+ReactDOM.createRoot(rootEl).render(React.createElement(App));
+
+  </script>
 </body>
 </html>
