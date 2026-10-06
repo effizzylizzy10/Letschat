@@ -588,12 +588,17 @@ const primaryBtn = (busy) => ({ width: "100%", padding: 13, borderRadius: 12, bo
 const smallBtn = { background: "#1E2530", border: "1px solid #262E3A", color: "#35D0BA", borderRadius: 10, padding: "7px 12px", fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, cursor: "pointer", flexShrink: 0 };
 const sectionTitle = { fontFamily: "Inter", fontSize: 12, fontWeight: 600, color: "#8891A0", textTransform: "uppercase", letterSpacing: 0.6, margin: "18px 0 6px" };
 
+function VerifiedBadge({ size = 15 }) {
+    return (React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", role: "img", "aria-label": "Verified", style: { flexShrink: 0, marginLeft: 4, verticalAlign: "middle", display: "inline-block" } },
+        React.createElement("circle", { cx: 12, cy: 12, r: 11, fill: "#1D9BF0" }),
+        React.createElement("path", { d: "M7.5 12.4l3 3 6-6.4", fill: "none", stroke: "#fff", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" })));
+}
 function PersonRow({ u, online, status, right, onClick }) {
   return (
     <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", cursor: onClick ? "pointer" : "default" }}>
       <Ring size={40} color={u.color} initials={u.initials} photo={u.avatar} online={online} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}</div>
+        <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}{u.verified && <VerifiedBadge />}</div>
         <div style={{ fontFamily: "Inter", fontSize: 12, color: online ? "#35D0BA" : "#5B6673" }}>{status}</div>
       </div>
       {right}
@@ -838,7 +843,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
             <Ring size={52} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
             <div style={{ flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6 }}>{c.other.name}{favorites.includes(c.id) && <Star size={13} color="#F2B84B" style={{ fill: "#F2B84B" }} />}</span>
+                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6 }}>{c.other.name}{c.other.verified && <VerifiedBadge />}{favorites.includes(c.id) && <Star size={13} color="#F2B84B" style={{ fill: "#F2B84B" }} />}</span>
                 <span style={{ fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" }}>{c.lastMessage ? timeLabel(c.lastMessage.time) : ""}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -987,7 +992,7 @@ function CommentsSheet({ listing, token, onClose, onChanged }) {
                 React.createElement(Ring, { size: 32, color: c.author ? c.author.color : "#5B6673", initials: c.author ? c.author.initials : "?", photo: c.author ? c.author.avatar : null }),
                 React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                     React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8 } },
-                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member"),
+                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member", c.author && c.author.verified && React.createElement(VerifiedBadge, { size: 13 })),
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#5B6673" } }, timeLabel(c.time)),
                         c.canDelete && React.createElement("button", { onClick: () => window.confirm("Delete this comment?") && remove(c.id), style: { marginLeft: "auto", background: "none", border: "none", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12, cursor: "pointer", padding: 0 } }, "Delete")),
                     React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, c.text)))))),
@@ -1045,7 +1050,7 @@ function MarketScreen({ token, myId, onMessageSeller }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: l.description ? 0 : 10 }}>
                   {l.seller && <Ring size={26} color={l.seller.color} initials={l.seller.initials} photo={l.seller.avatar} />}
-                  <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>{mine ? "You" : l.seller ? l.seller.name : "Unknown"} · {timeLabel(l.time)}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>{mine ? "You" : l.seller ? l.seller.name : "Unknown"}{l.seller && l.seller.verified && <VerifiedBadge size={13} />} · {timeLabel(l.time)}</span>
                   {mine ? (
                     <>
                       <button onClick={() => act(l.id, "/sold")} style={smallBtn}>{l.sold ? "Relist" : "Mark sold"}</button>
@@ -1166,7 +1171,7 @@ function FavouritesScreen({ conversations, settings, presence, onBack, onOpenCha
           <div key={c.id} onClick={() => onOpenChat(c)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
             <Ring size={46} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}</div>
+              <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}{c.other.verified && <VerifiedBadge />}</div>
               <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "No messages yet"}</div>
             </div>
             {c.unread > 0 && <span style={{ background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" }}>{c.unread}</span>}
@@ -1485,7 +1490,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}><ArrowLeft size={22} /></button>
         <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={isGroup ? undefined : online} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
         <div onClick={isGroup ? () => setInfo(true) : undefined} style={{ flex: 1, minWidth: 0, cursor: isGroup ? "pointer" : "default" }}>
-          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}</div>
+          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}{conversation.other.verified && <VerifiedBadge />}</div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: peerTyping || (!isGroup && online) ? "#35D0BA" : isGroup ? "#8891A0" : "#5B6673" }}>
             {peerTyping ? "typing…" : isGroup ? conversation.members.length + " members · " + conversation.members.filter(m => m.id === myId || presence[m.id]).length + " online" : statusText(online, lastSeen[conversation.other.id])}
           </div>
@@ -1715,7 +1720,7 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
           <div key={r.label} onClick={!r.ro ? onEdit : undefined} style={{ padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" }}>
             <div style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{r.label}</div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{r.value}</span>
+              <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{r.value}{r.label === "Name" && profile.verified && <VerifiedBadge size={16} />}</span>
               {!r.ro && <Pencil size={15} color="#5B6673" />}
             </div>
           </div>
@@ -2209,6 +2214,7 @@ function App() {
   useEffect(() => {
     if (!session) { setSettings(DEFAULT_SETTINGS); setToolsView(null); return; }
     api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => {});
+        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && !!user.verified !== !!session.user.verified) { const next = { ...session, user: { ...session.user, verified: !!user.verified } }; setSession(next); saveJSON("session", next); } }).catch(() => { });
   }, [session && session.token]);
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
   const activeRef = useRef(null), convosRef = useRef([]);

@@ -639,11 +639,16 @@ const inputEl = { flex: 1, minWidth: 0, background: "none", border: "none", outl
 const primaryBtn = (busy) => ({ width: "100%", padding: 13, borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1 });
 const smallBtn = { background: "#1E2530", border: "1px solid #262E3A", color: "#35D0BA", borderRadius: 10, padding: "7px 12px", fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, cursor: "pointer", flexShrink: 0 };
 const sectionTitle = { fontFamily: "Inter", fontSize: 12, fontWeight: 600, color: "#8891A0", textTransform: "uppercase", letterSpacing: 0.6, margin: "18px 0 6px" };
+function VerifiedBadge({ size = 15 }) {
+    return (React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", role: "img", "aria-label": "Verified", style: { flexShrink: 0, marginLeft: 4, verticalAlign: "middle", display: "inline-block" } },
+        React.createElement("circle", { cx: 12, cy: 12, r: 11, fill: "#1D9BF0" }),
+        React.createElement("path", { d: "M7.5 12.4l3 3 6-6.4", fill: "none", stroke: "#fff", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" })));
+}
 function PersonRow({ u, online, status, right, onClick }) {
     return (React.createElement("div", { onClick: onClick, style: { display: "flex", alignItems: "center", gap: 12, padding: "8px 0", cursor: onClick ? "pointer" : "default" } },
         React.createElement(Ring, { size: 40, color: u.color, initials: u.initials, photo: u.avatar, online: online }),
         React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name, u.verified && React.createElement(VerifiedBadge, null)),
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: online ? "#35D0BA" : "#5B6673" } }, status)),
         right));
 }
@@ -884,6 +889,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 3 } },
                         React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6 } },
                             c.other.name,
+                            c.other.verified && React.createElement(VerifiedBadge, null),
                             favorites.includes(c.id) && React.createElement(Star, { size: 13, color: "#F2B84B", style: { fill: "#F2B84B" } })),
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" } }, c.lastMessage ? timeLabel(c.lastMessage.time) : "")),
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
@@ -1033,7 +1039,7 @@ function CommentsSheet({ listing, token, onClose, onChanged }) {
                 React.createElement(Ring, { size: 32, color: c.author ? c.author.color : "#5B6673", initials: c.author ? c.author.initials : "?", photo: c.author ? c.author.avatar : null }),
                 React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                     React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8 } },
-                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member"),
+                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member", c.author && c.author.verified && React.createElement(VerifiedBadge, { size: 13 })),
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#5B6673" } }, timeLabel(c.time)),
                         c.canDelete && React.createElement("button", { onClick: () => window.confirm("Delete this comment?") && remove(c.id), style: { marginLeft: "auto", background: "none", border: "none", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12, cursor: "pointer", padding: 0 } }, "Delete")),
                     React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, c.text)))))),
@@ -1087,6 +1093,7 @@ function MarketScreen({ token, myId, onMessageSeller }) {
                             l.seller && React.createElement(Ring, { size: 26, color: l.seller.color, initials: l.seller.initials, photo: l.seller.avatar }),
                             React.createElement("span", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } },
                                 mine ? "You" : l.seller ? l.seller.name : "Unknown",
+                                l.seller && l.seller.verified && React.createElement(VerifiedBadge, { size: 13 }),
                                 " \u00B7 ",
                                 timeLabel(l.time)),
                             mine ? (React.createElement(React.Fragment, null,
@@ -1166,7 +1173,7 @@ function FavouritesScreen({ conversations, settings, presence, onBack, onOpenCha
             favs.map(c => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
                 React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar, online: c.isGroup ? undefined : !!presence[c.other.id] }),
                 React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name, c.other.verified && React.createElement(VerifiedBadge, null)),
                     React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "No messages yet")),
                 c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread),
                 React.createElement("button", { "aria-label": "Remove from favourites", onClick: (e) => { e.stopPropagation(); onToggleFavorite(c.id); }, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } },
@@ -1269,7 +1276,7 @@ function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, 
     const rowFor = (c) => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
         React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }),
         React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name, c.other.verified && React.createElement(VerifiedBadge, null)),
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, (c.members ? c.members.length : 0) + " members \u00B7 " + (c.members ? c.members.filter(m => m.id === myId || presence[m.id]).length : 0) + " online")),
         c.adminId === myId && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#35D0BA", border: "1px solid #35D0BA55", background: "#35D0BA18", borderRadius: 8, padding: "2px 8px" } }, "Admin"),
         c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread)));
@@ -1486,7 +1493,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 React.createElement(ArrowLeft, { size: 22 })),
             React.createElement(Ring, { size: 38, color: conversation.other.color, initials: conversation.other.initials, photo: conversation.other.avatar, online: isGroup ? undefined : online, onClick: conversation.other.avatar ? () => setZoomed(true) : undefined }),
             React.createElement("div", { onClick: isGroup ? () => setInfo(true) : undefined, style: { flex: 1, minWidth: 0, cursor: isGroup ? "pointer" : "default" } },
-                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, conversation.other.name),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, conversation.other.name, conversation.other.verified && React.createElement(VerifiedBadge, null)),
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: peerTyping || (!isGroup && online) ? "#35D0BA" : isGroup ? "#8891A0" : "#5B6673" } }, peerTyping ? "typing…" : isGroup ? conversation.members.length + " members · " + conversation.members.filter(m => m.id === myId || presence[m.id]).length + " online" : statusText(online, lastSeen[conversation.other.id]))),
             React.createElement(Video, { size: 19, color: "#5B6673", style: { marginRight: 16, opacity: 0.5 } }),
             React.createElement(Phone, { size: 18, color: "#5B6673", style: { marginRight: 16, opacity: 0.5 } }),
@@ -1688,7 +1695,7 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
             rows.map(r => (React.createElement("div", { key: r.label, onClick: !r.ro ? onEdit : undefined, style: { padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" } },
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 } }, r.label),
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, r.value),
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, r.value, r.label === "Name" && profile.verified && React.createElement(VerifiedBadge, { size: 16 })),
                     !r.ro && React.createElement(Pencil, { size: 15, color: "#5B6673" }))))),
             React.createElement(ProfileLinkRow, { token: token }),
             React.createElement("div", { style: { padding: "24px 20px" } },
@@ -2170,6 +2177,7 @@ function App() {
             return;
         }
         api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => { });
+        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && !!user.verified !== !!session.user.verified) { const next = { ...session, user: { ...session.user, verified: !!user.verified } }; setSession(next); saveJSON("session", next); } }).catch(() => { });
     }, [session && session.token]);
     const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
     const activeRef = useRef(null), convosRef = useRef([]);
