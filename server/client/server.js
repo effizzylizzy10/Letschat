@@ -75,6 +75,17 @@ async function persist() {
       for (const o of chunk) saved.set(o.key, o.json);
     }
   }
+  // listings are cleared every 24h: delete their rows too, otherwise they would come back on restart
+  if (marketReady) {
+    const live = new Set((cache.listings || []).map((l) => l.id));
+    const gone = [...saved.keys()].filter((k) => k.startsWith("listings/") && !live.has(k.slice(9)));
+    for (let i = 0; i < gone.length; i += 100) {
+      const chunk = gone.slice(i, i + 100);
+      const { error } = await supabase.from(table("listings")).delete().in("id", chunk.map((k) => k.slice(9)));
+      if (error) throw new Error(error.message);
+      for (const k of chunk) saved.delete(k);
+    }
+  }
 }
 
 async function initDB() {
@@ -362,6 +373,30 @@ app.patch("/api/me", authMiddleware, (req, res) => {
   res.json({ user: pub });
 });
 
+// ---- shareable profile link: ?chat=CODE opens a direct message with the owner ----
+// The code is separate from the user id, so the id is never exposed and the owner can reset the link.
+function ensureProfileCode(db, user) {
+  if (!user.profileCode) { user.profileCode = nanoid(16); writeDB(db); }
+  return user.profileCode;
+}
+app.get("/api/me/profile-link", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  res.json({ code: ensureProfileCode(db, user) });
+});
+app.post("/api/me/profile-link/reset", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  user.profileCode = nanoid(16); // old link stops working immediately
+  writeDB(db);
+  res.json({ code: user.profileCode });
+});
+app.get("/api/users/profile/:code", authMiddleware, (req, res) => {
+  const user = readDB().users.find((u) => u.profileCode && u.profileCode === req.params.code);
+  if (!user) return res.status(404).json({ error: "This profile link is invalid or has been reset" });
+  res.json({ user: memberView(user, false), self: user.id === req.user.id });
+});
+
 app.get("/api/users/lookup", authMiddleware, (req, res) => {
   if (!req.query.phone) return res.status(400).json({ error: "phone query param required" });
   const db = readDB();
@@ -395,8 +430,11 @@ app.get("/api/conversations", authMiddleware, (req, res) => {
 
 app.post("/api/conversations", authMiddleware, (req, res) => {
   const db = readDB();
-  const byId = !!req.body.userId;
-  const other = byId ? db.users.find((u) => u.id === req.body.userId) : findByPhoneOrEmail(db, req.body.phone);
+  const byCode = !!req.body.profileCode; // the owner shared this link, so no group/listing check is needed
+  const byId = !byCode && !!req.body.userId;
+  const other = byCode
+    ? db.users.find((u) => u.profileCode && u.profileCode === String(req.body.profileCode))
+    : byId ? db.users.find((u) => u.id === req.body.userId) : findByPhoneOrEmail(db, req.body.phone);
   if (!other) return res.status(404).json({ error: "No Letschat Africa user with that phone number or email" });
   if (other.id === req.user.id) return res.status(400).json({ error: "That's your own number" });
 
@@ -538,7 +576,21 @@ app.post("/api/conversations/:id/dm-requests/:rid", authMiddleware, (req, res) =
 });
 
 // ---- market: anyone can post products; buyers message the seller in-app ----
-function listingsOf(db) { return db.listings || (db.listings = []); }
+// Market posts are cleared 24 hours after they were posted.
+const LISTING_TTL_MS = 24 * 60 * 60 * 1000;
+function purgeExpiredListings(db) {
+  const list = db.listings || (db.listings = []);
+  const cutoff = Date.now() - LISTING_TTL_MS;
+  let n = 0;
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].time < cutoff) { list.splice(i, 1); n++; }
+  return n;
+}
+function listingsOf(db) { purgeExpiredListings(db); return db.listings; }
+// hourly sweep so expired posts are also removed from storage (and Supabase), not just hidden
+setInterval(() => {
+  try { const db = readDB(); if (purgeExpiredListings(db)) writeDB(db); } catch (e) { console.error("Market cleanup failed:", e.message); }
+}, 60 * 60 * 1000).unref();
+setTimeout(() => { try { const db = readDB(); if (purgeExpiredListings(db)) writeDB(db); } catch (e) {} }, 10000).unref();
 function canDM(db, me, other) { // messaging by user id: sellers with a live listing, or a group admin
   if (listingsOf(db).some((l) => !l.removed && l.sellerId === other)) return true;
   return db.conversations.some((c) => c.isGroup && c.participantIds.includes(me) && c.participantIds.includes(other) && (c.adminId === me || c.adminId === other));
