@@ -123,15 +123,22 @@ function initials(name) {
       .toUpperCase() || "?"
   );
 }
+// Uploaded photos are stored as data URLs but sent to clients as a small cacheable
+// URL (served by /api/users/:id/avatar). The ?v= part changes whenever the photo does.
+function avatarUrl(u) {
+  if (!u.avatar) return null;
+  if (u.avatar.startsWith("data:image/")) return `/api/v1/users/${u.id}/avatar?v=${u.avatarVersion || 1}`;
+  return u.avatar; // e.g. a Google profile photo link
+}
 function publicUser(u) {
-  return { 
-    id: u.id, 
-    name: u.name, 
-    phone: u.phone || null, email: u.email || null, 
-    about: u.about, 
-    initials: u.initials, 
-    color: u.color, 
-    avatar: u.avatar || null 
+  return {
+    id: u.id,
+    name: u.name,
+    phone: u.phone || null, email: u.email || null,
+    about: u.about,
+    initials: u.initials,
+    color: u.color,
+    avatar: avatarUrl(u),
   };
 }
 const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
@@ -161,6 +168,17 @@ app.use((req, res, next) => {
   if (req.url.startsWith("/api/v1")) req.url = "/api" + req.url.slice("/api/v1".length);
   next();
 });
+// Profile photos: plain image response, registered before the JSON wrapper and rate
+// limiter so a chat list full of avatars never trips the limit. Browsers cache it.
+app.get("/api/users/:id/avatar", (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.params.id);
+  const m = u && u.avatar && /^data:(image\/(?:jpeg|png));base64,(.+)$/s.exec(u.avatar);
+  if (!m) return res.status(404).type("text/plain").send("No photo");
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.type(m[1]).send(Buffer.from(m[2], "base64"));
+});
+
 app.use("/api", (req, res, next) => {
   res.setHeader("X-Request-Id", nanoid(10));
   const send = res.json.bind(res);
@@ -272,31 +290,48 @@ app.get("/api/me", authMiddleware, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
+const AVATAR_RE = /^data:image\/(jpeg|png);base64,/;
+function looksLikeImage(dataUrl) {
+  // check the real file signature, not just the label the browser gave it
+  const head = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1, dataUrl.indexOf(",") + 17), "base64");
+  const jpg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  const png = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+  return jpg || png;
+}
+
 app.patch("/api/me", authMiddleware, (req, res) => {
   const db = readDB();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "User not found" });
-  
-  if (req.body.name !== undefined) {
-    const n = String(req.body.name).trim();
+  const { name, about, avatar } = req.body;
+
+  // validate everything first so a bad request changes nothing
+  if (name !== undefined) {
+    const n = String(name).trim();
     if (!n || n.length > 60) return res.status(400).json({ error: "Name must be 1 to 60 characters" });
   }
-  if (typeof req.body.about === "string" && req.body.about.length > 139) {
+  if (typeof about === "string" && about.length > 139) {
     return res.status(400).json({ error: "About must be 139 characters or fewer" });
   }
-  if (req.body.name) {
-    user.name = String(req.body.name).trim();
+  const newPhoto = typeof avatar === "string" && avatar.startsWith("data:");
+  if (newPhoto) {
+    if (!AVATAR_RE.test(avatar) || !looksLikeImage(avatar)) return res.status(400).json({ error: "Profile photo must be a JPG or PNG image" });
+    if (avatar.length > 1500000) return res.status(400).json({ error: "Profile photo is too large (max about 1 MB)" });
+  }
+
+  if (name) {
+    user.name = String(name).trim();
     user.initials = initials(user.name);
   }
-  if (typeof req.body.about === "string") user.about = req.body.about.trim();
-  if (typeof req.body.avatar === "string" && (!req.body.avatar.startsWith("data:image/") || req.body.avatar.length > 1500000)) {
-    return res.status(400).json({ error: "Profile photo must be an image under about 1 MB" });
-  }
-  if (typeof req.body.avatar === "string" || req.body.avatar === null) {
-    user.avatar = req.body.avatar;
-  }
+  if (typeof about === "string") user.about = about.trim();
+  if (newPhoto) { user.avatar = avatar; user.avatarVersion = Date.now(); }
+  else if (avatar === null) { user.avatar = null; user.avatarVersion = Date.now(); }
+  // any other avatar value (e.g. the unchanged photo link) is ignored
   writeDB(db);
-  res.json({ user: publicUser(user) });
+
+  const pub = publicUser(user);
+  io.emit("user:update", pub); // lets the people you chat with see the new photo right away
+  res.json({ user: pub });
 });
 
 app.get("/api/users/lookup", authMiddleware, (req, res) => {
