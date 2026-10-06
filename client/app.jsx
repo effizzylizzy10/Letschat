@@ -90,6 +90,12 @@ async function api(path, { method = "GET", token, body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const payload = await res.json().catch(() => ({}));
+    // expired / rejected login: sign out so the person lands on the login screen instead of seeing errors
+    if (res.status === 401 && token && /invalid token|unknown user|missing token/i.test((payload.error && payload.error.message) || "")) {
+        clearJSON("session");
+        window.location.reload();
+        return new Promise(() => { });
+    }
   if (!res.ok || payload.success === false) throw new Error((payload.error && payload.error.message) || `Request failed (${res.status})`);
   return payload.data;
 }
@@ -2081,7 +2087,7 @@ function App() {
         : c.other.id === u.id ? { ...c, other: u } : c));
       setActiveConvo(prev => (prev && prev.other.id === u.id ? { ...prev, other: u } : prev));
     });
-    socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
+    socket.on("connect_error", (err) => { if (/^(unauthorized|unknown user)$/i.test(err.message)) { clearJSON("session"); window.location.reload(); return; } setConvError("Can't reach the Letschat Africa server: " + err.message); });
     return () => socket.disconnect();
   }, [session, refreshConversations]);
 
