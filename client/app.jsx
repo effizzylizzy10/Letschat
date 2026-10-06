@@ -710,7 +710,8 @@ function PostProductModal({ token, onClose, onPosted }) {
   return (
     <div style={sheet} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={card}>
-        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 }}>Post a product</div>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Post a product</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12 }}>Posts are removed automatically after 24 hours.</div>
         {error && <Banner text={error} />}
         <div style={{ overflowY: "auto", flex: 1 }}>
           <label style={{ ...inputBox, cursor: "pointer", justifyContent: "center", color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>
@@ -1014,6 +1015,73 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   );
 }
 
+// ---- shareable profile link: anyone who opens it can message you directly ----
+const profileLinkFor = (code) => window.location.origin + window.location.pathname + "?chat=" + code;
+function ProfileLinkRow({ token }) {
+  const [code, setCode] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { api("/api/v1/me/profile-link", { token }).then(d => setCode(d.code)).catch(e => setError(e.message)); }, [token]);
+  const link = code ? profileLinkFor(code) : "";
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch (e) { window.prompt("Copy your profile link", link); }
+  };
+  const share = () => (navigator.share ? navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }).catch(() => {}) : copy());
+  const reset = async () => {
+    if (!window.confirm("Reset your profile link? The old link will stop working.")) return;
+    try { const d = await api("/api/v1/me/profile-link/reset", { method: "POST", token }); setCode(d.code); setError(""); } catch (e) { setError(e.message); }
+  };
+  return (
+    <div style={{ padding: "14px 20px", borderBottom: "1px solid #1B212B" }}>
+      <div style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Profile link</div>
+      <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 }}>Anyone with this link can open a direct message with you.</div>
+      {error && <Banner text={error} onClose={() => setError("")} />}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={copy} disabled={!code} style={smallBtn}>{copied ? "Copied ✓" : "Copy link"}</button>
+        <button onClick={share} disabled={!code} style={smallBtn}>Share link</button>
+        <button onClick={reset} disabled={!code} style={{ ...smallBtn, color: "#FF6B5D" }}>Reset</button>
+      </div>
+    </div>
+  );
+}
+
+// Opened from someone's profile link: show who it is and start the DM
+function ChatLinkModal({ code, token, onClose, onStarted }) {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/api/v1/users/profile/" + encodeURIComponent(code), { token }).then(setInfo).catch(e => setError(e.message));
+  }, [code]);
+  const start = async () => {
+    setBusy(true); setError("");
+    try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { profileCode: code } }); onStarted(conversation); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 }}>Start a chat</div>
+        {info && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+            <Ring size={52} color={info.user.color} initials={info.user.initials} photo={info.user.avatar} />
+            <div>
+              <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{info.user.name}</div>
+              {info.user.about && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>{info.user.about}</div>}
+            </div>
+          </div>
+        )}
+        {!info && !error && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#5B6673", marginBottom: 16 }}>Checking profile link…</div>}
+        {info && info.self && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 }}>This is your own profile link. Share it so others can message you.</div>}
+        {error && <Banner text={error} />}
+        {info && !info.self && <button onClick={start} disabled={busy} style={primaryBtn(busy)}>{busy ? "Opening…" : "Message " + info.user.name.split(" ")[0]}</button>}
+        <button onClick={onClose} style={{ ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 }}>{info && !info.self ? "Not now" : "Close"}</button>
+      </div>
+    </div>
+  );
+}
+
 function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut }) {
   const [zoomed, setZoomed] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -1076,6 +1144,7 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
             </div>
           </div>
         ))}
+        <ProfileLinkRow token={token} />
         <div style={{ padding: "24px 20px" }}>
           <button onClick={onLogOut} style={{ width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
             <LogOut size={16} /> Log out
@@ -1493,6 +1562,15 @@ function App() {
     } catch (e) {}
     return loadJSON("pendingJoin", null);
   });
+  // profile link: ?chat=CODE is kept until the user is signed in and confirms
+  const [chatCode, setChatCode] = useState(() => {
+    try {
+      const c = new URLSearchParams(window.location.search).get("chat");
+      if (c) { saveJSON("pendingChat", c); window.history.replaceState(null, "", window.location.pathname); }
+    } catch (e) {}
+    return loadJSON("pendingChat", null);
+  });
+  const closeChatLink = () => { clearJSON("pendingChat"); setChatCode(null); };
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -1653,6 +1731,7 @@ function App() {
     <div style={{ background: "#05070A", minHeight: "100vh", padding: "24px 12px", display: "flex", alignItems: "center" }}>
       <div style={frame}>
         {body}
+        {session && chatCode && <ChatLinkModal code={chatCode} token={session.token} onClose={closeChatLink} onStarted={(conv) => { closeChatLink(); handleNewChatStarted(conv); }} />}
         {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
       </div>
     </div>
