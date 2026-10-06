@@ -176,6 +176,15 @@ function lite(m) {
   const { audio, file, ...rest } = m;
   return { ...rest, ...(audio ? { hasAudio: true } : {}), ...(file ? { file: { name: file.name, mime: file.mime, size: file.size } } : {}) };
 }
+// A sender only sees "read" ticks if both sides keep read receipts on.
+function receiptView(db, m, viewer, convo) {
+  if (!m || m.senderId !== viewer.id) return m;
+  const on = (id) => { const u = db.users.find((x) => x.id === id); return !!u && privacyOf(u).readReceipts; };
+  if (!privacyOf(viewer).readReceipts) return { ...m, read: false, readBy: [] };
+  if (convo && convo.isGroup) return { ...m, readBy: (m.readBy || []).filter(on) };
+  const otherId = convo && convo.participantIds.find((id) => id !== viewer.id);
+  return otherId && !on(otherId) ? { ...m, read: false } : m;
+}
 const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
 function colorFor(id) {
   let sum = 0;
@@ -397,12 +406,82 @@ app.post("/api/me/profile-link/reset", authMiddleware, (req, res) => {
   writeDB(db);
   res.json({ code: user.profileCode });
 });
+// ---- favourites, privacy and blocked contacts (stored on the user, so they follow the account to any device) ----
+const privacyOf = (u) => ({ readReceipts: !(u.privacy && u.privacy.readReceipts === false), lastSeen: u.privacy && u.privacy.lastSeen === "nobody" ? "nobody" : "everyone" });
+const hidesPresence = (u) => !!u && privacyOf(u).lastSeen === "nobody";
+function settingsView(db, u) {
+  return {
+    favorites: (u.favorites || []).filter((id) => db.conversations.some((c) => c.id === id && c.participantIds.includes(u.id))),
+    privacy: privacyOf(u),
+    blocked: (u.blocked || []).map((id) => db.users.find((x) => x.id === id)).filter(Boolean).map(publicUser),
+  };
+}
+function sendPresenceFor(user) { // tell everyone the user's new visibility right away
+  if (hidesPresence(user)) io.emit("presence:update", { userId: user.id, online: false });
+  else if (userSockets.has(user.id)) io.emit("presence:update", { userId: user.id, online: true });
+  else if (lastSeen.has(user.id)) io.emit("presence:update", { userId: user.id, online: false, lastSeen: lastSeen.get(user.id) });
+}
+app.get("/api/me/settings", authMiddleware, (req, res) => res.json(settingsView(readDB(), req.user)));
+app.patch("/api/me/settings", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const p = (req.body && req.body.privacy) || {};
+  if (p.readReceipts !== undefined && typeof p.readReceipts !== "boolean") return res.status(400).json({ error: "readReceipts must be true or false" });
+  if (p.lastSeen !== undefined && !["everyone", "nobody"].includes(p.lastSeen)) return res.status(400).json({ error: "lastSeen must be everyone or nobody" });
+  user.privacy = { ...privacyOf(user), ...(p.readReceipts !== undefined ? { readReceipts: p.readReceipts } : {}), ...(p.lastSeen !== undefined ? { lastSeen: p.lastSeen } : {}) };
+  writeDB(db);
+  if (p.lastSeen !== undefined) sendPresenceFor(user);
+  res.json(settingsView(db, user));
+});
+app.post("/api/me/favorites", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const { conversationId, favorite } = req.body || {};
+  const c = db.conversations.find((x) => x.id === conversationId);
+  if (!c || !c.participantIds.includes(user.id)) return res.status(404).json({ error: "Conversation not found" });
+  const set = new Set(user.favorites || []);
+  if (favorite === false) set.delete(c.id); else set.add(c.id);
+  user.favorites = [...set];
+  writeDB(db);
+  res.json(settingsView(db, user));
+});
+app.post("/api/me/blocked", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const { userId, blocked } = req.body || {};
+  if (!userId || userId === user.id || !db.users.some((u) => u.id === userId)) return res.status(400).json({ error: "Choose a valid contact" });
+  const set = new Set(user.blocked || []);
+  if (blocked === false) set.delete(userId); else set.add(userId);
+  user.blocked = [...set];
+  writeDB(db);
+  res.json(settingsView(db, user));
+});
+
 app.get("/api/users/profile/:code", authMiddleware, (req, res) => {
   const user = readDB().users.find((u) => u.profileCode && u.profileCode === req.params.code);
   if (!user) return res.status(404).json({ error: "This profile link is invalid or has been reset" });
   res.json({ user: memberView(user, false), self: user.id === req.user.id });
 });
 
+// Phonebook discovery: the client sends the numbers the person chose to share, we answer with the ones that are registered.
+app.post("/api/users/match", authMiddleware, (req, res) => {
+  const list = Array.isArray(req.body && req.body.phones) ? req.body.phones.slice(0, 1000) : [];
+  const db = readDB();
+  const byDigits = new Map();
+  for (const u of db.users) { const d = normalizePhone(u.phone); if (d && u.id !== req.user.id) byDigits.set(d, u); }
+  const matches = {};
+  for (const raw of list) {
+    const d = normalizePhone(raw).replace(/^00/, "");
+    if (d.length < 7 || d.length > 15) continue;
+    let u = byDigits.get(d);
+    if (!u && d.startsWith("0")) { // local format (0813...) -> compare with the end of the international number
+      const tail = d.slice(1);
+      for (const [k, v] of byDigits) if (k.length > tail.length && k.endsWith(tail)) { u = v; break; }
+    }
+    if (u) matches[String(raw)] = publicUser(u);
+  }
+  res.json({ matches });
+});
 app.get("/api/users/lookup", authMiddleware, (req, res) => {
   if (!req.query.phone) return res.status(400).json({ error: "phone query param required" });
   const db = readDB();
@@ -482,7 +561,7 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const before = Number(req.query.before) || Infinity;
   const older = all.filter((m) => m.time < before);
   const page = older.slice(-limit);
-  res.json({ messages: page, hasMore: older.length > page.length });
+  res.json({ messages: page.map((m) => receiptView(db, m, req.user, convo)), hasMore: older.length > page.length });
 });
 
 // ---- group chats: creator is admin; admin adds registered users or shares an invite link ----
@@ -676,6 +755,7 @@ function presenceSnapshot(userId) {
   const online = [];
   const seen = {};
   for (const id of peers) {
+    if (hidesPresence(readDB().users.find((u) => u.id === id))) continue;
     if (userSockets.has(id)) online.push(id);
     else if (lastSeen.has(id)) seen[id] = lastSeen.get(id);
   }
@@ -717,7 +797,7 @@ io.on("connection", (socket) => {
   const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
   for (const c of myConvos) socket.join(`conv:${c.id}`);
 
-  io.emit("presence:update", { userId, online: true });
+  if (!hidesPresence(db.users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: true });
 
   socket.on("message:send", ({ conversationId, text, audio, duration, file }, ack) => {
     const fail = (error) => { if (ack) ack({ error }); };
@@ -746,6 +826,13 @@ io.on("connection", (socket) => {
     if (!convo || !convo.participantIds.includes(userId)) {
       if (ack) ack({ error: "Not a participant of this conversation" });
       return;
+    }
+    if (!convo.isGroup) {
+      const otherId = convo.participantIds.find((id) => id !== userId);
+      const me = db.users.find((u) => u.id === userId);
+      const other = db.users.find((u) => u.id === otherId);
+      if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
+      if (other && (other.blocked || []).includes(userId)) return fail("This message couldn't be delivered.");
     }
     const message = {
       id: nanoid(14),
@@ -776,7 +863,7 @@ io.on("connection", (socket) => {
       if (set.size === 0) {
         userSockets.delete(userId);
         lastSeen.set(userId, Date.now());
-        io.emit("presence:update", { userId, online: false, lastSeen: lastSeen.get(userId) });
+        if (!hidesPresence(readDB().users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: false, lastSeen: lastSeen.get(userId) });
       }
     }
   });
