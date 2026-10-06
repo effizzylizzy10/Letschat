@@ -681,7 +681,10 @@ function canDM(db, me, other) { // messaging by user id: sellers with a live lis
   return db.conversations.some((c) => c.isGroup && c.participantIds.includes(me) && c.participantIds.includes(other) && (c.adminId === me || c.adminId === other));
 }
 const listingView = (l, db) => ({ id: l.id, title: l.title, description: l.description, price: l.price, sold: !!l.sold, time: l.time,
-  photo: l.photo ? `/api/v1/market/${l.id}/photo?v=${l.time}` : null, seller: memberView(db.users.find((u) => u.id === l.sellerId)) });
+  photo: l.photo ? `/api/v1/market/${l.id}/photo?v=${l.time}` : null, seller: sellerView(db, l.sellerId), commentCount: (l.comments || []).length });
+// seller star ratings live on the seller's user record: { raterId: { stars, time } }
+const ratingOf = (u) => { const r = Object.values((u && u.ratings) || {}); const n = r.length; return { avg: n ? Math.round((r.reduce((a, x) => a + x.stars, 0) / n) * 10) / 10 : 0, count: n }; };
+function sellerView(db, id) { const u = db.users.find((x) => x.id === id); const v = memberView(u); return v && { ...v, rating: ratingOf(u) }; }
 app.get("/api/market", authMiddleware, (req, res) => {
   const db = readDB();
   const q = String(req.query.q || "").trim().toLowerCase();
@@ -709,6 +712,56 @@ function ownListing(req, res) {
 }
 app.post("/api/market/:id/sold", authMiddleware, (req, res) => { const o = ownListing(req, res); if (!o) return; o.l.sold = !o.l.sold; writeDB(o.db); res.json({ listing: listingView(o.l, o.db) }); });
 app.delete("/api/market/:id", authMiddleware, (req, res) => { const o = ownListing(req, res); if (!o) return; o.l.removed = true; writeDB(o.db); res.json({ ok: true }); });
+
+// ---- seller ratings and product comments (comments live on the listing, so they go when the post expires) ----
+function liveListing(req, res) {
+  const db = readDB();
+  const l = listingsOf(db).find((x) => x.id === req.params.id && !x.removed);
+  if (!l) { res.status(404).json({ error: "Product not found. It may have expired." }); return null; }
+  return { db, l };
+}
+const commentViews = (db, l, uid) => (l.comments || []).map((c) => ({ id: c.id, text: c.text, time: c.time, mine: c.userId === uid, canDelete: c.userId === uid || l.sellerId === uid, author: memberView(db.users.find((u) => u.id === c.userId)) }));
+app.get("/api/market/:id/comments", authMiddleware, (req, res) => {
+  const o = liveListing(req, res); if (!o) return;
+  res.json({ comments: commentViews(o.db, o.l, req.user.id) });
+});
+app.post("/api/market/:id/comments", authMiddleware, (req, res) => {
+  const o = liveListing(req, res); if (!o) return;
+  const text = String(req.body.text || "").trim();
+  if (!text) return res.status(400).json({ error: "Write a comment first" });
+  if ([...text].length > 500) return res.status(400).json({ error: "Comments can be up to 500 characters" });
+  o.l.comments = o.l.comments || [];
+  if (o.l.comments.length >= 200) return res.status(400).json({ error: "This product has reached its comment limit" });
+  o.l.comments.push({ id: nanoid(8), userId: req.user.id, text, time: Date.now() });
+  writeDB(o.db);
+  res.json({ comments: commentViews(o.db, o.l, req.user.id) });
+});
+app.delete("/api/market/:id/comments/:cid", authMiddleware, (req, res) => {
+  const o = liveListing(req, res); if (!o) return;
+  const c = (o.l.comments || []).find((x) => x.id === req.params.cid);
+  if (!c) return res.status(404).json({ error: "Comment not found" });
+  if (c.userId !== req.user.id && o.l.sellerId !== req.user.id) return res.status(403).json({ error: "You can only delete your own comments" });
+  o.l.comments = o.l.comments.filter((x) => x.id !== c.id);
+  writeDB(o.db);
+  res.json({ comments: commentViews(o.db, o.l, req.user.id) });
+});
+app.get("/api/market/seller/:sid/rating", authMiddleware, (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.params.sid);
+  if (!u) return res.status(404).json({ error: "Seller not found" });
+  const mine = u.ratings && u.ratings[req.user.id];
+  res.json({ ...ratingOf(u), mine: mine ? mine.stars : 0 });
+});
+app.post("/api/market/seller/:sid/rate", authMiddleware, (req, res) => {
+  const db = readDB();
+  const u = db.users.find((x) => x.id === req.params.sid);
+  if (!u) return res.status(404).json({ error: "Seller not found" });
+  if (u.id === req.user.id) return res.status(400).json({ error: "You can't rate yourself" });
+  const stars = Number(req.body.stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) return res.status(400).json({ error: "Choose 1 to 5 stars" });
+  u.ratings = { ...(u.ratings || {}), [req.user.id]: { stars, time: Date.now() } };
+  writeDB(db);
+  res.json({ ...ratingOf(u), mine: stars });
+});
 
 app.get("/api/groups/invite/:code", authMiddleware, (req, res) => {
   const c = readDB().conversations.find((x) => x.isGroup && x.inviteCode === req.params.code);
