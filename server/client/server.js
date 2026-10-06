@@ -289,6 +289,9 @@ app.patch("/api/me", authMiddleware, (req, res) => {
     user.initials = initials(user.name);
   }
   if (typeof req.body.about === "string") user.about = req.body.about.trim();
+  if (typeof req.body.avatar === "string" && (!req.body.avatar.startsWith("data:image/") || req.body.avatar.length > 1500000)) {
+    return res.status(400).json({ error: "Profile photo must be an image under about 1 MB" });
+  }
   if (typeof req.body.avatar === "string" || req.body.avatar === null) {
     user.avatar = req.body.avatar;
   }
