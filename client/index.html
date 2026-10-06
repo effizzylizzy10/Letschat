@@ -704,7 +704,8 @@ function PostProductModal({ token, onClose, onPosted }) {
     };
     return (React.createElement("div", { style: sheet, onClick: onClose },
         React.createElement("div", { onClick: e => e.stopPropagation(), style: card },
-            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 } }, "Post a product"),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, "Post a product"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12 } }, "Posts are removed automatically after 24 hours."),
             error && React.createElement(Banner, { text: error }),
             React.createElement("div", { style: { overflowY: "auto", flex: 1 } },
                 React.createElement("label", { style: { ...inputBox, cursor: "pointer", justifyContent: "center", color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 } },
@@ -960,6 +961,80 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         info && isGroup && React.createElement(GroupInfoScreen, { conversation: conversation, myId: myId, token: token, contacts: contacts, presence: presence, lastSeen: lastSeen, onBack: () => setInfo(false), onChanged: onGroupChanged }),
         zoomed && (React.createElement(ImageZoomModal, { photo: conversation.other.avatar, initials: conversation.other.initials, color: conversation.other.color, onClose: () => setZoomed(false) }))));
 }
+// ---- shareable profile link: anyone who opens it can message you directly ----
+const profileLinkFor = (code) => window.location.origin + window.location.pathname + "?chat=" + code;
+function ProfileLinkRow({ token }) {
+    const [code, setCode] = useState(null);
+    const [copied, setCopied] = useState(false);
+    const [error, setError] = useState("");
+    useEffect(() => { api("/api/v1/me/profile-link", { token }).then(d => setCode(d.code)).catch(e => setError(e.message)); }, [token]);
+    const link = code ? profileLinkFor(code) : "";
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(link);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
+        }
+        catch (e) {
+            window.prompt("Copy your profile link", link);
+        }
+    };
+    const share = () => (navigator.share ? navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }).catch(() => { }) : copy());
+    const reset = async () => {
+        if (!window.confirm("Reset your profile link? The old link will stop working."))
+            return;
+        try {
+            const d = await api("/api/v1/me/profile-link/reset", { method: "POST", token });
+            setCode(d.code);
+            setError("");
+        }
+        catch (e) {
+            setError(e.message);
+        }
+    };
+    return (React.createElement("div", { style: { padding: "14px 20px", borderBottom: "1px solid #1B212B" } },
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 } }, "Profile link"),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 } }, "Anyone with this link can open a direct message with you."),
+        error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            React.createElement("button", { onClick: copy, disabled: !code, style: smallBtn }, copied ? "Copied ✓" : "Copy link"),
+            React.createElement("button", { onClick: share, disabled: !code, style: smallBtn }, "Share link"),
+            React.createElement("button", { onClick: reset, disabled: !code, style: { ...smallBtn, color: "#FF6B5D" } }, "Reset"))));
+}
+// Opened from someone's profile link: show who it is and start the DM
+function ChatLinkModal({ code, token, onClose, onStarted }) {
+    const [info, setInfo] = useState(null);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+    useEffect(() => {
+        api("/api/v1/users/profile/" + encodeURIComponent(code), { token }).then(setInfo).catch(e => setError(e.message));
+    }, [code]);
+    const start = async () => {
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { profileCode: code } });
+            onStarted(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { style: sheet, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: card },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 } }, "Start a chat"),
+            info && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 } },
+                React.createElement(Ring, { size: 52, color: info.user.color, initials: info.user.initials, photo: info.user.avatar }),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, info.user.name),
+                    info.user.about && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, info.user.about)))),
+            !info && !error && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673", marginBottom: 16 } }, "Checking profile link\u2026"),
+            info && info.self && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 } }, "This is your own profile link. Share it so others can message you."),
+            error && React.createElement(Banner, { text: error }),
+            info && !info.self && React.createElement("button", { onClick: start, disabled: busy, style: primaryBtn(busy) }, busy ? "Opening…" : "Message " + info.user.name.split(" ")[0]),
+            React.createElement("button", { onClick: onClose, style: { ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 } }, info && !info.self ? "Not now" : "Close"))));
+}
 function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut }) {
     const [zoomed, setZoomed] = useState(false);
     const [menu, setMenu] = useState(false);
@@ -1017,6 +1092,7 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                     React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, r.value),
                     !r.ro && React.createElement(Pencil, { size: 15, color: "#5B6673" }))))),
+            React.createElement(ProfileLinkRow, { token: token }),
             React.createElement("div", { style: { padding: "24px 20px" } },
                 React.createElement("button", { onClick: onLogOut, style: { width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" } },
                     React.createElement(LogOut, { size: 16 }),
@@ -1416,6 +1492,19 @@ function App() {
         catch (e) { }
         return loadJSON("pendingJoin", null);
     });
+    // profile link: ?chat=CODE is kept until the user is signed in and confirms
+    const [chatCode, setChatCode] = useState(() => {
+        try {
+            const c = new URLSearchParams(window.location.search).get("chat");
+            if (c) {
+                saveJSON("pendingChat", c);
+                window.history.replaceState(null, "", window.location.pathname);
+            }
+        }
+        catch (e) { }
+        return loadJSON("pendingChat", null);
+    });
+    const closeChatLink = () => { clearJSON("pendingChat"); setChatCode(null); };
     const socketRef = useRef(null);
     useEffect(() => {
         const link = document.createElement("link");
@@ -1547,13 +1636,12 @@ function App() {
     return (React.createElement("div", { style: { background: "#05070A", minHeight: "100vh", padding: "24px 12px", display: "flex", alignItems: "center" } },
         React.createElement("div", { style: frame },
             body,
+            session && chatCode && React.createElement(ChatLinkModal, { code: chatCode, token: session.token, onClose: closeChatLink, onStarted: (conv) => { closeChatLink(); handleNewChatStarted(conv); } }),
             session && joinCode && React.createElement(JoinGroupModal, { code: joinCode, token: session.token, onClose: closeJoin, onJoined: (conv) => { closeJoin(); openGroup(conv); } }))));
 }
 // ---- mount ----
 const rootEl = document.getElementById("root");
 ReactDOM.createRoot(rootEl).render(React.createElement(App));
-
-
-  </script>
+</script>
 </body>
 </html>
