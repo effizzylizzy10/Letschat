@@ -78,6 +78,9 @@ window.LETSCHAT_CONFIG = {
   },
   API_URL: "https://letschat-9tw4.onrender.com",
   SOCKET_URL: "https://letschat-9tw4.onrender.com",
+  // Help screen > Contact us. Fill in at least one so people can reach you (WhatsApp number with country code, digits only).
+  SUPPORT_WHATSAPP: "",
+  SUPPORT_EMAIL: "",
 };
 
   </script>
@@ -405,7 +408,162 @@ function Banner({ text, tone = "error", onClose }) {
             React.createElement(X, { size: 15 }))));
 }
 // ---- New chat modal: look up a phone number and start / open a conversation ----
+// ---- phonebook: find which of the person's contacts are on Letschat Africa ----
+function toIntl(raw) {
+    const t = String(raw || "").trim();
+    const d = t.replace(/\D/g, "");
+    if (t.startsWith("+"))
+        return d;
+    if (d.startsWith("00"))
+        return d.slice(2);
+    let dial = "234";
+    try {
+        const c = COUNTRIES.find((x) => x[0] === (localStorage.getItem("lc-country") || "NG"));
+        if (c)
+            dial = c[2];
+    }
+    catch (e) { }
+    if (d.startsWith("0"))
+        return dial + d.slice(1);
+    if (d.startsWith(dial) && d.length >= dial.length + 8)
+        return d;
+    return dial + d;
+}
+function parseVcf(text) {
+    const out = [];
+    for (const card of String(text).split(/BEGIN:VCARD/i).slice(1)) {
+        const fn = /^FN[^:\r\n]*:(.+)$/im.exec(card);
+        const name = fn ? fn[1].trim() : "";
+        const re = /^TEL[^:\r\n]*:(.+)$/gim;
+        let m;
+        while ((m = re.exec(card)))
+            out.push({ name, tel: m[1].trim() });
+    }
+    return out;
+}
+const canPickContacts = () => typeof navigator !== "undefined" && !!(navigator.contacts && navigator.contacts.select);
+const initialsOf = (n) => (String(n).trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?");
+function PhonebookView({ token, onBack, onStarted }) {
+    const [book, setBook] = useState(() => loadJSON("phonebook", [])); // [{ name, phone }] kept on this device only
+    const [matches, setMatches] = useState({});
+    const [q, setQ] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const vcfRef = useRef(null);
+    const sync = async (entries) => {
+        if (!entries.length) {
+            setMatches({});
+            return;
+        }
+        setBusy(true);
+        setError("");
+        try {
+            const d = await api("/api/v1/users/match", { method: "POST", token, body: { phones: entries.map((e) => e.phone) } });
+            setMatches(d.matches || {});
+        }
+        catch (e) {
+            setError(e.message);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    useEffect(() => { sync(book); }, []);
+    const addEntries = (raw) => {
+        const seen = new Set();
+        const next = [];
+        for (const r of raw.concat(book.map((b) => ({ name: b.name, tel: "+" + b.phone })))) {
+            const phone = toIntl(r.tel);
+            if (phone.length < 8 || phone.length > 15 || seen.has(phone))
+                continue;
+            seen.add(phone);
+            next.push({ name: r.name || "+" + phone, phone });
+        }
+        setBook(next);
+        saveJSON("phonebook", next);
+        sync(next);
+    };
+    const pick = async () => {
+        try {
+            const picked = await navigator.contacts.select(["name", "tel"], { multiple: true });
+            const raw = [];
+            for (const c of picked)
+                for (const t of c.tel || [])
+                    raw.push({ name: (c.name && c.name[0]) || "", tel: t });
+            if (!raw.length)
+                return;
+            addEntries(raw);
+        }
+        catch (e) {
+            setError("Could not open your contacts. Allow contacts access and try again.");
+        }
+    };
+    const onVcf = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!f)
+            return;
+        const raw = parseVcf(await f.text());
+        if (!raw.length)
+            return setError("No phone numbers found in that file");
+        addEntries(raw);
+    };
+    const clearBook = () => { setBook([]); setMatches({}); clearJSON("phonebook"); };
+    const start = async (u) => {
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone: u.phone } });
+            onStarted(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+            setBusy(false);
+        }
+    };
+    const invite = (e) => {
+        const link = window.location.origin + window.location.pathname;
+        const msg = link + "\n\nHey " + (e.name.split(" ")[0] || "there") + ", I'm on Letschat Africa. Join me here!";
+        window.open("https://wa.me/" + e.phone + "?text=" + encodeURIComponent(msg), "_blank");
+    };
+    const needle = q.trim().toLowerCase();
+    const needleDigits = q.replace(/\D/g, "");
+    const shown = book.filter((e) => !needle || e.name.toLowerCase().includes(needle) || (needleDigits && e.phone.includes(needleDigits)));
+    const onApp = shown.filter((e) => matches[e.phone]);
+    const notOn = shown.filter((e) => !matches[e.phone]);
+    return (React.createElement("div", { style: { ...card, height: "88%" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 12 } },
+            React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } },
+                React.createElement(ArrowLeft, { size: 22 })),
+            React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" } }, "From your phonebook"),
+            book.length > 0 && React.createElement("button", { onClick: clearBook, style: { ...smallBtn, color: "#FF6B5D" } }, "Remove")),
+        error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
+            canPickContacts() && React.createElement("button", { onClick: pick, style: { ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 } }, book.length ? "Add more contacts" : "Choose contacts"),
+            React.createElement("button", { onClick: () => vcfRef.current && vcfRef.current.click(), style: { ...(canPickContacts() ? smallBtn : { ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }) } }, "Import .vcf"),
+            React.createElement("input", { ref: vcfRef, type: "file", accept: ".vcf,text/vcard,text/x-vcard", onChange: onVcf, style: { display: "none" } })),
+        !canPickContacts() && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 } }, "This browser cannot open your phonebook directly. Export your contacts as a .vcf file from your Contacts app and import it here."),
+        book.length > 0 && (React.createElement("div", { style: { ...inputBox, marginBottom: 6 } },
+            React.createElement(Search, { size: 17, color: "#8891A0" }),
+            React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search name or number", style: inputEl }))),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            busy && React.createElement("div", { style: { color: "#5B6673", fontFamily: "Inter", fontSize: 13, padding: "10px 0" } }, "Checking who is on Letschat Africa\u2026"),
+            !book.length && !busy && React.createElement("div", { style: { color: "#5B6673", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "30px 10px" } }, "Pick the contacts you want to check. Only the numbers you choose are sent, and your list stays on this device."),
+            onApp.length > 0 && React.createElement("div", { style: sectionTitle },
+                "On Letschat Africa \u00B7 ",
+                onApp.length),
+            onApp.map((e) => {
+                const u = matches[e.phone];
+                return React.createElement(PersonRow, { key: e.phone, u: { ...u, name: e.name }, status: u.name && u.name !== e.name ? u.name : "+" + e.phone, onClick: () => start(u), right: React.createElement("span", { style: { ...smallBtn, padding: "5px 10px" } }, "Chat") });
+            }),
+            notOn.length > 0 && React.createElement("div", { style: sectionTitle },
+                "Invite \u00B7 ",
+                notOn.length),
+            notOn.slice(0, 200).map((e) => (React.createElement(PersonRow, { key: e.phone, u: { name: e.name, initials: initialsOf(e.name), color: "#5B6673", avatar: null }, status: "+" + e.phone, right: React.createElement("button", { onClick: () => invite(e), style: { ...smallBtn, color: "#F2B84B" } }, "Invite") }))),
+            book.length > 0 && !shown.length && React.createElement("div", { style: { color: "#5B6673", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "24px 0" } }, "No contacts match your search"))));
+}
 function NewChatModal({ token, onClose, onStarted }) {
+    const [view, setView] = useState("main");
     const [phone, setPhone] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -425,6 +583,10 @@ function NewChatModal({ token, onClose, onStarted }) {
             setBusy(false);
         }
     };
+    if (view === "book")
+        return (React.createElement("div", { style: sheet, onClick: onClose },
+            React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", display: "flex", alignItems: "flex-end", height: "100%" } },
+                React.createElement(PhonebookView, { token: token, onBack: () => setView("main"), onStarted: onStarted }))));
     return (React.createElement("div", { style: {
             position: "absolute", inset: 0, background: "#000000B0", display: "flex",
             alignItems: "flex-end", zIndex: 20,
@@ -442,7 +604,11 @@ function NewChatModal({ token, onClose, onStarted }) {
             React.createElement("button", { onClick: start, disabled: busy || !phone.trim(), style: {
                     width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
                     background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1,
-                } }, busy ? "Looking up…" : "Start chat"))));
+                } }, busy ? "Looking up…" : "Start chat"),
+            React.createElement("button", { onClick: () => setView("book"), style: {
+                    width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: "1px solid #2B3544", cursor: "pointer",
+                    background: "#1E2530", color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 14,
+                } }, "Find friends from my phonebook"))));
 }
 // ---- group chats ----
 const GROUP_COLOR = "#8B7CF6";
@@ -689,7 +855,7 @@ function JoinGroupModal({ code, token, onClose, onJoined }) {
             info && React.createElement("button", { onClick: join, disabled: busy, style: primaryBtn(busy) }, busy ? "Joining…" : info.joined ? "Open group" : "Join group"),
             React.createElement("button", { onClick: onClose, style: { ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 } }, info ? "Not now" : "Close"))));
 }
-function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence }) {
+function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence, favorites = [] }) {
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
         React.createElement(TopBar, { title: React.createElement("span", null,
                 "Lets",
@@ -710,7 +876,9 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
                 React.createElement(Ring, { size: 52, color: c.other.color, initials: c.other.initials, photo: c.other.avatar, online: c.isGroup ? undefined : !!presence[c.other.id] }),
                 React.createElement("div", { style: { flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 } },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 3 } },
-                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, c.other.name),
+                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6 } },
+                            c.other.name,
+                            favorites.includes(c.id) && React.createElement(Star, { size: 13, color: "#F2B84B", style: { fill: "#F2B84B" } })),
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" } }, c.lastMessage ? timeLabel(c.lastMessage.time) : "")),
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 } }, c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "Say hello 👋"),
@@ -839,20 +1007,26 @@ function StatusScreen({ profile }) {
                     React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, "My status"),
                     React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Not available yet \u2014 coming soon"))))));
 }
-function ToolsScreen({ onProfile }) {
+const SUPPORT = {
+    whatsapp: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_WHATSAPP) || "").replace(/\D/g, ""),
+    email: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_EMAIL) || "").trim(),
+};
+const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [] };
+function ToolsScreen({ onProfile, onOpen = () => { }, settings = DEFAULT_SETTINGS }) {
+    const nFav = settings.favorites.length, nBlocked = settings.blocked.length;
     const items = [
         { icon: User, label: "Profile", sub: "Edit your details" },
-        { icon: Star, label: "Favourites", sub: "Quick access chats" },
+        { icon: Star, label: "Favourites", sub: nFav ? nFav + (nFav === 1 ? " chat" : " chats") + " pinned for quick access" : "Quick access chats", view: "favs" },
         { icon: Users, label: "Communities", sub: "Manage your groups" },
         { icon: Bell, label: "Notifications", sub: "Sound & alerts" },
-        { icon: Lock, label: "Privacy", sub: "Blocked, read receipts" },
-        { icon: HelpCircle, label: "Help", sub: "FAQ, contact us" },
+        { icon: Lock, label: "Privacy", sub: nBlocked ? nBlocked + " blocked · read receipts, last seen" : "Blocked, read receipts", view: "privacy" },
+        { icon: HelpCircle, label: "Help", sub: "FAQ, contact us", view: "help" },
     ];
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
         React.createElement(TopBar, { title: "Tools" }),
         React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, items.map(it => {
             const Icon = it.icon;
-            return (React.createElement("div", { key: it.label, onClick: it.label === "Profile" ? onProfile : undefined, style: { display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+            return (React.createElement("div", { key: it.label, onClick: it.label === "Profile" ? onProfile : it.view ? () => onOpen(it.view) : undefined, style: { display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
                 React.createElement("div", { style: { width: 40, height: 40, borderRadius: 12, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } },
                     React.createElement(Icon, { size: 19, color: "#35D0BA" })),
                 React.createElement("div", { style: { flex: 1 } },
@@ -861,7 +1035,99 @@ function ToolsScreen({ onProfile }) {
                 React.createElement(ChevronRight, { size: 17, color: "#5B6673" })));
         }))));
 }
-function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { } }) {
+function Toggle({ on, onChange, disabled }) {
+    return (React.createElement("button", { role: "switch", "aria-checked": on, disabled: disabled, onClick: () => onChange(!on), style: { width: 46, height: 27, borderRadius: 14, border: "none", padding: 0, position: "relative", cursor: disabled ? "default" : "pointer", background: on ? "#35D0BA" : "#2B3544", transition: "background .15s", flexShrink: 0, opacity: disabled ? 0.6 : 1 } },
+        React.createElement("span", { style: { position: "absolute", top: 3, left: on ? 22 : 3, width: 21, height: 21, borderRadius: "50%", background: "#F5F7FA", transition: "left .15s" } })));
+}
+const settingRow = { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderBottom: "1px solid #1B212B" };
+function FavouritesScreen({ conversations, settings, presence, onBack, onOpenChat, onToggleFavorite }) {
+    const favs = conversations.filter(c => settings.favorites.includes(c.id));
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Favourites", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            favs.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                React.createElement(Star, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No favourites yet"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Open a chat, tap the three dots at the top and choose \u201CAdd to favourites\u201D. They will show up here for quick access."))),
+            favs.map(c => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+                React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar, online: c.isGroup ? undefined : !!presence[c.other.id] }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "No messages yet")),
+                c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread),
+                React.createElement("button", { "aria-label": "Remove from favourites", onClick: (e) => { e.stopPropagation(); onToggleFavorite(c.id); }, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } },
+                    React.createElement(Star, { size: 20, color: "#F2B84B", style: { fill: "#F2B84B" } }))))))));
+}
+function PrivacyScreen({ settings, onBack, onPrivacy, onBlock }) {
+    const p = settings.privacy;
+    const seg = (val, label) => (React.createElement("button", { onClick: () => onPrivacy({ lastSeen: val }), style: { flex: 1, padding: "9px 0", borderRadius: 9, border: "none", cursor: "pointer", fontFamily: "Inter", fontWeight: 600, fontSize: 13, background: p.lastSeen === val ? "#35D0BA" : "transparent", color: p.lastSeen === val ? "#0E1116" : "#9BA7B4" } }, label));
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Privacy", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            React.createElement("div", { style: settingRow },
+                React.createElement("div", { style: { flex: 1 } },
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Read receipts"),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "If you turn this off, you won\u2019t send or receive blue ticks. Voice notes and groups are covered too.")),
+                React.createElement(Toggle, { on: p.readReceipts, onChange: (v) => onPrivacy({ readReceipts: v }) })),
+            React.createElement("div", { style: { ...settingRow, display: "block" } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Last seen & online"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 10px" } }, "Choose who can see when you are online or were last active."),
+                React.createElement("div", { style: { display: "flex", gap: 4, background: "#1E2530", borderRadius: 12, padding: 4 } },
+                    seg("everyone", "Everyone"),
+                    seg("nobody", "Nobody"))),
+            React.createElement("div", { style: { ...sectionTitle, margin: "20px 16px 6px" } },
+                "Blocked contacts \u00B7 ",
+                settings.blocked.length),
+            settings.blocked.length === 0 && React.createElement("div", { style: { padding: "6px 16px 24px", fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "You haven\u2019t blocked anyone. To block someone, open their chat, tap the three dots and choose Block."),
+            React.createElement("div", { style: { padding: "0 16px 24px" } }, settings.blocked.map(u => (React.createElement(PersonRow, { key: u.id, u: u, status: u.phone ? "+" + String(u.phone).replace(/\D/g, "") : "Blocked", right: React.createElement("button", { onClick: () => onBlock(u.id, false), style: smallBtn }, "Unblock") })))))));
+}
+const FAQ = [
+    ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a phone number with country code or an email, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
+    ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
+    ["How do I send a photo, file or voice note?", "Use the paperclip for files (up to 3 MB), the camera to take a photo and the microphone to record. Tap the mic again, or the send button, to send the voice note."],
+    ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members and share an invite link from Group info."],
+    ["How do I share my profile link?", "Go to Tools → Profile → Profile link. Anyone who opens your link can start a direct message with you. Tap Reset to make the old link stop working."],
+    ["How do favourites work?", "Open a chat, tap the three dots and choose Add to favourites. Find all of them in Tools → Favourites."],
+    ["How do I block someone?", "Open their chat, tap the three dots and choose Block. They can no longer message you. You can unblock them in Tools → Privacy."],
+    ["What do read receipts and last seen do?", "In Tools → Privacy you can switch off blue ticks and hide when you were last online. If you hide yours, you won’t see receipts from others either."],
+    ["I changed my photo but it hasn’t updated.", "Pull the app fresh by closing and reopening it. New photos show for everyone after a moment."],
+    ["Messages are slow or not sending.", "Check your internet connection. The server can take up to a minute to wake up after a quiet period, then everything speeds up."],
+];
+function HelpScreen({ onBack, user }) {
+    const [open, setOpen] = useState(-1);
+    const [copied, setCopied] = useState(false);
+    const info = [
+        "Letschat Africa support info",
+        "User: " + (user && user.name) + " (" + (user && user.phone ? "+" + String(user.phone).replace(/\D/g, "") : "no phone") + ")",
+        "App: " + window.location.origin,
+        "Browser: " + navigator.userAgent,
+        "Time: " + new Date().toISOString(),
+    ].join("\n");
+    const copyInfo = async () => { try {
+        await navigator.clipboard.writeText(info);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }
+    catch (e) { } };
+    const wa = () => window.open("https://wa.me/" + SUPPORT.whatsapp + "?text=" + encodeURIComponent("Hi Letschat Africa support, I need help with:\n\n\n" + info), "_blank");
+    const mail = () => { window.location.href = "mailto:" + SUPPORT.email + "?subject=" + encodeURIComponent("Letschat Africa support") + "&body=" + encodeURIComponent("Hi, I need help with:\n\n\n" + info); };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Help", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
+            React.createElement("div", { style: { ...sectionTitle, margin: "6px 16px" } }, "Frequently asked questions"),
+            FAQ.map(([q, ans], i) => (React.createElement("div", { key: i, style: { borderBottom: "1px solid #1B212B" } },
+                React.createElement("div", { onClick: () => setOpen(open === i ? -1 : i), style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" } },
+                    React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA" } }, q),
+                    React.createElement(ChevronRight, { size: 17, color: "#5B6673", style: { transform: open === i ? "rotate(90deg)" : "none", transition: "transform .15s" } })),
+                open === i && React.createElement("div", { style: { padding: "0 16px 16px", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#9BA7B4" } }, ans)))),
+            React.createElement("div", { style: { ...sectionTitle, margin: "22px 16px 8px" } }, "Contact us"),
+            React.createElement("div", { style: { padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 } },
+                SUPPORT.whatsapp && React.createElement("button", { onClick: wa, style: primaryBtn(false) }, "Chat with support on WhatsApp"),
+                SUPPORT.email && React.createElement("button", { onClick: mail, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, "Email support"),
+                React.createElement("button", { onClick: copyInfo, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, copied ? "Copied ✓" : "Copy my support info"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginTop: 4 } }, "Letschat Africa \u00B7 secure chat for everyone")))));
+}
+function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { } }) {
     const [msgs, setMsgs] = useState([]);
     const [draft, setDraft] = useState("");
     const [loading, setLoading] = useState(true);
@@ -872,6 +1138,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const [rec, setRec] = useState(null);
     const [recSec, setRecSec] = useState(0);
     const [sending, setSending] = useState(false);
+    const [menu, setMenu] = useState(false);
     const [viewer, setViewer] = useState(null);
     const fileRef = useRef(null);
     const camRef = useRef(null);
@@ -998,8 +1265,19 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     }, [rec]);
     const isGroup = !!conversation.isGroup;
     const online = !!presence[conversation.other.id];
+    const isFav = settings.favorites.includes(conversation.id);
+    const iBlocked = !isGroup && settings.blocked.some(b => b.id === conversation.other.id);
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B", position: "relative", flexShrink: 0 } },
+            menu && (React.createElement(React.Fragment, null,
+                React.createElement("div", { onClick: () => setMenu(false), style: { position: "fixed", inset: 0, zIndex: 40 } }),
+                React.createElement("div", { style: { position: "absolute", top: 50, right: 10, zIndex: 41, minWidth: 210, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" } }, [
+                    { label: isFav ? "Remove from favourites" : "Add to favourites", color: "#F5F7FA", run: () => onToggleFavorite(conversation.id) },
+                    ...(isGroup ? [{ label: "Group info", color: "#F5F7FA", run: () => setInfo(true) }]
+                        : [{ label: iBlocked ? "Unblock " + conversation.other.name.split(" ")[0] : "Block " + conversation.other.name.split(" ")[0], color: iBlocked ? "#35D0BA" : "#FF6B5D",
+                                run: () => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you."))
+                                    onBlock(conversation.other.id, !iBlocked); } }]),
+                ].map(it => (React.createElement("div", { key: it.label, onClick: () => { setMenu(false); it.run(); }, style: { padding: "11px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: it.color } }, it.label)))))),
             React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
                 React.createElement(ArrowLeft, { size: 22 })),
             React.createElement(Ring, { size: 38, color: conversation.other.color, initials: conversation.other.initials, photo: conversation.other.avatar, online: isGroup ? undefined : online, onClick: conversation.other.avatar ? () => setZoomed(true) : undefined }),
@@ -1008,7 +1286,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: peerTyping || (!isGroup && online) ? "#35D0BA" : isGroup ? "#8891A0" : "#5B6673" } }, peerTyping ? "typing…" : isGroup ? conversation.members.length + " members · " + conversation.members.filter(m => m.id === myId || presence[m.id]).length + " online" : statusText(online, lastSeen[conversation.other.id]))),
             React.createElement(Video, { size: 19, color: "#5B6673", style: { marginRight: 16, opacity: 0.5 } }),
             React.createElement(Phone, { size: 18, color: "#5B6673", style: { marginRight: 16, opacity: 0.5 } }),
-            React.createElement("div", { onClick: isGroup ? () => setInfo(true) : undefined, style: { display: "flex", cursor: isGroup ? "pointer" : "default" } },
+            React.createElement("div", { onClick: () => setMenu(m => !m), style: { display: "flex", cursor: "pointer", padding: 4 } },
                 React.createElement(MoreVertical, { size: 19, color: "#9BA7B4" }))),
         React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" } },
             loading && React.createElement("div", { style: { margin: "auto", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading conversation\u2026"),
@@ -1049,7 +1327,9 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             React.createElement("span", { style: { width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" } }),
             React.createElement("span", { style: { flex: 1 } }, rec ? "Recording " + Math.floor(recSec / 60) + ":" + String(recSec % 60).padStart(2, "0") + " · tap send to finish" : "Sending file…"),
             rec && React.createElement("button", { onClick: () => stopRec(true), style: { ...smallBtn, color: "#FF6B5D" } }, "Cancel"))),
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 } },
+        iBlocked ? (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" } },
+            React.createElement("span", { style: { flex: 1 } }, "You blocked this contact."),
+            React.createElement("button", { onClick: () => onBlock(conversation.other.id, false), style: smallBtn }, "Unblock"))) : (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 } },
             React.createElement("input", { ref: fileRef, type: "file", onChange: pickFile, style: { display: "none" } }),
             React.createElement("input", { ref: camRef, type: "file", accept: "image/*", capture: "environment", onChange: pickFile, style: { display: "none" } }),
             React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "8px 12px" } },
@@ -1067,7 +1347,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                     send();
                 else if (inputRef.current)
                     inputRef.current.focus(); }, style: { width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, boxShadow: "0 4px 14px #35D0BA33" } },
-                React.createElement(Send, { size: 17, color: "#0E1116" }))),
+                React.createElement(Send, { size: 17, color: "#0E1116" })))),
         viewer && (React.createElement("div", { onClick: () => setViewer(null), style: { position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" } },
             React.createElement("img", { src: viewer, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }),
             React.createElement("div", { style: { position: "absolute", top: 14, right: 14, color: "#F5F7FA" } },
@@ -1594,6 +1874,9 @@ function App() {
     const [showNewChat, setShowNewChat] = useState(false);
     const [showNewGroup, setShowNewGroup] = useState(false);
     const [lastSeen, setLastSeen] = useState({});
+    const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+    const [toolsView, setToolsView] = useState(null); // "favs" | "privacy" | "help"
+    const [toast, setToast] = useState("");
     // group invite link: ?join=CODE is kept until the user is signed in and confirms
     const [joinCode, setJoinCode] = useState(() => {
         try {
@@ -1676,6 +1959,31 @@ function App() {
         setConvLoading(true);
         refreshConversations().finally(() => setConvLoading(false));
     }, [session, refreshConversations]);
+    useEffect(() => {
+        if (!session) {
+            setSettings(DEFAULT_SETTINGS);
+            setToolsView(null);
+            return;
+        }
+        api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => { });
+    }, [session && session.token]);
+    const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
+    const settingsCall = async (path, method, body, okMsg) => {
+        try {
+            const s = await api("/api/v1/me/" + path, { method, token: session.token, body });
+            setSettings(s);
+            if (okMsg)
+                flash(okMsg);
+            return true;
+        }
+        catch (e) {
+            flash(e.message);
+            return false;
+        }
+    };
+    const toggleFavorite = (id) => { const on = !settings.favorites.includes(id); return settingsCall("favorites", "POST", { conversationId: id, favorite: on }, on ? "Added to favourites" : "Removed from favourites"); };
+    const savePrivacy = (patch) => settingsCall("settings", "PATCH", { privacy: patch });
+    const setBlocked = (userId, blocked) => settingsCall("blocked", "POST", { userId, blocked }, blocked ? "Contact blocked" : "Contact unblocked");
     const handleLogin = async (idToken, name) => {
         const { token, user } = await api("/api/v1/auth/firebase", { method: "POST", body: { idToken, name } });
         saveJSON("session", { token, user });
@@ -1727,7 +2035,16 @@ function App() {
         body = React.createElement(LoginScreen, { onContinue: handleLogin });
     }
     else if (activeConvo) {
-        body = (React.createElement(ChatDetail, { conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { } }));
+        body = (React.createElement(ChatDetail, { conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked }));
+    }
+    else if (toolsView === "favs") {
+        body = React.createElement(FavouritesScreen, { conversations: conversations, settings: settings, presence: presence, onBack: () => setToolsView(null), onOpenChat: setActiveConvo, onToggleFavorite: toggleFavorite });
+    }
+    else if (toolsView === "privacy") {
+        body = React.createElement(PrivacyScreen, { settings: settings, onBack: () => setToolsView(null), onPrivacy: savePrivacy, onBlock: setBlocked });
+    }
+    else if (toolsView === "help") {
+        body = React.createElement(HelpScreen, { user: session.user, onBack: () => setToolsView(null) });
     }
     else if (showEdit) {
         body = React.createElement(EditProfileScreen, { profile: session.user, token: session.token, onBack: () => setShowEdit(false), onSave: (user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); } });
@@ -1738,11 +2055,11 @@ function App() {
     else {
         body = (React.createElement(React.Fragment, null,
             React.createElement("div", { style: { flex: 1, overflow: "hidden", position: "relative" } },
-                tab === "chats" && (React.createElement(ChatsScreen, { token: session.token, profile: session.user, conversations: conversations, loading: convLoading, error: convError, presence: presence, onOpenChat: setActiveConvo, onProfile: () => setShowProfile(true), onNewChat: () => setShowNewChat(true), onNewGroup: () => setShowNewGroup(true) })),
+                tab === "chats" && (React.createElement(ChatsScreen, { token: session.token, profile: session.user, conversations: conversations, loading: convLoading, error: convError, presence: presence, onOpenChat: setActiveConvo, onProfile: () => setShowProfile(true), onNewChat: () => setShowNewChat(true), onNewGroup: () => setShowNewGroup(true), favorites: settings.favorites })),
                 tab === "calls" && React.createElement(CallsScreen, null),
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
                 tab === "status" && React.createElement(StatusScreen, { profile: session.user }),
-                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowProfile(true) }),
+                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowProfile(true), onOpen: setToolsView, settings: settings }),
                 showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, onClose: () => setShowNewGroup(false), onCreated: (conv) => { setShowNewGroup(false); openGroup(conv); } }),
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
             React.createElement(TabBar, { active: tab, setActive: setTab })));
@@ -1751,6 +2068,7 @@ function App() {
         React.createElement("div", { style: { position: "relative", flex: 1, minHeight: 0 } },
             React.createElement("div", { style: frame },
                 body,
+                toast && React.createElement("div", { style: { position: "absolute", left: 16, right: 16, bottom: 86, zIndex: 80, background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "11px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 10px 28px rgba(0,0,0,.45)" } }, toast),
                 session && chatCode && React.createElement(ChatLinkModal, { code: chatCode, token: session.token, onClose: closeChatLink, onStarted: (conv) => { closeChatLink(); handleNewChatStarted(conv); } }),
                 session && joinCode && React.createElement(JoinGroupModal, { code: joinCode, token: session.token, onClose: closeJoin, onJoined: (conv) => { closeJoin(); openGroup(conv); } }))),
         React.createElement("div", { className: "app-footer", "aria-hidden": "true" },

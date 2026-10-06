@@ -376,7 +376,133 @@ function Banner({ text, tone = "error", onClose }) {
 }
 
 // ---- New chat modal: look up a phone number and start / open a conversation ----
+// ---- phonebook: find which of the person's contacts are on Letschat Africa ----
+function toIntl(raw) { // digits with country code, using the country picked at login for local numbers
+  const t = String(raw || "").trim();
+  const d = t.replace(/\D/g, "");
+  if (t.startsWith("+")) return d;
+  if (d.startsWith("00")) return d.slice(2);
+  let dial = "234";
+  try { const c = COUNTRIES.find((x) => x[0] === (localStorage.getItem("lc-country") || "NG")); if (c) dial = c[2]; } catch (e) {}
+  if (d.startsWith("0")) return dial + d.slice(1);
+  if (d.startsWith(dial) && d.length >= dial.length + 8) return d;
+  return dial + d;
+}
+function parseVcf(text) {
+  const out = [];
+  for (const card of String(text).split(/BEGIN:VCARD/i).slice(1)) {
+    const fn = /^FN[^:\r\n]*:(.+)$/im.exec(card);
+    const name = fn ? fn[1].trim() : "";
+    const re = /^TEL[^:\r\n]*:(.+)$/gim; let m;
+    while ((m = re.exec(card))) out.push({ name, tel: m[1].trim() });
+  }
+  return out;
+}
+const canPickContacts = () => typeof navigator !== "undefined" && !!(navigator.contacts && navigator.contacts.select);
+const initialsOf = (n) => (String(n).trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?");
+
+function PhonebookView({ token, onBack, onStarted }) {
+  const [book, setBook] = useState(() => loadJSON("phonebook", [])); // [{ name, phone }] kept on this device only
+  const [matches, setMatches] = useState({});
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const vcfRef = useRef(null);
+
+  const sync = async (entries) => {
+    if (!entries.length) { setMatches({}); return; }
+    setBusy(true); setError("");
+    try {
+      const d = await api("/api/v1/users/match", { method: "POST", token, body: { phones: entries.map((e) => e.phone) } });
+      setMatches(d.matches || {});
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => { sync(book); }, []);
+
+  const addEntries = (raw) => { // raw: [{ name, tel }]
+    const seen = new Set(); const next = [];
+    for (const r of raw.concat(book.map((b) => ({ name: b.name, tel: "+" + b.phone })))) {
+      const phone = toIntl(r.tel);
+      if (phone.length < 8 || phone.length > 15 || seen.has(phone)) continue;
+      seen.add(phone); next.push({ name: r.name || "+" + phone, phone });
+    }
+    setBook(next); saveJSON("phonebook", next); sync(next);
+  };
+  const pick = async () => {
+    try {
+      const picked = await navigator.contacts.select(["name", "tel"], { multiple: true });
+      const raw = [];
+      for (const c of picked) for (const t of c.tel || []) raw.push({ name: (c.name && c.name[0]) || "", tel: t });
+      if (!raw.length) return;
+      addEntries(raw);
+    } catch (e) { setError("Could not open your contacts. Allow contacts access and try again."); }
+  };
+  const onVcf = async (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    const raw = parseVcf(await f.text());
+    if (!raw.length) return setError("No phone numbers found in that file");
+    addEntries(raw);
+  };
+  const clearBook = () => { setBook([]); setMatches({}); clearJSON("phonebook"); };
+  const start = async (u) => {
+    setBusy(true); setError("");
+    try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone: u.phone } }); onStarted(conversation); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  const invite = (e) => {
+    const link = window.location.origin + window.location.pathname;
+    const msg = link + "\n\nHey " + (e.name.split(" ")[0] || "there") + ", I'm on Letschat Africa. Join me here!";
+    window.open("https://wa.me/" + e.phone + "?text=" + encodeURIComponent(msg), "_blank");
+  };
+
+  const needle = q.trim().toLowerCase(); const needleDigits = q.replace(/\D/g, "");
+  const shown = book.filter((e) => !needle || e.name.toLowerCase().includes(needle) || (needleDigits && e.phone.includes(needleDigits)));
+  const onApp = shown.filter((e) => matches[e.phone]);
+  const notOn = shown.filter((e) => !matches[e.phone]);
+
+  return (
+    <div style={{ ...card, height: "88%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
+        <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" }}>From your phonebook</div>
+        {book.length > 0 && <button onClick={clearBook} style={{ ...smallBtn, color: "#FF6B5D" }}>Remove</button>}
+      </div>
+      {error && <Banner text={error} onClose={() => setError("")} />}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        {canPickContacts() && <button onClick={pick} style={{ ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }}>{book.length ? "Add more contacts" : "Choose contacts"}</button>}
+        <button onClick={() => vcfRef.current && vcfRef.current.click()} style={{ ...(canPickContacts() ? smallBtn : { ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }) }}>Import .vcf</button>
+        <input ref={vcfRef} type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={onVcf} style={{ display: "none" }} />
+      </div>
+      {!canPickContacts() && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 }}>This browser cannot open your phonebook directly. Export your contacts as a .vcf file from your Contacts app and import it here.</div>}
+      {book.length > 0 && (
+        <div style={{ ...inputBox, marginBottom: 6 }}>
+          <Search size={17} color="#8891A0" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or number" style={inputEl} />
+        </div>
+      )}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        {busy && <div style={{ color: "#5B6673", fontFamily: "Inter", fontSize: 13, padding: "10px 0" }}>Checking who is on Letschat Africa…</div>}
+        {!book.length && !busy && <div style={{ color: "#5B6673", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "30px 10px" }}>Pick the contacts you want to check. Only the numbers you choose are sent, and your list stays on this device.</div>}
+        {onApp.length > 0 && <div style={sectionTitle}>On Letschat Africa · {onApp.length}</div>}
+        {onApp.map((e) => {
+          const u = matches[e.phone];
+          return <PersonRow key={e.phone} u={{ ...u, name: e.name }} status={u.name && u.name !== e.name ? u.name : "+" + e.phone} onClick={() => start(u)} right={<span style={{ ...smallBtn, padding: "5px 10px" }}>Chat</span>} />;
+        })}
+        {notOn.length > 0 && <div style={sectionTitle}>Invite · {notOn.length}</div>}
+        {notOn.slice(0, 200).map((e) => (
+          <PersonRow key={e.phone} u={{ name: e.name, initials: initialsOf(e.name), color: "#5B6673", avatar: null }} status={"+" + e.phone}
+            right={<button onClick={() => invite(e)} style={{ ...smallBtn, color: "#F2B84B" }}>Invite</button>} />
+        ))}
+        {book.length > 0 && !shown.length && <div style={{ color: "#5B6673", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "24px 0" }}>No contacts match your search</div>}
+      </div>
+    </div>
+  );
+}
+
 function NewChatModal({ token, onClose, onStarted }) {
+  const [view, setView] = useState("main");
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -393,6 +519,14 @@ function NewChatModal({ token, onClose, onStarted }) {
       setBusy(false);
     }
   };
+
+  if (view === "book") return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width: "100%", display: "flex", alignItems: "flex-end", height: "100%" }}>
+        <PhonebookView token={token} onBack={() => setView("main")} onStarted={onStarted} />
+      </div>
+    </div>
+  );
 
   return (
     <div style={{
@@ -417,6 +551,10 @@ function NewChatModal({ token, onClose, onStarted }) {
           width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
           background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1,
         }}>{busy ? "Looking up…" : "Start chat"}</button>
+        <button onClick={() => setView("book")} style={{
+          width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: "1px solid #2B3544", cursor: "pointer",
+          background: "#1E2530", color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 14,
+        }}>Find friends from my phonebook</button>
       </div>
     </div>
   );
@@ -662,7 +800,7 @@ function JoinGroupModal({ code, token, onClose, onJoined }) {
   );
 }
 
-function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence }) {
+function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence, favorites = [] }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <TopBar
@@ -694,7 +832,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
             <Ring size={52} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
             <div style={{ flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{c.other.name}</span>
+                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6 }}>{c.other.name}{favorites.includes(c.id) && <Star size={13} color="#F2B84B" style={{ fill: "#F2B84B" }} />}</span>
                 <span style={{ fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" }}>{c.lastMessage ? timeLabel(c.lastMessage.time) : ""}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -849,14 +987,21 @@ function StatusScreen({ profile }) {
   );
 }
 
-function ToolsScreen({ onProfile }) {
+const SUPPORT = {
+  whatsapp: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_WHATSAPP) || "").replace(/\D/g, ""),
+  email: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_EMAIL) || "").trim(),
+};
+const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [] };
+
+function ToolsScreen({ onProfile, onOpen = () => {}, settings = DEFAULT_SETTINGS }) {
+  const nFav = settings.favorites.length, nBlocked = settings.blocked.length;
   const items = [
     { icon: User, label: "Profile", sub: "Edit your details" },
-    { icon: Star, label: "Favourites", sub: "Quick access chats" },
+    { icon: Star, label: "Favourites", sub: nFav ? nFav + (nFav === 1 ? " chat" : " chats") + " pinned for quick access" : "Quick access chats", view: "favs" },
     { icon: Users, label: "Communities", sub: "Manage your groups" },
     { icon: Bell, label: "Notifications", sub: "Sound & alerts" },
-    { icon: Lock, label: "Privacy", sub: "Blocked, read receipts" },
-    { icon: HelpCircle, label: "Help", sub: "FAQ, contact us" },
+    { icon: Lock, label: "Privacy", sub: nBlocked ? nBlocked + " blocked · read receipts, last seen" : "Blocked, read receipts", view: "privacy" },
+    { icon: HelpCircle, label: "Help", sub: "FAQ, contact us", view: "help" },
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -865,7 +1010,7 @@ function ToolsScreen({ onProfile }) {
         {items.map(it => {
           const Icon = it.icon;
           return (
-            <div key={it.label} onClick={it.label === "Profile" ? onProfile : undefined} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
+            <div key={it.label} onClick={it.label === "Profile" ? onProfile : it.view ? () => onOpen(it.view) : undefined} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
               <div style={{ width: 40, height: 40, borderRadius: 12, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon size={19} color="#35D0BA" /></div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>{it.label}</div>
@@ -880,7 +1025,130 @@ function ToolsScreen({ onProfile }) {
   );
 }
 
-function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {} }) {
+function Toggle({ on, onChange, disabled }) {
+  return (
+    <button role="switch" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)} style={{ width: 46, height: 27, borderRadius: 14, border: "none", padding: 0, position: "relative", cursor: disabled ? "default" : "pointer", background: on ? "#35D0BA" : "#2B3544", transition: "background .15s", flexShrink: 0, opacity: disabled ? 0.6 : 1 }}>
+      <span style={{ position: "absolute", top: 3, left: on ? 22 : 3, width: 21, height: 21, borderRadius: "50%", background: "#F5F7FA", transition: "left .15s" }} />
+    </button>
+  );
+}
+const settingRow = { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderBottom: "1px solid #1B212B" };
+
+function FavouritesScreen({ conversations, settings, presence, onBack, onOpenChat, onToggleFavorite }) {
+  const favs = conversations.filter(c => settings.favorites.includes(c.id));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Favourites" onBack={onBack} />
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        {favs.length === 0 && (
+          <div style={{ padding: "50px 30px", textAlign: "center" }}>
+            <Star size={34} color="#262E3A" style={{ marginBottom: 12 }} />
+            <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 }}>No favourites yet</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#5B6673" }}>Open a chat, tap the three dots at the top and choose “Add to favourites”. They will show up here for quick access.</div>
+          </div>
+        )}
+        {favs.map(c => (
+          <div key={c.id} onClick={() => onOpenChat(c)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
+            <Ring size={46} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "No messages yet"}</div>
+            </div>
+            {c.unread > 0 && <span style={{ background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" }}>{c.unread}</span>}
+            <button aria-label="Remove from favourites" onClick={(e) => { e.stopPropagation(); onToggleFavorite(c.id); }} style={{ background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" }}><Star size={20} color="#F2B84B" style={{ fill: "#F2B84B" }} /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PrivacyScreen({ settings, onBack, onPrivacy, onBlock }) {
+  const p = settings.privacy;
+  const seg = (val, label) => (
+    <button onClick={() => onPrivacy({ lastSeen: val })} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", cursor: "pointer", fontFamily: "Inter", fontWeight: 600, fontSize: 13, background: p.lastSeen === val ? "#35D0BA" : "transparent", color: p.lastSeen === val ? "#0E1116" : "#9BA7B4" }}>{label}</button>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Privacy" onBack={onBack} />
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <div style={settingRow}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>Read receipts</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 }}>If you turn this off, you won’t send or receive blue ticks. Voice notes and groups are covered too.</div>
+          </div>
+          <Toggle on={p.readReceipts} onChange={(v) => onPrivacy({ readReceipts: v })} />
+        </div>
+        <div style={{ ...settingRow, display: "block" }}>
+          <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>Last seen & online</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 10px" }}>Choose who can see when you are online or were last active.</div>
+          <div style={{ display: "flex", gap: 4, background: "#1E2530", borderRadius: 12, padding: 4 }}>{seg("everyone", "Everyone")}{seg("nobody", "Nobody")}</div>
+        </div>
+        <div style={{ ...sectionTitle, margin: "20px 16px 6px" }}>Blocked contacts · {settings.blocked.length}</div>
+        {settings.blocked.length === 0 && <div style={{ padding: "6px 16px 24px", fontFamily: "Inter", fontSize: 13, color: "#5B6673" }}>You haven’t blocked anyone. To block someone, open their chat, tap the three dots and choose Block.</div>}
+        <div style={{ padding: "0 16px 24px" }}>
+          {settings.blocked.map(u => (
+            <PersonRow key={u.id} u={u} status={u.phone ? "+" + String(u.phone).replace(/\D/g, "") : "Blocked"} right={<button onClick={() => onBlock(u.id, false)} style={smallBtn}>Unblock</button>} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const FAQ = [
+  ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a phone number with country code or an email, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
+  ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
+  ["How do I send a photo, file or voice note?", "Use the paperclip for files (up to 3 MB), the camera to take a photo and the microphone to record. Tap the mic again, or the send button, to send the voice note."],
+  ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members and share an invite link from Group info."],
+  ["How do I share my profile link?", "Go to Tools → Profile → Profile link. Anyone who opens your link can start a direct message with you. Tap Reset to make the old link stop working."],
+  ["How do favourites work?", "Open a chat, tap the three dots and choose Add to favourites. Find all of them in Tools → Favourites."],
+  ["How do I block someone?", "Open their chat, tap the three dots and choose Block. They can no longer message you. You can unblock them in Tools → Privacy."],
+  ["What do read receipts and last seen do?", "In Tools → Privacy you can switch off blue ticks and hide when you were last online. If you hide yours, you won’t see receipts from others either."],
+  ["I changed my photo but it hasn’t updated.", "Pull the app fresh by closing and reopening it. New photos show for everyone after a moment."],
+  ["Messages are slow or not sending.", "Check your internet connection. The server can take up to a minute to wake up after a quiet period, then everything speeds up."],
+];
+
+function HelpScreen({ onBack, user }) {
+  const [open, setOpen] = useState(-1);
+  const [copied, setCopied] = useState(false);
+  const info = [
+    "Letschat Africa support info",
+    "User: " + (user && user.name) + " (" + (user && user.phone ? "+" + String(user.phone).replace(/\D/g, "") : "no phone") + ")",
+    "App: " + window.location.origin,
+    "Browser: " + navigator.userAgent,
+    "Time: " + new Date().toISOString(),
+  ].join("\n");
+  const copyInfo = async () => { try { await navigator.clipboard.writeText(info); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {} };
+  const wa = () => window.open("https://wa.me/" + SUPPORT.whatsapp + "?text=" + encodeURIComponent("Hi Letschat Africa support, I need help with:\n\n\n" + info), "_blank");
+  const mail = () => { window.location.href = "mailto:" + SUPPORT.email + "?subject=" + encodeURIComponent("Letschat Africa support") + "&body=" + encodeURIComponent("Hi, I need help with:\n\n\n" + info); };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Help" onBack={onBack} />
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 }}>
+        <div style={{ ...sectionTitle, margin: "6px 16px" }}>Frequently asked questions</div>
+        {FAQ.map(([q, ans], i) => (
+          <div key={i} style={{ borderBottom: "1px solid #1B212B" }}>
+            <div onClick={() => setOpen(open === i ? -1 : i)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}>
+              <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA" }}>{q}</div>
+              <ChevronRight size={17} color="#5B6673" style={{ transform: open === i ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+            </div>
+            {open === i && <div style={{ padding: "0 16px 16px", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#9BA7B4" }}>{ans}</div>}
+          </div>
+        ))}
+        <div style={{ ...sectionTitle, margin: "22px 16px 8px" }}>Contact us</div>
+        <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {SUPPORT.whatsapp && <button onClick={wa} style={primaryBtn(false)}>Chat with support on WhatsApp</button>}
+          {SUPPORT.email && <button onClick={mail} style={{ ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" }}>Email support</button>}
+          <button onClick={copyInfo} style={{ ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" }}>{copied ? "Copied ✓" : "Copy my support info"}</button>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginTop: 4 }}>Letschat Africa · secure chat for everyone</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {} }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -891,6 +1159,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const [rec, setRec] = useState(null);
   const [recSec, setRecSec] = useState(0);
   const [sending, setSending] = useState(false);
+  const [menu, setMenu] = useState(false);
   const [viewer, setViewer] = useState(null);
   const fileRef = useRef(null);
   const camRef = useRef(null);
@@ -987,10 +1256,27 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
 
   const isGroup = !!conversation.isGroup;
   const online = !!presence[conversation.other.id];
+  const isFav = settings.favorites.includes(conversation.id);
+  const iBlocked = !isGroup && settings.blocked.some(b => b.id === conversation.other.id);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B", position: "relative", flexShrink: 0 }}>
+        {menu && (
+          <>
+            <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+            <div style={{ position: "absolute", top: 50, right: 10, zIndex: 41, minWidth: 210, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" }}>
+              {[
+                { label: isFav ? "Remove from favourites" : "Add to favourites", color: "#F5F7FA", run: () => onToggleFavorite(conversation.id) },
+                ...(isGroup ? [{ label: "Group info", color: "#F5F7FA", run: () => setInfo(true) }]
+                  : [{ label: iBlocked ? "Unblock " + conversation.other.name.split(" ")[0] : "Block " + conversation.other.name.split(" ")[0], color: iBlocked ? "#35D0BA" : "#FF6B5D",
+                    run: () => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you.")) onBlock(conversation.other.id, !iBlocked); } }]),
+              ].map(it => (
+                <div key={it.label} onClick={() => { setMenu(false); it.run(); }} style={{ padding: "11px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: it.color }}>{it.label}</div>
+              ))}
+            </div>
+          </>
+        )}
         <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}><ArrowLeft size={22} /></button>
         <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={isGroup ? undefined : online} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
         <div onClick={isGroup ? () => setInfo(true) : undefined} style={{ flex: 1, minWidth: 0, cursor: isGroup ? "pointer" : "default" }}>
@@ -1001,7 +1287,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         </div>
         <Video size={19} color="#5B6673" style={{ marginRight: 16, opacity: 0.5 }} />
         <Phone size={18} color="#5B6673" style={{ marginRight: 16, opacity: 0.5 }} />
-        <div onClick={isGroup ? () => setInfo(true) : undefined} style={{ display: "flex", cursor: isGroup ? "pointer" : "default" }}><MoreVertical size={19} color="#9BA7B4" /></div>
+        <div onClick={() => setMenu(m => !m)} style={{ display: "flex", cursor: "pointer", padding: 4 }}><MoreVertical size={19} color="#9BA7B4" /></div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" }}>
@@ -1056,6 +1342,12 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           {rec && <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>}
         </div>
       )}
+      {iBlocked ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" }}>
+          <span style={{ flex: 1 }}>You blocked this contact.</span>
+          <button onClick={() => onBlock(conversation.other.id, false)} style={smallBtn}>Unblock</button>
+        </div>
+      ) : (
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 }}>
         <input ref={fileRef} type="file" onChange={pickFile} style={{ display: "none" }} />
         <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={pickFile} style={{ display: "none" }} />
@@ -1079,6 +1371,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <Send size={17} color="#0E1116" />
         </button>
       </div>
+      )}
       {viewer && (
         <div onClick={() => setViewer(null)} style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <img src={viewer} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
@@ -1632,6 +1925,9 @@ function App() {
   const [showNewChat, setShowNewChat] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [lastSeen, setLastSeen] = useState({});
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [toolsView, setToolsView] = useState(null); // "favs" | "privacy" | "help"
+  const [toast, setToast] = useState("");
   // group invite link: ?join=CODE is kept until the user is signed in and confirms
   const [joinCode, setJoinCode] = useState(() => {
     try {
@@ -1705,6 +2001,19 @@ function App() {
     refreshConversations().finally(() => setConvLoading(false));
   }, [session, refreshConversations]);
 
+  useEffect(() => {
+    if (!session) { setSettings(DEFAULT_SETTINGS); setToolsView(null); return; }
+    api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => {});
+  }, [session && session.token]);
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
+  const settingsCall = async (path, method, body, okMsg) => {
+    try { const s = await api("/api/v1/me/" + path, { method, token: session.token, body }); setSettings(s); if (okMsg) flash(okMsg); return true; }
+    catch (e) { flash(e.message); return false; }
+  };
+  const toggleFavorite = (id) => { const on = !settings.favorites.includes(id); return settingsCall("favorites", "POST", { conversationId: id, favorite: on }, on ? "Added to favourites" : "Removed from favourites"); };
+  const savePrivacy = (patch) => settingsCall("settings", "PATCH", { privacy: patch });
+  const setBlocked = (userId, blocked) => settingsCall("blocked", "POST", { userId, blocked }, blocked ? "Contact blocked" : "Contact unblocked");
+
   const handleLogin = async (idToken, name) => {
     const { token, user } = await api("/api/v1/auth/firebase", { method: "POST", body: { idToken, name } });
     saveJSON("session", { token, user });
@@ -1769,8 +2078,17 @@ function App() {
         presence={presence}
         onBack={() => { setActiveConvo(null); refreshConversations(); }}
         onLocalUpdate={() => {}}
+        settings={settings}
+        onToggleFavorite={toggleFavorite}
+        onBlock={setBlocked}
       />
     );
+  } else if (toolsView === "favs") {
+    body = <FavouritesScreen conversations={conversations} settings={settings} presence={presence} onBack={() => setToolsView(null)} onOpenChat={setActiveConvo} onToggleFavorite={toggleFavorite} />;
+  } else if (toolsView === "privacy") {
+    body = <PrivacyScreen settings={settings} onBack={() => setToolsView(null)} onPrivacy={savePrivacy} onBlock={setBlocked} />;
+  } else if (toolsView === "help") {
+    body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
   } else if (showEdit) {
     body = <EditProfileScreen profile={session.user} token={session.token} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
   } else if (showProfile) {
@@ -1791,12 +2109,13 @@ function App() {
               onProfile={() => setShowProfile(true)}
               onNewChat={() => setShowNewChat(true)}
               onNewGroup={() => setShowNewGroup(true)}
+              favorites={settings.favorites}
             />
           )}
           {tab === "calls" && <CallsScreen />}
           {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
           {tab === "status" && <StatusScreen profile={session.user} />}
-          {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} />}
+          {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} onOpen={setToolsView} settings={settings} />}
           {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} onClose={() => setShowNewGroup(false)} onCreated={(conv) => { setShowNewGroup(false); openGroup(conv); }} />}
           {showNewChat && <NewChatModal token={session.token} onClose={() => setShowNewChat(false)} onStarted={handleNewChatStarted} />}
         </div>
@@ -1810,6 +2129,7 @@ function App() {
       <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
         <div style={frame}>
           {body}
+          {toast && <div style={{ position: "absolute", left: 16, right: 16, bottom: 86, zIndex: 80, background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "11px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 10px 28px rgba(0,0,0,.45)" }}>{toast}</div>}
           {session && chatCode && <ChatLinkModal code={chatCode} token={session.token} onClose={closeChatLink} onStarted={(conv) => { closeChatLink(); handleNewChatStarted(conv); }} />}
           {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
         </div>
