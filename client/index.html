@@ -198,7 +198,10 @@ function resizeImageToDataURL(file, maxSize = 512) {
         reader.readAsDataURL(file);
     });
 }
+// photos from our own server come back as a path ("/api/v1/users/ID/avatar?v=..."): add the server address
+const photoSrc = (p) => (p && p.startsWith("/") ? API_URL + p : p);
 function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
+    photo = photoSrc(photo);
     return (React.createElement("div", { onClick: onClick, style: { position: "relative", width: size, height: size, flexShrink: 0, cursor: onClick ? "pointer" : "default" } },
         ring && (React.createElement("div", { style: { position: "absolute", inset: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` } })),
         photo ? (React.createElement("img", { src: photo, alt: "", onContextMenu: e => e.preventDefault(), draggable: false, style: {
@@ -214,18 +217,100 @@ function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
             } }, initials)),
         online && (React.createElement("div", { style: { position: "absolute", bottom: -1, right: -1, width: 13, height: 13, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116" } }))));
 }
-// ---- fullscreen tap-to-zoom viewer for a profile picture ----
+// ---- fullscreen photo viewer: pinch, double-tap or scroll to zoom, drag to move ----
 function ImageZoomModal({ photo, initials, color, onClose }) {
+    photo = photoSrc(photo);
+    const [t, setT] = useState({ s: 1, x: 0, y: 0 });
+    const box = useRef(null);
+    const ptrs = useRef(new Map());
+    const base = useRef(null);
+    const moved = useRef(false);
+    const lastTap = useRef(0);
+    const clamp = (n) => {
+        const s = Math.min(5, Math.max(1, n.s));
+        const W = box.current ? box.current.offsetWidth : 340;
+        const m = ((s - 1) * W) / 2;
+        return { s, x: s === 1 ? 0 : Math.min(m, Math.max(-m, n.x)), y: s === 1 ? 0 : Math.min(m, Math.max(-m, n.y)) };
+    };
+    const snap = () => { base.current = { t, p: [...ptrs.current.values()].map((q) => ({ ...q })) }; };
+    const down = (e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (ptrs.current.size === 1)
+            moved.current = false;
+        snap();
+    };
+    const move = (e) => {
+        if (!ptrs.current.has(e.pointerId) || !base.current)
+            return;
+        ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const p = [...ptrs.current.values()];
+        const b = base.current;
+        if (p.length >= 2 && b.p.length >= 2) {
+            moved.current = true;
+            const d0 = Math.hypot(b.p[0].x - b.p[1].x, b.p[0].y - b.p[1].y) || 1;
+            const d1 = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+            setT(clamp({
+                s: (b.t.s * d1) / d0,
+                x: b.t.x + (p[0].x + p[1].x) / 2 - (b.p[0].x + b.p[1].x) / 2,
+                y: b.t.y + (p[0].y + p[1].y) / 2 - (b.p[0].y + b.p[1].y) / 2,
+            }));
+        }
+        else if (p.length === 1 && b.p.length === 1) {
+            const dx = p[0].x - b.p[0].x, dy = p[0].y - b.p[0].y;
+            if (Math.abs(dx) + Math.abs(dy) > 6)
+                moved.current = true;
+            if (b.t.s > 1)
+                setT(clamp({ s: b.t.s, x: b.t.x + dx, y: b.t.y + dy }));
+        }
+    };
+    const up = (e) => {
+        ptrs.current.delete(e.pointerId);
+        if (ptrs.current.size === 0 && !moved.current) {
+            const now = Date.now();
+            if (now - lastTap.current < 300) {
+                setT((c) => clamp(c.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.5, x: 0, y: 0 }));
+                lastTap.current = 0;
+            }
+            else
+                lastTap.current = now;
+        }
+        snap();
+    };
     return (React.createElement("div", { onClick: onClose, style: {
-            position: "absolute", inset: 0, background: "#000000E6", zIndex: 30,
-            display: "flex", alignItems: "center", justifyContent: "center",
+            position: "absolute", inset: 0, background: "#000000F2", zIndex: 30,
+            display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column",
         } },
-        React.createElement("button", { onClick: onClose, style: { position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer" } },
+        React.createElement("button", { onClick: onClose, "aria-label": "Close", style: { position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", zIndex: 2 } },
             React.createElement(X, { size: 26 })),
-        photo ? (React.createElement("img", { src: photo, alt: "", onContextMenu: e => e.preventDefault(), draggable: false, style: {
-                width: "82%", maxWidth: 340, aspectRatio: "1 / 1", borderRadius: "50%",
-                objectFit: "cover", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
-            } })) : (React.createElement("div", { style: { width: 220, height: 220, borderRadius: "50%", background: color + "26", color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 70, border: `1px solid ${color}55` } }, initials))));
+        photo ? (React.createElement(React.Fragment, null,
+            React.createElement("div", { ref: box, onClick: (e) => e.stopPropagation(), onPointerDown: down, onPointerMove: move, onPointerUp: up, onPointerCancel: up, onWheel: (e) => setT((c) => clamp({ ...c, s: c.s - e.deltaY * 0.003 })), style: { width: "100%", aspectRatio: "1 / 1", overflow: "hidden", touchAction: "none", cursor: t.s > 1 ? "grab" : "zoom-in" } },
+                React.createElement("img", { src: photo, alt: "", onContextMenu: (e) => e.preventDefault(), draggable: false, style: {
+                        width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none",
+                        transform: `translate(${t.x}px, ${t.y}px) scale(${t.s})`, transformOrigin: "center",
+                        userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+                    } })),
+            React.createElement("div", { style: { marginTop: 14, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, "Pinch or double-tap to zoom"))) : (React.createElement("div", { style: { width: 220, height: 220, borderRadius: "50%", background: color + "26", color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 70, border: `1px solid ${color}55` } }, initials))));
+}
+// ---- shared: photo type check, bottom sheet menu, camera badge ----
+const PHOTO_ACCEPT = "image/jpeg,image/png";
+const isJpgOrPng = (file) => /^image\/(jpe?g|png)$/i.test(file.type);
+function PhotoMenu({ hasPhoto, onGallery, onCamera, onRemove, onClose }) {
+    const items = [["Choose from gallery", onGallery, false], ["Take a photo", onCamera, false], hasPhoto ? ["Remove photo", onRemove, true] : null].filter(Boolean);
+    return (React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+        React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 2 } }, "Profile photo"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginBottom: 12 } }, "JPG or PNG"),
+            items.map(([label, fn, danger]) => (React.createElement("button", { key: label, onClick: () => { onClose(); fn(); }, style: { display: "block", width: "100%", padding: "14px", marginBottom: 8, borderRadius: 12, border: "none", background: "#1E2530", color: danger ? "#FF6B5D" : "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, label))),
+            React.createElement("button", { onClick: onClose, style: { display: "block", width: "100%", padding: "12px", border: "none", background: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 14, cursor: "pointer" } }, "Cancel"))));
+}
+function CameraBadge({ onClick, busy }) {
+    return (React.createElement("button", { onClick: onClick, disabled: busy, "aria-label": "Change profile photo", style: {
+            position: "absolute", bottom: 2, right: 2, width: 34, height: 34, borderRadius: "50%",
+            background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
+            justifyContent: "center", cursor: busy ? "default" : "pointer", padding: 0, opacity: busy ? 0.6 : 1,
+        } },
+        React.createElement(Camera, { size: 16, color: "#0E1116" })));
 }
 function TabBar({ active, setActive }) {
     const tabs = [
@@ -320,7 +405,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No chats yet"),
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Tap the pencil to message someone by their phone number."))),
             conversations.map(c => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer" } },
-                React.createElement(Ring, { size: 52, color: c.other.color, initials: c.other.initials, online: !!presence[c.other.id] }),
+                React.createElement(Ring, { size: 52, color: c.other.color, initials: c.other.initials, photo: c.other.avatar, online: !!presence[c.other.id] }),
                 React.createElement("div", { style: { flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 } },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 3 } },
                         React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, c.other.name),
@@ -384,6 +469,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [peerTyping, setPeerTyping] = useState(false);
+    const [zoomed, setZoomed] = useState(false);
     const endRef = useRef(null);
     const typingTimeout = useRef(null);
     useEffect(() => {
@@ -438,7 +524,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B" } },
             React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
                 React.createElement(ArrowLeft, { size: 22 })),
-            React.createElement(Ring, { size: 38, color: conversation.other.color, initials: conversation.other.initials, online: online }),
+            React.createElement(Ring, { size: 38, color: conversation.other.color, initials: conversation.other.initials, photo: conversation.other.avatar, online: online, onClick: conversation.other.avatar ? () => setZoomed(true) : undefined }),
             React.createElement("div", { style: { flex: 1 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" } }, conversation.other.name),
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: peerTyping ? "#35D0BA" : online ? "#35D0BA" : "#5B6673" } }, peerTyping ? "typing…" : online ? "online" : "offline")),
@@ -474,20 +560,61 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 React.createElement(Smile, { size: 19, color: "#8891A0" }),
                 React.createElement("input", { value: draft, onChange: e => { setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => e.key === "Enter" && send(), placeholder: "Message", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
                 React.createElement(Paperclip, { size: 18, color: "#8891A0" })),
-            React.createElement("button", { onClick: send, style: { width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, draft.trim() ? React.createElement(Send, { size: 17, color: "#0E1116" }) : React.createElement(Mic, { size: 17, color: "#0E1116" })))));
+            React.createElement("button", { onClick: send, style: { width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, draft.trim() ? React.createElement(Send, { size: 17, color: "#0E1116" }) : React.createElement(Mic, { size: 17, color: "#0E1116" }))),
+        zoomed && (React.createElement(ImageZoomModal, { photo: conversation.other.avatar, initials: conversation.other.initials, color: conversation.other.color, onClose: () => setZoomed(false) }))));
 }
-function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
+function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut }) {
     const [zoomed, setZoomed] = useState(false);
+    const [menu, setMenu] = useState(false);
+    const [cropFile, setCropFile] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const galleryRef = useRef(null);
+    const cameraRef = useRef(null);
     const rows = [
         { label: "Name", value: profile.name },
         { label: "About", value: profile.about },
         profile.phone ? { label: "Phone", value: "+" + profile.phone, ro: true } : { label: "Email", value: profile.email || "", ro: true },
     ];
+    const onFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!file)
+            return;
+        if (!isJpgOrPng(file)) {
+            setError("Please choose a JPG or PNG image.");
+            return;
+        }
+        setError("");
+        setCropFile(file);
+    };
+    const savePhoto = async (avatar) => {
+        setBusy(true);
+        setError("");
+        try {
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { avatar } });
+            onUserUpdate(user);
+        }
+        catch (e) {
+            setError(e.message);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }, onContextMenu: e => e.preventDefault() },
         React.createElement(TopBar, { title: "Profile", onBack: onBack }),
+        menu && React.createElement(PhotoMenu, { hasPhoto: !!profile.avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => savePhoto(null) }),
+        cropFile && React.createElement(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setCropFile(null); savePhoto(d); } }),
         React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
             React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" } },
-                React.createElement(Ring, { size: 110, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true, onClick: () => setZoomed(true) })),
+                React.createElement("div", { style: { position: "relative" } },
+                    React.createElement(Ring, { size: 110, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true, onClick: () => setZoomed(true) }),
+                    React.createElement(CameraBadge, { onClick: () => setMenu(true), busy: busy }),
+                    React.createElement("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
+                    React.createElement("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } })),
+                busy && React.createElement("div", { style: { marginTop: 12, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" } }, "Saving photo\u2026")),
+            error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
             rows.map(r => (React.createElement("div", { key: r.label, onClick: !r.ro ? onEdit : undefined, style: { padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" } },
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 } }, r.label),
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
@@ -559,6 +686,7 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
     const [name, setName] = useState(profile.name);
     const [about, setAbout] = useState(profile.about);
     const [avatar, setAvatar] = useState(profile.avatar || null);
+    const [avatarChanged, setAvatarChanged] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
     const galleryRef = useRef(null);
@@ -570,8 +698,8 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
         e.target.value = "";
         if (!file)
             return;
-        if (!/^image\//.test(file.type)) {
-            setError("Please choose an image file.");
+        if (!isJpgOrPng(file)) {
+            setError("Please choose a JPG or PNG image.");
             return;
         }
         setError("");
@@ -581,7 +709,7 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
         setSaving(true);
         setError("");
         try {
-            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name, about, avatar } });
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name, about, ...(avatarChanged ? { avatar } : {}) } });
             onSave(user);
         }
         catch (e) {
@@ -593,24 +721,15 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
     };
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
         React.createElement(TopBar, { title: "Edit profile", onBack: onBack }),
-        menu && (React.createElement("div", { onClick: () => setMenu(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
-            React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" } },
-                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 10 } }, "Profile photo"),
-                [["Choose from gallery", () => galleryRef.current && galleryRef.current.click(), false], ["Take a photo", () => cameraRef.current && cameraRef.current.click(), false], avatar ? ["Remove photo", () => setAvatar(null), true] : null].filter(Boolean).map(([label, fn, danger]) => (React.createElement("button", { key: label, onClick: () => { setMenu(false); fn(); }, style: { display: "block", width: "100%", padding: "14px", marginBottom: 8, borderRadius: 12, border: "none", background: "#1E2530", color: danger ? "#FF6B5D" : "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, label))),
-                React.createElement("button", { onClick: () => setMenu(false), style: { display: "block", width: "100%", padding: "12px", border: "none", background: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 14, cursor: "pointer" } }, "Cancel")))),
-        cropFile && React.createElement(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setCropFile(null); } }),
+        menu && React.createElement(PhotoMenu, { hasPhoto: !!avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => { setAvatar(null); setAvatarChanged(true); } }),
+        cropFile && React.createElement(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); } }),
         React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
             React.createElement("div", { style: { display: "flex", justifyContent: "center", padding: "10px 0 24px" } },
                 React.createElement("div", { style: { position: "relative" } },
                     React.createElement(Ring, { size: 100, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true, onClick: () => setMenu(true) }),
-                    React.createElement("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: {
-                            position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
-                            background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
-                            justifyContent: "center", cursor: "pointer", padding: 0,
-                        } },
-                        React.createElement(Camera, { size: 15, color: "#0E1116" })),
-                    React.createElement("input", { ref: galleryRef, type: "file", accept: "image/*", onChange: onFileChange, style: { display: "none" } }),
-                    React.createElement("input", { ref: cameraRef, type: "file", accept: "image/*", capture: "user", onChange: onFileChange, style: { display: "none" } }))),
+                    React.createElement(CameraBadge, { onClick: () => setMenu(true) }),
+                    React.createElement("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
+                    React.createElement("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }))),
             error && React.createElement(Banner, { text: error }),
             React.createElement("div", { style: { padding: "0 20px 20px" } },
                 React.createElement("label", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 } }, "Name"),
@@ -916,6 +1035,11 @@ function App() {
             setPresence(prev => ({ ...prev, [userId]: online }));
         });
         socket.on("message:new", () => refreshConversations());
+        socket.on("user:update", (u) => {
+            // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
+            setConversations(prev => prev.map(c => (c.other.id === u.id ? { ...c, other: u } : c)));
+            setActiveConvo(prev => (prev && prev.other.id === u.id ? { ...prev, other: u } : prev));
+        });
         socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
         return () => socket.disconnect();
     }, [session, refreshConversations]);
@@ -943,6 +1067,11 @@ function App() {
         setActiveConvo(null);
         setShowProfile(false);
     };
+    const updateUser = (user) => {
+        const next = { ...session, user };
+        setSession(next);
+        saveJSON("session", next);
+    };
     const handleNewChatStarted = (conversation) => {
         setShowNewChat(false);
         refreshConversations();
@@ -965,7 +1094,7 @@ function App() {
         body = React.createElement(EditProfileScreen, { profile: session.user, token: session.token, onBack: () => setShowEdit(false), onSave: (user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); } });
     }
     else if (showProfile) {
-        body = React.createElement(ProfileScreen, { profile: session.user, onBack: () => setShowProfile(false), onEdit: () => setShowEdit(true), onLogOut: handleLogOut });
+        body = React.createElement(ProfileScreen, { profile: session.user, token: session.token, onUserUpdate: updateUser, onBack: () => setShowProfile(false), onEdit: () => setShowEdit(true), onLogOut: handleLogOut });
     }
     else {
         body = (React.createElement(React.Fragment, null,
