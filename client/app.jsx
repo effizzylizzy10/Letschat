@@ -48,6 +48,7 @@ const User = makeIcon([["p", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"], ["c",
 const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
 const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
 const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
+const ShoppingBag = makeIcon([["p", "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"], ["p", "M3 6h18"], ["p", "M16 10a4 4 0 0 1-8 0"]]);
 
 
 /* ============================================================
@@ -293,6 +294,7 @@ function TabBar({ active, setActive }) {
     { id: "chats", icon: MessageCircle, label: "Chats" },
     { id: "calls", icon: PhoneCall, label: "Calls" },
     { id: "status", icon: Radio, label: "Status" },
+    { id: "market", icon: ShoppingBag, label: "Market" },
     { id: "tools", icon: Grid3x3, label: "Tools" },
   ];
   return (
@@ -394,7 +396,7 @@ function NewChatModal({ token, onClose, onStarted }) {
 const GROUP_COLOR = "#8B7CF6";
 const normalizeConvo = (c, myId) => ({
   ...c, myId,
-  ...(c.isGroup ? { other: { id: c.id, name: c.name, initials: c.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "G", color: GROUP_COLOR, avatar: null } } : {}),
+  ...(c.isGroup ? { other: { id: c.id, name: c.name, initials: c.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "G", color: GROUP_COLOR, avatar: c.avatar || null } } : {}),
 });
 const statusText = (online, ts) => (online ? "online" : ts ? "last seen " + timeLabel(ts) : "offline");
 const senderPrefix = (c) => {
@@ -469,13 +471,16 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [zoom, setZoom] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [desc, setDesc] = useState(c.description || "");
   const link = c.inviteCode ? window.location.origin + window.location.pathname + "?join=" + c.inviteCode : "";
   const memberIds = c.members.map(m => m.id);
   const addable = contacts.filter(u => !memberIds.includes(u.id));
-  const call = async (key, path, body) => {
+  const call = async (key, path, body, method = "POST") => {
     setBusy(key); setError("");
     try {
-      const { conversation } = await api("/api/v1/conversations/" + c.id + "/" + path, { method: "POST", token, body });
+      const { conversation } = await api("/api/v1/conversations/" + c.id + "/" + path, { method, token, body });
       onChanged(conversation);
       return true;
     } catch (e) { setError(e.message); return false; } finally { setBusy(""); }
@@ -485,6 +490,13 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
     catch (e) { window.prompt("Copy this group link", link); }
   };
   const share = () => (navigator.share ? navigator.share({ title: c.name, text: "Join \"" + c.name + "\" on Letschat Africa", url: link }).catch(() => {}) : copy());
+  const pickPhoto = async (e) => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    if (!isJpgOrPng(f)) return setError("Group photo must be a JPG or PNG image");
+    try { call("photo", "", { avatar: await resizeImageToDataURL(f, 512) }, "PATCH"); } catch (err) { setError(err.message); }
+  };
+  const saveDesc = () => call("desc", "", { description: desc }, "PATCH");
   const addByPhone = async () => { if (phone.trim() && await call("phone", "members", { phone: phone.trim() })) setPhone(""); };
   const members = [...c.members].sort((a, b) => (b.id === c.adminId) - (a.id === c.adminId));
   return (
@@ -492,11 +504,25 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
       <TopBar title="Group info" onBack={onBack} />
       <div style={{ flex: 1, overflowY: "auto", padding: "0 18px 24px" }}>
         <div style={{ textAlign: "center", marginBottom: 6 }}>
-          <div style={{ display: "inline-block" }}><Ring size={84} color={GROUP_COLOR} initials={c.other.initials} /></div>
+          <div style={{ display: "inline-block", position: "relative" }}>
+            <Ring size={84} color={GROUP_COLOR} initials={c.other.initials} photo={c.avatar} onClick={c.avatar ? () => setZoom(true) : undefined} />
+            {isAdmin && <label style={{ position: "absolute", bottom: -2, right: -2, width: 28, height: 28, borderRadius: 14, background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Camera size={14} color="#0E1116" /><input type="file" accept="image/jpeg,image/png" style={{ display: "none" }} onChange={pickPhoto} /></label>}
+          </div>
           <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA", marginTop: 10 }}>{c.name}</div>
           <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Group · {c.members.length} members</div>
         </div>
         {error && <div style={{ marginTop: 12 }}><Banner text={error} onClose={() => setError("")} /></div>}
+        {isAdmin ? (
+          <>
+            <div style={sectionTitle}>Description</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <div style={{ ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" }}>
+                <textarea value={desc} maxLength={300} rows={3} onChange={e => setDesc(e.target.value)} placeholder="What is this group about?" style={{ ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 13.5, resize: "none" }} />
+              </div>
+              <button onClick={saveDesc} disabled={busy === "desc" || desc === (c.description || "")} style={smallBtn}>{busy === "desc" ? "…" : "Save"}</button>
+            </div>
+          </>
+        ) : c.description ? <div style={{ marginTop: 12, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", textAlign: "center", whiteSpace: "pre-wrap" }}>{c.description}</div> : null}
 
         {isAdmin ? (
           <>
@@ -526,14 +552,55 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
           <div style={{ marginTop: 14, fontFamily: "Inter", fontSize: 12.5, color: "#5B6673", textAlign: "center" }}>Only the group admin can add people or share the invite link.</div>
         )}
 
+        {isAdmin && c.dmRequests.length > 0 && (
+          <>
+            <div style={sectionTitle}>Private chat requests</div>
+            {c.dmRequests.map(r => {
+              const f = c.members.find(m => m.id === r.from), t = c.members.find(m => m.id === r.to);
+              return (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" }}>
+                  <div style={{ flex: 1 }}>{f ? f.name : "?"} <span style={{ color: "#5B6673" }}>wants to chat with</span> {t ? t.name : "?"}</div>
+                  <button onClick={() => call(r.id, "dm-requests/" + r.id, { approve: true })} style={smallBtn}>Approve</button>
+                  <button onClick={() => call(r.id, "dm-requests/" + r.id, { approve: false })} style={{ ...smallBtn, color: "#FF6B5D" }}>Decline</button>
+                </div>
+              );
+            })}
+          </>
+        )}
         <div style={sectionTitle}>Members ({c.members.length})</div>
         {members.map(m => {
           const online = m.id === myId || !!presence[m.id];
           return (
-            <PersonRow key={m.id} u={m} online={online} status={m.id === myId ? "You" : statusText(online, lastSeen[m.id])}
+            <PersonRow key={m.id} u={m} online={online} onClick={() => setProfile(m)} status={m.id === myId ? "You" : statusText(online, lastSeen[m.id]) + (isAdmin ? [m.phone && " · +" + m.phone, m.email && " · " + m.email].filter(Boolean).join("") : "")}
               right={m.id === c.adminId ? <span style={{ fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#35D0BA", border: "1px solid #35D0BA55", background: "#35D0BA18", borderRadius: 8, padding: "2px 8px" }}>Admin</span> : null} />
           );
         })}
+      </div>
+      {profile && <MemberProfileSheet m={profile} c={c} myId={myId} isAdmin={isAdmin} presence={presence} lastSeen={lastSeen} call={call} onClose={() => setProfile(null)} />}
+      {zoom && <ImageZoomModal photo={c.avatar} initials={c.other.initials} color={GROUP_COLOR} onClose={() => setZoom(false)} />}
+    </div>
+  );
+}
+
+function MemberProfileSheet({ m, c, myId, isAdmin, presence, lastSeen, call, onClose }) {
+  const [zoom, setZoom] = useState(false);
+  const [sent, setSent] = useState(false);
+  const mine = m.id === myId;
+  const online = mine || !!presence[m.id];
+  const rq = (c.dmRequests || []).filter(r => r.from === myId && r.to === m.id).slice(-1)[0];
+  const direct = isAdmin || c.adminId === m.id; // admin chats need no approval
+  const done = (sent && !rq) || (rq && (rq.status === "pending" || rq.status === "approved"));
+  const label = sent && !rq ? "Chat added to your Chats ✓" : rq && rq.status === "pending" ? "Request sent, waiting for the admin" : rq && rq.status === "approved" ? "Approved: it's in your Chats" : rq && rq.status === "declined" ? "Declined. Ask again" : direct ? "Message privately" : "Request private chat";
+  return (
+    <div style={{ ...sheet, zIndex: 30 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, alignItems: "center", textAlign: "center" }}>
+        <Ring size={110} color={m.color} initials={m.initials} photo={m.avatar} online={online} onClick={m.avatar ? () => setZoom(true) : undefined} />
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 12 }}>{m.name}{mine ? " (you)" : ""}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginBottom: 8 }}>{mine ? "online" : statusText(online, lastSeen[m.id])}</div>
+        {m.about && <div style={{ fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 10 }}>{m.about}</div>}
+        {isAdmin && (m.phone || m.email) && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", marginBottom: 10 }}>{m.phone && <div>+{m.phone}</div>}{m.email && <div>{m.email}</div>}</div>}
+        {!mine && <button onClick={async () => { if (await call(m.id, "dm-requests", { toId: m.id })) setSent(true); }} disabled={!!done} style={{ ...primaryBtn(!!done), marginTop: 6 }}>{label}</button>}
+        {zoom && <ImageZoomModal photo={m.avatar} initials={m.initials} color={m.color} onClose={() => setZoom(false)} />}
       </div>
     </div>
   );
@@ -623,6 +690,99 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
   );
 }
 
+function PostProductModal({ token, onClose, onPosted }) {
+  const [f, setF] = useState({ title: "", price: "", description: "" });
+  const [photo, setPhoto] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const pick = async (e) => {
+    const file = e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    if (!isJpgOrPng(file)) return setError("Photo must be a JPG or PNG image");
+    try { setPhoto(await resizeImageToDataURL(file, 640)); setError(""); } catch (err) { setError(err.message); }
+  };
+  const post = async () => {
+    setBusy(true); setError("");
+    try { await api("/api/v1/market", { method: "POST", token, body: { ...f, photo } }); onPosted(); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 }}>Post a product</div>
+        {error && <Banner text={error} />}
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          <label style={{ ...inputBox, cursor: "pointer", justifyContent: "center", color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>
+            {photo ? <img src={photo} alt="" style={{ width: 90, height: 90, borderRadius: 10, objectFit: "cover" }} /> : <><Camera size={18} /> Add a photo</>}
+            <input type="file" accept={PHOTO_ACCEPT} style={{ display: "none" }} onChange={pick} />
+          </label>
+          <div style={inputBox}><input value={f.title} maxLength={80} onChange={set("title")} placeholder="Product name" style={inputEl} /></div>
+          <div style={inputBox}><input value={f.price} maxLength={30} onChange={set("price")} placeholder="Price (e.g. ₦5,000)" style={inputEl} /></div>
+          <div style={inputBox}><textarea value={f.description} maxLength={1000} rows={4} onChange={set("description")} placeholder="Describe it: condition, size, location…" style={{ ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14, resize: "none" }} /></div>
+        </div>
+        <button onClick={post} disabled={busy || !f.title.trim() || !f.price.trim()} style={primaryBtn(busy)}>{busy ? "Posting…" : "Post"}</button>
+      </div>
+    </div>
+  );
+}
+
+function MarketScreen({ token, myId, onMessageSeller }) {
+  const [items, setItems] = useState(null);
+  const [q, setQ] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState("");
+  const [zoom, setZoom] = useState(null);
+  const load = useCallback(() => api("/api/v1/market?q=" + encodeURIComponent(q), { token }).then(d => { setItems(d.listings); setError(""); }).catch(e => setError(e.message)), [q, token]);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  const act = (id, path, method = "POST") => api("/api/v1/market/" + id + path, { method, token }).then(load).catch(e => setError(e.message));
+  const note = { padding: "40px 20px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Market" />
+      <div style={{ padding: "0 16px 10px" }}>
+        <div style={{ ...inputBox, marginBottom: 0, padding: "9px 12px" }}>
+          <Search size={17} color="#8891A0" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search products" style={{ ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14 }} />
+        </div>
+      </div>
+      {error && <Banner text={error} onClose={() => setError("")} />}
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 90px" }}>
+        {items === null && !error && <div style={note}>Loading…</div>}
+        {items && items.length === 0 && <div style={note}>Nothing here yet. Tap + to post the first product.</div>}
+        {(items || []).map(l => {
+          const mine = l.seller && l.seller.id === myId;
+          return (
+            <div key={l.id} style={{ background: "#161B22", border: "1px solid #262E3A", borderRadius: 16, marginBottom: 12, overflow: "hidden", opacity: l.sold ? 0.6 : 1 }}>
+              {l.photo && <img src={photoSrc(l.photo)} alt="" onClick={() => setZoom(l)} style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block", cursor: "pointer" }} />}
+              <div style={{ padding: "12px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" }}>{l.title}</span>
+                  <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#35D0BA", whiteSpace: "nowrap" }}>{l.sold ? "SOLD" : l.price}</span>
+                </div>
+                {l.description && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" }}>{l.description}</div>}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: l.description ? 0 : 10 }}>
+                  {l.seller && <Ring size={26} color={l.seller.color} initials={l.seller.initials} photo={l.seller.avatar} />}
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>{mine ? "You" : l.seller ? l.seller.name : "Unknown"} · {timeLabel(l.time)}</span>
+                  {mine ? (
+                    <>
+                      <button onClick={() => act(l.id, "/sold")} style={smallBtn}>{l.sold ? "Relist" : "Mark sold"}</button>
+                      <button onClick={() => window.confirm("Remove this listing?") && act(l.id, "", "DELETE")} style={{ ...smallBtn, color: "#FF6B5D" }}>Remove</button>
+                    </>
+                  ) : l.seller && <button onClick={() => onMessageSeller(l.seller).catch(e => setError(e.message))} style={smallBtn}>Message seller</button>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button onClick={() => setPosting(true)} style={{ position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27, background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 20px #35D0BA44", cursor: "pointer" }}><Plus size={24} color="#0E1116" /></button>
+      {posting && <PostProductModal token={token} onClose={() => setPosting(false)} onPosted={() => { setPosting(false); load(); }} />}
+      {zoom && <ImageZoomModal photo={zoom.photo} initials="" color="#35D0BA" onClose={() => setZoom(null)} />}
+    </div>
+  );
+}
+
 function CallsScreen() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -697,6 +857,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const [peerTyping, setPeerTyping] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [info, setInfo] = useState(false);
+  const [rec, setRec] = useState(null);
+  const [recSec, setRecSec] = useState(0);
   const endRef = useRef(null);
   const typingTimeout = useRef(null);
 
@@ -744,6 +906,31 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     });
   };
 
+  const startRec = async () => {
+    if (!socket || !navigator.mediaDevices || !window.MediaRecorder) return setError("Voice notes are not supported on this device");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { audioBitsPerSecond: 24000 });
+      const r = { mr, chunks: [], t0: Date.now(), cancel: false };
+      mr.ondataavailable = (e) => { if (e.data.size) r.chunks.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (r.cancel) return;
+        const fr = new FileReader();
+        fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error) setError(ack.error); });
+        fr.readAsDataURL(new Blob(r.chunks, { type: mr.mimeType || "audio/webm" }));
+      };
+      mr.start();
+      setRecSec(0); setRec(r);
+    } catch (e) { setError("Allow microphone access to record voice notes"); }
+  };
+  const stopRec = (cancel) => { if (!rec) return; rec.cancel = !!cancel; if (rec.mr.state !== "inactive") rec.mr.stop(); setRec(null); };
+  useEffect(() => {
+    if (!rec) return;
+    const t = setInterval(() => setRecSec(x => { if (x >= 59) stopRec(false); return x + 1; }), 1000);
+    return () => clearInterval(t);
+  }, [rec]);
+
   const isGroup = !!conversation.isGroup;
   const online = !!presence[conversation.other.id];
 
@@ -782,7 +969,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
             }}>
               {isGroup && !mine && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
-              <div>{m.text}</div>
+              {m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} /> : <div>{m.text}</div>}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
                 <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{timeLabel(m.time)}</span>
                 {mine && (m.read || (m.readBy && m.readBy.length) ? <CheckCheck size={13} color="#35D0BA" /> : <Check size={13} color="#B9C2CC" />)}
@@ -798,6 +985,13 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <div ref={endRef} />
       </div>
 
+      {rec && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" }}>
+          <span style={{ width: 10, height: 10, borderRadius: 5, background: "#FF6B5D" }} />
+          <span style={{ flex: 1 }}>Recording {Math.floor(recSec / 60)}:{String(recSec % 60).padStart(2, "0")} · tap send to finish</span>
+          <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#0E1116" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "9px 12px" }}>
           <Smile size={19} color="#8891A0" />
@@ -808,8 +1002,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             placeholder="Message" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
           <Paperclip size={18} color="#8891A0" />
         </div>
-        <button onClick={send} style={{ width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-          {draft.trim() ? <Send size={17} color="#0E1116" /> : <Mic size={17} color="#0E1116" />}
+        <button onClick={draft.trim() ? send : rec ? () => stopRec(false) : startRec} style={{ width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+          {draft.trim() || rec ? <Send size={17} color="#0E1116" /> : <Mic size={17} color="#0E1116" />}
         </button>
       </div>
       {info && isGroup && <GroupInfoScreen conversation={conversation} myId={myId} token={token} contacts={contacts} presence={presence} lastSeen={lastSeen} onBack={() => setInfo(false)} onChanged={onGroupChanged} />}
@@ -1384,6 +1578,11 @@ function App() {
   };
 
   const contacts = conversations.filter(c => !c.isGroup).map(c => c.other);
+  const messageSeller = async (seller) => {
+    const { conversation } = await api("/api/v1/conversations", { method: "POST", token: session.token, body: { userId: seller.id } });
+    setTab("chats");
+    handleNewChatStarted(conversation);
+  };
   const openGroup = (conversation) => {
     const c = normalizeConvo(conversation, session.user.id);
     setConversations(prev => [c, ...prev.filter(x => x.id !== c.id)]);
@@ -1439,6 +1638,7 @@ function App() {
             />
           )}
           {tab === "calls" && <CallsScreen />}
+          {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
           {tab === "status" && <StatusScreen profile={session.user} />}
           {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} />}
           {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} onClose={() => setShowNewGroup(false)} onCreated={(conv) => { setShowNewGroup(false); openGroup(conv); }} />}
