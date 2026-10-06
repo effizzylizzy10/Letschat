@@ -144,9 +144,14 @@ function avatarUrl(u) {
   if (u.avatar.startsWith("data:image/")) return `/api/v1/users/${u.id}/avatar?v=${u.avatarVersion || 1}`;
   return u.avatar; // e.g. a Google profile photo link
 }
+// Blue verification badge: set VERIFIED_USERS on the server to a comma-separated list of emails,
+// phone numbers (with country code) or user ids, e.g. VERIFIED_USERS=you@gmail.com,2348012345678
+const VERIFIED_LIST = (process.env.VERIFIED_USERS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+const isVerified = (u) => !!u && VERIFIED_LIST.some((v) => v === String(u.id).toLowerCase() || (u.email && v === String(u.email).toLowerCase()) || (!v.includes("@") && u.phone && v.replace(/\D/g, "") && v.replace(/\D/g, "") === normalizePhone(u.phone)));
 function publicUser(u) {
   return {
     id: u.id,
+    verified: isVerified(u),
     name: u.name,
     phone: u.phone || null, email: u.email || null,
     about: u.about,
@@ -156,7 +161,7 @@ function publicUser(u) {
   };
 }
 // Group members only see each other's name/photo/about, never phone numbers or emails.
-const memberView = (u, withContact) => (u ? { id: u.id, name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
+const memberView = (u, withContact) => (u ? { id: u.id, verified: isVerified(u), name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
 function groupView(db, c, uid) {
   const msgs = db.messages.filter((m) => m.conversationId === c.id);
   return {
@@ -684,11 +689,14 @@ const listingView = (l, db) => ({ id: l.id, title: l.title, description: l.descr
   photo: l.photo ? `/api/v1/market/${l.id}/photo?v=${l.time}` : null, seller: sellerView(db, l.sellerId), commentCount: (l.comments || []).length });
 // seller star ratings live on the seller's user record: { raterId: { stars, time } }
 const ratingOf = (u) => { const r = Object.values((u && u.ratings) || {}); const n = r.length; return { avg: n ? Math.round((r.reduce((a, x) => a + x.stars, 0) / n) * 10) / 10 : 0, count: n }; };
+// Better-rated sellers float to the top. Bayesian average: a seller with no ratings starts at a neutral 3.0,
+// so a few good ratings lift them up and a few bad ones push them down. Ties go to the newest post.
+function sellerScore(db, id) { const r = ratingOf(db.users.find((x) => x.id === id)); return (r.avg * r.count + 3 * 3) / (r.count + 3); }
 function sellerView(db, id) { const u = db.users.find((x) => x.id === id); const v = memberView(u); return v && { ...v, rating: ratingOf(u) }; }
 app.get("/api/market", authMiddleware, (req, res) => {
   const db = readDB();
   const q = String(req.query.q || "").trim().toLowerCase();
-  const items = listingsOf(db).filter((l) => !l.removed && (!q || (l.title + " " + l.description).toLowerCase().includes(q))).sort((a, b) => b.time - a.time).slice(0, 100);
+  const items = listingsOf(db).filter((l) => !l.removed && (!q || (l.title + " " + l.description).toLowerCase().includes(q))).sort((a, b) => (sellerScore(db, b.sellerId) - sellerScore(db, a.sellerId)) || b.time - a.time).slice(0, 100);
   res.json({ listings: items.map((l) => listingView(l, db)) });
 });
 app.post("/api/market", authMiddleware, (req, res) => {
