@@ -141,6 +141,19 @@ function publicUser(u) {
     avatar: avatarUrl(u),
   };
 }
+// Group members only see each other's name/photo/about, never phone numbers or emails.
+const memberView = (u) => (u ? { id: u.id, name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about } : null);
+function groupView(db, c, uid) {
+  const msgs = db.messages.filter((m) => m.conversationId === c.id);
+  return {
+    id: c.id, isGroup: true, name: c.name, adminId: c.adminId,
+    members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id))).filter(Boolean),
+    inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
+    lastMessage: msgs[msgs.length - 1] || null,
+    unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
+    updatedAt: c.updatedAt || c.createdAt,
+  };
+}
 const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
 function colorFor(id) {
   let sum = 0;
@@ -348,6 +361,7 @@ app.get("/api/conversations", authMiddleware, (req, res) => {
   const mine = db.conversations.filter((c) => c.participantIds.includes(req.user.id));
   const enriched = mine
     .map((c) => {
+      if (c.isGroup) return groupView(db, c, req.user.id);
       const otherId = c.participantIds.find((id) => id !== req.user.id);
       const other = db.users.find((u) => u.id === otherId);
       const msgs = db.messages.filter((m) => m.conversationId === c.id);
@@ -371,7 +385,7 @@ app.post("/api/conversations", authMiddleware, (req, res) => {
   if (other.id === req.user.id) return res.status(400).json({ error: "That's your own number" });
 
   let convo = db.conversations.find(
-    (c) => c.participantIds.includes(req.user.id) && c.participantIds.includes(other.id)
+    (c) => !c.isGroup && c.participantIds.includes(req.user.id) && c.participantIds.includes(other.id)
   );
   if (!convo) {
     convo = {
@@ -396,10 +410,10 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const all = db.messages.filter((m) => m.conversationId === req.params.id);
   let changed = false;
   for (const m of all) {
-    if (m.senderId !== req.user.id && !m.read) {
-      m.read = true;
-      changed = true;
-    }
+    if (m.senderId === req.user.id) continue;
+    if (convo.isGroup) {
+      if (!(m.readBy || (m.readBy = [])).includes(req.user.id)) { m.readBy.push(req.user.id); changed = true; }
+    } else if (!m.read) { m.read = true; changed = true; }
   }
   if (changed) writeDB(db);
   // pagination: ?limit=1..500 (default 200) and ?before=<timestamp ms> for older pages
@@ -408,6 +422,74 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const older = all.filter((m) => m.time < before);
   const page = older.slice(-limit);
   res.json({ messages: page, hasMore: older.length > page.length });
+});
+
+// ---- group chats: creator is admin; admin adds registered users or shares an invite link ----
+const MAX_GROUP = 256;
+function groupEvent(c, event) { // put every member's sockets in the room and tell them to refresh
+  for (const id of c.participantIds) { joinUserToRoom(id, `conv:${c.id}`); io.to(`user:${id}`).emit(event, { id: c.id }); }
+}
+function adminGroup(req, res) { // returns the group if the caller is its admin, else sends the error
+  const db = readDB();
+  const c = db.conversations.find((x) => x.id === req.params.id);
+  if (!c || !c.isGroup || !c.participantIds.includes(req.user.id)) { res.status(404).json({ error: "Group not found" }); return null; }
+  if (c.adminId !== req.user.id) { res.status(403).json({ error: "Only the group admin can do that" }); return null; }
+  return { db, c };
+}
+app.post("/api/conversations/group", authMiddleware, (req, res) => {
+  const db = readDB();
+  const name = String(req.body.name || "").trim();
+  if (!name || name.length > 60) return res.status(400).json({ error: "Group name must be 1 to 60 characters" });
+  const ids = [...new Set(Array.isArray(req.body.memberIds) ? req.body.memberIds : [])]
+    .filter((id) => id !== req.user.id && db.users.some((u) => u.id === id)).slice(0, MAX_GROUP - 1);
+  const c = { id: nanoid(12), isGroup: true, name, adminId: req.user.id, inviteCode: nanoid(16),
+    participantIds: [req.user.id, ...ids], createdAt: Date.now(), updatedAt: Date.now() };
+  db.conversations.push(c);
+  writeDB(db);
+  groupEvent(c, "conversation:added");
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+app.post("/api/conversations/:id/members", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g;
+  const want = (Array.isArray(req.body.userIds) ? req.body.userIds : []).filter((id) => db.users.some((u) => u.id === id));
+  if (req.body.phone) {
+    const u = findByPhoneOrEmail(db, req.body.phone);
+    if (!u) return res.status(404).json({ error: "No Letschat Africa user with that phone number or email" });
+    want.push(u.id);
+  }
+  const fresh = [...new Set(want)].filter((id) => !c.participantIds.includes(id));
+  if (!fresh.length) return res.status(400).json({ error: "Already in the group" });
+  if (c.participantIds.length + fresh.length > MAX_GROUP) return res.status(400).json({ error: `A group can have up to ${MAX_GROUP} people` });
+  c.participantIds.push(...fresh);
+  c.updatedAt = Date.now();
+  writeDB(db);
+  groupEvent(c, "conversation:update");
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+app.post("/api/conversations/:id/invite/reset", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  g.c.inviteCode = nanoid(16); // old link stops working immediately
+  writeDB(g.db);
+  res.json({ conversation: groupView(g.db, g.c, req.user.id) });
+});
+app.get("/api/groups/invite/:code", authMiddleware, (req, res) => {
+  const c = readDB().conversations.find((x) => x.isGroup && x.inviteCode === req.params.code);
+  if (!c) return res.status(404).json({ error: "This invite link is invalid or has been reset" });
+  res.json({ name: c.name, memberCount: c.participantIds.length, joined: c.participantIds.includes(req.user.id) });
+});
+app.post("/api/groups/join", authMiddleware, (req, res) => {
+  const db = readDB();
+  const c = db.conversations.find((x) => x.isGroup && x.inviteCode === String(req.body.code || ""));
+  if (!c) return res.status(404).json({ error: "This invite link is invalid or has been reset" });
+  if (!c.participantIds.includes(req.user.id)) {
+    if (c.participantIds.length >= MAX_GROUP) return res.status(400).json({ error: "This group is full" });
+    c.participantIds.push(req.user.id);
+    c.updatedAt = Date.now();
+    writeDB(db);
+    groupEvent(c, "conversation:update");
+  }
+  res.json({ conversation: groupView(db, c, req.user.id) });
 });
 
 app.use("/api", (req, res) => res.status(404).json({ error: `No such endpoint: ${req.method} ${req.originalUrl}` }));
@@ -424,6 +506,22 @@ const io = new Server(server, {
 });
 
 const userSockets = new Map();
+const lastSeen = new Map(); // userId -> when they last went offline (in memory)
+
+// Online/offline for everyone who shares a chat or group with this user.
+function presenceSnapshot(userId) {
+  const peers = new Set();
+  for (const c of readDB().conversations) {
+    if (c.participantIds.includes(userId)) c.participantIds.forEach((id) => id !== userId && peers.add(id));
+  }
+  const online = [];
+  const seen = {};
+  for (const id of peers) {
+    if (userSockets.has(id)) online.push(id);
+    else if (lastSeen.has(id)) seen[id] = lastSeen.get(id);
+  }
+  return { online, lastSeen: seen };
+}
 
 function joinUserToRoom(userId, room) {
   const sockets = userSockets.get(userId);
@@ -453,6 +551,8 @@ io.on("connection", (socket) => {
 
   if (!userSockets.has(userId)) userSockets.set(userId, new Set());
   userSockets.get(userId).add(socket.id);
+  socket.join(`user:${userId}`);
+  socket.on("presence:get", (ack) => { if (typeof ack === "function") ack(presenceSnapshot(userId)); });
 
   const db = readDB();
   const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
@@ -501,7 +601,8 @@ io.on("connection", (socket) => {
       set.delete(socket.id);
       if (set.size === 0) {
         userSockets.delete(userId);
-        io.emit("presence:update", { userId, online: false });
+        lastSeen.set(userId, Date.now());
+        io.emit("presence:update", { userId, online: false, lastSeen: lastSeen.get(userId) });
       }
     }
   });
