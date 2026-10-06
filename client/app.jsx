@@ -998,8 +998,8 @@ function ToolsScreen({ onProfile, onOpen = () => {}, settings = DEFAULT_SETTINGS
   const items = [
     { icon: User, label: "Profile", sub: "Edit your details" },
     { icon: Star, label: "Favourites", sub: nFav ? nFav + (nFav === 1 ? " chat" : " chats") + " pinned for quick access" : "Quick access chats", view: "favs" },
-    { icon: Users, label: "Communities", sub: "Manage your groups" },
-    { icon: Bell, label: "Notifications", sub: "Sound & alerts" },
+    { icon: Users, label: "Communities", sub: "Manage your groups", view: "communities" },
+    { icon: Bell, label: "Notifications", sub: "Sound & alerts", view: "notifs" },
     { icon: Lock, label: "Privacy", sub: nBlocked ? nBlocked + " blocked · read receipts, last seen" : "Blocked, read receipts", view: "privacy" },
     { icon: HelpCircle, label: "Help", sub: "FAQ, contact us", view: "help" },
   ];
@@ -1096,6 +1096,96 @@ function PrivacyScreen({ settings, onBack, onPrivacy, onBlock }) {
   );
 }
 
+
+// ---- notification preferences (kept on this device) + alerts for incoming messages ----
+const DEFAULT_NOTIFS = { sound: true, vibrate: true, banner: true, preview: true, groups: true };
+const getNotifs = () => ({ ...DEFAULT_NOTIFS, ...loadJSON("notifs", {}) });
+let _audioCtx = null;
+function playPing() {
+    try {
+        const A = window.AudioContext || window.webkitAudioContext;
+        if (!A) return;
+        _audioCtx = _audioCtx || new A();
+        const ctx = _audioCtx;
+        if (ctx.state === "suspended") ctx.resume();
+        const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(880, t);
+        o.frequency.setValueAtTime(1175, t + 0.12);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t); o.stop(t + 0.36);
+    } catch { }
+}
+function alertIncoming(m, convo, viewingThis) {
+    const n = getNotifs();
+    if (convo && convo.isGroup && !n.groups) return;
+    const hidden = document.hidden;
+    if (viewingThis && !hidden) return;
+    if (n.sound) playPing();
+    if (n.vibrate) { try { navigator.vibrate && navigator.vibrate(200); } catch { } }
+    if (n.banner && hidden && "Notification" in window && Notification.permission === "granted") {
+        try {
+            const title = convo ? convo.other.name : "Letschat Africa";
+            const body = n.preview ? (m.text || "New message") : "New message";
+            new Notification(title, { body, tag: "conv-" + m.conversationId });
+        } catch { }
+    }
+}
+function NotificationsScreen({ onBack }) {
+    const [prefs, setPrefs] = useState(getNotifs);
+    const [perm, setPerm] = useState(() => ("Notification" in window ? Notification.permission : "unsupported"));
+    const set = (patch) => { const next = { ...prefs, ...patch }; setPrefs(next); saveJSON("notifs", next); };
+    const askBanner = async (v) => {
+        if (!v) return set({ banner: false });
+        if (!("Notification" in window)) { setPerm("unsupported"); return; }
+        let p = Notification.permission;
+        if (p === "default") { try { p = await Notification.requestPermission(); } catch { } }
+        setPerm(p);
+        set({ banner: p === "granted" });
+    };
+    const row = (title, sub, on, onChange, disabled) => (React.createElement("div", { style: settingRow },
+        React.createElement("div", { style: { flex: 1 } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, sub)),
+        React.createElement(Toggle, { on: on, onChange: onChange, disabled: disabled })));
+    const bannerNote = perm === "unsupported" ? "Not supported in this browser." : perm === "denied" ? "Blocked in your browser settings. Allow notifications for this site to use this." : "Show an alert when a message arrives while the app is in the background.";
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Notifications", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            row("Message sound", "Play a tone when a new message arrives.", prefs.sound, (v) => { set({ sound: v }); if (v) playPing(); }),
+            row("Vibration", "Vibrate on new messages (supported phones only).", prefs.vibrate, (v) => { set({ vibrate: v }); if (v) { try { navigator.vibrate && navigator.vibrate(200); } catch { } } }),
+            row("Group messages", "Get alerts for messages in groups.", prefs.groups, (v) => set({ groups: v })),
+            row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"),
+            row("Show message preview", "Include the message text in background alerts.", prefs.preview, (v) => set({ preview: v })),
+            React.createElement("div", { style: { padding: "18px 16px" } },
+                React.createElement("button", { onClick: playPing, style: smallBtn }, "Play test sound")))));
+}
+function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, onNewGroup }) {
+    const groups = conversations.filter(c => c.isGroup);
+    const mine = groups.filter(c => c.adminId === myId);
+    const others = groups.filter(c => c.adminId !== myId);
+    const rowFor = (c) => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+        React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, (c.members ? c.members.length : 0) + " members \u00B7 " + (c.members ? c.members.filter(m => m.id === myId || presence[m.id]).length : 0) + " online")),
+        c.adminId === myId && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#35D0BA", border: "1px solid #35D0BA55", background: "#35D0BA18", borderRadius: 8, padding: "2px 8px" } }, "Admin"),
+        c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread)));
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Communities", onBack: onBack, right: React.createElement("button", { onClick: onNewGroup, style: smallBtn }, "New group") }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            groups.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                React.createElement(Users, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No groups yet"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Tap \u201CNew group\u201D to create one, or open an invite link from a friend to join theirs."))),
+            mine.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you manage \u00B7 " + mine.length),
+            mine.map(rowFor),
+            others.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you\u2019re in \u00B7 " + others.length),
+            others.map(rowFor))));
+}
 const FAQ = [
   ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a phone number with country code or an email, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
   ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
@@ -1981,7 +2071,7 @@ function App() {
       setPresence(prev => ({ ...prev, [userId]: online }));
       if (ts) setLastSeen(prev => ({ ...prev, [userId]: ts }));
     });
-    socket.on("message:new", () => refreshConversations());
+    socket.on("message:new", (m) => { refreshConversations(); if (m && m.senderId !== session.user.id) alertIncoming(m, convosRef.current.find(c => c.id === m.conversationId), !!(activeRef.current && activeRef.current.id === m.conversationId)); });
     socket.on("conversation:added", () => refreshConversations());
     socket.on("conversation:update", () => refreshConversations());
     socket.on("user:update", (u) => {
@@ -2006,6 +2096,9 @@ function App() {
     api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => {});
   }, [session && session.token]);
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
+  const activeRef = useRef(null), convosRef = useRef([]);
+  activeRef.current = activeConvo;
+  convosRef.current = conversations;
   const settingsCall = async (path, method, body, okMsg) => {
     try { const s = await api("/api/v1/me/" + path, { method, token: session.token, body }); setSettings(s); if (okMsg) flash(okMsg); return true; }
     catch (e) { flash(e.message); return false; }
@@ -2087,6 +2180,10 @@ function App() {
     body = <FavouritesScreen conversations={conversations} settings={settings} presence={presence} onBack={() => setToolsView(null)} onOpenChat={setActiveConvo} onToggleFavorite={toggleFavorite} />;
   } else if (toolsView === "privacy") {
     body = <PrivacyScreen settings={settings} onBack={() => setToolsView(null)} onPrivacy={savePrivacy} onBlock={setBlocked} />;
+  } else if (toolsView === "communities") {
+    body = <CommunitiesScreen conversations={conversations} myId={session.user.id} presence={presence} onBack={() => setToolsView(null)} onOpenChat={setActiveConvo} onNewGroup={() => { setToolsView(null); setShowNewGroup(true); }} />;
+  } else if (toolsView === "notifs") {
+    body = <NotificationsScreen onBack={() => setToolsView(null)} />;
   } else if (toolsView === "help") {
     body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
   } else if (showEdit) {
