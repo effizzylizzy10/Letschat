@@ -568,8 +568,13 @@ function friendlyAuthError(e) {
         "auth/popup-closed-by-user": "Google sign-in was cancelled.",
         "auth/popup-blocked": "Your browser blocked the Google pop-up. Allow pop-ups for this site and try again.",
         "auth/unauthorized-domain": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
+        "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
         "auth/network-request-failed": "Network problem. Check your connection and try again.",
     };
+    if (e && /region/i.test(e.message || ""))
+        return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
+    if (e && /already been rendered/i.test(e.message || ""))
+        return "Please refresh the page and try again.";
     return map[e && e.code] || (e && e.message) || "Something went wrong.";
 }
 function LoginScreen({ onContinue }) {
@@ -608,11 +613,19 @@ function LoginScreen({ onContinue }) {
                 throw e;
         }
     };
+    // A fresh reCAPTCHA element for every attempt (re-using one causes "already been rendered")
+    const makeVerifier = () => {
+        resetCaptcha();
+        const wrap = document.getElementById("recaptcha-wrap");
+        wrap.innerHTML = "";
+        const el = document.createElement("div");
+        wrap.appendChild(el);
+        window.__rv = new firebase.auth.RecaptchaVerifier(el, { size: "invisible" });
+        return window.__rv;
+    };
     const sendCode = () => run(async () => {
         try {
-            if (!window.__rv)
-                window.__rv = new firebase.auth.RecaptchaVerifier("recaptcha-container", { size: "invisible" });
-            setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + phone, window.__rv));
+            setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + phone, makeVerifier()));
         }
         catch (e) {
             resetCaptcha();
@@ -665,7 +678,7 @@ function LoginScreen({ onContinue }) {
             React.createElement("div", { style: box },
                 React.createElement("input", { value: name, onChange: e => setName(e.target.value), onKeyDown: e => e.key === "Enter" && name.trim() && !busy && createAccount(), placeholder: "Your name", autoFocus: true, style: inputStyle })),
             React.createElement("button", { disabled: busy || !name.trim(), onClick: createAccount, style: btn(!!name.trim()) }, busy ? "Please wait…" : "Create account"))),
-        React.createElement("div", { id: "recaptcha-container" }),
+        React.createElement("div", { id: "recaptcha-wrap" }),
         React.createElement("p", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 22, lineHeight: 1.6 } }, "Your phone number or Google email is your Letschat Africa ID, so others can find and message you.")));
 }
 function App() {
