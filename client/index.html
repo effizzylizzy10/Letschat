@@ -499,29 +499,83 @@ function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
                     " Log out"))),
         zoomed && (React.createElement(ImageZoomModal, { photo: profile.avatar, initials: profile.initials, color: "#35D0BA", onClose: () => setZoomed(false) }))));
 }
+// Move + zoom + crop a chosen photo to a square, then export 512x512 JPEG
+function CropModal({ file, onCancel, onDone }) {
+    const VIEW = Math.min(300, Math.max(220, (typeof window !== "undefined" ? window.innerWidth : 360) - 80));
+    const OUT = 512;
+    const [img, setImg] = useState(null);
+    const [zoom, setZoom] = useState(1);
+    const [off, setOff] = useState({ x: 0, y: 0 });
+    const [err, setErr] = useState("");
+    const drag = useRef(null);
+    useEffect(() => {
+        const url = URL.createObjectURL(file);
+        const im = new Image();
+        im.onload = () => setImg(im);
+        im.onerror = () => setErr("Couldn't open that image. Try a different one.");
+        im.src = url;
+        return () => URL.revokeObjectURL(url);
+    }, [file]);
+    const nw = img ? img.naturalWidth : 1;
+    const nh = img ? img.naturalHeight : 1;
+    const cover = VIEW / Math.min(nw, nh); // scale at which the image just covers the square
+    const scale = cover * zoom;
+    const clamp = (o, s) => {
+        const mx = Math.max(0, (nw * s - VIEW) / 2), my = Math.max(0, (nh * s - VIEW) / 2);
+        return { x: Math.min(mx, Math.max(-mx, o.x)), y: Math.min(my, Math.max(-my, o.y)) };
+    };
+    const changeZoom = (z) => { setZoom(z); setOff((o) => clamp(o, cover * z)); };
+    const confirm = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = OUT;
+        canvas.height = OUT;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, OUT, OUT);
+        const sw = VIEW / scale;
+        const sx = (nw * scale / 2 - VIEW / 2 - off.x) / scale;
+        const sy = (nh * scale / 2 - VIEW / 2 - off.y) / scale;
+        ctx.drawImage(img, sx, sy, sw, sw, 0, 0, OUT, OUT);
+        onDone(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    const pill = { padding: "13px 0", borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 14, flex: 1 };
+    return (React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 80, background: "#05070A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 } },
+        React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", marginBottom: 6 } }, "Move and zoom"),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 18 } }, "Drag the photo to fit it inside the circle"),
+        err && React.createElement(Banner, { text: err }),
+        React.createElement("div", { onPointerDown: (e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, o: off }; }, onPointerMove: (e) => { if (drag.current)
+                setOff(clamp({ x: drag.current.o.x + e.clientX - drag.current.x, y: drag.current.o.y + e.clientY - drag.current.y }, scale)); }, onPointerUp: () => { drag.current = null; }, onPointerCancel: () => { drag.current = null; }, onWheel: (e) => changeZoom(Math.min(4, Math.max(1, zoom - e.deltaY * 0.002))), style: { position: "relative", width: VIEW, height: VIEW, overflow: "hidden", background: "#161B22", touchAction: "none", cursor: "grab", borderRadius: 4 } },
+            img && (React.createElement("img", { src: img.src, alt: "", draggable: false, style: { position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" } })),
+            React.createElement("div", { style: { position: "absolute", inset: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" } })),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, width: VIEW, marginTop: 20 } },
+            React.createElement("span", { style: { color: "#8891A0", fontSize: 12, fontFamily: "Inter" } }, "-"),
+            React.createElement("input", { type: "range", min: "1", max: "4", step: "0.01", value: zoom, onChange: (e) => changeZoom(parseFloat(e.target.value)), style: { flex: 1, accentColor: "#35D0BA" }, "aria-label": "Zoom" }),
+            React.createElement("span", { style: { color: "#8891A0", fontSize: 12, fontFamily: "Inter" } }, "+")),
+        React.createElement("div", { style: { display: "flex", gap: 10, width: VIEW, marginTop: 24 } },
+            React.createElement("button", { onClick: onCancel, style: { ...pill, background: "#1E2530", color: "#F5F7FA" } }, "Cancel"),
+            React.createElement("button", { onClick: confirm, disabled: !img, style: { ...pill, background: img ? "#35D0BA" : "#1E2530", color: img ? "#0E1116" : "#5B6673" } }, "Use photo"))));
+}
 function EditProfileScreen({ onBack, profile, token, onSave }) {
     const [name, setName] = useState(profile.name);
     const [about, setAbout] = useState(profile.about);
     const [avatar, setAvatar] = useState(profile.avatar || null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
-    const fileRef = useRef(null);
-    const pickPhoto = () => { var _a; return (_a = fileRef.current) === null || _a === void 0 ? void 0 : _a.click(); };
-    const onFileChange = async (e) => {
-        var _a;
-        const file = (_a = e.target.files) === null || _a === void 0 ? void 0 : _a[0];
+    const galleryRef = useRef(null);
+    const cameraRef = useRef(null);
+    const [menu, setMenu] = useState(false);
+    const [cropFile, setCropFile] = useState(null);
+    const onFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
         if (!file)
             return;
-        try {
-            const dataUrl = await resizeImageToDataURL(file, 512);
-            setAvatar(dataUrl);
+        if (!/^image\//.test(file.type)) {
+            setError("Please choose an image file.");
+            return;
         }
-        catch (err) {
-            setError(err.message || "Couldn't process that image — try a different one.");
-        }
-        finally {
-            e.target.value = "";
-        }
+        setError("");
+        setCropFile(file);
     };
     const save = async () => {
         setSaving(true);
@@ -539,17 +593,24 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
     };
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
         React.createElement(TopBar, { title: "Edit profile", onBack: onBack }),
+        menu && (React.createElement("div", { onClick: () => setMenu(false), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+            React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 10 } }, "Profile photo"),
+                [["Choose from gallery", () => galleryRef.current && galleryRef.current.click(), false], ["Take a photo", () => cameraRef.current && cameraRef.current.click(), false], avatar ? ["Remove photo", () => setAvatar(null), true] : null].filter(Boolean).map(([label, fn, danger]) => (React.createElement("button", { key: label, onClick: () => { setMenu(false); fn(); }, style: { display: "block", width: "100%", padding: "14px", marginBottom: 8, borderRadius: 12, border: "none", background: "#1E2530", color: danger ? "#FF6B5D" : "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, label))),
+                React.createElement("button", { onClick: () => setMenu(false), style: { display: "block", width: "100%", padding: "12px", border: "none", background: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 14, cursor: "pointer" } }, "Cancel")))),
+        cropFile && React.createElement(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setCropFile(null); } }),
         React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
             React.createElement("div", { style: { display: "flex", justifyContent: "center", padding: "10px 0 24px" } },
                 React.createElement("div", { style: { position: "relative" } },
-                    React.createElement(Ring, { size: 100, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true }),
-                    React.createElement("button", { onClick: pickPhoto, style: {
+                    React.createElement(Ring, { size: 100, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true, onClick: () => setMenu(true) }),
+                    React.createElement("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: {
                             position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
                             background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
                             justifyContent: "center", cursor: "pointer", padding: 0,
                         } },
                         React.createElement(Camera, { size: 15, color: "#0E1116" })),
-                    React.createElement("input", { ref: fileRef, type: "file", accept: "image/*", onChange: onFileChange, style: { display: "none" } }))),
+                    React.createElement("input", { ref: galleryRef, type: "file", accept: "image/*", onChange: onFileChange, style: { display: "none" } }),
+                    React.createElement("input", { ref: cameraRef, type: "file", accept: "image/*", capture: "user", onChange: onFileChange, style: { display: "none" } }))),
             error && React.createElement(Banner, { text: error }),
             React.createElement("div", { style: { padding: "0 20px 20px" } },
                 React.createElement("label", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 } }, "Name"),
