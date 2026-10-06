@@ -42,13 +42,14 @@ const DB_PATH = path.join(__dirname, "data", "db.json");
 // Supabase mode: everything is loaded into memory at startup (routes stay fast and
 // synchronous) and every change is saved to Postgres right after (write-through).
 // Each row is { id, data jsonb }. Correct for a single server instance (Render).
-const COLLECTIONS = ["users", "conversations", "messages"];
+const COLLECTIONS = ["users", "conversations", "messages", "listings"];
+let marketReady = true; // false if the lc_listings table has not been created yet
 const table = (c) => "lc_" + c;
 let cache = null;
 const saved = new Map(); // "collection/id" -> JSON last written
 let flushChain = Promise.resolve();
 
-function emptyDB() { return { users: [], conversations: [], messages: [] }; }
+function emptyDB() { return { users: [], conversations: [], messages: [], listings: [] }; }
 function fileRead() {
   if (!fs.existsSync(DB_PATH)) return emptyDB();
   try { return JSON.parse(fs.readFileSync(DB_PATH, "utf-8")); } catch { return emptyDB(); }
@@ -60,8 +61,9 @@ function fileWrite(db) {
 
 async function persist() {
   for (const c of COLLECTIONS) {
+    if (c === "listings" && !marketReady) continue;
     const changed = [];
-    for (const item of cache[c]) {
+    for (const item of cache[c] || []) {
       const key = c + "/" + item.id;
       const json = JSON.stringify(item);
       if (saved.get(key) !== json) changed.push({ key, json, row: { id: item.id, data: item } });
@@ -81,6 +83,7 @@ async function initDB() {
   for (const c of COLLECTIONS) {
     for (let from = 0; ; from += 1000) {
       const { data, error } = await supabase.from(table(c)).select("id,data").order("id").range(from, from + 999);
+      if (error && c === "listings") { marketReady = false; console.warn("Table lc_listings not found: Market is off until you create it."); break; }
       if (error) throw new Error(`Could not read ${table(c)}: ${error.message} (did you run schema.sql?)`);
       for (const r of data) { cache[c].push(r.data); saved.set(c + "/" + r.id, JSON.stringify(r.data)); }
       if (data.length < 1000) break;
@@ -142,12 +145,14 @@ function publicUser(u) {
   };
 }
 // Group members only see each other's name/photo/about, never phone numbers or emails.
-const memberView = (u) => (u ? { id: u.id, name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about } : null);
+const memberView = (u, withContact) => (u ? { id: u.id, name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
 function groupView(db, c, uid) {
   const msgs = db.messages.filter((m) => m.conversationId === c.id);
   return {
-    id: c.id, isGroup: true, name: c.name, adminId: c.adminId,
-    members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id))).filter(Boolean),
+    id: c.id, isGroup: true, name: c.name, adminId: c.adminId, description: c.description || "",
+    avatar: c.avatar ? `/api/v1/groups/${c.id}/avatar?v=${c.avatarVersion || 1}` : null,
+    dmRequests: (c.dmRequests || []).filter((r) => (c.adminId === uid ? r.status === "pending" : r.from === uid)),
+    members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
     inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
     lastMessage: msgs[msgs.length - 1] || null,
     unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
@@ -191,6 +196,16 @@ app.get("/api/users/:id/avatar", (req, res) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.type(m[1]).send(Buffer.from(m[2], "base64"));
 });
+
+function sendImage(res, dataUrl) {
+  const m = dataUrl && /^data:(image\/(?:jpeg|png));base64,(.+)$/s.exec(dataUrl);
+  if (!m) return res.status(404).type("text/plain").send("No photo");
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.type(m[1]).send(Buffer.from(m[2], "base64"));
+}
+app.get("/api/groups/:id/avatar", (req, res) => sendImage(res, (readDB().conversations.find((x) => x.id === req.params.id) || {}).avatar));
+app.get("/api/market/:id/photo", (req, res) => sendImage(res, (listingsOf(readDB()).find((x) => x.id === req.params.id && !x.removed) || {}).photo));
 
 app.use("/api", (req, res, next) => {
   res.setHeader("X-Request-Id", nanoid(10));
@@ -380,13 +395,15 @@ app.get("/api/conversations", authMiddleware, (req, res) => {
 
 app.post("/api/conversations", authMiddleware, (req, res) => {
   const db = readDB();
-  const other = findByPhoneOrEmail(db, req.body.phone);
+  const byId = !!req.body.userId;
+  const other = byId ? db.users.find((u) => u.id === req.body.userId) : findByPhoneOrEmail(db, req.body.phone);
   if (!other) return res.status(404).json({ error: "No Letschat Africa user with that phone number or email" });
   if (other.id === req.user.id) return res.status(400).json({ error: "That's your own number" });
 
   let convo = db.conversations.find(
     (c) => !c.isGroup && c.participantIds.includes(req.user.id) && c.participantIds.includes(other.id)
   );
+  if (!convo && byId && !canDM(db, req.user.id, other.id)) return res.status(403).json({ error: "Ask the group admin to approve a private chat first" });
   if (!convo) {
     convo = {
       id: nanoid(12),
@@ -473,6 +490,89 @@ app.post("/api/conversations/:id/invite/reset", authMiddleware, (req, res) => {
   writeDB(g.db);
   res.json({ conversation: groupView(g.db, g.c, req.user.id) });
 });
+app.patch("/api/conversations/:id", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g;
+  const { name, description, avatar } = req.body;
+  if (name !== undefined && (!String(name).trim() || String(name).trim().length > 60)) return res.status(400).json({ error: "Group name must be 1 to 60 characters" });
+  if (description !== undefined && String(description).length > 300) return res.status(400).json({ error: "Description must be 300 characters or fewer" });
+  const photo = typeof avatar === "string" && avatar.startsWith("data:");
+  if (photo && (!AVATAR_RE.test(avatar) || !looksLikeImage(avatar) || avatar.length > 1500000)) return res.status(400).json({ error: "Group photo must be a JPG or PNG under about 1 MB" });
+  if (name !== undefined) c.name = String(name).trim();
+  if (description !== undefined) c.description = String(description).trim();
+  if (photo) { c.avatar = avatar; c.avatarVersion = Date.now(); } else if (avatar === null) { c.avatar = null; c.avatarVersion = Date.now(); }
+  writeDB(db);
+  groupEvent(c, "conversation:update");
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+function ensureDM(db, a, b) {
+  let convo = db.conversations.find((x) => !x.isGroup && x.participantIds.includes(a) && x.participantIds.includes(b));
+  if (!convo) { convo = { id: nanoid(12), participantIds: [a, b], createdAt: Date.now(), updatedAt: Date.now() }; db.conversations.push(convo); }
+  for (const id of [a, b]) { joinUserToRoom(id, `conv:${convo.id}`); io.to(`user:${id}`).emit("conversation:added", { id: convo.id }); }
+  return convo;
+}
+// Members need the admin's approval to start a private chat; the admin (or anyone messaging the admin) does not.
+app.post("/api/conversations/:id/dm-requests", authMiddleware, (req, res) => {
+  const db = readDB();
+  const c = db.conversations.find((x) => x.id === req.params.id);
+  const to = String(req.body.toId || "");
+  if (!c || !c.isGroup || !c.participantIds.includes(req.user.id) || !c.participantIds.includes(to) || to === req.user.id) return res.status(404).json({ error: "Member not found in this group" });
+  const reqs = c.dmRequests || (c.dmRequests = []);
+  if (c.adminId === req.user.id || c.adminId === to) { ensureDM(db, req.user.id, to); writeDB(db); return res.json({ conversation: groupView(db, c, req.user.id) }); }
+  if (reqs.some((r) => r.status === "pending" && r.from === req.user.id && r.to === to)) return res.status(400).json({ error: "Request already sent" });
+  reqs.push({ id: nanoid(8), from: req.user.id, to, status: "pending", time: Date.now() });
+  writeDB(db);
+  io.to(`user:${c.adminId}`).emit("conversation:update", { id: c.id });
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+app.post("/api/conversations/:id/dm-requests/:rid", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g;
+  const r = (c.dmRequests || []).find((x) => x.id === req.params.rid && x.status === "pending");
+  if (!r) return res.status(404).json({ error: "Request not found" });
+  r.status = req.body.approve ? "approved" : "declined";
+  if (req.body.approve) ensureDM(db, r.from, r.to);
+  writeDB(db);
+  io.to(`user:${r.from}`).emit("conversation:update", { id: c.id });
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+
+// ---- market: anyone can post products; buyers message the seller in-app ----
+function listingsOf(db) { return db.listings || (db.listings = []); }
+function canDM(db, me, other) { // messaging by user id: sellers with a live listing, or a group admin
+  if (listingsOf(db).some((l) => !l.removed && l.sellerId === other)) return true;
+  return db.conversations.some((c) => c.isGroup && c.participantIds.includes(me) && c.participantIds.includes(other) && (c.adminId === me || c.adminId === other));
+}
+const listingView = (l, db) => ({ id: l.id, title: l.title, description: l.description, price: l.price, sold: !!l.sold, time: l.time,
+  photo: l.photo ? `/api/v1/market/${l.id}/photo?v=${l.time}` : null, seller: memberView(db.users.find((u) => u.id === l.sellerId)) });
+app.get("/api/market", authMiddleware, (req, res) => {
+  const db = readDB();
+  const q = String(req.query.q || "").trim().toLowerCase();
+  const items = listingsOf(db).filter((l) => !l.removed && (!q || (l.title + " " + l.description).toLowerCase().includes(q))).sort((a, b) => b.time - a.time).slice(0, 100);
+  res.json({ listings: items.map((l) => listingView(l, db)) });
+});
+app.post("/api/market", authMiddleware, (req, res) => {
+  if (USE_DB && !marketReady) return res.status(503).json({ error: "Market storage is not set up on the server yet" });
+  const db = readDB();
+  const title = String(req.body.title || "").trim(), description = String(req.body.description || "").trim(), price = String(req.body.price || "").trim(), photo = req.body.photo;
+  if (!title || title.length > 80) return res.status(400).json({ error: "Title must be 1 to 80 characters" });
+  if (!price || price.length > 30) return res.status(400).json({ error: "Add a price (up to 30 characters, e.g. N5,000)" });
+  if (description.length > 1000) return res.status(400).json({ error: "Description must be 1000 characters or fewer" });
+  if (photo && (typeof photo !== "string" || !AVATAR_RE.test(photo) || !looksLikeImage(photo) || photo.length > 1500000)) return res.status(400).json({ error: "Photo must be a JPG or PNG under about 1 MB" });
+  const l = { id: nanoid(10), sellerId: req.user.id, title, description, price, photo: photo || null, time: Date.now() };
+  listingsOf(db).push(l);
+  writeDB(db);
+  res.json({ listing: listingView(l, db) });
+});
+function ownListing(req, res) {
+  const db = readDB();
+  const l = listingsOf(db).find((x) => x.id === req.params.id && !x.removed);
+  if (!l || l.sellerId !== req.user.id) { res.status(404).json({ error: "Listing not found" }); return null; }
+  return { db, l };
+}
+app.post("/api/market/:id/sold", authMiddleware, (req, res) => { const o = ownListing(req, res); if (!o) return; o.l.sold = !o.l.sold; writeDB(o.db); res.json({ listing: listingView(o.l, o.db) }); });
+app.delete("/api/market/:id", authMiddleware, (req, res) => { const o = ownListing(req, res); if (!o) return; o.l.removed = true; writeDB(o.db); res.json({ ok: true }); });
+
 app.get("/api/groups/invite/:code", authMiddleware, (req, res) => {
   const c = readDB().conversations.find((x) => x.isGroup && x.inviteCode === req.params.code);
   if (!c) return res.status(404).json({ error: "This invite link is invalid or has been reset" });
@@ -560,7 +660,10 @@ io.on("connection", (socket) => {
 
   io.emit("presence:update", { userId, online: true });
 
-  socket.on("message:send", ({ conversationId, text }, ack) => {
+  socket.on("message:send", ({ conversationId, text, audio, duration }, ack) => {
+    const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
+    if (audio && !voice) { if (ack) ack({ error: "Voice note is too long or not supported (max about 1 minute)" }); return; }
+    if (voice) text = "🎤 Voice note";
     if (!text || !text.trim()) {
       if (ack) ack({ error: "Message text required" });
       return;
@@ -580,6 +683,7 @@ io.on("connection", (socket) => {
       conversationId,
       senderId: userId,
       text: text.trim(),
+      ...(voice ? { audio, duration: Math.min(Math.round(Number(duration)) || 0, 120) } : {}),
       time: Date.now(),
       read: false,
     };
