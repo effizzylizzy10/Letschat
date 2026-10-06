@@ -1,12 +1,54 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import ReactDOM from "react-dom/client";
-import { io } from "socket.io-client";
-import {
-  Search, Phone, Video, MoreVertical, ArrowLeft, Camera, Send,
-  Smile, Paperclip, Mic, MessageCircle, PhoneCall, Radio, Grid3x3,
-  Check, CheckCheck, Plus, Edit3, ChevronRight, Bell,
-  Lock, HelpCircle, Users, Star, LogOut, User, Pencil, X, AlertCircle
-} from "lucide-react";
+// ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
+const { useState, useRef, useEffect, useCallback } = React;
+
+function makeIcon(nodes) {
+  return function Icon({ size = 24, color = "currentColor", strokeWidth = 2, style }) {
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
+        fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"
+        style={{ display: "inline-block", verticalAlign: "middle", ...style }}>
+        {nodes.map((n, i) => {
+          if (n[0] === "p") return <path key={i} d={n[1]} />;
+          if (n[0] === "c") return <circle key={i} cx={n[1]} cy={n[2]} r={n[3]} />;
+          if (n[0] === "r") return <rect key={i} x={n[1]} y={n[2]} width={n[3]} height={n[4]} rx={n[5]} />;
+          if (n[0] === "g") return <polygon key={i} points={n[1]} />;
+          return null;
+        })}
+      </svg>
+    );
+  };
+}
+const PHONE = "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z";
+const Search = makeIcon([["c", 11, 11, 8], ["p", "m21 21-4.3-4.3"]]);
+const Phone = makeIcon([["p", PHONE]]);
+const Video = makeIcon([["g", "23 7 16 12 23 17 23 7"], ["r", 1, 5, 15, 14, 2]]);
+const MoreVertical = makeIcon([["c", 12, 12, 1], ["c", 12, 5, 1], ["c", 12, 19, 1]]);
+const ArrowLeft = makeIcon([["p", "m12 19-7-7 7-7"], ["p", "M19 12H5"]]);
+const Camera = makeIcon([["p", "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"], ["c", 12, 13, 3]]);
+const Send = makeIcon([["p", "m22 2-7 20-4-9-9-4Z"], ["p", "M22 2 11 13"]]);
+const Smile = makeIcon([["c", 12, 12, 10], ["p", "M8 14s1.5 2 4 2 4-2 4-2"], ["p", "M9 9h.01"], ["p", "M15 9h.01"]]);
+const Paperclip = makeIcon([["p", "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"]]);
+const Mic = makeIcon([["p", "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"], ["p", "M19 10v2a7 7 0 0 1-14 0v-2"], ["p", "M12 19v3"]]);
+const MessageCircle = makeIcon([["p", "M7.9 20A9 9 0 1 0 4 16.1L2 22Z"]]);
+const PhoneCall = makeIcon([["p", PHONE], ["p", "M14.05 2a9 9 0 0 1 8 7.94"], ["p", "M14.05 6A5 5 0 0 1 18 10"]]);
+const Radio = makeIcon([["c", 12, 12, 2], ["p", "M4.93 19.07a10 10 0 0 1 0-14.14"], ["p", "M7.76 16.24a6 6 0 0 1 0-8.48"], ["p", "M16.24 7.76a6 6 0 0 1 0 8.48"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
+const Grid3x3 = makeIcon([["r", 3, 3, 18, 18, 2], ["p", "M3 9h18"], ["p", "M3 15h18"], ["p", "M9 3v18"], ["p", "M15 3v18"]]);
+const Check = makeIcon([["p", "M20 6 9 17l-5-5"]]);
+const CheckCheck = makeIcon([["p", "M18 6 7 17l-5-5"], ["p", "m22 10-7.5 7.5L13 16"]]);
+const Plus = makeIcon([["p", "M5 12h14"], ["p", "M12 5v14"]]);
+const Edit3 = makeIcon([["p", "M12 20h9"], ["p", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"]]);
+const ChevronRight = makeIcon([["p", "m9 18 6-6-6-6"]]);
+const Bell = makeIcon([["p", "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"], ["p", "M10.3 21a1.94 1.94 0 0 0 3.4 0"]]);
+const Lock = makeIcon([["r", 3, 11, 18, 11, 2], ["p", "M7 11V7a5 5 0 0 1 10 0v4"]]);
+const HelpCircle = makeIcon([["c", 12, 12, 10], ["p", "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"], ["p", "M12 17h.01"]]);
+const Users = makeIcon([["p", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"], ["c", 9, 7, 4], ["p", "M22 21v-2a4 4 0 0 0-3-3.87"], ["p", "M16 3.13a4 4 0 0 1 0 7.75"]]);
+const Star = makeIcon([["g", "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"]]);
+const LogOut = makeIcon([["p", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"], ["p", "m16 17 5-5-5-5"], ["p", "M21 12H9"]]);
+const User = makeIcon([["p", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"], ["c", 12, 7, 4]]);
+const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
+const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
+const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
+
 
 /* ============================================================
    LETSCHAT AFRICA — realtime chat client
@@ -16,7 +58,9 @@ import {
    Type: Display 'Sora' / Body 'Inter'
    ============================================================ */
 
-const { API_URL, SOCKET_URL } = window.LETSCHAT_CONFIG;
+const { API_URL, SOCKET_URL, FIREBASE } = window.LETSCHAT_CONFIG;
+const FIREBASE_READY = !!(FIREBASE && FIREBASE.apiKey && !String(FIREBASE.apiKey).startsWith("PASTE"));
+if (FIREBASE_READY) firebase.initializeApp(FIREBASE);
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
 
 // ---- local persistence (device-only: session token, cached profile) ----
@@ -44,9 +88,9 @@ async function api(path, { method = "GET", token, body } = {}) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-  return data;
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || payload.success === false) throw new Error((payload.error && payload.error.message) || `Request failed (${res.status})`);
+  return payload.data;
 }
 
 function timeLabel(ts) {
@@ -82,7 +126,11 @@ function resizeImageToDataURL(file, maxSize = 512) {
   });
 }
 
+// photos from our own server come back as a path ("/api/v1/users/ID/avatar?v=..."): add the server address
+const photoSrc = (p) => (p && p.startsWith("/") ? API_URL + p : p);
+
 function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
+  photo = photoSrc(photo);
   return (
     <div onClick={onClick} style={{ position: "relative", width: size, height: size, flexShrink: 0, cursor: onClick ? "pointer" : "default" }}>
       {ring && (
@@ -116,31 +164,127 @@ function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
   );
 }
 
-// ---- fullscreen tap-to-zoom viewer for a profile picture ----
+// ---- fullscreen photo viewer: pinch, double-tap or scroll to zoom, drag to move ----
 function ImageZoomModal({ photo, initials, color, onClose }) {
+  photo = photoSrc(photo);
+  const [t, setT] = useState({ s: 1, x: 0, y: 0 });
+  const box = useRef(null);
+  const ptrs = useRef(new Map());
+  const base = useRef(null);
+  const moved = useRef(false);
+  const lastTap = useRef(0);
+
+  const clamp = (n) => {
+    const s = Math.min(5, Math.max(1, n.s));
+    const W = box.current ? box.current.offsetWidth : 340;
+    const m = ((s - 1) * W) / 2;
+    return { s, x: s === 1 ? 0 : Math.min(m, Math.max(-m, n.x)), y: s === 1 ? 0 : Math.min(m, Math.max(-m, n.y)) };
+  };
+  const snap = () => { base.current = { t, p: [...ptrs.current.values()].map((q) => ({ ...q })) }; };
+
+  const down = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.current.size === 1) moved.current = false;
+    snap();
+  };
+  const move = (e) => {
+    if (!ptrs.current.has(e.pointerId) || !base.current) return;
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...ptrs.current.values()];
+    const b = base.current;
+    if (p.length >= 2 && b.p.length >= 2) {
+      moved.current = true;
+      const d0 = Math.hypot(b.p[0].x - b.p[1].x, b.p[0].y - b.p[1].y) || 1;
+      const d1 = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      setT(clamp({
+        s: (b.t.s * d1) / d0,
+        x: b.t.x + (p[0].x + p[1].x) / 2 - (b.p[0].x + b.p[1].x) / 2,
+        y: b.t.y + (p[0].y + p[1].y) / 2 - (b.p[0].y + b.p[1].y) / 2,
+      }));
+    } else if (p.length === 1 && b.p.length === 1) {
+      const dx = p[0].x - b.p[0].x, dy = p[0].y - b.p[0].y;
+      if (Math.abs(dx) + Math.abs(dy) > 6) moved.current = true;
+      if (b.t.s > 1) setT(clamp({ s: b.t.s, x: b.t.x + dx, y: b.t.y + dy }));
+    }
+  };
+  const up = (e) => {
+    ptrs.current.delete(e.pointerId);
+    if (ptrs.current.size === 0 && !moved.current) {
+      const now = Date.now();
+      if (now - lastTap.current < 300) { setT((c) => clamp(c.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.5, x: 0, y: 0 })); lastTap.current = 0; }
+      else lastTap.current = now;
+    }
+    snap();
+  };
+
   return (
     <div onClick={onClose} style={{
-      position: "absolute", inset: 0, background: "#000000E6", zIndex: 30,
-      display: "flex", alignItems: "center", justifyContent: "center",
+      position: "absolute", inset: 0, background: "#000000F2", zIndex: 30,
+      display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column",
     }}>
-      <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer" }}>
+      <button onClick={onClose} aria-label="Close" style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", zIndex: 2 }}>
         <X size={26} />
       </button>
       {photo ? (
-        <img
-          src={photo}
-          alt=""
-          onContextMenu={e => e.preventDefault()}
-          draggable={false}
-          style={{
-            width: "82%", maxWidth: 340, aspectRatio: "1 / 1", borderRadius: "50%",
-            objectFit: "cover", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
-          }}
-        />
+        <>
+          <div
+            ref={box}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+            onWheel={(e) => setT((c) => clamp({ ...c, s: c.s - e.deltaY * 0.003 }))}
+            style={{ width: "100%", aspectRatio: "1 / 1", overflow: "hidden", touchAction: "none", cursor: t.s > 1 ? "grab" : "zoom-in" }}
+          >
+            <img
+              src={photo}
+              alt=""
+              onContextMenu={(e) => e.preventDefault()}
+              draggable={false}
+              style={{
+                width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none",
+                transform: `translate(${t.x}px, ${t.y}px) scale(${t.s})`, transformOrigin: "center",
+                userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+              }}
+            />
+          </div>
+          <div style={{ marginTop: 14, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>Pinch or double-tap to zoom</div>
+        </>
       ) : (
         <div style={{ width: 220, height: 220, borderRadius: "50%", background: color + "26", color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 70, border: `1px solid ${color}55` }}>{initials}</div>
       )}
     </div>
+  );
+}
+
+// ---- shared: photo type check, bottom sheet menu, camera badge ----
+const PHOTO_ACCEPT = "image/jpeg,image/png";
+const isJpgOrPng = (file) => /^image\/(jpe?g|png)$/i.test(file.type);
+
+function PhotoMenu({ hasPhoto, onGallery, onCamera, onRemove, onClose }) {
+  const items = [["Choose from gallery", onGallery, false], ["Take a photo", onCamera, false], hasPhoto ? ["Remove photo", onRemove, true] : null].filter(Boolean);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" }}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 2 }}>Profile photo</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginBottom: 12 }}>JPG or PNG</div>
+        {items.map(([label, fn, danger]) => (
+          <button key={label} onClick={() => { onClose(); fn(); }} style={{ display: "block", width: "100%", padding: "14px", marginBottom: 8, borderRadius: 12, border: "none", background: "#1E2530", color: danger ? "#FF6B5D" : "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>{label}</button>
+        ))}
+        <button onClick={onClose} style={{ display: "block", width: "100%", padding: "12px", border: "none", background: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 14, cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function CameraBadge({ onClick, busy }) {
+  return (
+    <button onClick={onClick} disabled={busy} aria-label="Change profile photo" style={{
+      position: "absolute", bottom: 2, right: 2, width: 34, height: 34, borderRadius: "50%",
+      background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
+      justifyContent: "center", cursor: busy ? "default" : "pointer", padding: 0, opacity: busy ? 0.6 : 1,
+    }}>
+      <Camera size={16} color="#0E1116" />
+    </button>
   );
 }
 
@@ -209,7 +353,7 @@ function NewChatModal({ token, onClose, onStarted }) {
     if (!phone.trim()) return;
     setBusy(true); setError("");
     try {
-      const { conversation } = await api("/api/conversations", { method: "POST", token, body: { phone } });
+      const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone } });
       onStarted(conversation);
     } catch (e) {
       setError(e.message);
@@ -230,13 +374,12 @@ function NewChatModal({ token, onClose, onStarted }) {
         <div style={{ width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 18px" }} />
         <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Start a new chat</div>
         <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 }}>
-          Enter the Letschat Africa phone number of the person you want to message. They need to have signed in to Letschat Africa at least once.
+          Enter the phone number (with country code) or Google email of the person you want to message. They need to have signed in to Letschat Africa at least once.
         </div>
         {error && <Banner text={error} />}
         <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
-          <span style={{ fontFamily: "Sora", fontWeight: 600, color: "#8891A0" }}>+</span>
-          <input value={phone} onChange={e => setPhone(e.target.value.replace(/[^\d+]/g, ""))}
-            placeholder="234801234567" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
+          <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }}
+            placeholder="Phone (234801234567) or email" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
         </div>
         <button onClick={start} disabled={busy || !phone.trim()} style={{
           width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
@@ -275,7 +418,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
         )}
         {conversations.map(c => (
           <div key={c.id} onClick={() => onOpenChat(c)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer" }}>
-            <Ring size={52} color={c.other.color} initials={c.other.initials} online={!!presence[c.other.id]} />
+            <Ring size={52} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={!!presence[c.other.id]} />
             <div style={{ flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                 <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{c.other.name}</span>
@@ -376,13 +519,14 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [peerTyping, setPeerTyping] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
   const endRef = useRef(null);
   const typingTimeout = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api(`/api/conversations/${conversation.id}/messages`, { token })
+    api(`/api/v1/conversations/${conversation.id}/messages`, { token })
       .then(({ messages }) => { if (!cancelled) setMsgs(messages); })
       .catch(e => setError(e.message))
       .finally(() => !cancelled && setLoading(false));
@@ -429,7 +573,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B" }}>
         <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}><ArrowLeft size={22} /></button>
-        <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} online={online} />
+        <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={online} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" }}>{conversation.other.name}</div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: peerTyping ? "#35D0BA" : online ? "#35D0BA" : "#5B6673" }}>
@@ -488,33 +632,72 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           {draft.trim() ? <Send size={17} color="#0E1116" /> : <Mic size={17} color="#0E1116" />}
         </button>
       </div>
+      {zoomed && (
+        <ImageZoomModal photo={conversation.other.avatar} initials={conversation.other.initials} color={conversation.other.color} onClose={() => setZoomed(false)} />
+      )}
     </div>
   );
 }
 
-function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
+function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut }) {
   const [zoomed, setZoomed] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [cropFile, setCropFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const galleryRef = useRef(null);
+  const cameraRef = useRef(null);
   const rows = [
     { label: "Name", value: profile.name },
     { label: "About", value: profile.about },
-    { label: "Phone", value: "+" + profile.phone },
+    profile.phone ? { label: "Phone", value: "+" + profile.phone, ro: true } : { label: "Email", value: profile.email || "", ro: true },
   ];
+
+  const onFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!isJpgOrPng(file)) { setError("Please choose a JPG or PNG image."); return; }
+    setError("");
+    setCropFile(file);
+  };
+  const savePhoto = async (avatar) => {
+    setBusy(true); setError("");
+    try {
+      const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { avatar } });
+      onUserUpdate(user);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       style={{ display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }}
       onContextMenu={e => e.preventDefault()}
     >
       <TopBar title="Profile" onBack={onBack} />
+      {menu && <PhotoMenu hasPhoto={!!profile.avatar} onClose={() => setMenu(false)} onGallery={() => galleryRef.current && galleryRef.current.click()} onCamera={() => cameraRef.current && cameraRef.current.click()} onRemove={() => savePhoto(null)} />}
+      {cropFile && <CropModal file={cropFile} onCancel={() => setCropFile(null)} onDone={(d) => { setCropFile(null); savePhoto(d); }} />}
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" }}>
-          <Ring size={110} color="#35D0BA" initials={profile.initials} photo={profile.avatar} ring onClick={() => setZoomed(true)} />
+          <div style={{ position: "relative" }}>
+            <Ring size={110} color="#35D0BA" initials={profile.initials} photo={profile.avatar} ring onClick={() => setZoomed(true)} />
+            <CameraBadge onClick={() => setMenu(true)} busy={busy} />
+            <input ref={galleryRef} type="file" accept={PHOTO_ACCEPT} onChange={onFileChange} style={{ display: "none" }} />
+            <input ref={cameraRef} type="file" accept={PHOTO_ACCEPT} capture="user" onChange={onFileChange} style={{ display: "none" }} />
+          </div>
+          {busy && <div style={{ marginTop: 12, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" }}>Saving photo…</div>}
         </div>
+        {error && <Banner text={error} onClose={() => setError("")} />}
         {rows.map(r => (
-          <div key={r.label} onClick={r.label !== "Phone" ? onEdit : undefined} style={{ padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: r.label !== "Phone" ? "pointer" : "default" }}>
+          <div key={r.label} onClick={!r.ro ? onEdit : undefined} style={{ padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" }}>
             <div style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{r.label}</div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{r.value}</span>
-              {r.label !== "Phone" && <Pencil size={15} color="#5B6673" />}
+              {!r.ro && <Pencil size={15} color="#5B6673" />}
             </div>
           </div>
         ))}
@@ -531,33 +714,104 @@ function ProfileScreen({ onBack, onEdit, profile, onLogOut }) {
   );
 }
 
+// Move + zoom + crop a chosen photo to a square, then export 512x512 JPEG
+function CropModal({ file, onCancel, onDone }) {
+  const VIEW = Math.min(300, Math.max(220, (typeof window !== "undefined" ? window.innerWidth : 360) - 80));
+  const OUT = 512;
+  const [img, setImg] = useState(null);
+  const [zoom, setZoom] = useState(1);
+  const [off, setOff] = useState({ x: 0, y: 0 });
+  const [err, setErr] = useState("");
+  const drag = useRef(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => setImg(im);
+    im.onerror = () => setErr("Couldn't open that image. Try a different one.");
+    im.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const nw = img ? img.naturalWidth : 1;
+  const nh = img ? img.naturalHeight : 1;
+  const cover = VIEW / Math.min(nw, nh); // scale at which the image just covers the square
+  const scale = cover * zoom;
+  const clamp = (o, s) => {
+    const mx = Math.max(0, (nw * s - VIEW) / 2), my = Math.max(0, (nh * s - VIEW) / 2);
+    return { x: Math.min(mx, Math.max(-mx, o.x)), y: Math.min(my, Math.max(-my, o.y)) };
+  };
+  const changeZoom = (z) => { setZoom(z); setOff((o) => clamp(o, cover * z)); };
+
+  const confirm = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = OUT; canvas.height = OUT;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, OUT, OUT);
+    const sw = VIEW / scale;
+    const sx = (nw * scale / 2 - VIEW / 2 - off.x) / scale;
+    const sy = (nh * scale / 2 - VIEW / 2 - off.y) / scale;
+    ctx.drawImage(img, sx, sy, sw, sw, 0, 0, OUT, OUT);
+    onDone(canvas.toDataURL("image/jpeg", 0.85));
+  };
+
+  const pill = { padding: "13px 0", borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 14, flex: 1 };
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "#05070A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", marginBottom: 6 }}>Move and zoom</div>
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 18 }}>Drag the photo to fit it inside the circle</div>
+      {err && <Banner text={err} />}
+      <div
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, o: off }; }}
+        onPointerMove={(e) => { if (drag.current) setOff(clamp({ x: drag.current.o.x + e.clientX - drag.current.x, y: drag.current.o.y + e.clientY - drag.current.y }, scale)); }}
+        onPointerUp={() => { drag.current = null; }}
+        onPointerCancel={() => { drag.current = null; }}
+        onWheel={(e) => changeZoom(Math.min(4, Math.max(1, zoom - e.deltaY * 0.002)))}
+        style={{ position: "relative", width: VIEW, height: VIEW, overflow: "hidden", background: "#161B22", touchAction: "none", cursor: "grab", borderRadius: 4 }}
+      >
+        {img && (
+          <img src={img.src} alt="" draggable={false} style={{ position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" }} />
+        )}
+        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" }} />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, width: VIEW, marginTop: 20 }}>
+        <span style={{ color: "#8891A0", fontSize: 12, fontFamily: "Inter" }}>-</span>
+        <input type="range" min="1" max="4" step="0.01" value={zoom} onChange={(e) => changeZoom(parseFloat(e.target.value))} style={{ flex: 1, accentColor: "#35D0BA" }} aria-label="Zoom" />
+        <span style={{ color: "#8891A0", fontSize: 12, fontFamily: "Inter" }}>+</span>
+      </div>
+      <div style={{ display: "flex", gap: 10, width: VIEW, marginTop: 24 }}>
+        <button onClick={onCancel} style={{ ...pill, background: "#1E2530", color: "#F5F7FA" }}>Cancel</button>
+        <button onClick={confirm} disabled={!img} style={{ ...pill, background: img ? "#35D0BA" : "#1E2530", color: img ? "#0E1116" : "#5B6673" }}>Use photo</button>
+      </div>
+    </div>
+  );
+}
+
 function EditProfileScreen({ onBack, profile, token, onSave }) {
   const [name, setName] = useState(profile.name);
   const [about, setAbout] = useState(profile.about);
   const [avatar, setAvatar] = useState(profile.avatar || null);
+  const [avatarChanged, setAvatarChanged] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const fileRef = useRef(null);
+  const galleryRef = useRef(null);
+  const cameraRef = useRef(null);
+  const [menu, setMenu] = useState(false);
+  const [cropFile, setCropFile] = useState(null);
 
-  const pickPhoto = () => fileRef.current?.click();
-
-  const onFileChange = async (e) => {
-    const file = e.target.files?.[0];
+  const onFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
     if (!file) return;
-    try {
-      const dataUrl = await resizeImageToDataURL(file, 512);
-      setAvatar(dataUrl);
-    } catch (err) {
-      setError(err.message || "Couldn't process that image — try a different one.");
-    } finally {
-      e.target.value = "";
-    }
+    if (!isJpgOrPng(file)) { setError("Please choose a JPG or PNG image."); return; }
+    setError("");
+    setCropFile(file);
   };
 
   const save = async () => {
     setSaving(true); setError("");
     try {
-      const { user } = await api("/api/me", { method: "PATCH", token, body: { name, about, avatar } });
+      const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name, about, ...(avatarChanged ? { avatar } : {}) } });
       onSave(user);
     } catch (e) {
       setError(e.message);
@@ -569,18 +823,15 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <TopBar title="Edit profile" onBack={onBack} />
+      {menu && <PhotoMenu hasPhoto={!!avatar} onClose={() => setMenu(false)} onGallery={() => galleryRef.current && galleryRef.current.click()} onCamera={() => cameraRef.current && cameraRef.current.click()} onRemove={() => { setAvatar(null); setAvatarChanged(true); }} />}
+      {cropFile && <CropModal file={cropFile} onCancel={() => setCropFile(null)} onDone={(d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); }} />}
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 24px" }}>
           <div style={{ position: "relative" }}>
-            <Ring size={100} color="#35D0BA" initials={profile.initials} photo={avatar} ring />
-            <button onClick={pickPhoto} style={{
-              position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
-              background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
-              justifyContent: "center", cursor: "pointer", padding: 0,
-            }}>
-              <Camera size={15} color="#0E1116" />
-            </button>
-            <input ref={fileRef} type="file" accept="image/*" onChange={onFileChange} style={{ display: "none" }} />
+            <Ring size={100} color="#35D0BA" initials={profile.initials} photo={avatar} ring onClick={() => setMenu(true)} />
+            <CameraBadge onClick={() => setMenu(true)} />
+            <input ref={galleryRef} type="file" accept={PHOTO_ACCEPT} onChange={onFileChange} style={{ display: "none" }} />
+            <input ref={cameraRef} type="file" accept={PHOTO_ACCEPT} capture="user" onChange={onFileChange} style={{ display: "none" }} />
           </div>
         </div>
         {error && <Banner text={error} />}
@@ -600,68 +851,247 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
   );
 }
 
-function LoginScreen({ onContinue }) {
-  const [phone, setPhone] = useState("");
-  const [name, setName] = useState("");
-  const [needsName, setNeedsName] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+// [ISO code, name, dial code]; the first four are shown first
+const COUNTRIES = [
+  ["NG","Nigeria","234"],["GH","Ghana","233"],["KE","Kenya","254"],["ZA","South Africa","27"],
+  ["DZ","Algeria","213"],["AO","Angola","244"],["BJ","Benin","229"],["BW","Botswana","267"],["BF","Burkina Faso","226"],
+  ["BI","Burundi","257"],["CM","Cameroon","237"],["CV","Cape Verde","238"],["CF","Central African Republic","236"],
+  ["TD","Chad","235"],["KM","Comoros","269"],["CG","Congo","242"],["CD","DR Congo","243"],["CI","Côte d'Ivoire","225"],
+  ["DJ","Djibouti","253"],["EG","Egypt","20"],["GQ","Equatorial Guinea","240"],["ER","Eritrea","291"],["SZ","Eswatini","268"],
+  ["ET","Ethiopia","251"],["GA","Gabon","241"],["GM","Gambia","220"],["GN","Guinea","224"],["GW","Guinea-Bissau","245"],
+  ["LS","Lesotho","266"],["LR","Liberia","231"],["LY","Libya","218"],["MG","Madagascar","261"],["MW","Malawi","265"],
+  ["ML","Mali","223"],["MR","Mauritania","222"],["MU","Mauritius","230"],["MA","Morocco","212"],["MZ","Mozambique","258"],
+  ["NA","Namibia","264"],["NE","Niger","227"],["RW","Rwanda","250"],["ST","São Tomé and Príncipe","239"],["SN","Senegal","221"],
+  ["SC","Seychelles","248"],["SL","Sierra Leone","232"],["SO","Somalia","252"],["SS","South Sudan","211"],["SD","Sudan","249"],
+  ["TZ","Tanzania","255"],["TG","Togo","228"],["TN","Tunisia","216"],["UG","Uganda","256"],["ZM","Zambia","260"],["ZW","Zimbabwe","263"],
+  ["GB","United Kingdom","44"],["US","United States","1"],["CA","Canada","1"],["AE","United Arab Emirates","971"],
+  ["FR","France","33"],["DE","Germany","49"],["IN","India","91"],
+];
+// 8135351804 -> "81 3535 1804" (2 digits, space, 4 digits, space, the rest)
+const formatNational = (d) => [d.slice(0, 2), d.slice(2, 6), d.slice(6)].filter(Boolean).join(" ");
+const flagOf = (iso) => String.fromCodePoint(...[...iso].map((c) => 127397 + c.charCodeAt(0)));
 
-  const submit = async () => {
+function friendlyAuthError(e) {
+  const map = {
+    "auth/invalid-phone-number": "Enter the number with its country code, digits only (e.g. 234801234567).",
+    "auth/invalid-verification-code": "That code is wrong. Check it and try again.",
+    "auth/code-expired": "That code has expired. Go back and request a new one.",
+    "auth/too-many-requests": "Too many attempts. Please wait a while and try again.",
+    "auth/popup-closed-by-user": "Google sign-in was cancelled.",
+    "auth/popup-blocked": "Your browser blocked the Google pop-up. Allow pop-ups for this site and try again.",
+    "auth/unauthorized-domain": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
+    "auth/email-already-in-use": "That email is already registered. Log in instead, or use Google if you signed up with Google.",
+    "auth/invalid-email": "That email address doesn't look right.",
+    "auth/weak-password": "Choose a password with at least 6 characters.",
+    "auth/wrong-password": "Wrong email or password.",
+    "auth/invalid-credential": "Wrong email or password.",
+    "auth/user-not-found": "No account with that email. Tap Create account.",
+    "auth/user-disabled": "This account has been disabled.",
+    "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
+    "auth/network-request-failed": "Network problem. Check your connection and try again.",
+  };
+  if (e && /region/i.test(e.message || "")) return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
+  if (e && /already been rendered/i.test(e.message || "")) return "Please refresh the page and try again.";
+  return map[e && e.code] || (e && e.message) || "Something went wrong.";
+}
+
+function LoginScreen({ onContinue }) {
+  const [phone, setPhone] = useState(""); // national number only, without the country code
+  const [iso, setIso] = useState(() => { try { return localStorage.getItem("lc-country") || "NG"; } catch (e) { return "NG"; } });
+  const country = COUNTRIES.find((c) => c[0] === iso) || COUNTRIES[0];
+  const dial = country[2];
+  const cleanPhone = (v) => {
+    let d = String(v).replace(/\D/g, "");
+    if (d.startsWith(dial) && d.length >= dial.length + 8) d = d.slice(dial.length); // pasted with country code
+    return d.replace(/^0+/, ""); // drop the local leading 0 (0813... -> 813...)
+  };
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [confirmation, setConfirmation] = useState(null);
+  const [pendingToken, setPendingToken] = useState(null); // signed in with Firebase, still needs a name
+  const [emailStage, setEmailStage] = useState(null); // null | "form" | "verify"
+  const [isNew, setIsNew] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [emailName, setEmailName] = useState("");
+  const [emailUser, setEmailUser] = useState(null);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
+
+  const run = async (fn) => {
     setBusy(true); setError("");
+    try { await fn(); } catch (e) { setError(friendlyAuthError(e)); } finally { setBusy(false); }
+  };
+  const resetCaptcha = () => { try { window.__rv && window.__rv.clear(); } catch (e) {} window.__rv = null; };
+  const finish = async (idToken, nm) => {
+    try { await onContinue(idToken, nm); }
+    catch (e) { if (/Name required/.test(e.message)) setPendingToken(idToken); else throw e; }
+  };
+
+  // A fresh reCAPTCHA element for every attempt (re-using one causes "already been rendered")
+  const makeVerifier = () => {
+    resetCaptcha();
+    const wrap = document.getElementById("recaptcha-wrap");
+    wrap.innerHTML = "";
+    const el = document.createElement("div");
+    wrap.appendChild(el);
+    window.__rv = new firebase.auth.RecaptchaVerifier(el, { size: "invisible" });
+    return window.__rv;
+  };
+  const sendCode = () => run(async () => {
     try {
-      await onContinue(phone, name);
-    } catch (e) {
-      if (e.message.includes("Name required")) setNeedsName(true);
-      else setError(e.message);
-    } finally {
-      setBusy(false);
+      setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + dial + phone, makeVerifier()));
+    } catch (e) { resetCaptcha(); throw e; }
+  });
+  const verify = () => run(async () => {
+    const cred = await confirmation.confirm(code.trim());
+    await finish(await cred.user.getIdToken(), "");
+  });
+  const google = () => run(async () => {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" }); // always show Google's account chooser (never silently reuse the signed-in account)
+    const cred = await firebase.auth().signInWithPopup(provider);
+    await finish(await cred.user.getIdToken(), "");
+  });
+  const createAccount = () => run(() => finish(pendingToken, name.trim()));
+
+  // ---- email + password ----
+  const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
+  const emailReady = emailOk && password.length >= 6 && (!isNew || !!emailName.trim());
+  const submitEmail = () => run(async () => {
+    setNotice("");
+    const auth = firebase.auth();
+    if (isNew) {
+      const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
+      await cred.user.updateProfile({ displayName: emailName.trim() });
+      await cred.user.sendEmailVerification();
+      setEmailUser(cred.user); setEmailStage("verify");
+      setNotice("Verification email sent. Check your inbox and spam folder.");
+      return;
     }
+    const cred = await auth.signInWithEmailAndPassword(email.trim(), password);
+    if (!cred.user.emailVerified) {
+      try { await cred.user.sendEmailVerification(); } catch (e) {}
+      setEmailUser(cred.user); setEmailStage("verify");
+      setNotice("Please verify your email first. We sent you a link.");
+      return;
+    }
+    await finish(await cred.user.getIdToken(), "");
+  });
+  const checkVerified = () => run(async () => {
+    await emailUser.reload();
+    const u = firebase.auth().currentUser;
+    if (!u || !u.emailVerified) throw new Error("Not verified yet. Open the link in the email, then tap the button again.");
+    await finish(await u.getIdToken(true), isNew ? emailName.trim() : "");
+  });
+  const resendVerification = () => run(async () => {
+    await firebase.auth().currentUser.sendEmailVerification();
+    setNotice("Verification email sent again.");
+  });
+  const forgotPassword = () => run(async () => {
+    if (!emailOk) throw new Error("Type your email address first.");
+    await firebase.auth().sendPasswordResetEmail(email.trim());
+    setNotice("Password reset link sent to " + email.trim() + ".");
+  });
+  const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
+
+  const box = { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
+  const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
+  const btn = (on) => ({ padding: "15px", borderRadius: 14, border: "none", cursor: busy ? "default" : "pointer", background: on ? "#35D0BA" : "#1E2530", color: on ? "#0E1116" : "#5B6673", fontFamily: "Sora", fontWeight: 700, fontSize: 15, width: "100%" });
+
+  const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" ? "email" : "phone";
+  const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
+  const subs = {
+    phone: "We'll text you a verification code. Or continue with Google.",
+    code: "We sent a code to +" + dial + " " + formatNational(phone) + ".",
+    name: "This is what people you chat with will see.",
+    email: "Use your email and a password (6 or more characters).",
+    verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
   };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)" }}>
-      <div style={{ textAlign: "center", marginBottom: 36 }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" }}>
+      <div style={{ textAlign: "center", marginBottom: 30 }}>
         <div style={{ width: 76, height: 76, borderRadius: 22, margin: "0 auto 20px", background: "conic-gradient(from 120deg, #35D0BA, #F2B84B, #35D0BA)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ width: 66, height: 66, borderRadius: 18, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#35D0BA" }}>L<span style={{ color: "#F2B84B" }}>A</span></span>
           </div>
         </div>
         <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 13, letterSpacing: 1, color: "#35D0BA", textTransform: "uppercase", marginBottom: 10 }}>Letschat Africa</div>
-        <h1 style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" }}>
-          {needsName ? "What's your name?" : "Enter your number"}
-        </h1>
-        <p style={{ fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 }}>
-          {needsName ? "This is what people you chat with will see." : "This becomes your Letschat Africa ID — share it so others can message you."}
-        </p>
+        <h1 style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" }}>{titles[stage]}</h1>
+        <p style={{ fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 }}>{subs[stage]}</p>
       </div>
 
       {error && <Banner text={error} onClose={() => setError("")} />}
+      {notice && <Banner text={notice} tone="info" onClose={() => setNotice("")} />}
 
-      {!needsName ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
-          <span style={{ fontFamily: "Sora", fontWeight: 600, color: "#8891A0", fontSize: 15 }}>+</span>
-          <input value={phone} onChange={e => setPhone(e.target.value.replace(/[^\d+]/g, ""))} placeholder="234801234567" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 }} />
-        </div>
-      ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" autoFocus style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16 }} />
-        </div>
+      {stage === "phone" && (
+        <>
+          <div style={box}>
+            <div style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center", gap: 6, paddingRight: 10, borderRight: "1px solid #262E3A" }}>
+              <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap" }}>{flagOf(country[0])} +{dial} <span style={{ color: "#8891A0", fontSize: 11 }}>&#9662;</span></span>
+              <select value={iso} onChange={e => { setIso(e.target.value); setPhone(""); try { localStorage.setItem("lc-country", e.target.value); } catch (err) {} }} aria-label="Country code" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", fontSize: 16 }}>
+                {COUNTRIES.map((c) => <option key={c[0]} value={c[0]}>{flagOf(c[0])} {c[1]} (+{c[2]})</option>)}
+              </select>
+            </div>
+            <input value={formatNational(phone)} onChange={e => setPhone(cleanPhone(e.target.value))} onKeyDown={e => e.key === "Enter" && phone.length >= 6 && !busy && sendCode()} placeholder="81 3535 1804" inputMode="numeric" autoComplete="tel-national" style={inputStyle} />
+          </div>
+          <button disabled={busy || phone.length < 6 || !FIREBASE_READY} onClick={sendCode} style={btn(phone.length >= 6 && FIREBASE_READY)}>{busy ? "Please wait…" : "Send code"}</button>
+          <div style={{ textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 12, margin: "16px 0" }}>or</div>
+          <button disabled={busy || !FIREBASE_READY} onClick={google} style={{ ...btn(false), background: "#F5F7FA", color: "#0E1116" }}>Continue with Google</button>
+          <button onClick={() => { setEmailStage("form"); setError(""); setNotice(""); }} style={linkBtn}>Use email and password instead</button>
+        </>
       )}
 
-      <button
-        disabled={busy || (needsName ? !name.trim() : phone.length < 7)}
-        onClick={submit}
-        style={{
-          padding: "15px", borderRadius: 14, border: "none",
-          cursor: busy ? "default" : "pointer",
-          background: (needsName ? name.trim() : phone.length >= 7) ? "#35D0BA" : "#1E2530",
-          color: (needsName ? name.trim() : phone.length >= 7) ? "#0E1116" : "#5B6673",
-          fontFamily: "Sora", fontWeight: 700, fontSize: 15,
-        }}>{busy ? "Please wait…" : needsName ? "Create account" : "Continue"}</button>
+      {stage === "email" && (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[["Log in", false], ["Create account", true]].map(([label, v]) => (
+              <button key={label} onClick={() => { setIsNew(v); setError(""); setNotice(""); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>{label}</button>
+            ))}
+          </div>
+          {isNew && (
+            <div style={box}><input value={emailName} onChange={e => setEmailName(e.target.value)} placeholder="Your name" autoComplete="name" style={inputStyle} /></div>
+          )}
+          <div style={box}><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" autoComplete="email" inputMode="email" style={inputStyle} /></div>
+          <div style={box}><input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && emailReady && !busy && submitEmail()} placeholder="Password (6+ characters)" autoComplete={isNew ? "new-password" : "current-password"} style={inputStyle} /></div>
+          <button disabled={busy || !emailReady} onClick={submitEmail} style={btn(emailReady)}>{busy ? "Please wait…" : isNew ? "Create account" : "Log in"}</button>
+          {!isNew && <button onClick={forgotPassword} style={linkBtn}>Forgot password?</button>}
+          <button onClick={() => { setEmailStage(null); setError(""); setNotice(""); }} style={linkBtn}>Back to phone or Google</button>
+        </>
+      )}
 
+      {stage === "verify" && (
+        <>
+          <button disabled={busy} onClick={checkVerified} style={btn(true)}>{busy ? "Please wait…" : "I've verified my email"}</button>
+          <button onClick={resendVerification} style={linkBtn}>Resend email</button>
+          <button onClick={() => { setEmailStage("form"); setEmailUser(null); setNotice(""); try { firebase.auth().signOut(); } catch (e) {} }} style={linkBtn}>Use a different email</button>
+        </>
+      )}
+
+      {stage === "code" && (
+        <>
+          <div style={box}>
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && code.length >= 6 && !busy && verify()} placeholder="123456" inputMode="numeric" autoFocus style={{ ...inputStyle, letterSpacing: 6, textAlign: "center" }} />
+          </div>
+          <button disabled={busy || code.length < 6} onClick={verify} style={btn(code.length >= 6)}>{busy ? "Please wait…" : "Verify code"}</button>
+          <button onClick={() => { setConfirmation(null); setCode(""); resetCaptcha(); }} style={{ background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer" }}>Use a different number</button>
+        </>
+      )}
+
+      {stage === "name" && (
+        <>
+          <div style={box}>
+            <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && name.trim() && !busy && createAccount()} placeholder="Your name" autoFocus style={inputStyle} />
+          </div>
+          <button disabled={busy || !name.trim()} onClick={createAccount} style={btn(!!name.trim())}>{busy ? "Please wait…" : "Create account"}</button>
+        </>
+      )}
+
+      <div id="recaptcha-wrap" />
       <p style={{ textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 22, lineHeight: 1.6 }}>
-        Letschat Africa connects two people over the internet in realtime — <br />no phone verification code is actually sent yet.
+        Your phone number or Google email is your Letschat Africa ID, so others can find and message you.
       </p>
     </div>
   );
@@ -690,7 +1120,7 @@ function App() {
   const refreshConversations = useCallback(async () => {
     if (!session) return;
     try {
-      const { conversations } = await api("/api/conversations", { token: session.token });
+      const { conversations } = await api("/api/v1/conversations", { token: session.token });
       setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
       setConvError("");
     } catch (e) {
@@ -707,6 +1137,11 @@ function App() {
       setPresence(prev => ({ ...prev, [userId]: online }));
     });
     socket.on("message:new", () => refreshConversations());
+    socket.on("user:update", (u) => {
+      // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
+      setConversations(prev => prev.map(c => (c.other.id === u.id ? { ...c, other: u } : c)));
+      setActiveConvo(prev => (prev && prev.other.id === u.id ? { ...prev, other: u } : prev));
+    });
     socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
     return () => socket.disconnect();
   }, [session, refreshConversations]);
@@ -717,19 +1152,26 @@ function App() {
     refreshConversations().finally(() => setConvLoading(false));
   }, [session, refreshConversations]);
 
-  const handleLogin = async (phone, name) => {
-    const { token, user } = await api("/api/auth/register-or-login", { method: "POST", body: { phone, name } });
+  const handleLogin = async (idToken, name) => {
+    const { token, user } = await api("/api/v1/auth/firebase", { method: "POST", body: { idToken, name } });
     saveJSON("session", { token, user });
     setSession({ token, user });
   };
 
   const handleLogOut = () => {
     socketRef.current?.disconnect();
+    try { firebase.auth().signOut(); } catch (e) {}
     clearJSON("session");
     setSession(null);
     setConversations([]);
     setActiveConvo(null);
     setShowProfile(false);
+  };
+
+  const updateUser = (user) => {
+    const next = { ...session, user };
+    setSession(next);
+    saveJSON("session", next);
   };
 
   const handleNewChatStarted = (conversation) => {
@@ -763,7 +1205,7 @@ function App() {
   } else if (showEdit) {
     body = <EditProfileScreen profile={session.user} token={session.token} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
   } else if (showProfile) {
-    body = <ProfileScreen profile={session.user} onBack={() => setShowProfile(false)} onEdit={() => setShowEdit(true)} onLogOut={handleLogOut} />;
+    body = <ProfileScreen profile={session.user} token={session.token} onUserUpdate={updateUser} onBack={() => setShowProfile(false)} onEdit={() => setShowEdit(true)} onLogOut={handleLogOut} />;
   } else {
     body = (
       <>
