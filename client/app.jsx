@@ -902,12 +902,114 @@ function PostProductModal({ token, onClose, onPosted }) {
   );
 }
 
+// ---- market: seller ratings + product comments with emoji ----
+const EMOJIS = ["😀", "😂", "🤣", "😊", "😍", "🥰", "😘", "😎", "🤩", "😢", "😭", "😡", "😮", "🤔", "🙄", "😴", "😅", "🤗", "🤝", "👍", "👎", "👏", "🙏", "💪", "🙌", "👌", "❤️", "💔", "🔥", "✨", "🎉", "💯", "✅", "❌", "⭐", "🛍️", "💰", "📦", "🚚", "🏷️"];
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\s)+$/u;
+const ratingText = (r) => (r && r.count ? "\u2605 " + r.avg.toFixed(1) + " (" + r.count + ")" : "No ratings yet");
+function StarRow({ value, onChange, size = 28 }) {
+    return (React.createElement("div", { style: { display: "flex", gap: 6 } }, [1, 2, 3, 4, 5].map(n => (React.createElement("button", { key: n, "aria-label": n + (n === 1 ? " star" : " stars"), onClick: onChange ? () => onChange(n) : undefined, style: { background: "none", border: "none", padding: 0, cursor: onChange ? "pointer" : "default", display: "flex" } },
+        React.createElement(Star, { size: size, color: n <= value ? "#F2B84B" : "#3A4452", style: { fill: n <= value ? "#F2B84B" : "none" } }))))));
+}
+function SheetFrame({ title, onClose, tall, children }) {
+    return (React.createElement("div", { onClick: onClose, style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", maxWidth: 640, height: tall ? "82%" : "auto", maxHeight: "88%", background: "#12161C", borderTop: "1px solid #262E3A", borderTopLeftRadius: 20, borderTopRightRadius: 20, display: "flex", flexDirection: "column" } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "16px 16px 10px", flexShrink: 0 } },
+                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" } }, title),
+                React.createElement("button", { onClick: onClose, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
+                    React.createElement(X, { size: 22, color: "#8891A0" }))),
+            children)));
+}
+function RateSellerSheet({ seller, token, onClose, onDone }) {
+    const [info, setInfo] = useState(null);
+    const [pick, setPick] = useState(0);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    useEffect(() => {
+        api("/api/v1/market/seller/" + seller.id + "/rating", { token }).then(d => { setInfo(d); setPick(d.mine || 0); }).catch(e => setErr(e.message));
+    }, [seller.id, token]);
+    const submit = async () => {
+        if (!pick) return;
+        setBusy(true);
+        try {
+            await api("/api/v1/market/seller/" + seller.id + "/rate", { method: "POST", token, body: { stars: pick } });
+            onDone();
+        }
+        catch (e) {
+            setErr(e.message);
+            setBusy(false);
+        }
+    };
+    return (React.createElement(SheetFrame, { title: "Rate " + seller.name, onClose: onClose },
+        React.createElement("div", { style: { padding: "6px 16px 22px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 } },
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", textAlign: "center" } }, info ? ratingText(info) + (info.mine ? " \u00B7 you rated " + info.mine : "") : "Loading\u2026"),
+            React.createElement(StarRow, { value: pick, onChange: setPick, size: 38 }),
+            err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#FF6B5D", textAlign: "center" } }, err),
+            React.createElement("button", { onClick: submit, disabled: busy || !pick, style: { ...primaryBtn(busy || !pick), marginTop: 4 } }, busy ? "Saving\u2026" : info && info.mine ? "Update rating" : "Submit rating"))));
+}
+function CommentsSheet({ listing, token, onClose, onChanged }) {
+    const [comments, setComments] = useState(null);
+    const [text, setText] = useState("");
+    const [showEmoji, setShowEmoji] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const listRef = useRef(null);
+    const base = "/api/v1/market/" + listing.id + "/comments";
+    useEffect(() => { api(base, { token }).then(d => setComments(d.comments)).catch(e => setErr(e.message)); }, [base, token]);
+    useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [comments && comments.length]);
+    const send = async (t) => {
+        const body = (t === undefined ? text : t).trim();
+        if (!body || busy) return;
+        setBusy(true);
+        try {
+            const d = await api(base, { method: "POST", token, body: { text: body } });
+            setComments(d.comments);
+            if (t === undefined) { setText(""); setShowEmoji(false); }
+            setErr("");
+            onChanged();
+        }
+        catch (e) { setErr(e.message); }
+        setBusy(false);
+    };
+    const remove = async (id) => {
+        try {
+            const d = await api(base + "/" + id, { method: "DELETE", token });
+            setComments(d.comments);
+            onChanged();
+        }
+        catch (e) { setErr(e.message); }
+    };
+    return (React.createElement(SheetFrame, { title: "Comments" + (comments ? " \u00B7 " + comments.length : ""), onClose: onClose, tall: true },
+        React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px" } },
+            comments === null && !err && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading\u2026"),
+            comments && comments.length === 0 && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No comments yet. Ask a question or say something nice."),
+            (comments || []).map(c => (React.createElement("div", { key: c.id, style: { display: "flex", gap: 10, padding: "9px 0", borderBottom: "1px solid #1B212B" } },
+                React.createElement(Ring, { size: 32, color: c.author ? c.author.color : "#5B6673", initials: c.author ? c.author.initials : "?", photo: c.author ? c.author.avatar : null }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8 } },
+                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member"),
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#5B6673" } }, timeLabel(c.time)),
+                        c.canDelete && React.createElement("button", { onClick: () => window.confirm("Delete this comment?") && remove(c.id), style: { marginLeft: "auto", background: "none", border: "none", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12, cursor: "pointer", padding: 0 } }, "Delete")),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, c.text)))))),
+        err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#FF6B5D", padding: "6px 16px 0" } }, err),
+        React.createElement("div", { style: { display: "flex", gap: 6, padding: "8px 16px 0", flexShrink: 0 } }, QUICK_EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => send(e), disabled: busy, "aria-label": "Send " + e, style: { flex: 1, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 10, padding: "6px 0", fontSize: 20, cursor: "pointer" } }, e)))),
+        showEmoji && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 2, padding: "8px 12px 0", maxHeight: 130, overflowY: "auto", flexShrink: 0 } }, EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => setText(t => (t + e).slice(0, 500)), style: { background: "none", border: "none", fontSize: 24, padding: 5, cursor: "pointer" } }, e)))),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 16px", flexShrink: 0 } },
+            React.createElement("button", { onClick: () => setShowEmoji(v => !v), "aria-label": "Emoji", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
+                React.createElement(Smile, { size: 24, color: showEmoji ? "#35D0BA" : "#8891A0" })),
+            React.createElement("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } },
+                React.createElement("input", { value: text, maxLength: 500, onChange: e => setText(e.target.value), onKeyDown: e => { if (e.key === "Enter") send(); }, placeholder: "Add a comment\u2026", style: { ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14 } })),
+            React.createElement("button", { onClick: () => send(), disabled: busy || !text.trim(), "aria-label": "Send comment", style: { width: 42, height: 42, borderRadius: 21, border: "none", background: "#35D0BA", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } },
+                React.createElement(Send, { size: 19, color: "#0E1116" })))));
+}
 function MarketScreen({ token, myId, onMessageSeller }) {
   const [items, setItems] = useState(null);
   const [q, setQ] = useState("");
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(null);
+  const [commentsFor, setCommentsFor] = useState(null);
+  const [ratingFor, setRatingFor] = useState(null);
   const load = useCallback(() => api("/api/v1/market?q=" + encodeURIComponent(q), { token }).then(d => { setItems(d.listings); setError(""); }).catch(e => setError(e.message)), [q, token]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
   const act = (id, path, method = "POST") => api("/api/v1/market/" + id + path, { method, token }).then(load).catch(e => setError(e.message));
@@ -936,6 +1038,11 @@ function MarketScreen({ token, myId, onMessageSeller }) {
                   <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#35D0BA", whiteSpace: "nowrap" }}>{l.sold ? "SOLD" : l.price}</span>
                 </div>
                 {l.description && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" }}>{l.description}</div>}
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, margin: l.description ? "0 0 10px" : "8px 0 10px" }}>
+                  <button onClick={() => setCommentsFor(l)} style={smallBtn}>{"\u{1F4AC} Comments" + (l.commentCount ? " (" + l.commentCount + ")" : "")}</button>
+                  {l.seller && <span style={{ fontFamily: "Inter", fontSize: 12.5, color: l.seller.rating && l.seller.rating.count ? "#F2B84B" : "#5B6673" }}>{ratingText(l.seller.rating)}</span>}
+                  {!mine && l.seller && <button onClick={() => setRatingFor(l.seller)} style={smallBtn}>Rate seller</button>}
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: l.description ? 0 : 10 }}>
                   {l.seller && <Ring size={26} color={l.seller.color} initials={l.seller.initials} photo={l.seller.avatar} />}
                   <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>{mine ? "You" : l.seller ? l.seller.name : "Unknown"} · {timeLabel(l.time)}</span>
@@ -954,6 +1061,8 @@ function MarketScreen({ token, myId, onMessageSeller }) {
       <button onClick={() => setPosting(true)} style={{ position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27, background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 20px #35D0BA44", cursor: "pointer" }}><Plus size={24} color="#0E1116" /></button>
       {posting && <PostProductModal token={token} onClose={() => setPosting(false)} onPosted={() => { setPosting(false); load(); }} />}
       {zoom && <ImageZoomModal photo={zoom.photo} initials="" color="#35D0BA" onClose={() => setZoom(null)} />}
+      {commentsFor && <CommentsSheet listing={commentsFor} token={token} onClose={() => setCommentsFor(null)} onChanged={load} />}
+      {ratingFor && <RateSellerSheet seller={ratingFor} token={token} onClose={() => setRatingFor(null)} onDone={() => { setRatingFor(null); load(); }} />}
     </div>
   );
 }
