@@ -559,6 +559,25 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
                 React.createElement("input", { value: about, onChange: e => setAbout(e.target.value), style: { width: "100%", background: "none", border: "none", borderBottom: "1px solid #262E3A", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, padding: "8px 0", outline: "none", marginTop: 4 } })),
             React.createElement("button", { onClick: save, disabled: saving, style: { margin: "10px 20px", padding: "13px", borderRadius: 12, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: saving ? "default" : "pointer", width: "calc(100% - 40px)", opacity: saving ? 0.7 : 1 } }, saving ? "Saving…" : "Save changes"))));
 }
+// [ISO code, name, dial code]; the first four are shown first
+const COUNTRIES = [
+    ["NG", "Nigeria", "234"], ["GH", "Ghana", "233"], ["KE", "Kenya", "254"], ["ZA", "South Africa", "27"],
+    ["DZ", "Algeria", "213"], ["AO", "Angola", "244"], ["BJ", "Benin", "229"], ["BW", "Botswana", "267"], ["BF", "Burkina Faso", "226"],
+    ["BI", "Burundi", "257"], ["CM", "Cameroon", "237"], ["CV", "Cape Verde", "238"], ["CF", "Central African Republic", "236"],
+    ["TD", "Chad", "235"], ["KM", "Comoros", "269"], ["CG", "Congo", "242"], ["CD", "DR Congo", "243"], ["CI", "Côte d'Ivoire", "225"],
+    ["DJ", "Djibouti", "253"], ["EG", "Egypt", "20"], ["GQ", "Equatorial Guinea", "240"], ["ER", "Eritrea", "291"], ["SZ", "Eswatini", "268"],
+    ["ET", "Ethiopia", "251"], ["GA", "Gabon", "241"], ["GM", "Gambia", "220"], ["GN", "Guinea", "224"], ["GW", "Guinea-Bissau", "245"],
+    ["LS", "Lesotho", "266"], ["LR", "Liberia", "231"], ["LY", "Libya", "218"], ["MG", "Madagascar", "261"], ["MW", "Malawi", "265"],
+    ["ML", "Mali", "223"], ["MR", "Mauritania", "222"], ["MU", "Mauritius", "230"], ["MA", "Morocco", "212"], ["MZ", "Mozambique", "258"],
+    ["NA", "Namibia", "264"], ["NE", "Niger", "227"], ["RW", "Rwanda", "250"], ["ST", "São Tomé and Príncipe", "239"], ["SN", "Senegal", "221"],
+    ["SC", "Seychelles", "248"], ["SL", "Sierra Leone", "232"], ["SO", "Somalia", "252"], ["SS", "South Sudan", "211"], ["SD", "Sudan", "249"],
+    ["TZ", "Tanzania", "255"], ["TG", "Togo", "228"], ["TN", "Tunisia", "216"], ["UG", "Uganda", "256"], ["ZM", "Zambia", "260"], ["ZW", "Zimbabwe", "263"],
+    ["GB", "United Kingdom", "44"], ["US", "United States", "1"], ["CA", "Canada", "1"], ["AE", "United Arab Emirates", "971"],
+    ["FR", "France", "33"], ["DE", "Germany", "49"], ["IN", "India", "91"],
+];
+// 8135351804 -> "81 3535 1804" (2 digits, space, 4 digits, space, the rest)
+const formatNational = (d) => [d.slice(0, 2), d.slice(2, 6), d.slice(6)].filter(Boolean).join(" ");
+const flagOf = (iso) => String.fromCodePoint(...[...iso].map((c) => 127397 + c.charCodeAt(0)));
 function friendlyAuthError(e) {
     const map = {
         "auth/invalid-phone-number": "Enter the number with its country code, digits only (e.g. 234801234567).",
@@ -568,6 +587,13 @@ function friendlyAuthError(e) {
         "auth/popup-closed-by-user": "Google sign-in was cancelled.",
         "auth/popup-blocked": "Your browser blocked the Google pop-up. Allow pop-ups for this site and try again.",
         "auth/unauthorized-domain": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
+        "auth/email-already-in-use": "That email is already registered. Log in instead, or use Google if you signed up with Google.",
+        "auth/invalid-email": "That email address doesn't look right.",
+        "auth/weak-password": "Choose a password with at least 6 characters.",
+        "auth/wrong-password": "Wrong email or password.",
+        "auth/invalid-credential": "Wrong email or password.",
+        "auth/user-not-found": "No account with that email. Tap Create account.",
+        "auth/user-disabled": "This account has been disabled.",
         "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
         "auth/network-request-failed": "Network problem. Check your connection and try again.",
     };
@@ -578,11 +604,32 @@ function friendlyAuthError(e) {
     return map[e && e.code] || (e && e.message) || "Something went wrong.";
 }
 function LoginScreen({ onContinue }) {
-    const [phone, setPhone] = useState("");
+    const [phone, setPhone] = useState(""); // national number only, without the country code
+    const [iso, setIso] = useState(() => { try {
+        return localStorage.getItem("lc-country") || "NG";
+    }
+    catch (e) {
+        return "NG";
+    } });
+    const country = COUNTRIES.find((c) => c[0] === iso) || COUNTRIES[0];
+    const dial = country[2];
+    const cleanPhone = (v) => {
+        let d = String(v).replace(/\D/g, "");
+        if (d.startsWith(dial) && d.length >= dial.length + 8)
+            d = d.slice(dial.length); // pasted with country code
+        return d.replace(/^0+/, ""); // drop the local leading 0 (0813... -> 813...)
+    };
     const [code, setCode] = useState("");
     const [name, setName] = useState("");
     const [confirmation, setConfirmation] = useState(null);
     const [pendingToken, setPendingToken] = useState(null); // signed in with Firebase, still needs a name
+    const [emailStage, setEmailStage] = useState(null); // null | "form" | "verify"
+    const [isNew, setIsNew] = useState(false);
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [emailName, setEmailName] = useState("");
+    const [emailUser, setEmailUser] = useState(null);
+    const [notice, setNotice] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
     const run = async (fn) => {
@@ -625,7 +672,7 @@ function LoginScreen({ onContinue }) {
     };
     const sendCode = () => run(async () => {
         try {
-            setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + phone, makeVerifier()));
+            setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + dial + phone, makeVerifier()));
         }
         catch (e) {
             resetCaptcha();
@@ -637,19 +684,69 @@ function LoginScreen({ onContinue }) {
         await finish(await cred.user.getIdToken(), "");
     });
     const google = () => run(async () => {
-        const cred = await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider());
+        const provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" }); // always show Google's account chooser (never silently reuse the signed-in account)
+        const cred = await firebase.auth().signInWithPopup(provider);
         await finish(await cred.user.getIdToken(), "");
     });
     const createAccount = () => run(() => finish(pendingToken, name.trim()));
+    // ---- email + password ----
+    const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
+    const emailReady = emailOk && password.length >= 6 && (!isNew || !!emailName.trim());
+    const submitEmail = () => run(async () => {
+        setNotice("");
+        const auth = firebase.auth();
+        if (isNew) {
+            const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
+            await cred.user.updateProfile({ displayName: emailName.trim() });
+            await cred.user.sendEmailVerification();
+            setEmailUser(cred.user);
+            setEmailStage("verify");
+            setNotice("Verification email sent. Check your inbox and spam folder.");
+            return;
+        }
+        const cred = await auth.signInWithEmailAndPassword(email.trim(), password);
+        if (!cred.user.emailVerified) {
+            try {
+                await cred.user.sendEmailVerification();
+            }
+            catch (e) { }
+            setEmailUser(cred.user);
+            setEmailStage("verify");
+            setNotice("Please verify your email first. We sent you a link.");
+            return;
+        }
+        await finish(await cred.user.getIdToken(), "");
+    });
+    const checkVerified = () => run(async () => {
+        await emailUser.reload();
+        const u = firebase.auth().currentUser;
+        if (!u || !u.emailVerified)
+            throw new Error("Not verified yet. Open the link in the email, then tap the button again.");
+        await finish(await u.getIdToken(true), isNew ? emailName.trim() : "");
+    });
+    const resendVerification = () => run(async () => {
+        await firebase.auth().currentUser.sendEmailVerification();
+        setNotice("Verification email sent again.");
+    });
+    const forgotPassword = () => run(async () => {
+        if (!emailOk)
+            throw new Error("Type your email address first.");
+        await firebase.auth().sendPasswordResetEmail(email.trim());
+        setNotice("Password reset link sent to " + email.trim() + ".");
+    });
+    const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
     const box = { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
     const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
     const btn = (on) => ({ padding: "15px", borderRadius: 14, border: "none", cursor: busy ? "default" : "pointer", background: on ? "#35D0BA" : "#1E2530", color: on ? "#0E1116" : "#5B6673", fontFamily: "Sora", fontWeight: 700, fontSize: 15, width: "100%" });
-    const stage = pendingToken ? "name" : confirmation ? "code" : "phone";
-    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?" };
+    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" ? "email" : "phone";
+    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
     const subs = {
         phone: "We'll text you a verification code. Or continue with Google.",
-        code: "We sent a code to +" + phone + ".",
+        code: "We sent a code to +" + dial + " " + formatNational(phone) + ".",
         name: "This is what people you chat with will see.",
+        email: "Use your email and a password (6 or more characters).",
+        verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
     };
     return (React.createElement("div", { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
         React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
@@ -662,13 +759,49 @@ function LoginScreen({ onContinue }) {
             React.createElement("h1", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" } }, titles[stage]),
             React.createElement("p", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 } }, subs[stage])),
         error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        notice && React.createElement(Banner, { text: notice, tone: "info", onClose: () => setNotice("") }),
         stage === "phone" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: box },
-                React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, color: "#8891A0", fontSize: 15 } }, "+"),
-                React.createElement("input", { value: phone, onChange: e => setPhone(e.target.value.replace(/\D/g, "")), onKeyDown: e => e.key === "Enter" && phone.length >= 7 && !busy && sendCode(), placeholder: "234801234567", inputMode: "numeric", style: inputStyle })),
-            React.createElement("button", { disabled: busy || phone.length < 7 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 7 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
+                React.createElement("div", { style: { position: "relative", flexShrink: 0, display: "flex", alignItems: "center", gap: 6, paddingRight: 10, borderRight: "1px solid #262E3A" } },
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap" } },
+                        flagOf(country[0]),
+                        " +",
+                        dial,
+                        " ",
+                        React.createElement("span", { style: { color: "#8891A0", fontSize: 11 } }, "\u25BE")),
+                    React.createElement("select", { value: iso, onChange: e => { setIso(e.target.value); setPhone(""); try {
+                            localStorage.setItem("lc-country", e.target.value);
+                        }
+                        catch (err) { } }, "aria-label": "Country code", style: { position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", fontSize: 16 } }, COUNTRIES.map((c) => React.createElement("option", { key: c[0], value: c[0] },
+                        flagOf(c[0]),
+                        " ",
+                        c[1],
+                        " (+",
+                        c[2],
+                        ")")))),
+                React.createElement("input", { value: formatNational(phone), onChange: e => setPhone(cleanPhone(e.target.value)), onKeyDown: e => e.key === "Enter" && phone.length >= 6 && !busy && sendCode(), placeholder: "81 3535 1804", inputMode: "numeric", autoComplete: "tel-national", style: inputStyle })),
+            React.createElement("button", { disabled: busy || phone.length < 6 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 6 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
             React.createElement("div", { style: { textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
-            React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"))),
+            React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Use email and password instead"))),
+        stage === "email" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [["Log in", false], ["Create account", true]].map(([label, v]) => (React.createElement("button", { key: label, onClick: () => { setIsNew(v); setError(""); setNotice(""); }, style: { flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, label)))),
+            isNew && (React.createElement("div", { style: box },
+                React.createElement("input", { value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
+            React.createElement("div", { style: box },
+                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
+            React.createElement("div", { style: box },
+                React.createElement("input", { type: "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password (6+ characters)", autoComplete: isNew ? "new-password" : "current-password", style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailReady, onClick: submitEmail, style: btn(emailReady) }, busy ? "Please wait…" : isNew ? "Create account" : "Log in"),
+            !isNew && React.createElement("button", { onClick: forgotPassword, style: linkBtn }, "Forgot password?"),
+            React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Back to phone or Google"))),
+        stage === "verify" && (React.createElement(React.Fragment, null,
+            React.createElement("button", { disabled: busy, onClick: checkVerified, style: btn(true) }, busy ? "Please wait…" : "I've verified my email"),
+            React.createElement("button", { onClick: resendVerification, style: linkBtn }, "Resend email"),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setEmailUser(null); setNotice(""); try {
+                    firebase.auth().signOut();
+                }
+                catch (e) { } }, style: linkBtn }, "Use a different email"))),
         stage === "code" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: box },
                 React.createElement("input", { value: code, onChange: e => setCode(e.target.value.replace(/\D/g, "")), onKeyDown: e => e.key === "Enter" && code.length >= 6 && !busy && verify(), placeholder: "123456", inputMode: "numeric", autoFocus: true, style: { ...inputStyle, letterSpacing: 6, textAlign: "center" } })),
