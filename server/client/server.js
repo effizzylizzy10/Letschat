@@ -165,10 +165,16 @@ function groupView(db, c, uid) {
     dmRequests: (c.dmRequests || []).filter((r) => (c.adminId === uid ? r.status === "pending" : r.from === uid)),
     members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
     inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
-    lastMessage: msgs[msgs.length - 1] || null,
+    lastMessage: lite(msgs[msgs.length - 1]) || null,
     unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
     updatedAt: c.updatedAt || c.createdAt,
   };
+}
+// Chat lists only need a preview, never the audio/file bytes.
+function lite(m) {
+  if (!m || (!m.audio && !m.file)) return m;
+  const { audio, file, ...rest } = m;
+  return { ...rest, ...(audio ? { hasAudio: true } : {}), ...(file ? { file: { name: file.name, mime: file.mime, size: file.size } } : {}) };
 }
 const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
 function colorFor(id) {
@@ -419,7 +425,7 @@ app.get("/api/conversations", authMiddleware, (req, res) => {
       return {
         id: c.id,
         other: other ? publicUser(other) : { id: otherId, name: "Unknown", initials: "?", color: "#5B6673" },
-        lastMessage: last,
+        lastMessage: lite(last),
         unread: msgs.filter((m) => m.senderId !== req.user.id && !m.read).length,
         updatedAt: c.updatedAt || c.createdAt,
       };
@@ -654,6 +660,7 @@ app.use((err, req, res, next) => {
 
 const server = http.createServer(app);
 const io = new Server(server, {
+  maxHttpBufferSize: 6e6, // photos and files up to ~3 MB are sent as base64 over the socket
   cors: { origin: CLIENT_ORIGIN === "*" ? "*" : CLIENT_ORIGIN.split(",") },
 });
 
@@ -712,18 +719,28 @@ io.on("connection", (socket) => {
 
   io.emit("presence:update", { userId, online: true });
 
-  socket.on("message:send", ({ conversationId, text, audio, duration }, ack) => {
+  socket.on("message:send", ({ conversationId, text, audio, duration, file }, ack) => {
+    const fail = (error) => { if (ack) ack({ error }); };
     const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
-    if (audio && !voice) { if (ack) ack({ error: "Voice note is too long or not supported (max about 1 minute)" }); return; }
+    if (audio && !voice) return fail("Voice note is too long or not supported (max about 1 minute)");
     if (voice) text = "🎤 Voice note";
-    if (!text || !text.trim()) {
-      if (ack) ack({ error: "Message text required" });
-      return;
+
+    // photo / file attachment (max ~3 MB). Active content types are refused so a shared file can never run in someone's browser.
+    let att = null;
+    if (file) {
+      const okShape = typeof file === "object" && typeof file.data === "string";
+      const m = okShape && /^data:([\w.+-]+\/[\w.+-]+)?(?:;[\w=.+-]+)*;base64,/.exec(file.data);
+      if (!m) return fail("That file could not be read");
+      if (file.data.length > 4200000) return fail("File is too large (max 3 MB)");
+      const mime = (m[1] || "application/octet-stream").toLowerCase();
+      if (/^(text\/html|image\/svg|application\/xhtml|text\/javascript|application\/javascript|application\/x-msdownload)/.test(mime)) return fail("That file type is not allowed");
+      const name = String(file.name || "file").replace(/[\\/<>:"|?*\x00-\x1f]/g, "_").slice(0, 120) || "file";
+      att = { name, mime, size: Math.max(0, Math.round(Number(file.size)) || 0), data: file.data };
+      if (!text || !String(text).trim()) text = mime.startsWith("image/") ? "📷 Photo" : "📎 " + name;
     }
-    if (text.length > 4000) {
-      if (ack) ack({ error: "Message is too long (max 4000 characters)" });
-      return;
-    }
+
+    if (!text || !text.trim()) return fail("Message text required");
+    if (text.length > 4000) return fail("Message is too long (max 4000 characters)");
     const db = readDB();
     const convo = db.conversations.find((c) => c.id === conversationId);
     if (!convo || !convo.participantIds.includes(userId)) {
@@ -736,6 +753,7 @@ io.on("connection", (socket) => {
       senderId: userId,
       text: text.trim(),
       ...(voice ? { audio, duration: Math.min(Math.round(Number(duration)) || 0, 120) } : {}),
+      ...(att ? { file: att } : {}),
       time: Date.now(),
       read: false,
     };
