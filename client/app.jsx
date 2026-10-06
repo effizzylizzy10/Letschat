@@ -157,8 +157,8 @@ function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
           fontSize: size * 0.34, border: `1px solid ${color}55`,
         }}>{initials}</div>
       )}
-      {online && (
-        <div style={{ position: "absolute", bottom: -1, right: -1, width: 13, height: 13, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116" }} />
+      {online !== undefined && (
+        <div style={{ position: "absolute", bottom: -1, right: -1, width: 13, height: 13, borderRadius: "50%", background: online ? "#35D0BA" : "#5B6673", border: "3px solid #0E1116" }} />
       )}
     </div>
   );
@@ -390,13 +390,189 @@ function NewChatModal({ token, onClose, onStarted }) {
   );
 }
 
-function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, presence }) {
+// ---- group chats ----
+const GROUP_COLOR = "#8B7CF6";
+const normalizeConvo = (c, myId) => ({
+  ...c, myId,
+  ...(c.isGroup ? { other: { id: c.id, name: c.name, initials: c.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "G", color: GROUP_COLOR, avatar: null } } : {}),
+});
+const statusText = (online, ts) => (online ? "online" : ts ? "last seen " + timeLabel(ts) : "offline");
+const senderPrefix = (c) => {
+  const m = c.lastMessage;
+  if (!m) return "";
+  if (m.senderId === c.myId) return "You: ";
+  const who = c.isGroup && c.members.find(x => x.id === m.senderId);
+  return who ? who.name.split(" ")[0] + ": " : "";
+};
+const sheet = { position: "absolute", inset: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 20 };
+const card = { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "88%", display: "flex", flexDirection: "column" };
+const inputBox = { display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 };
+const inputEl = { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 };
+const primaryBtn = (busy) => ({ width: "100%", padding: 13, borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1 });
+const smallBtn = { background: "#1E2530", border: "1px solid #262E3A", color: "#35D0BA", borderRadius: 10, padding: "7px 12px", fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, cursor: "pointer", flexShrink: 0 };
+const sectionTitle = { fontFamily: "Inter", fontSize: 12, fontWeight: 600, color: "#8891A0", textTransform: "uppercase", letterSpacing: 0.6, margin: "18px 0 6px" };
+
+function PersonRow({ u, online, status, right, onClick }) {
+  return (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", cursor: onClick ? "pointer" : "default" }}>
+      <Ring size={40} color={u.color} initials={u.initials} photo={u.avatar} online={online} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: online ? "#35D0BA" : "#5B6673" }}>{status}</div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function NewGroupModal({ token, contacts, presence, lastSeen, onClose, onCreated }) {
+  const [name, setName] = useState("");
+  const [picked, setPicked] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const toggle = (id) => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+  const create = async () => {
+    if (!name.trim()) return setError("Give the group a name");
+    setBusy(true); setError("");
+    try {
+      const { conversation } = await api("/api/v1/conversations/group", { method: "POST", token, body: { name: name.trim(), memberIds: picked } });
+      onCreated(conversation);
+    } catch (e) { setError(e.message); setBusy(false); }
+  };
+  const sorted = [...contacts].sort((a, b) => !!presence[b.id] - !!presence[a.id]);
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 }}>New group</div>
+        {error && <Banner text={error} />}
+        <div style={inputBox}><input value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Group name" style={inputEl} /></div>
+        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 4 }}>Add people from your contacts, or skip and share the group link after.</div>
+        <div style={{ overflowY: "auto", flex: 1, marginBottom: 14, minHeight: 60 }}>
+          {sorted.length === 0 && <div style={{ padding: "16px 0", fontFamily: "Inter", fontSize: 13, color: "#5B6673" }}>No contacts yet. You can still create the group and invite people with its link.</div>}
+          {sorted.map(u => {
+            const on = picked.includes(u.id);
+            return (
+              <PersonRow key={u.id} u={u} online={!!presence[u.id]} status={statusText(!!presence[u.id], lastSeen[u.id])} onClick={() => toggle(u.id)}
+                right={<div style={{ width: 22, height: 22, borderRadius: 6, border: "2px solid " + (on ? "#35D0BA" : "#262E3A"), background: on ? "#35D0BA" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}>{on && <Check size={14} color="#0E1116" strokeWidth={3} />}</div>} />
+            );
+          })}
+        </div>
+        <button onClick={create} disabled={busy} style={primaryBtn(busy)}>{busy ? "Creating…" : "Create group" + (picked.length ? " (" + (picked.length + 1) + ")" : "")}</button>
+      </div>
+    </div>
+  );
+}
+
+function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, lastSeen, onBack, onChanged }) {
+  const isAdmin = c.adminId === myId;
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const link = c.inviteCode ? window.location.origin + window.location.pathname + "?join=" + c.inviteCode : "";
+  const memberIds = c.members.map(m => m.id);
+  const addable = contacts.filter(u => !memberIds.includes(u.id));
+  const call = async (key, path, body) => {
+    setBusy(key); setError("");
+    try {
+      const { conversation } = await api("/api/v1/conversations/" + c.id + "/" + path, { method: "POST", token, body });
+      onChanged(conversation);
+      return true;
+    } catch (e) { setError(e.message); return false; } finally { setBusy(""); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch (e) { window.prompt("Copy this group link", link); }
+  };
+  const share = () => (navigator.share ? navigator.share({ title: c.name, text: "Join \"" + c.name + "\" on Letschat Africa", url: link }).catch(() => {}) : copy());
+  const addByPhone = async () => { if (phone.trim() && await call("phone", "members", { phone: phone.trim() })) setPhone(""); };
+  const members = [...c.members].sort((a, b) => (b.id === c.adminId) - (a.id === c.adminId));
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "#0E1116", zIndex: 20, display: "flex", flexDirection: "column" }}>
+      <TopBar title="Group info" onBack={onBack} />
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 18px 24px" }}>
+        <div style={{ textAlign: "center", marginBottom: 6 }}>
+          <div style={{ display: "inline-block" }}><Ring size={84} color={GROUP_COLOR} initials={c.other.initials} /></div>
+          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA", marginTop: 10 }}>{c.name}</div>
+          <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Group · {c.members.length} members</div>
+        </div>
+        {error && <div style={{ marginTop: 12 }}><Banner text={error} onClose={() => setError("")} /></div>}
+
+        {isAdmin ? (
+          <>
+            <div style={sectionTitle}>Invite link</div>
+            <div style={{ ...inputBox, marginBottom: 10 }}>
+              <div style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{link}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={copy} style={smallBtn}>{copied ? "Copied ✓" : "Copy link"}</button>
+              <button onClick={share} style={smallBtn}>Share link</button>
+              <button onClick={() => window.confirm("Reset the link? The old link will stop working.") && call("reset", "invite/reset", {})} disabled={busy === "reset"} style={{ ...smallBtn, color: "#FF6B5D" }}>Reset</button>
+            </div>
+            <div style={sectionTitle}>Add people</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+              <div style={{ ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" }}>
+                <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }} placeholder="Phone (234801234567) or email" style={{ ...inputEl, fontSize: 13.5 }} />
+              </div>
+              <button onClick={addByPhone} disabled={busy === "phone" || !phone.trim()} style={smallBtn}>{busy === "phone" ? "…" : "Add"}</button>
+            </div>
+            {addable.map(u => (
+              <PersonRow key={u.id} u={u} online={!!presence[u.id]} status={statusText(!!presence[u.id], lastSeen[u.id])}
+                right={<button onClick={() => call(u.id, "members", { userIds: [u.id] })} disabled={busy === u.id} style={smallBtn}>{busy === u.id ? "…" : "Add"}</button>} />
+            ))}
+            {addable.length === 0 && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#5B6673" }}>All your contacts are already in this group.</div>}
+          </>
+        ) : (
+          <div style={{ marginTop: 14, fontFamily: "Inter", fontSize: 12.5, color: "#5B6673", textAlign: "center" }}>Only the group admin can add people or share the invite link.</div>
+        )}
+
+        <div style={sectionTitle}>Members ({c.members.length})</div>
+        {members.map(m => {
+          const online = m.id === myId || !!presence[m.id];
+          return (
+            <PersonRow key={m.id} u={m} online={online} status={m.id === myId ? "You" : statusText(online, lastSeen[m.id])}
+              right={m.id === c.adminId ? <span style={{ fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#35D0BA", border: "1px solid #35D0BA55", background: "#35D0BA18", borderRadius: 8, padding: "2px 8px" }}>Admin</span> : null} />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function JoinGroupModal({ code, token, onClose, onJoined }) {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/api/v1/groups/invite/" + encodeURIComponent(code), { token }).then(setInfo).catch(e => setError(e.message));
+  }, [code]);
+  const join = async () => {
+    setBusy(true); setError("");
+    try { const { conversation } = await api("/api/v1/groups/join", { method: "POST", token, body: { code } }); onJoined(conversation); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Join group</div>
+        {info && <div style={{ fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 16 }}>You were invited to <b style={{ color: "#F5F7FA" }}>{info.name}</b> · {info.memberCount} members</div>}
+        {!info && !error && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#5B6673", marginBottom: 16 }}>Checking invite link…</div>}
+        {error && <Banner text={error} />}
+        {info && <button onClick={join} disabled={busy} style={primaryBtn(busy)}>{busy ? "Joining…" : info.joined ? "Open group" : "Join group"}</button>}
+        <button onClick={onClose} style={{ ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 }}>{info ? "Not now" : "Close"}</button>
+      </div>
+    </div>
+  );
+}
+
+function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <TopBar
         title={<span>Lets<span style={{ color: "#35D0BA" }}>chat</span></span>}
         right={
           <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
+            <div onClick={onNewGroup} title="New group" style={{ cursor: "pointer", display: "flex" }}><Users size={21} color="#9BA7B4" /></div>
             <Search size={20} color="#9BA7B4" />
             <div onClick={onProfile} style={{ cursor: "pointer" }}>
               <Ring size={30} color="#35D0BA" initials={profile.initials} photo={profile.avatar} online />
@@ -418,7 +594,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
         )}
         {conversations.map(c => (
           <div key={c.id} onClick={() => onOpenChat(c)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer" }}>
-            <Ring size={52} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={!!presence[c.other.id]} />
+            <Ring size={52} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
             <div style={{ flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                 <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{c.other.name}</span>
@@ -426,7 +602,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>
-                  {c.lastMessage ? (c.lastMessage.senderId === c.myId ? "You: " : "") + c.lastMessage.text : "Say hello 👋"}
+                  {c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "Say hello 👋"}
                 </span>
                 {c.unread > 0 && (
                   <span style={{ background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter", padding: "0 5px" }}>{c.unread}</span>
@@ -513,13 +689,14 @@ function ToolsScreen({ onProfile }) {
   );
 }
 
-function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence }) {
+function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {} }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [peerTyping, setPeerTyping] = useState(false);
   const [zoomed, setZoomed] = useState(false);
+  const [info, setInfo] = useState(false);
   const endRef = useRef(null);
   const typingTimeout = useRef(null);
 
@@ -567,22 +744,23 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     });
   };
 
+  const isGroup = !!conversation.isGroup;
   const online = !!presence[conversation.other.id];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B" }}>
         <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}><ArrowLeft size={22} /></button>
-        <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={online} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" }}>{conversation.other.name}</div>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: peerTyping ? "#35D0BA" : online ? "#35D0BA" : "#5B6673" }}>
-            {peerTyping ? "typing…" : online ? "online" : "offline"}
+        <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={isGroup ? undefined : online} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
+        <div onClick={isGroup ? () => setInfo(true) : undefined} style={{ flex: 1, minWidth: 0, cursor: isGroup ? "pointer" : "default" }}>
+          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: peerTyping || (!isGroup && online) ? "#35D0BA" : isGroup ? "#8891A0" : "#5B6673" }}>
+            {peerTyping ? "typing…" : isGroup ? conversation.members.length + " members · " + conversation.members.filter(m => m.id === myId || presence[m.id]).length + " online" : statusText(online, lastSeen[conversation.other.id])}
           </div>
         </div>
         <Video size={19} color="#5B6673" style={{ marginRight: 16, opacity: 0.5 }} />
         <Phone size={18} color="#5B6673" style={{ marginRight: 16, opacity: 0.5 }} />
-        <MoreVertical size={19} color="#9BA7B4" />
+        <div onClick={isGroup ? () => setInfo(true) : undefined} style={{ display: "flex", cursor: isGroup ? "pointer" : "default" }}><MoreVertical size={19} color="#9BA7B4" /></div>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" }}>
@@ -590,11 +768,12 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         {error && <Banner text={error} onClose={() => setError("")} />}
         {!loading && msgs.length === 0 && (
           <div style={{ margin: "auto", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 }}>
-            No messages yet.<br />Say hello to {conversation.other.name.split(" ")[0]} 👋
+            No messages yet.<br />Say hello to {isGroup ? "the group" : conversation.other.name.split(" ")[0]} 👋
           </div>
         )}
         {msgs.map(m => {
           const mine = m.senderId === myId;
+          const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
           return (
             <div key={m.id} style={{
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%",
@@ -602,10 +781,11 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
               borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
             }}>
+              {isGroup && !mine && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
               <div>{m.text}</div>
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
                 <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{timeLabel(m.time)}</span>
-                {mine && (m.read ? <CheckCheck size={13} color="#35D0BA" /> : <Check size={13} color="#B9C2CC" />)}
+                {mine && (m.read || (m.readBy && m.readBy.length) ? <CheckCheck size={13} color="#35D0BA" /> : <Check size={13} color="#B9C2CC" />)}
               </div>
             </div>
           );
@@ -632,6 +812,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           {draft.trim() ? <Send size={17} color="#0E1116" /> : <Mic size={17} color="#0E1116" />}
         </button>
       </div>
+      {info && isGroup && <GroupInfoScreen conversation={conversation} myId={myId} token={token} contacts={contacts} presence={presence} lastSeen={lastSeen} onBack={() => setInfo(false)} onChanged={onGroupChanged} />}
       {zoomed && (
         <ImageZoomModal photo={conversation.other.avatar} initials={conversation.other.initials} color={conversation.other.color} onClose={() => setZoomed(false)} />
       )}
@@ -1108,6 +1289,16 @@ function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [lastSeen, setLastSeen] = useState({});
+  // group invite link: ?join=CODE is kept until the user is signed in and confirms
+  const [joinCode, setJoinCode] = useState(() => {
+    try {
+      const c = new URLSearchParams(window.location.search).get("join");
+      if (c) { saveJSON("pendingJoin", c); window.history.replaceState(null, "", window.location.pathname); }
+    } catch (e) {}
+    return loadJSON("pendingJoin", null);
+  });
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -1117,11 +1308,17 @@ function App() {
     return () => document.head.removeChild(link);
   }, []);
 
+  const applyPresence = useCallback(({ online, lastSeen: seen }) => {
+    setPresence(Object.fromEntries(online.map(id => [id, true])));
+    setLastSeen(prev => ({ ...prev, ...seen }));
+  }, []);
+
   const refreshConversations = useCallback(async () => {
     if (!session) return;
     try {
       const { conversations } = await api("/api/v1/conversations", { token: session.token });
-      setConversations(conversations.map(c => ({ ...c, myId: session.user.id })));
+      setConversations(conversations.map(c => normalizeConvo(c, session.user.id)));
+      if (socketRef.current) socketRef.current.emit("presence:get", applyPresence);
       setConvError("");
     } catch (e) {
       setConvError(e.message);
@@ -1133,13 +1330,19 @@ function App() {
     if (!session) return;
     const socket = io(SOCKET_URL, { auth: { token: session.token } });
     socketRef.current = socket;
-    socket.on("presence:update", ({ userId, online }) => {
+    socket.on("connect", () => socket.emit("presence:get", applyPresence)); // who is online right now (also after reconnects)
+    socket.on("presence:update", ({ userId, online, lastSeen: ts }) => {
       setPresence(prev => ({ ...prev, [userId]: online }));
+      if (ts) setLastSeen(prev => ({ ...prev, [userId]: ts }));
     });
     socket.on("message:new", () => refreshConversations());
+    socket.on("conversation:added", () => refreshConversations());
+    socket.on("conversation:update", () => refreshConversations());
     socket.on("user:update", (u) => {
       // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
-      setConversations(prev => prev.map(c => (c.other.id === u.id ? { ...c, other: u } : c)));
+      setConversations(prev => prev.map(c => c.isGroup
+        ? { ...c, members: c.members.map(m => (m.id === u.id ? { ...m, name: u.name, initials: u.initials, avatar: u.avatar, about: u.about } : m)) }
+        : c.other.id === u.id ? { ...c, other: u } : c));
       setActiveConvo(prev => (prev && prev.other.id === u.id ? { ...prev, other: u } : prev));
     });
     socket.on("connect_error", (err) => setConvError("Can't reach the Letschat Africa server: " + err.message));
@@ -1180,6 +1383,14 @@ function App() {
     setActiveConvo({ id: conversation.id, other: conversation.other });
   };
 
+  const contacts = conversations.filter(c => !c.isGroup).map(c => c.other);
+  const openGroup = (conversation) => {
+    const c = normalizeConvo(conversation, session.user.id);
+    setConversations(prev => [c, ...prev.filter(x => x.id !== c.id)]);
+    setActiveConvo(c);
+  };
+  const closeJoin = () => { clearJSON("pendingJoin"); setJoinCode(null); };
+
   const frame = {
     width: "100%", maxWidth: 400, height: 780, margin: "0 auto", background: "#0E1116",
     borderRadius: 28, overflow: "hidden", position: "relative", display: "flex",
@@ -1193,8 +1404,11 @@ function App() {
   } else if (activeConvo) {
     body = (
       <ChatDetail
-        conversation={activeConvo}
+        conversation={conversations.find(c => c.id === activeConvo.id) || activeConvo}
         myId={session.user.id}
+        lastSeen={lastSeen}
+        contacts={contacts}
+        onGroupChanged={(conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x)))}
         socket={socketRef.current}
         token={session.token}
         presence={presence}
@@ -1221,11 +1435,13 @@ function App() {
               onOpenChat={setActiveConvo}
               onProfile={() => setShowProfile(true)}
               onNewChat={() => setShowNewChat(true)}
+              onNewGroup={() => setShowNewGroup(true)}
             />
           )}
           {tab === "calls" && <CallsScreen />}
           {tab === "status" && <StatusScreen profile={session.user} />}
           {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} />}
+          {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} onClose={() => setShowNewGroup(false)} onCreated={(conv) => { setShowNewGroup(false); openGroup(conv); }} />}
           {showNewChat && <NewChatModal token={session.token} onClose={() => setShowNewChat(false)} onStarted={handleNewChatStarted} />}
         </div>
         <TabBar active={tab} setActive={setTab} />
@@ -1235,7 +1451,10 @@ function App() {
 
   return (
     <div style={{ background: "#05070A", minHeight: "100vh", padding: "24px 12px", display: "flex", alignItems: "center" }}>
-      <div style={frame}>{body}</div>
+      <div style={frame}>
+        {body}
+        {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
+      </div>
     </div>
   );
 }
