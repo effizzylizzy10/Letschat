@@ -102,6 +102,36 @@ function timeLabel(ts) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+// ---- attachments: read a file, shrink photos, format sizes ----
+const MAX_FILE = 3 * 1024 * 1024;
+const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round((n || 0) / 1024)) + " KB");
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).replace(/^data:;base64,/, "data:application/octet-stream;base64,"));
+    fr.onerror = () => reject(new Error("Could not read that file"));
+    fr.readAsDataURL(file);
+  });
+}
+function compressImage(file, max = 1280) { // keeps the whole picture, just smaller (JPEG)
+  return new Promise((resolve, reject) => {
+    readAsDataURL(file).then((url) => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.8));
+      };
+      img.onerror = () => reject(new Error("Could not read that image"));
+      img.src = url;
+    }, reject);
+  });
+}
+
 // ---- crop an image file to a centered square and shrink it, returns a base64 data URL ----
 function resizeImageToDataURL(file, maxSize = 512) {
   return new Promise((resolve, reject) => {
@@ -860,6 +890,11 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const [info, setInfo] = useState(false);
   const [rec, setRec] = useState(null);
   const [recSec, setRecSec] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [viewer, setViewer] = useState(null);
+  const fileRef = useRef(null);
+  const camRef = useRef(null);
+  const inputRef = useRef(null);
   const endRef = useRef(null);
   const typingTimeout = useRef(null);
 
@@ -907,6 +942,24 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     });
   };
 
+  const sendFile = async (file) => {
+    if (!file) return;
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    setSending(true);
+    const done = setTimeout(() => setSending(false), 20000);
+    try {
+      let data, mime = file.type || "application/octet-stream", name = file.name || "file";
+      if (/^image\/(jpeg|png|webp)$/.test(mime)) { data = await compressImage(file); mime = "image/jpeg"; name = name.replace(/\.\w+$/, "") + ".jpg"; }
+      else { if (file.size > MAX_FILE) throw new Error("File is too large (max 3 MB)"); data = await readAsDataURL(file); }
+      if (data.length > 4000000) throw new Error("File is too large (max 3 MB)");
+      socket.emit("message:send", { conversationId: conversation.id, file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
+        clearTimeout(done); setSending(false);
+        if (ack && ack.error) setError(ack.error);
+      });
+    } catch (e) { clearTimeout(done); setSending(false); setError(e.message || "Could not send that file"); }
+  };
+  const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; sendFile(f); };
+
   const startRec = async () => {
     if (!socket || !navigator.mediaDevices || !window.MediaRecorder) return setError("Voice notes are not supported on this device");
     try {
@@ -951,7 +1004,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <div onClick={isGroup ? () => setInfo(true) : undefined} style={{ display: "flex", cursor: isGroup ? "pointer" : "default" }}><MoreVertical size={19} color="#9BA7B4" /></div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" }}>
         {loading && <div style={{ margin: "auto", color: "#5B6673", fontFamily: "Inter", fontSize: 13 }}>Loading conversation…</div>}
         {error && <Banner text={error} onClose={() => setError("")} />}
         {!loading && msgs.length === 0 && (
@@ -970,7 +1023,17 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
             }}>
               {isGroup && !mine && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
-              {m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} /> : <div>{m.text}</div>}
+              {m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} />
+                : m.file && m.file.data && /^data:image\//.test(m.file.data) ? <img src={m.file.data} alt={m.file.name} onClick={() => setViewer(m.file.data)} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" }} />
+                : m.file && m.file.data ? (
+                  <a href={m.file.data} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 }}>
+                    <span style={{ width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontWeight: 600, fontSize: 13.5, wordBreak: "break-all" }}>{m.file.name}</span>
+                      <span style={{ display: "block", fontSize: 11.5, color: "#B9C2CC" }}>{fmtSize(m.file.size)} · tap to download</span>
+                    </span>
+                  </a>
+                ) : <div>{m.text}</div>}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
                 <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{timeLabel(m.time)}</span>
                 {mine && (m.read || (m.readBy && m.readBy.length) ? <CheckCheck size={13} color="#35D0BA" /> : <Check size={13} color="#B9C2CC" />)}
@@ -986,27 +1049,42 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <div ref={endRef} />
       </div>
 
-      {rec && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 5, background: "#FF6B5D" }} />
-          <span style={{ flex: 1 }}>Recording {Math.floor(recSec / 60)}:{String(recSec % 60).padStart(2, "0")} · tap send to finish</span>
-          <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>
+      {(rec || sending) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" }} />
+          <span style={{ flex: 1 }}>{rec ? "Recording " + Math.floor(recSec / 60) + ":" + String(recSec % 60).padStart(2, "0") + " · tap send to finish" : "Sending file…"}</span>
+          {rec && <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>}
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#0E1116" }}>
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "9px 12px" }}>
-          <Smile size={19} color="#8891A0" />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 }}>
+        <input ref={fileRef} type="file" onChange={pickFile} style={{ display: "none" }} />
+        <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={pickFile} style={{ display: "none" }} />
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "8px 12px" }}>
+          <Smile size={19} color="#8891A0" style={{ flexShrink: 0 }} />
           <input
+            ref={inputRef}
             value={draft}
             onChange={e => { setDraft(e.target.value); notifyTyping(true); }}
             onKeyDown={e => e.key === "Enter" && send()}
-            placeholder="Message" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
-          <Paperclip size={18} color="#8891A0" />
+            placeholder="Message" style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
+          <button aria-label="Attach file" onClick={() => fileRef.current && fileRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Paperclip size={19} color="#8891A0" /></button>
+          <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Camera size={19} color="#8891A0" /></button>
         </div>
-        <button onClick={draft.trim() ? send : rec ? () => stopRec(false) : startRec} style={{ width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-          {draft.trim() || rec ? <Send size={17} color="#0E1116" /> : <Mic size={17} color="#0E1116" />}
+        <button aria-label={rec ? "Stop and send voice note" : "Record voice note"} onClick={rec ? () => stopRec(false) : startRec}
+          style={{ width: 42, height: 42, borderRadius: "50%", border: rec ? "none" : "1px solid #2B3544", background: rec ? "#FF6B5D" : "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+          <Mic size={18} color={rec ? "#0E1116" : "#35D0BA"} />
+        </button>
+        <button aria-label="Send" onClick={() => { if (rec) stopRec(false); else if (draft.trim()) send(); else if (inputRef.current) inputRef.current.focus(); }}
+          style={{ width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, boxShadow: "0 4px 14px #35D0BA33" }}>
+          <Send size={17} color="#0E1116" />
         </button>
       </div>
+      {viewer && (
+        <div onClick={() => setViewer(null)} style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <img src={viewer} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          <div style={{ position: "absolute", top: 14, right: 14, color: "#F5F7FA" }}><X size={26} /></div>
+        </div>
+      )}
       {info && isGroup && <GroupInfoScreen conversation={conversation} myId={myId} token={token} contacts={contacts} presence={presence} lastSeen={lastSeen} onBack={() => setInfo(false)} onChanged={onGroupChanged} />}
       {zoomed && (
         <ImageZoomModal photo={conversation.other.avatar} initials={conversation.other.initials} color={conversation.other.color} onClose={() => setZoomed(false)} />
@@ -1455,7 +1533,7 @@ function LoginScreen({ onContinue }) {
   };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" }}>
+    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" }}>
       <div style={{ textAlign: "center", marginBottom: 30 }}>
         <div style={{ width: 76, height: 76, borderRadius: 22, margin: "0 auto 20px", background: "conic-gradient(from 120deg, #35D0BA, #F2B84B, #35D0BA)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ width: 66, height: 66, borderRadius: 18, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1668,11 +1746,11 @@ function App() {
   };
   const closeJoin = () => { clearJSON("pendingJoin"); setJoinCode(null); };
 
+  // The app fills the whole screen; a footer bar below it carries the host's badge so it never covers the composer.
   const frame = {
-    width: "100%", maxWidth: 400, height: 780, margin: "0 auto", background: "#0E1116",
-    borderRadius: 28, overflow: "hidden", position: "relative", display: "flex",
+    position: "absolute", top: 0, bottom: 0, left: 0, right: 0, width: "100%", maxWidth: 640, margin: "0 auto",
+    background: "#0E1116", overflow: "hidden", display: "flex",
     flexDirection: "column", fontFamily: "Inter, sans-serif",
-    boxShadow: "0 30px 70px -20px rgba(0,0,0,0.6)", border: "1px solid #1B212B",
   };
 
   let body;
@@ -1728,11 +1806,17 @@ function App() {
   }
 
   return (
-    <div style={{ background: "#05070A", minHeight: "100vh", padding: "24px 12px", display: "flex", alignItems: "center" }}>
-      <div style={frame}>
-        {body}
-        {session && chatCode && <ChatLinkModal code={chatCode} token={session.token} onClose={closeChatLink} onStarted={(conv) => { closeChatLink(); handleNewChatStarted(conv); }} />}
-        {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
+    <div className="app-shell" style={{ background: "#05070A", display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+        <div style={frame}>
+          {body}
+          {session && chatCode && <ChatLinkModal code={chatCode} token={session.token} onClose={closeChatLink} onStarted={(conv) => { closeChatLink(); handleNewChatStarted(conv); }} />}
+          {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
+        </div>
+      </div>
+      <div className="app-footer" aria-hidden="true">
+        <span className="app-footer-dot" />
+        <span className="app-footer-text">Letschat Africa</span>
       </div>
     </div>
   );

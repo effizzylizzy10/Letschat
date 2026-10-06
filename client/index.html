@@ -7,8 +7,30 @@
   <link rel="manifest" href="./manifest.json" />
   <meta name="theme-color" content="#0E1116" />
   <style>
-    html, body { margin: 0; padding: 0; background: #05070A; overflow-x: hidden; }
-    #root { min-height: 100vh; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #05070A; overflow: hidden; }
+    #root { height: 100%; }
+
+    /* App fills the whole screen; the footer bar sits under it, touching both edges, and carries the host badge */
+    .app-shell { position: fixed; inset: 0; height: 100vh; height: 100dvh; }
+    .app-footer {
+      position: relative; flex: 0 0 auto; width: 100%; box-sizing: border-box;
+      height: calc(64px + env(safe-area-inset-bottom, 0px));
+      padding: 0 18px env(safe-area-inset-bottom, 0px);
+      display: flex; align-items: center;
+      background: linear-gradient(180deg, #131A24 0%, #0A0E14 100%);
+      border-top: 1px solid #1F2733;
+      box-shadow: 0 -12px 32px rgba(53, 208, 186, 0.07);
+    }
+    .app-footer::before {
+      content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px;
+      background: linear-gradient(90deg, transparent, #35D0BA 30%, #F2B84B 70%, transparent);
+      opacity: 0.8;
+    }
+    .app-footer-dot { width: 8px; height: 8px; border-radius: 50%; background: #35D0BA; box-shadow: 0 0 10px #35D0BA; margin-right: 10px; }
+    .app-footer-text { font: 600 12px Sora, Inter, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: #6C7A89; }
+
+    /* every scrolling list (chats, messages, contacts, group info, profile, market) scrolls smoothly inside its own box */
+    div[style*="overflow-y: auto"] { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #2B3544 transparent; }
     #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding-top: 40vh; }
     #error-box {
       display: none; position: fixed; inset: 0; background: #1a0000; color: #ff8080;
@@ -174,6 +196,37 @@ function timeLabel(ts) {
     if (sameDay)
         return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+// ---- attachments: read a file, shrink photos, format sizes ----
+const MAX_FILE = 3 * 1024 * 1024;
+const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round((n || 0) / 1024)) + " KB");
+function readAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).replace(/^data:;base64,/, "data:application/octet-stream;base64,"));
+        fr.onerror = () => reject(new Error("Could not read that file"));
+        fr.readAsDataURL(file);
+    });
+}
+function compressImage(file, max = 1280) {
+    return new Promise((resolve, reject) => {
+        readAsDataURL(file).then((url) => {
+            const img = new Image();
+            img.onload = () => {
+                const k = Math.min(1, max / Math.max(img.width, img.height));
+                const c = document.createElement("canvas");
+                c.width = Math.round(img.width * k);
+                c.height = Math.round(img.height * k);
+                const ctx = c.getContext("2d");
+                ctx.fillStyle = "#fff";
+                ctx.fillRect(0, 0, c.width, c.height);
+                ctx.drawImage(img, 0, 0, c.width, c.height);
+                resolve(c.toDataURL("image/jpeg", 0.8));
+            };
+            img.onerror = () => reject(new Error("Could not read that image"));
+            img.src = url;
+        }, reject);
+    });
 }
 // ---- crop an image file to a centered square and shrink it, returns a base64 data URL ----
 function resizeImageToDataURL(file, maxSize = 512) {
@@ -818,6 +871,11 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const [info, setInfo] = useState(false);
     const [rec, setRec] = useState(null);
     const [recSec, setRecSec] = useState(0);
+    const [sending, setSending] = useState(false);
+    const [viewer, setViewer] = useState(null);
+    const fileRef = useRef(null);
+    const camRef = useRef(null);
+    const inputRef = useRef(null);
     const endRef = useRef(null);
     const typingTimeout = useRef(null);
     useEffect(() => {
@@ -867,6 +925,41 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 setError(ack.error);
         });
     };
+    const sendFile = async (file) => {
+        if (!file)
+            return;
+        if (!socket)
+            return setError("Not connected yet. Try again in a moment.");
+        setSending(true);
+        const done = setTimeout(() => setSending(false), 20000);
+        try {
+            let data, mime = file.type || "application/octet-stream", name = file.name || "file";
+            if (/^image\/(jpeg|png|webp)$/.test(mime)) {
+                data = await compressImage(file);
+                mime = "image/jpeg";
+                name = name.replace(/\.\w+$/, "") + ".jpg";
+            }
+            else {
+                if (file.size > MAX_FILE)
+                    throw new Error("File is too large (max 3 MB)");
+                data = await readAsDataURL(file);
+            }
+            if (data.length > 4000000)
+                throw new Error("File is too large (max 3 MB)");
+            socket.emit("message:send", { conversationId: conversation.id, file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
+                clearTimeout(done);
+                setSending(false);
+                if (ack && ack.error)
+                    setError(ack.error);
+            });
+        }
+        catch (e) {
+            clearTimeout(done);
+            setSending(false);
+            setError(e.message || "Could not send that file");
+        }
+    };
+    const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; sendFile(f); };
     const startRec = async () => {
         if (!socket || !navigator.mediaDevices || !window.MediaRecorder)
             return setError("Voice notes are not supported on this device");
@@ -917,7 +1010,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             React.createElement(Phone, { size: 18, color: "#5B6673", style: { marginRight: 16, opacity: 0.5 } }),
             React.createElement("div", { onClick: isGroup ? () => setInfo(true) : undefined, style: { display: "flex", cursor: isGroup ? "pointer" : "default" } },
                 React.createElement(MoreVertical, { size: 19, color: "#9BA7B4" }))),
-        React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" } },
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" } },
             loading && React.createElement("div", { style: { margin: "auto", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading conversation\u2026"),
             error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
             !loading && msgs.length === 0 && (React.createElement("div", { style: { margin: "auto", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } },
@@ -936,28 +1029,49 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                         padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
                     } },
                     isGroup && !mine && React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 } }, sender ? sender.name : "Former member"),
-                    m.audio ? React.createElement("audio", { controls: true, preload: "none", src: m.audio, style: { height: 36, width: 210, maxWidth: "100%" } }) : React.createElement("div", null, m.text),
+                    m.audio ? React.createElement("audio", { controls: true, preload: "none", src: m.audio, style: { height: 36, width: 210, maxWidth: "100%" } })
+                        : m.file && m.file.data && /^data:image\//.test(m.file.data) ? React.createElement("img", { src: m.file.data, alt: m.file.name, onClick: () => setViewer(m.file.data), style: { display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" } })
+                            : m.file && m.file.data ? (React.createElement("a", { href: m.file.data, download: m.file.name, style: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 } },
+                                React.createElement("span", { style: { width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+                                    React.createElement(Paperclip, { size: 17, color: "#35D0BA" })),
+                                React.createElement("span", { style: { minWidth: 0 } },
+                                    React.createElement("span", { style: { display: "block", fontWeight: 600, fontSize: 13.5, wordBreak: "break-all" } }, m.file.name),
+                                    React.createElement("span", { style: { display: "block", fontSize: 11.5, color: "#B9C2CC" } },
+                                        fmtSize(m.file.size),
+                                        " \u00B7 tap to download")))) : React.createElement("div", null, m.text),
                     React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
                         React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, timeLabel(m.time)),
                         mine && (m.read || (m.readBy && m.readBy.length) ? React.createElement(CheckCheck, { size: 13, color: "#35D0BA" }) : React.createElement(Check, { size: 13, color: "#B9C2CC" })))));
             }),
             peerTyping && (React.createElement("div", { style: { alignSelf: "flex-start", background: "#1E2530", borderRadius: 14, borderBottomLeftRadius: 3, padding: "9px 13px", color: "#8891A0", fontFamily: "Inter", fontSize: 13 } }, "typing\u2026")),
             React.createElement("div", { ref: endRef })),
-        rec && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } },
-            React.createElement("span", { style: { width: 10, height: 10, borderRadius: 5, background: "#FF6B5D" } }),
-            React.createElement("span", { style: { flex: 1 } },
-                "Recording ",
-                Math.floor(recSec / 60),
-                ":",
-                String(recSec % 60).padStart(2, "0"),
-                " \u00B7 tap send to finish"),
-            React.createElement("button", { onClick: () => stopRec(true), style: { ...smallBtn, color: "#FF6B5D" } }, "Cancel"))),
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#0E1116" } },
-            React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "9px 12px" } },
-                React.createElement(Smile, { size: 19, color: "#8891A0" }),
-                React.createElement("input", { value: draft, onChange: e => { setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => e.key === "Enter" && send(), placeholder: "Message", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
-                React.createElement(Paperclip, { size: 18, color: "#8891A0" })),
-            React.createElement("button", { onClick: draft.trim() ? send : rec ? () => stopRec(false) : startRec, style: { width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, draft.trim() || rec ? React.createElement(Send, { size: 17, color: "#0E1116" }) : React.createElement(Mic, { size: 17, color: "#0E1116" }))),
+        (rec || sending) && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 } },
+            React.createElement("span", { style: { width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" } }),
+            React.createElement("span", { style: { flex: 1 } }, rec ? "Recording " + Math.floor(recSec / 60) + ":" + String(recSec % 60).padStart(2, "0") + " · tap send to finish" : "Sending file…"),
+            rec && React.createElement("button", { onClick: () => stopRec(true), style: { ...smallBtn, color: "#FF6B5D" } }, "Cancel"))),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 } },
+            React.createElement("input", { ref: fileRef, type: "file", onChange: pickFile, style: { display: "none" } }),
+            React.createElement("input", { ref: camRef, type: "file", accept: "image/*", capture: "environment", onChange: pickFile, style: { display: "none" } }),
+            React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "8px 12px" } },
+                React.createElement(Smile, { size: 19, color: "#8891A0", style: { flexShrink: 0 } }),
+                React.createElement("input", { ref: inputRef, value: draft, onChange: e => { setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => e.key === "Enter" && send(), placeholder: "Message", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
+                React.createElement("button", { "aria-label": "Attach file", onClick: () => fileRef.current && fileRef.current.click(), style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 } },
+                    React.createElement(Paperclip, { size: 19, color: "#8891A0" })),
+                React.createElement("button", { "aria-label": "Take photo", onClick: () => camRef.current && camRef.current.click(), style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 } },
+                    React.createElement(Camera, { size: 19, color: "#8891A0" }))),
+            React.createElement("button", { "aria-label": rec ? "Stop and send voice note" : "Record voice note", onClick: rec ? () => stopRec(false) : startRec, style: { width: 42, height: 42, borderRadius: "50%", border: rec ? "none" : "1px solid #2B3544", background: rec ? "#FF6B5D" : "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } },
+                React.createElement(Mic, { size: 18, color: rec ? "#0E1116" : "#35D0BA" })),
+            React.createElement("button", { "aria-label": "Send", onClick: () => { if (rec)
+                    stopRec(false);
+                else if (draft.trim())
+                    send();
+                else if (inputRef.current)
+                    inputRef.current.focus(); }, style: { width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, boxShadow: "0 4px 14px #35D0BA33" } },
+                React.createElement(Send, { size: 17, color: "#0E1116" }))),
+        viewer && (React.createElement("div", { onClick: () => setViewer(null), style: { position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement("img", { src: viewer, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }),
+            React.createElement("div", { style: { position: "absolute", top: 14, right: 14, color: "#F5F7FA" } },
+                React.createElement(X, { size: 26 })))),
         info && isGroup && React.createElement(GroupInfoScreen, { conversation: conversation, myId: myId, token: token, contacts: contacts, presence: presence, lastSeen: lastSeen, onBack: () => setInfo(false), onChanged: onGroupChanged }),
         zoomed && (React.createElement(ImageZoomModal, { photo: conversation.other.avatar, initials: conversation.other.initials, color: conversation.other.color, onClose: () => setZoomed(false) }))));
 }
@@ -1401,7 +1515,7 @@ function LoginScreen({ onContinue }) {
         email: "Use your email and a password (6 or more characters).",
         verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
     };
-    return (React.createElement("div", { style: { height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
+    return (React.createElement("div", { style: { height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
         React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
             React.createElement("div", { style: { width: 76, height: 76, borderRadius: 22, margin: "0 auto 20px", background: "conic-gradient(from 120deg, #35D0BA, #F2B84B, #35D0BA)", display: "flex", alignItems: "center", justifyContent: "center" } },
                 React.createElement("div", { style: { width: 66, height: 66, borderRadius: 18, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center" } },
@@ -1602,11 +1716,11 @@ function App() {
         setActiveConvo(c);
     };
     const closeJoin = () => { clearJSON("pendingJoin"); setJoinCode(null); };
+    // The app fills the whole screen; a footer bar below it carries the host's badge so it never covers the composer.
     const frame = {
-        width: "100%", maxWidth: 400, height: 780, margin: "0 auto", background: "#0E1116",
-        borderRadius: 28, overflow: "hidden", position: "relative", display: "flex",
+        position: "absolute", top: 0, bottom: 0, left: 0, right: 0, width: "100%", maxWidth: 640, margin: "0 auto",
+        background: "#0E1116", overflow: "hidden", display: "flex",
         flexDirection: "column", fontFamily: "Inter, sans-serif",
-        boxShadow: "0 30px 70px -20px rgba(0,0,0,0.6)", border: "1px solid #1B212B",
     };
     let body;
     if (!session) {
@@ -1633,11 +1747,15 @@ function App() {
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
             React.createElement(TabBar, { active: tab, setActive: setTab })));
     }
-    return (React.createElement("div", { style: { background: "#05070A", minHeight: "100vh", padding: "24px 12px", display: "flex", alignItems: "center" } },
-        React.createElement("div", { style: frame },
-            body,
-            session && chatCode && React.createElement(ChatLinkModal, { code: chatCode, token: session.token, onClose: closeChatLink, onStarted: (conv) => { closeChatLink(); handleNewChatStarted(conv); } }),
-            session && joinCode && React.createElement(JoinGroupModal, { code: joinCode, token: session.token, onClose: closeJoin, onJoined: (conv) => { closeJoin(); openGroup(conv); } }))));
+    return (React.createElement("div", { className: "app-shell", style: { background: "#05070A", display: "flex", flexDirection: "column" } },
+        React.createElement("div", { style: { position: "relative", flex: 1, minHeight: 0 } },
+            React.createElement("div", { style: frame },
+                body,
+                session && chatCode && React.createElement(ChatLinkModal, { code: chatCode, token: session.token, onClose: closeChatLink, onStarted: (conv) => { closeChatLink(); handleNewChatStarted(conv); } }),
+                session && joinCode && React.createElement(JoinGroupModal, { code: joinCode, token: session.token, onClose: closeJoin, onJoined: (conv) => { closeJoin(); openGroup(conv); } }))),
+        React.createElement("div", { className: "app-footer", "aria-hidden": "true" },
+            React.createElement("span", { className: "app-footer-dot" }),
+            React.createElement("span", { className: "app-footer-text" }, "Letschat Africa"))));
 }
 // ---- mount ----
 const rootEl = document.getElementById("root");
