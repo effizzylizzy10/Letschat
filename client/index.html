@@ -4142,8 +4142,35 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         openedAt.current = Date.now();
         setSel(m);
     } };
-    const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => openMenu(m), 450); };
+    const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => startPick(m), 450); };
     const pressEnd = () => clearTimeout(pressRef.current);
+
+  // ---- multi-select: long-press a bubble to start, then tap more bubbles to add or remove them ----
+  const [picked, setPicked] = useState([]);
+  const pickAt = useRef(0);
+  const pickedMsgs = msgs.filter(x => !x.deleted && picked.includes(x.id));
+  const picking = pickedMsgs.length > 0;
+  const startPick = (m) => { if (!m || m.deleted) return; pickAt.current = Date.now(); setSel(null); setPicked(p => (p.includes(m.id) ? p : [...p, m.id])); };
+  const togglePick = (m) => { if (Date.now() - pickAt.current < 500) return; setPicked(p => (p.includes(m.id) ? p.filter(id => id !== m.id) : [...p, m.id])); };
+  const clearPick = () => setPicked([]);
+  const allMinePicked = picking && pickedMsgs.every(x => x.senderId === myId);
+  const copyPicked = async () => {
+    const text = pickedMsgs.map(x => {
+      const who = conversation.isGroup ? (x.senderId === myId ? "You" : ((conversation.members.find(u => u.id === x.senderId) || {}).name || "Former member")) + ": " : "";
+      return who + (x.audio || x.hasAudio ? "[Voice note]" : x.file ? "[File: " + (x.file.name || "file") + "]" : x.text);
+    }).join("\n");
+    try { await navigator.clipboard.writeText(text); } catch (e) { window.prompt("Copy these messages", text); }
+    clearPick();
+  };
+  const deletePicked = () => {
+    const mine = pickedMsgs.filter(x => x.senderId === myId);
+    if (!mine.length) return;
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    if (!window.confirm("Delete " + (mine.length === 1 ? "this message" : mine.length + " messages") + " for everyone?")) return;
+    mine.forEach(x => socket.emit("message:delete", { messageId: x.id }, (ack) => { if (ack && ack.error) setError(ack.error); }));
+    clearPick();
+  };
+
     // Auto-expand the message box as the user types (Enter adds a new line), up to 40% of the screen, then it scrolls.
     useEffect(() => {
         const el = inputRef.current;
@@ -4261,6 +4288,13 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const iBlocked = !isGroup && settings.blocked.some(b => b.id === conversation.other.id);
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B", position: "relative", flexShrink: 0 } },
+            picking && React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 60, background: "#0E1116", display: "flex", alignItems: "center", gap: 12, padding: "0 14px" } },
+                React.createElement("button", { "aria-label": "Cancel selection", onClick: clearPick, style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, React.createElement(X, { size: 22, color: "#F5F7FA" })),
+                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" } }, pickedMsgs.length, " selected"),
+                React.createElement("button", { onClick: copyPicked, style: smallBtn }, "Copy"),
+                allMinePicked && React.createElement("button", { "aria-label": "Delete selected messages", onClick: deletePicked, style: { ...smallBtn, color: "#FF6B5D", display: "flex", alignItems: "center", gap: 6 } },
+                    React.createElement(Trash2, { size: 15, color: "#FF6B5D" }),
+                    "Delete")),
             menu && (React.createElement(React.Fragment, null,
                 React.createElement("div", { onClick: () => setMenu(false), style: { position: "fixed", inset: 0, zIndex: 40 } }),
                 React.createElement("div", { style: { position: "absolute", top: 50, right: 10, zIndex: 41, minWidth: 210, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" } }, [
@@ -4305,8 +4339,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             msgs.map(m => {
                 const mine = m.senderId === myId;
                 const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
-                return (React.createElement("div", { key: m.id, ref: (el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }, onContextMenu: mine && !m.deleted ? (e) => { e.preventDefault(); openMenu(m); } : undefined, onTouchStart: mine && !m.deleted ? () => pressStart(m) : undefined, onTouchEnd: pressEnd, onTouchMove: pressEnd, onTouchCancel: pressEnd, style: {
-                        WebkitTouchCallout: "none", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
+                return (React.createElement("div", { key: m.id, ref: (el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }, onContextMenu: !m.deleted ? (e) => { e.preventDefault(); startPick(m); } : undefined, onClickCapture: picking ? (e) => { e.preventDefault(); e.stopPropagation(); if (!m.deleted) togglePick(m); } : undefined, onTouchStart: !m.deleted ? () => pressStart(m) : undefined, onTouchEnd: pressEnd, onTouchMove: pressEnd, onTouchCancel: pressEnd, style: {
+                        WebkitTouchCallout: "none", userSelect: picking ? "none" : undefined, WebkitUserSelect: picking ? "none" : undefined, boxShadow: picking && picked.includes(m.id) && !m.deleted ? "0 0 0 2px #35D0BA, 0 0 0 6px rgba(53,208,186,.18)" : hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
                         alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%",
                         background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
                         borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
@@ -4379,6 +4413,9 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 setSel(null); }, style: { position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
             React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" } },
                 React.createElement("div", { style: { padding: "6px 10px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, sel.audio || sel.hasAudio ? "🎤 Voice note" : sel.text),
+                React.createElement("div", { onClick: () => startPick(sel), style: { display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" } },
+                    React.createElement(Check, { size: 18, color: "#35D0BA" }),
+                    "Select messages"),
                 canEdit(sel) && (React.createElement("div", { onClick: () => startEdit(sel), style: { display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" } },
                     React.createElement(Pencil, { size: 18, color: "#35D0BA" }),
                     "Edit message")),
