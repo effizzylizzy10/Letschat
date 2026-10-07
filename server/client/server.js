@@ -254,6 +254,14 @@ function sendImage(res, dataUrl) {
 }
 app.get("/api/groups/:id/avatar", (req, res) => sendImage(res, (readDB().conversations.find((x) => x.id === req.params.id) || {}).avatar));
 app.get("/api/status/:id/photo", (req, res) => sendImage(res, (statusesOf(readDB()).find((x) => x.id === req.params.id) || {}).photo));
+app.get("/api/status/:id/music", (req, res) => {
+  const s = statusesOf(readDB()).find((x) => x.id === req.params.id);
+  const m = s && s.music && /^data:audio\/wav;base64,(.+)$/s.exec(s.music);
+  if (!m) return res.status(404).type("text/plain").send("No music");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.type("audio/wav").send(Buffer.from(m[1], "base64"));
+});
 app.get("/api/market/:id/photo", (req, res) => sendImage(res, (listingsOf(readDB()).find((x) => x.id === req.params.id && !x.removed) || {}).photo));
 
 app.use("/api", (req, res, next) => {
@@ -746,7 +754,29 @@ function canDM(db, me, other) { // messaging by user id: sellers with a live lis
   if (listingsOf(db).some((l) => !l.removed && l.sellerId === other)) return true;
   return db.conversations.some((c) => c.isGroup && c.participantIds.includes(me) && c.participantIds.includes(other) && (c.adminId === me || c.adminId === other));
 }
-const listingView = (l, db) => ({ id: l.id, title: l.title, description: l.description, price: l.price, sold: !!l.sold, time: l.time,
+// ---- @tags on market posts and statuses: contacts (people you chat with) and groups you are in ----
+function cleanTags(db, meId, raw) {
+  const out = [];
+  if (!Array.isArray(raw)) return out;
+  for (const t of raw.slice(0, 10)) {
+    if (!t || typeof t.id !== "string" || out.some((x) => x.id === t.id)) continue;
+    if (t.type === "group") { const c = db.conversations.find((x) => x.id === t.id && x.isGroup && x.participantIds.includes(meId)); if (c) out.push({ type: "group", id: c.id }); }
+    else if (t.type === "user" && t.id !== meId) { const u = db.users.find((x) => x.id === t.id); if (u && canSeeStatus(db, meId, u.id)) out.push({ type: "user", id: u.id }); }
+  }
+  return out;
+}
+function tagViews(db, tags) {
+  return (tags || []).map((t) => ({ type: t.type, id: t.id, name: t.type === "group" ? (db.conversations.find((c) => c.id === t.id) || {}).name : (db.users.find((u) => u.id === t.id) || {}).name })).filter((t) => t.name);
+}
+function notifyTags(db, meId, tags, kind) {
+  if (!tags || !tags.length) return;
+  const by = (db.users.find((u) => u.id === meId) || {}).name || "Someone";
+  for (const t of tags) {
+    if (t.type === "user") io.to(`user:${t.id}`).emit("tagged", { kind, by });
+    else { const c = db.conversations.find((x) => x.id === t.id); if (c) io.to(`conv:${c.id}`).except(`user:${meId}`).emit("tagged", { kind, by, group: c.name }); }
+  }
+}
+const listingView = (l, db) => ({ id: l.id, title: l.title, description: l.description, price: l.price, sold: !!l.sold, time: l.time, tags: tagViews(db, l.tags),
   photo: l.photo ? `/api/v1/market/${l.id}/photo?v=${l.time}` : null, seller: sellerView(db, l.sellerId), commentCount: (l.comments || []).length });
 // seller star ratings live on the seller's user record: { raterId: { stars, time } }
 const ratingOf = (u) => { const r = Object.values((u && u.ratings) || {}); const n = r.length; return { avg: n ? Math.round((r.reduce((a, x) => a + x.stars, 0) / n) * 10) / 10 : 0, count: n }; };
@@ -768,9 +798,11 @@ app.post("/api/market", authMiddleware, (req, res) => {
   if (!price || price.length > 30) return res.status(400).json({ error: "Add a price (up to 30 characters, e.g. N5,000)" });
   if (description.length > 1000) return res.status(400).json({ error: "Description must be 1000 characters or fewer" });
   if (photo && (typeof photo !== "string" || !AVATAR_RE.test(photo) || !looksLikeImage(photo) || photo.length > 1500000)) return res.status(400).json({ error: "Photo must be a JPG or PNG under about 1 MB" });
-  const l = { id: nanoid(10), sellerId: req.user.id, title, description, price, photo: photo || null, time: Date.now() };
+  const tags = cleanTags(db, req.user.id, req.body.tags);
+  const l = { id: nanoid(10), sellerId: req.user.id, title, description, price, photo: photo || null, time: Date.now(), tags };
   listingsOf(db).push(l);
   writeDB(db);
+  notifyTags(db, req.user.id, tags, "market");
   res.json({ listing: listingView(l, db) });
 });
 function ownListing(req, res) {
@@ -851,16 +883,23 @@ function canSeeStatus(db, viewerId, ownerId) { // people with a private chat in 
   if (!db.conversations.some((c) => !c.isGroup && c.participantIds.includes(viewerId) && c.participantIds.includes(ownerId))) return false;
   return !isBlockedEither(db.users.find((u) => u.id === viewerId), db.users.find((u) => u.id === ownerId));
 }
-const statusItem = (s, me) => ({ id: s.id, text: s.text || "", bg: s.bg || "#1E8677", photo: s.photo ? `/api/v1/status/${s.id}/photo?v=${s.time}` : null, time: s.time,
+function canSeeStatusItem(db, viewerId, s) { // contacts, plus anyone (or any group member) the post tags
+  if (canSeeStatus(db, viewerId, s.userId)) return true;
+  const owner = db.users.find((u) => u.id === s.userId), viewer = db.users.find((u) => u.id === viewerId);
+  if (!owner || !viewer || isBlockedEither(viewer, owner)) return false;
+  return (s.tags || []).some((t) => (t.type === "user" ? t.id === viewerId : db.conversations.some((c) => c.id === t.id && c.isGroup && c.participantIds.includes(viewerId))));
+}
+const statusItem = (s, me, db) => ({ id: s.id, text: s.text || "", bg: s.bg || "#1E8677", photo: s.photo ? `/api/v1/status/${s.id}/photo?v=${s.time}` : null, time: s.time,
+  music: s.music ? `/api/v1/status/${s.id}/music?v=${s.time}` : null, musicName: s.musicName || null, musicDur: s.musicDur || 0, tags: tagViews(db, s.tags),
   seen: (s.viewedBy || []).includes(me), ...(s.userId === me ? { views: (s.viewedBy || []).length } : {}) });
 app.get("/api/status", authMiddleware, (req, res) => {
   const db = readDB();
   const me = req.user.id;
   const live = statusesOf(db).slice().sort((a, b) => a.time - b.time);
-  const mine = live.filter((s) => s.userId === me).map((s) => statusItem(s, me));
+  const mine = live.filter((s) => s.userId === me).map((s) => statusItem(s, me, db));
   const byUser = new Map();
-  for (const s of live) if (s.userId !== me && canSeeStatus(db, me, s.userId)) { if (!byUser.has(s.userId)) byUser.set(s.userId, []); byUser.get(s.userId).push(s); }
-  const feed = [...byUser.entries()].map(([uid, list]) => ({ user: memberView(db.users.find((u) => u.id === uid)), items: list.map((s) => statusItem(s, me)), latest: list[list.length - 1].time }))
+  for (const s of live) if (s.userId !== me && canSeeStatusItem(db, me, s)) { if (!byUser.has(s.userId)) byUser.set(s.userId, []); byUser.get(s.userId).push(s); }
+  const feed = [...byUser.entries()].map(([uid, list]) => ({ user: memberView(db.users.find((u) => u.id === uid)), items: list.map((s) => statusItem(s, me, db)), latest: list[list.length - 1].time }))
     .filter((g) => g.user)
     .map((g) => ({ ...g, allSeen: g.items.every((i) => i.seen) }))
     .sort((a, b) => (a.allSeen - b.allSeen) || (b.latest - a.latest));
@@ -877,15 +916,22 @@ app.post("/api/status", authMiddleware, (req, res) => {
   if (photo && (typeof photo !== "string" || !AVATAR_RE.test(photo) || !looksLikeImage(photo) || photo.length > 1500000)) return res.status(400).json({ error: "Photo must be a JPG or PNG under about 1 MB" });
   const list = statusesOf(db);
   if (list.filter((s) => s.userId === req.user.id).length >= 30) return res.status(400).json({ error: "You can have up to 30 status updates at a time" });
-  const s = { id: nanoid(14), userId: req.user.id, text, bg, photo: photo || null, time: Date.now(), viewedBy: [] };
+  const s = { id: nanoid(14), userId: req.user.id, text, bg, photo: photo || null, time: Date.now(), viewedBy: [], tags: cleanTags(db, req.user.id, req.body && req.body.tags) };
+  const mu = req.body && req.body.music;
+  if (mu) { // a short trimmed clip, sent as a small mono WAV
+    const okMusic = typeof mu.data === "string" && mu.data.startsWith("data:audio/wav;base64,") && mu.data.length <= 1300000 && Buffer.from(mu.data.slice(22, 38), "base64").slice(0, 4).toString("latin1") === "RIFF";
+    if (!okMusic) return res.status(400).json({ error: "Music must be a short clip of up to about 15 seconds" });
+    s.music = mu.data; s.musicName = String(mu.name || "Music").slice(0, 60); s.musicDur = Math.min(20, Math.max(1, Number(mu.dur) || 15));
+  }
   list.push(s);
   writeDB(db);
-  res.json({ status: statusItem(s, req.user.id) });
+  notifyTags(db, req.user.id, s.tags, "status");
+  res.json({ status: statusItem(s, req.user.id, db) });
 });
 app.post("/api/status/:id/view", authMiddleware, (req, res) => {
   const db = readDB();
   const s = statusesOf(db).find((x) => x.id === req.params.id);
-  if (!s || !canSeeStatus(db, req.user.id, s.userId)) return res.status(404).json({ error: "Status not found. It may have expired." });
+  if (!s || !canSeeStatusItem(db, req.user.id, s)) return res.status(404).json({ error: "Status not found. It may have expired." });
   if (s.userId !== req.user.id && !(s.viewedBy || (s.viewedBy = [])).includes(req.user.id)) { s.viewedBy.push(req.user.id); writeDB(db); }
   res.json({ ok: true });
 });
@@ -933,6 +979,7 @@ const io = new Server(server, {
 });
 
 const userSockets = new Map();
+const gOnlineAt = new Map(); // userId -> last time we announced them as online in the games section
 
 // ---- voice / video calls: the server only introduces the two phones (signalling); audio and video flow peer to peer (WebRTC) ----
 const activeCalls = new Map(); // callId -> { id, from, to, conversationId, video, state, timer }
@@ -1397,6 +1444,15 @@ io.on("connection", (socket) => {
   for (const c of myConvos) socket.join(`conv:${c.id}`);
 
   if (!hidesPresence(db.users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: true });
+  // Games: tell everyone else a player just came online (first device only, and at most once a minute per player so reconnects don't spam)
+  if (userSockets.get(userId).size === 1) {
+    const meU = db.users.find((u) => u.id === userId);
+    const now = Date.now();
+    if (meU && !hidesPresence(meU) && now - (gOnlineAt.get(userId) || 0) > 60000) {
+      gOnlineAt.set(userId, now);
+      socket.broadcast.emit("game:player-online", { player: { id: meU.id, name: meU.name, initials: publicUser(meU).initials, color: publicUser(meU).color, avatar: publicUser(meU).avatar } });
+    }
+  }
 
   socket.on("message:send", ({ conversationId, text, audio, duration, file }, ack) => {
     const fail = (error) => { if (ack) ack({ error }); };
