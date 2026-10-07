@@ -974,6 +974,152 @@ function joinUserToRoom(userId, room) {
   }
 }
 
+// ===================== GAMES HUB (matchmaking, invites, rooms, rankings) =====================
+// Rules are shared word-for-word with the client (GAME_RULES in app.jsx) so both sides agree.
+const GAME_RULES = {
+  ttt: {
+    init: () => Array(9).fill(null),
+    moves: (s) => s.map((v, i) => (v == null ? i : -1)).filter((i) => i >= 0),
+    play: (s, m, p) => { const n = s.slice(); n[m] = p; return n; },
+    win: (s) => {
+      for (const l of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]])
+        if (s[l[0]] != null && s[l[0]] === s[l[1]] && s[l[1]] === s[l[2]]) return { p: s[l[0]], line: l };
+      return null;
+    },
+  },
+  c4: {
+    init: () => Array(42).fill(null),
+    moves: (s) => [0,1,2,3,4,5,6].filter((c) => s[c] == null),
+    play: (s, c, p) => { const n = s.slice(); for (let r = 5; r >= 0; r--) if (n[r * 7 + c] == null) { n[r * 7 + c] = p; break; } return n; },
+    win: (s) => {
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) {
+        const p = s[r * 7 + c]; if (p == null) continue;
+        for (const [dr, dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+          const line = [];
+          for (let k = 0; k < 4; k++) { const rr = r + dr * k, cc = c + dc * k; if (rr < 0 || rr > 5 || cc < 0 || cc > 6 || s[rr * 7 + cc] !== p) break; line.push(rr * 7 + cc); }
+          if (line.length === 4) return { p, line };
+        }
+      }
+      return null;
+    },
+  },
+};
+const GAME_IDS = Object.keys(GAME_RULES);
+const COUNTRY_PREFIX = [["234","NG"],["233","GH"],["254","KE"],["255","TZ"],["256","UG"],["27","ZA"],["20","EG"],["44","GB"],["1","US"]];
+const countryOf = (u) => { const d = String(u.phone || "").replace(/\D/g, ""); const hit = COUNTRY_PREFIX.find(([p]) => d.startsWith(p)); return hit ? hit[1] : ""; };
+
+const gQueue = new Map();   // userId -> { game, since }   (looking for an opponent)
+const gPlaying = new Map(); // userId -> roomId
+const gRooms = new Map();   // roomId -> room
+const gInvites = new Map(); // inviteId -> { from, to, game, at }
+const gRecent = [];         // recent finished games for the lobby
+
+const gStatsOf = (db, id) => { db.gameStats = db.gameStats || {}; return (db.gameStats[id] = db.gameStats[id] || { xp: 0, w: 0, l: 0, d: 0, streak: 0, best: 0, fav: {} }); };
+const gLevel = (xp) => Math.floor(xp / 100) + 1;
+function gCard(db, id) {
+  const u = db.users.find((x) => x.id === id); if (!u) return null;
+  const s = gStatsOf(db, id);
+  const fav = Object.entries(s.fav).sort((a, b) => b[1] - a[1])[0];
+  const status = gPlaying.has(id) ? "playing" : gQueue.has(id) ? "looking" : userSockets.has(id) ? "online" : "offline";
+  return { ...publicUser(u), phone: null, email: null, country: countryOf(u), level: gLevel(s.xp), xp: s.xp, w: s.w, l: s.l, d: s.d, streak: s.streak, best: s.best, fav: fav ? fav[0] : null, status, looking: gQueue.has(id) ? gQueue.get(id).game : null };
+}
+function gRecord(userId, game, result, pvp, level) {
+  const db = readDB(); const s = gStatsOf(db, userId);
+  const gain = pvp ? { w: 30, d: 10, l: 5 }[result] : { w: 8 + 4 * (level || 0), d: 3, l: 1 }[result];
+  s.xp += gain; s[result] += 1; s.fav[game] = (s.fav[game] || 0) + 1;
+  if (result === "w") { s.streak += 1; s.best = Math.max(s.best, s.streak); } else if (result === "l") s.streak = 0;
+  db.gameLog = db.gameLog || []; db.gameLog.push({ u: userId, t: Date.now(), r: result, p: pvp ? 1 : 0, x: gain });
+  if (db.gameLog.length > 6000) db.gameLog.splice(0, db.gameLog.length - 6000);
+  writeDB(db); return { gain, xp: s.xp, level: gLevel(s.xp), streak: s.streak };
+}
+function gStart(game, a, b) {
+  const db = readDB(); const id = nanoid(10);
+  const players = Math.random() < 0.5 ? [a, b] : [b, a];
+  const room = { id, game, players, turn: 0, state: GAME_RULES[game].init(), over: false, rematch: new Set(), score: [0, 0], chat: [] };
+  gRooms.set(id, room); for (const p of players) { gPlaying.set(p, id); gQueue.delete(p); }
+  const cards = players.map((p) => gCard(db, p));
+  players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: id, game, you: i, players: cards, turn: 0, state: room.state, score: room.score }));
+  return room;
+}
+function gFinish(room, winnerIdx) {
+  room.over = true;
+  const [a, b] = room.players; const out = {};
+  if (winnerIdx < 0) { out[a] = gRecord(a, room.game, "d", true); out[b] = gRecord(b, room.game, "d", true); }
+  else { room.score[winnerIdx] += 1; const w = room.players[winnerIdx], l = room.players[1 - winnerIdx]; out[w] = gRecord(w, room.game, "w", true); out[l] = gRecord(l, room.game, "l", true); }
+  gRecent.unshift({ game: room.game, a, b, w: winnerIdx < 0 ? null : room.players[winnerIdx], t: Date.now() }); gRecent.length = Math.min(gRecent.length, 20);
+  return out;
+}
+function gLeave(userId) {
+  const rid = gPlaying.get(userId); gQueue.delete(userId); if (!rid) return;
+  const room = gRooms.get(rid); gPlaying.delete(userId); if (!room) return;
+  const idx = room.players.indexOf(userId), other = room.players[1 - idx];
+  if (!room.over) { const rec = gFinish(room, 1 - idx); io.to(`user:${other}`).emit("game:over", { room: rid, winner: 1 - idx, line: null, forfeit: true, score: room.score, reward: rec[other], result: "w" }); }
+  io.to(`user:${other}`).emit("game:left", { room: rid });
+  gPlaying.delete(other); gRooms.delete(rid);
+}
+function registerGames(socket) {
+  const me = socket.userId; const ack = (f, v) => { if (typeof f === "function") f(v); };
+  socket.on("game:lobby", (f) => {
+    const db = readDB(); const ids = db.users.map((u) => u.id).filter((id) => id !== me && (userSockets.has(id) || gPlaying.has(id)));
+    ack(f, { players: ids.map((id) => gCard(db, id)).filter(Boolean), recent: gRecent.slice(0, 8).map((r) => ({ ...r, aName: (db.users.find((u) => u.id === r.a) || {}).name, bName: (db.users.find((u) => u.id === r.b) || {}).name })), me: gCard(db, me) });
+  });
+  socket.on("game:find", ({ game } = {}, f) => {
+    if (!GAME_RULES[game] || gPlaying.has(me)) return ack(f, { ok: false });
+    for (const [id, q] of gQueue) if (id !== me && q.game === game) { gStart(game, id, me); return ack(f, { ok: true, matched: true }); }
+    gQueue.set(me, { game, since: Date.now() }); ack(f, { ok: true, matched: false });
+  });
+  socket.on("game:cancel", () => gQueue.delete(me));
+  socket.on("game:invite", ({ to, game, kind } = {}, f) => {
+    if (!GAME_RULES[game] || !to || to === me || !userSockets.has(to) || gPlaying.has(to) || gPlaying.has(me)) return ack(f, { ok: false, reason: gPlaying.has(to) ? "busy" : "offline" });
+    const id = nanoid(8); gInvites.set(id, { from: me, to, game, at: Date.now() });
+    setTimeout(() => { const iv = gInvites.get(id); if (iv) { gInvites.delete(id); io.to(`user:${iv.from}`).emit("game:invite-expired", { id }); } }, 120000);
+    const db = readDB(); io.to(`user:${to}`).emit("game:invite", { id, game, kind: kind === "challenge" ? "challenge" : "invite", from: gCard(db, me) }); ack(f, { ok: true, id });
+  });
+  socket.on("game:respond", ({ id, accept } = {}) => {
+    const iv = gInvites.get(id); if (!iv || iv.to !== me) return; gInvites.delete(id);
+    if (!accept) return void io.to(`user:${iv.from}`).emit("game:declined", { id, by: gCard(readDB(), me) });
+    if (gPlaying.has(iv.from) || gPlaying.has(me)) return;
+    io.to(`user:${iv.from}`).emit("game:accepted", { id, by: gCard(readDB(), me) }); gStart(iv.game, iv.from, me);
+  });
+  socket.on("game:move", ({ room: rid, move } = {}) => {
+    const room = gRooms.get(rid); if (!room || room.over) return;
+    const idx = room.players.indexOf(me); if (idx !== room.turn) return;
+    const R = GAME_RULES[room.game]; if (!R.moves(room.state).includes(move)) return;
+    room.state = R.play(room.state, move, idx);
+    const w = R.win(room.state); const full = R.moves(room.state).length === 0;
+    if (w || full) {
+      const rec = gFinish(room, w ? w.p : -1);
+      room.players.forEach((p, i) => { io.to(`user:${p}`).emit("game:move", { room: rid, state: room.state, turn: -1, last: move, by: idx }); io.to(`user:${p}`).emit("game:over", { room: rid, winner: w ? w.p : -1, line: w ? w.line : null, score: room.score, reward: rec[p], result: w ? (w.p === i ? "w" : "l") : "d" }); });
+    } else { room.turn = 1 - idx; room.players.forEach((p) => io.to(`user:${p}`).emit("game:move", { room: rid, state: room.state, turn: room.turn, last: move, by: idx, next: room.players[room.turn] })); }
+  });
+  const relay = (ev) => socket.on(ev, ({ room: rid, text, emoji } = {}) => {
+    const room = gRooms.get(rid); if (!room || !room.players.includes(me)) return;
+    const body = ev === "game:chat" ? String(text || "").slice(0, 300) : String(emoji || "").slice(0, 8); if (!body) return;
+    room.players.forEach((p) => io.to(`user:${p}`).emit(ev, { room: rid, from: me, text: body, emoji: body, at: Date.now() }));
+  });
+  relay("game:chat"); relay("game:react");
+  socket.on("game:rematch", ({ room: rid } = {}) => {
+    const room = gRooms.get(rid); if (!room || !room.over || !room.players.includes(me)) return;
+    room.rematch.add(me); const other = room.players.find((p) => p !== me);
+    if (room.rematch.size < 2) return void io.to(`user:${other}`).emit("game:rematch-request", { room: rid, from: gCard(readDB(), me) });
+    room.state = GAME_RULES[room.game].init(); room.players.reverse(); room.score.reverse(); room.turn = 0; room.over = false; room.rematch.clear();
+    const cards = room.players.map((p) => gCard(readDB(), p));
+    room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: rid, game: room.game, you: i, players: cards, turn: 0, state: room.state, score: room.score, rematch: true }));
+  });
+  socket.on("game:leave", () => gLeave(me));
+  socket.on("game:solo", ({ game, level, result } = {}, f) => {
+    if (!GAME_RULES[game] || !["w", "l", "d"].includes(result)) return;
+    ack(f, gRecord(me, game, result, false, Math.max(0, Math.min(3, Number(level) || 0))));
+  });
+  socket.on("game:board", ({ period } = {}, f) => {
+    const db = readDB(); const span = { day: 864e5, week: 6048e5, month: 2592e6 }[period] || 864e5; const since = Date.now() - span; const tally = {};
+    for (const e of db.gameLog || []) if (e.t >= since && e.p) { const t = (tally[e.u] = tally[e.u] || { w: 0, l: 0, d: 0, xp: 0 }); t[e.r] += 1; t.xp += e.x; }
+    const rows = Object.entries(tally).sort((a, b) => b[1].w - a[1].w || b[1].xp - a[1].xp).slice(0, 20).map(([id, t], i) => ({ rank: i + 1, ...t, user: gCard(db, id) })).filter((r) => r.user);
+    ack(f, { rows, me: gCard(db, me) });
+  });
+  socket.on("disconnect", () => { if (!userSockets.has(me)) gLeave(me); });
+}
+
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
@@ -1135,6 +1281,8 @@ io.on("connection", (socket) => {
     const c = activeCalls.get(callId);
     if (c && (c.from === userId || c.to === userId)) endCall(callId, "ended");
   });
+
+  registerGames(socket);
 
   socket.on("typing", ({ conversationId, typing }) => {
     socket.to(`conv:${conversationId}`).emit("typing", { conversationId, userId, typing: !!typing });
