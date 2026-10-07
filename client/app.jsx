@@ -3672,6 +3672,12 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const pendingFocus = useRef(focusId);
   const focusEl = useRef(null);
   const [hl, setHl] = useState(null); // search result being highlighted
+  const [fText, setFText] = useState(null); const [fIdx, setFIdx] = useState(0); const fEls = useRef({}); // in-chat search
+  const fQ = fText ? fText.trim().toLowerCase() : "";
+  const fMatches = fQ ? msgs.filter(m => !m.deleted && typeof m.text === "string" && m.text.toLowerCase().includes(fQ)).map(m => m.id) : [];
+  const fPos = fMatches.length ? Math.min(fIdx, fMatches.length - 1) : 0;
+  const fCur = fMatches.length ? fMatches[fMatches.length - 1 - fPos] : null;
+  useEffect(() => { if (fCur && fEls.current[fCur]) fEls.current[fCur].scrollIntoView({ block: "center", behavior: "smooth" }); }, [fCur, fQ]);
   const openedAt = useRef(0);
   const fileRef = useRef(null);
   const camRef = useRef(null);
@@ -3831,6 +3837,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
             <div style={{ position: "absolute", top: 50, right: 10, zIndex: 41, minWidth: 210, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" }}>
               {[
+                { label: "Search", color: "#F5F7FA", run: () => { setFText(""); setFIdx(0); } },
                 { label: isFav ? "Remove from favourites" : "Add to favourites", color: "#F5F7FA", run: () => onToggleFavorite(conversation.id) },
                 ...(isGroup ? [{ label: "Group info", color: "#F5F7FA", run: () => setInfo(true) }]
                   : [{ label: iBlocked ? "Unblock " + conversation.other.name.split(" ")[0] : "Block " + conversation.other.name.split(" ")[0], color: iBlocked ? "#35D0BA" : "#FF6B5D",
@@ -3854,6 +3861,18 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <div onClick={() => setMenu(m => !m)} style={{ display: "flex", cursor: "pointer", padding: 4 }}><MoreVertical size={19} color="#9BA7B4" /></div>
       </div>
 
+      {fText !== null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "8px 11px" }}>
+            <Search size={16} color="#8891A0" style={{ flexShrink: 0 }} />
+            <input autoFocus value={fText} onChange={e => { setFText(e.target.value); setFIdx(0); }} placeholder="Search in this chat" maxLength={100} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
+            {fQ && <span style={{ fontFamily: "Inter", fontSize: 12, color: "#8891A0", whiteSpace: "nowrap" }}>{fMatches.length ? (fMatches.length - fPos) + " of " + fMatches.length : "No results"}</span>}
+          </div>
+          <button aria-label="Older match" disabled={!fMatches.length || fPos >= fMatches.length - 1} onClick={() => setFIdx(fPos + 1)} style={{ ...iconBtnStyle, opacity: !fMatches.length || fPos >= fMatches.length - 1 ? 0.35 : 1 }}><ChevronDown size={20} color="#9BA7B4" style={{ transform: "rotate(180deg)" }} /></button>
+          <button aria-label="Newer match" disabled={fPos <= 0} onClick={() => setFIdx(fPos - 1)} style={{ ...iconBtnStyle, opacity: fPos <= 0 ? 0.35 : 1 }}><ChevronDown size={20} color="#9BA7B4" /></button>
+          <button aria-label="Close search" onClick={() => { setFText(null); setFIdx(0); }} style={iconBtnStyle}><X size={20} color="#9BA7B4" /></button>
+        </div>
+      )}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" }}>
         {loading && <div style={{ margin: "auto", color: "#5B6673", fontFamily: "Inter", fontSize: 13 }}>Loading conversation…</div>}
         {error && <Banner text={error} onClose={() => setError("")} />}
@@ -3866,11 +3885,11 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           const mine = m.senderId === myId;
           const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
           return (
-            <div key={m.id} ref={m.id === focusId ? focusEl : undefined}
+            <div key={m.id} ref={(el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }}
               onContextMenu={mine && !m.deleted ? (e) => { e.preventDefault(); openMenu(m); } : undefined}
               onTouchStart={mine && !m.deleted ? () => pressStart(m) : undefined} onTouchEnd={pressEnd} onTouchMove={pressEnd} onTouchCancel={pressEnd}
               style={{
-              WebkitTouchCallout: "none", boxShadow: hl === m.id ? "0 0 0 2px #F2B84B" : "none", transition: "box-shadow .4s",
+              WebkitTouchCallout: "none", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%",
               background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
               borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
