@@ -48,6 +48,7 @@ const User = makeIcon([["p", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"], ["c",
 const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
 const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
 const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
+const Volume2 = makeIcon([["g", "11 5 6 9 2 9 2 15 6 15 11 19 11 5"], ["p", "M15.54 8.46a5 5 0 0 1 0 7.07"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
 const ShoppingBag = makeIcon([["p", "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"], ["p", "M3 6h18"], ["p", "M16 10a4 4 0 0 1-8 0"]]);
 
 
@@ -546,12 +547,12 @@ function NewChatModal({ token, onClose, onStarted }) {
         <div style={{ width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 18px" }} />
         <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Start a new chat</div>
         <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 }}>
-          Enter the phone number (with country code) or Google email of the person you want to message. They need to have signed in to Letschat Africa at least once.
+          Enter the username, email or phone number (with country code) of the person you want to message. They need to have signed in to Letschat Africa at least once.
         </div>
         {error && <Banner text={error} />}
         <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
           <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }}
-            placeholder="Phone (234801234567) or email" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
+            placeholder="@username, email or phone" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
         </div>
         <button onClick={start} disabled={busy || !phone.trim()} style={{
           width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
@@ -717,7 +718,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
             <div style={sectionTitle}>Add people</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
               <div style={{ ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" }}>
-                <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }} placeholder="Phone (234801234567) or email" style={{ ...inputEl, fontSize: 13.5 }} />
+                <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }} placeholder="@username, email or phone" style={{ ...inputEl, fontSize: 13.5 }} />
               </div>
               <button onClick={addByPhone} disabled={busy === "phone" || !phone.trim()} style={smallBtn}>{busy === "phone" ? "…" : "Add"}</button>
             </div>
@@ -835,7 +836,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
           <div style={{ padding: "50px 30px", textAlign: "center" }}>
             <MessageCircle size={34} color="#262E3A" style={{ marginBottom: 12 }} />
             <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 }}>No chats yet</div>
-            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#5B6673" }}>Tap the pencil to message someone by their phone number.</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#5B6673" }}>Tap the pencil to message someone by their username, email or phone number.</div>
           </div>
         )}
         {conversations.map(c => (
@@ -1072,39 +1073,462 @@ function MarketScreen({ token, myId, onMessageSeller }) {
   );
 }
 
-function CallsScreen() {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <TopBar title="Calls" />
-      <div style={{ padding: "50px 30px", textAlign: "center" }}>
-        <PhoneCall size={34} color="#262E3A" style={{ marginBottom: 12 }} />
-        <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 }}>No calls yet</div>
-        <div style={{ fontFamily: "Inter", fontSize: 13, color: "#5B6673" }}>Voice &amp; video calling isn't wired up yet — chat works over the internet right now.</div>
-      </div>
-    </div>
-  );
+// ============================================================================
+// Sounds, voice / video calls, status updates and the "Sounds & features" settings.
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+// ============================================================================
+const ce = React.createElement;
+
+// ---- feature switches, stored on this device ("Notification sound" lives in the notifs settings: notifs.sound) ----
+const DEFAULT_FEATURES = { sound: true, typingSound: true, sendSound: true, status: true, videoCalls: true, voiceCalls: true, clearVoice: true, voiceNotes: true };
+const getFeatures = () => ({ ...DEFAULT_FEATURES, ...loadJSON("features", {}) });
+const featOn = (k) => getFeatures()[k] !== false;
+
+// ---- sounds: synthesized in the browser (no audio files to download) ----
+let _sndCtx = null;
+function audioCtx() {
+    const A = window.AudioContext || window.webkitAudioContext;
+    if (!A) return null;
+    _sndCtx = _sndCtx || new A();
+    if (_sndCtx.state === "suspended") _sndCtx.resume();
+    return _sndCtx;
+}
+// phones only allow sound after a tap, so unlock the audio engine on the first touch / key press
+["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, () => { try { audioCtx(); } catch { } }, { passive: true }));
+function noiseSource(ctx, dur) {
+    const n = Math.max(1, Math.floor(ctx.sampleRate * dur)), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    return s;
+}
+let _lastTick = 0;
+function playSound(kind) { // "typing" | "send"
+    if (!featOn("sound")) return;
+    if (kind === "typing" && !featOn("typingSound")) return;
+    if (kind === "send" && !featOn("sendSound")) return;
+    try {
+        const ctx = audioCtx();
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        if (kind === "typing") { // a soft keyboard tick
+            const now = Date.now();
+            if (now - _lastTick < 45) return;
+            _lastTick = now;
+            const src = noiseSource(ctx, 0.04), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            f.type = "bandpass"; f.frequency.value = 1900 + Math.random() * 900; f.Q.value = 1.4;
+            g.gain.value = 0.55;
+            src.connect(f); f.connect(g); g.connect(ctx.destination);
+            src.start(t);
+        } else if (kind === "send") { // a quick upward "whoosh"
+            const src = noiseSource(ctx, 0.32), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            f.type = "bandpass"; f.Q.value = 0.9;
+            f.frequency.setValueAtTime(500, t);
+            f.frequency.exponentialRampToValueAtTime(3600, t + 0.26);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(0.5, t + 0.07);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+            src.connect(f); f.connect(g); g.connect(ctx.destination);
+            src.start(t);
+            const o = ctx.createOscillator(), og = ctx.createGain();
+            o.type = "sine"; o.frequency.setValueAtTime(700, t); o.frequency.exponentialRampToValueAtTime(1500, t + 0.12);
+            og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.09, t + 0.02); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+            o.connect(og); og.connect(ctx.destination);
+            o.start(t); o.stop(t + 0.18);
+        }
+    } catch { }
+}
+// ringing: [seconds from start, Hz] notes repeated every few seconds; returns a function that stops it
+function startRing(outgoing) {
+    let on = true;
+    const pattern = outgoing ? [[0, 440], [0.04, 480]] : [[0, 880], [0.2, 1175], [0.4, 880], [0.6, 1175]];
+    const len = outgoing ? 1.0 : 0.22, every = outgoing ? 3200 : 2600;
+    const ring = () => {
+        if (!on || !featOn("sound")) return;
+        try {
+            const ctx = audioCtx();
+            if (!ctx) return;
+            const t0 = ctx.currentTime;
+            for (const [off, hz] of pattern) {
+                const o = ctx.createOscillator(), g = ctx.createGain();
+                o.type = "sine"; o.frequency.value = hz;
+                g.gain.setValueAtTime(0.0001, t0 + off);
+                g.gain.exponentialRampToValueAtTime(0.18, t0 + off + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + len);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(t0 + off); o.stop(t0 + off + len + 0.02);
+            }
+        } catch { }
+        if (!outgoing) { try { const n = getNotifs(); if (n.vibrate && navigator.vibrate) navigator.vibrate([350, 150, 350]); } catch { } }
+    };
+    ring();
+    const timer = setInterval(ring, every);
+    return () => { on = false; clearInterval(timer); try { navigator.vibrate && navigator.vibrate(0); } catch { } };
 }
 
-function StatusScreen({ profile }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <TopBar title="Status" />
-      <div style={{ padding: "4px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0" }}>
-          <div style={{ position: "relative" }}>
-            <Ring size={52} color="#35D0BA" initials={profile.initials} photo={profile.avatar} />
-            <div style={{ position: "absolute", bottom: -1, right: -1, width: 19, height: 19, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0E1116" }}>
-              <Plus size={12} color="#0E1116" />
-            </div>
-          </div>
-          <div>
-            <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" }}>My status</div>
-            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Not available yet — coming soon</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+// ---- calls ----
+const ICE_SERVERS = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+const fmtDur = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+const getCallLog = () => loadJSON("calllog", []);
+const addCallLog = (e) => saveJSON("calllog", [e, ...getCallLog()].slice(0, 50));
+const iconBtnStyle = { background: "none", border: "none", cursor: "pointer", padding: 0, marginRight: 16, display: "flex" };
+function mediaError(e, video) {
+    const n = e && e.name;
+    if (n === "NotAllowedError" || n === "SecurityError") return "Allow microphone" + (video ? " and camera" : "") + " access to make calls";
+    if (n === "NotFoundError") return "No microphone" + (video ? " or camera" : "") + " found on this device";
+    return "Could not start the " + (video ? "camera or " : "") + "microphone";
+}
+
+function CallLayer({ socket, apiRef, notify }) {
+    const [call, setCall] = useState(null);
+    const [remoteStream, setRemoteStream] = useState(null);
+    const [localStream, setLocalStream] = useState(null);
+    const [secs, setSecs] = useState(0);
+    const callRef = useRef(null), pcRef = useRef(null), localRef = useRef(null), pendingRef = useRef([]), candRef = useRef([]), ringRef = useRef(null);
+    const begin = (c) => { callRef.current = c; setCall(c); };
+    const upd = (patch) => { if (!callRef.current) return; callRef.current = { ...callRef.current, ...patch }; setCall(callRef.current); };
+    const stopRing = () => { if (ringRef.current) { ringRef.current(); ringRef.current = null; } };
+    // closes everything and returns the call that was open
+    const teardown = () => {
+        const c = callRef.current;
+        stopRing();
+        if (pcRef.current) { try { pcRef.current.close(); } catch { } pcRef.current = null; }
+        if (localRef.current) { localRef.current.getTracks().forEach((t) => t.stop()); localRef.current = null; }
+        pendingRef.current = []; candRef.current = [];
+        callRef.current = null;
+        setCall(null); setRemoteStream(null); setLocalStream(null); setSecs(0);
+        return c;
+    };
+    const finish = (outcome, note) => {
+        const c = teardown();
+        if (!c) return;
+        addCallLog({ id: c.id || String(Date.now()), peer: { id: c.peer.id, name: c.peer.name, initials: c.peer.initials, color: c.peer.color, avatar: c.peer.avatar || null }, conversationId: c.conversationId, video: c.video, dir: c.dir, outcome, dur: c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0, time: Date.now() });
+        if (note) notify(note);
+    };
+    const getMedia = (video) => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) return Promise.reject({ name: "Unsupported" });
+        const clear = featOn("clearVoice"); // "Clear voice": echo cancellation, noise suppression and automatic volume
+        return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false });
+    };
+    const makePc = (c, stream) => {
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        pcRef.current = pc;
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        pc.onicecandidate = (e) => { if (e.candidate) socket.emit("call:signal", { callId: c.id, data: { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate } }); };
+        pc.ontrack = (e) => setRemoteStream(e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]));
+        pc.onconnectionstatechange = () => {
+            const s = pc.connectionState, cur = callRef.current;
+            if (!cur || cur.id !== c.id) return;
+            if (s === "connected" && cur.phase !== "active") { stopRing(); upd({ phase: "active", t0: Date.now() }); }
+            else if (s === "failed") { socket.emit("call:end", { callId: c.id }); finish(cur.phase === "active" ? "completed" : "failed", "The call lost its connection"); }
+        };
+        return pc;
+    };
+    const applySignal = async (pc, c, data) => {
+        try {
+            if (data.sdp) {
+                await pc.setRemoteDescription({ type: data.sdp.type, sdp: data.sdp.sdp });
+                const q = candRef.current; candRef.current = [];
+                for (const cand of q) { try { await pc.addIceCandidate(cand); } catch { } }
+                if (data.sdp.type === "offer") {
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit("call:signal", { callId: c.id, data: { sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } } });
+                }
+            } else if (data.candidate) {
+                if (pc.remoteDescription) { try { await pc.addIceCandidate(data.candidate); } catch { } }
+                else candRef.current.push(data.candidate);
+            }
+        } catch (e) { console.warn("call signal failed", e); }
+    };
+
+    // calls made from a chat or the Calls tab
+    useEffect(() => {
+        apiRef.current = {
+            start: async (conversation, video) => {
+                if (!socket) return notify("Not connected yet. Try again in a moment.");
+                if (callRef.current) return notify("You are already in a call");
+                const peer = conversation.other;
+                begin({ id: null, peer, conversationId: conversation.id, video: !!video, dir: "out", phase: "calling", muted: false, camOff: false });
+                let stream;
+                try { stream = await getMedia(!!video); }
+                catch (e) { teardown(); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, video)); }
+                if (!callRef.current) { stream.getTracks().forEach((t) => t.stop()); return; } // cancelled while asking for permission
+                localRef.current = stream; setLocalStream(stream);
+                socket.emit("call:invite", { to: peer.id, conversationId: conversation.id, video: !!video }, (ack) => {
+                    if (!callRef.current) { if (ack && ack.callId) socket.emit("call:end", { callId: ack.callId }); return; }
+                    if (!ack || ack.error) { teardown(); return notify((ack && ack.error) || "Could not start the call"); }
+                    upd({ id: ack.callId, phase: "ringing" });
+                    stopRing(); ringRef.current = startRing(true);
+                });
+            },
+        };
+    });
+
+    // events from the server
+    useEffect(() => {
+        if (!socket) return;
+        const onIncoming = ({ callId, conversationId, video, from }) => {
+            const off = video ? !featOn("videoCalls") : !featOn("voiceCalls");
+            if (callRef.current || off) { socket.emit("call:answer", { callId, accept: false, reason: "unavailable" }); return; }
+            begin({ id: callId, peer: from, conversationId, video: !!video, dir: "in", phase: "ringing", muted: false, camOff: false });
+            stopRing(); ringRef.current = startRing(false);
+            try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification(from.name, { body: "Incoming " + (video ? "video" : "voice") + " call", tag: "call-" + callId }); } catch { }
+        };
+        const onAccepted = async ({ callId }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || c.dir !== "out" || !localRef.current) return;
+            stopRing();
+            upd({ phase: "connecting" });
+            try {
+                const pc = makePc(c, localRef.current);
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit("call:signal", { callId, data: { sdp: { type: offer.type, sdp: offer.sdp } } });
+            } catch (e) { socket.emit("call:end", { callId }); finish("failed", "Could not connect the call"); }
+        };
+        const onSignal = ({ callId, data }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || !data) return;
+            if (!pcRef.current) pendingRef.current.push(data); else applySignal(pcRef.current, c, data);
+        };
+        const onEnded = ({ callId, reason }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId) return;
+            const first = String(c.peer.name || "They").split(" ")[0];
+            if (c.phase === "active") return finish("completed");
+            if (c.dir === "in") return finish(reason === "ended" || reason === "missed" ? "missed" : reason);
+            const notes = { declined: first + " declined the call", unavailable: first + " can't take " + (c.video ? "video" : "voice") + " calls right now", missed: first + " didn't answer", failed: "The call was disconnected", ended: "Call ended" };
+            finish(reason === "missed" ? "unanswered" : reason, notes[reason]);
+        };
+        socket.on("call:incoming", onIncoming);
+        socket.on("call:accepted", onAccepted);
+        socket.on("call:signal", onSignal);
+        socket.on("call:ended", onEnded);
+        return () => { socket.off("call:incoming", onIncoming); socket.off("call:accepted", onAccepted); socket.off("call:signal", onSignal); socket.off("call:ended", onEnded); };
+    }, [socket]);
+
+    useEffect(() => { // call timer
+        if (!call || call.phase !== "active") return;
+        const t = setInterval(() => { const c = callRef.current; if (c && c.t0) setSecs(Math.round((Date.now() - c.t0) / 1000)); }, 1000);
+        return () => clearInterval(t);
+    }, [call && call.phase]);
+    useEffect(() => () => { teardown(); }, []);
+
+    const accept = async () => {
+        const c = callRef.current;
+        if (!c || c.dir !== "in" || c.phase !== "ringing") return;
+        stopRing();
+        upd({ phase: "connecting" });
+        let stream;
+        try { stream = await getMedia(c.video); }
+        catch (e) { socket.emit("call:answer", { callId: c.id, accept: false }); finish("failed"); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, c.video)); }
+        if (!callRef.current || callRef.current.id !== c.id) { stream.getTracks().forEach((t) => t.stop()); return; } // caller hung up meanwhile
+        localRef.current = stream; setLocalStream(stream);
+        const pc = makePc(c, stream);
+        socket.emit("call:answer", { callId: c.id, accept: true });
+        const queued = pendingRef.current; pendingRef.current = [];
+        for (const d of queued) await applySignal(pc, c, d);
+    };
+    const decline = () => { const c = callRef.current; if (!c) return; socket.emit("call:answer", { callId: c.id, accept: false }); finish("declined"); };
+    const hangUp = () => {
+        const c = callRef.current;
+        if (!c) return;
+        if (c.id) socket.emit("call:end", { callId: c.id });
+        finish(c.phase === "active" ? "completed" : c.dir === "out" ? "unanswered" : "missed");
+    };
+    const toggleMute = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getAudioTracks().forEach((t) => { t.enabled = c.muted; }); upd({ muted: !c.muted }); };
+    const toggleCam = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getVideoTracks().forEach((t) => { t.enabled = c.camOff; }); upd({ camOff: !c.camOff }); };
+
+    if (!call) return null;
+    const peer = call.peer, vid = call.video, active = call.phase === "active";
+    const status = call.phase === "calling" ? "Calling…" : call.phase === "ringing" ? (call.dir === "in" ? "Incoming " + (vid ? "video" : "voice") + " call" : "Ringing…") : call.phase === "connecting" ? "Connecting…" : fmtDur(secs);
+    const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
+    const showRemoteVideo = vid && active && remoteStream;
+    return ce("div", { style: { position: "absolute", inset: 0, zIndex: 95, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" } },
+        ce("video", { ref: (el) => { if (el && el.srcObject !== remoteStream) el.srcObject = remoteStream; }, autoPlay: true, playsInline: true, style: showRemoteVideo ? { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", background: "#000" } : { display: "none" } }),
+        vid && localStream && !call.camOff && ce("video", { ref: (el) => { if (el && el.srcObject !== localStream) el.srcObject = localStream; }, autoPlay: true, playsInline: true, muted: true, style: showRemoteVideo ? { position: "absolute", top: 16, right: 16, width: 96, height: 128, objectFit: "cover", borderRadius: 14, border: "2px solid #ffffff55", background: "#000", transform: "scaleX(-1)", zIndex: 2 } : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, transform: "scaleX(-1)" } }),
+        ce("div", { style: { position: "relative", zIndex: 3, marginTop: showRemoteVideo ? 18 : "16%", textAlign: "center", textShadow: showRemoteVideo ? "0 1px 8px rgba(0,0,0,.8)" : "none" } },
+            !showRemoteVideo && ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: peer.color || "#35D0BA", initials: peer.initials || "?", photo: peer.avatar, ring: true })),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: showRemoteVideo ? 18 : 24, color: "#F5F7FA" } }, peer.name),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: active ? "#35D0BA" : "#9BA7B4", marginTop: 6 } }, status)),
+        ce("div", { style: { flex: 1 } }),
+        ce("div", { style: { position: "relative", zIndex: 3, display: "flex", gap: 26, alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
+            call.dir === "in" && call.phase === "ringing"
+                ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Decline")),
+                    ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Accept call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Accept"))]
+                : [ce("div", { key: "m", style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.muted ? "Unmute" : "Mute")),
+                    vid && ce("div", { key: "c", style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.camOff ? "Camera on" : "Camera off")),
+                    ce("div", { key: "e", style: { textAlign: "center" } }, round("#FF6B5D", hangUp, "End call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.phase === "calling" || call.phase === "ringing" ? "Cancel" : "End"))]));
+}
+
+function CallsScreen({ conversations = [], onCall = () => { } }) {
+    const [log, setLog] = useState(getCallLog);
+    const F = getFeatures();
+    const bad = { missed: 1, declined: 1, unanswered: 1, failed: 1 };
+    const label = (e) => {
+        const kind = e.video ? "Video" : "Voice";
+        const what = e.outcome === "completed" ? (e.dir === "out" ? "Outgoing" : "Incoming") + (e.dur ? " · " + fmtDur(e.dur) : "") : e.outcome === "missed" ? "Missed" : e.outcome === "declined" ? (e.dir === "out" ? "Declined" : "You declined") : e.outcome === "unanswered" ? "No answer" : e.outcome === "unavailable" ? "Unavailable" : "Failed";
+        return kind + " · " + what + " · " + timeLabel(e.time);
+    };
+    const clear = () => { clearJSON("calllog"); setLog([]); };
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Calls", right: log.length ? ce("button", { onClick: clear, style: smallBtn }, "Clear") : null }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            !log.length && ce("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                ce(PhoneCall, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No calls yet"),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Open a chat and tap the phone or video icon at the top to call someone.")),
+            log.map((e) => {
+                const convo = conversations.find((c) => c.id === e.conversationId && !c.isGroup);
+                return ce("div", { key: e.id + e.time, style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", borderBottom: "1px solid #1B212B" } },
+                    ce(Ring, { size: 46, color: e.peer.color || "#5B6673", initials: e.peer.initials || "?", photo: e.peer.avatar }),
+                    ce("div", { style: { flex: 1, minWidth: 0 } },
+                        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: bad[e.outcome] && e.dir === "in" ? "#FF6B5D" : "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, e.peer.name),
+                        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, label(e))),
+                    convo && F.voiceCalls && ce("button", { onClick: () => onCall(convo, false), "aria-label": "Voice call", style: { ...iconBtnStyle, marginRight: 14 } }, ce(Phone, { size: 19, color: "#35D0BA" })),
+                    convo && F.videoCalls && ce("button", { onClick: () => onCall(convo, true), "aria-label": "Video call", style: { ...iconBtnStyle, marginRight: 0 } }, ce(Video, { size: 20, color: "#35D0BA" })));
+            })));
+}
+
+// ---- status ----
+const STATUS_COLORS = ["#1E8677", "#8B7CF6", "#FF6B5D", "#4FA8E0", "#F2B84B", "#5B6673"];
+function ago(ts) {
+    const m = Math.round((Date.now() - ts) / 60000);
+    return m < 1 ? "Just now" : m < 60 ? m + " min ago" : Math.floor(m / 60) + " h ago";
+}
+function StatusComposer({ token, onClose, onPosted }) {
+    const [text, setText] = useState("");
+    const [bg, setBg] = useState(STATUS_COLORS[0]);
+    const [photo, setPhoto] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const fileRef = useRef(null);
+    const pick = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!f) return;
+        if (!/^image\//.test(f.type)) return setError("Please choose a photo");
+        try { setPhoto(await compressImage(f, 1080)); setError(""); } catch (err) { setError(err.message); }
+    };
+    const post = async () => {
+        if (busy || (!text.trim() && !photo)) return;
+        setBusy(true); setError("");
+        try { await api("/api/v1/status", { method: "POST", token, body: { text: text.trim(), bg, photo } }); onPosted(); }
+        catch (e) { setError(e.message); setBusy(false); }
+    };
+    return ce(SheetFrame, { title: "New status", onClose },
+        ce("div", { style: { padding: "0 16px 22px", overflowY: "auto" } },
+            error && ce(Banner, { text: error }),
+            ce("div", { style: { position: "relative", borderRadius: 16, overflow: "hidden", background: bg, minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 } },
+                photo && ce("img", { src: photo, alt: "", style: { width: "100%", maxHeight: 320, objectFit: "contain", display: "block", background: "#000" } }),
+                photo && ce("button", { onClick: () => setPhoto(null), "aria-label": "Remove photo", style: { position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: 15, border: "none", background: "rgba(0,0,0,.6)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(X, { size: 16, color: "#fff" })),
+                !photo && ce("textarea", { value: text, onChange: (e) => setText(e.target.value.slice(0, 300)), placeholder: "Type a status", rows: 4, style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 20, padding: 20, boxSizing: "border-box" } })),
+            photo && ce("input", { value: text, onChange: (e) => setText(e.target.value.slice(0, 300)), placeholder: "Add a caption (optional)", style: { width: "100%", boxSizing: "border-box", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: "11px 13px", marginBottom: 12 } }),
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 16 } },
+                !photo && STATUS_COLORS.map((c) => ce("button", { key: c, onClick: () => setBg(c), "aria-label": "Background colour", style: { width: 28, height: 28, borderRadius: 14, background: c, border: bg === c ? "3px solid #F5F7FA" : "3px solid transparent", cursor: "pointer", padding: 0 } })),
+                ce("div", { style: { flex: 1 } }),
+                ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
+                ce("button", { onClick: () => fileRef.current && fileRef.current.click(), style: { ...smallBtn, display: "flex", alignItems: "center", gap: 6 } }, ce(Camera, { size: 15, color: "#35D0BA" }), photo ? "Change photo" : "Add photo")),
+            ce("button", { onClick: post, disabled: busy || (!text.trim() && !photo), style: { ...primaryBtn(busy || (!text.trim() && !photo)) } }, busy ? "Posting…" : "Post status"),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginTop: 10 } }, "Disappears after 24 hours. People you chat with can see it.")));
+}
+function StatusViewer({ groups, start, token, onClose, onChanged }) {
+    const [g, setG] = useState(start);
+    const [i, setI] = useState(0);
+    const group = groups[g], item = group && group.items[i];
+    const next = () => { if (i + 1 < group.items.length) setI(i + 1); else if (g + 1 < groups.length) { setG(g + 1); setI(0); } else onClose(); };
+    const prev = () => { if (i > 0) setI(i - 1); else if (g > 0) { setG(g - 1); setI(groups[g - 1].items.length - 1); } };
+    useEffect(() => {
+        if (!item) return;
+        if (!group.mine && !item.seen) { api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { }); }
+        const t = setTimeout(next, 5500);
+        return () => clearTimeout(t);
+    }, [g, i]);
+    if (!item) return null;
+    const remove = async () => {
+        if (!window.confirm("Delete this status update?")) return;
+        try { await api("/api/v1/status/" + item.id, { method: "DELETE", token }); onChanged(); if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } }
+        catch { }
+    };
+    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: k <= i ? "#fff" : "rgba(255,255,255,.35)" } }))),
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 2 } },
+            ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
+            ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)" } }, ago(item.time))),
+            ce("button", { onClick: onClose, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 26, color: "#fff" }))),
+        ce("div", { style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } },
+            item.photo && ce("img", { src: photoSrc(item.photo), alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }),
+            !item.photo && ce("div", { style: { padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, item.text),
+            ce("div", { onClick: prev, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }),
+            ce("div", { onClick: next, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })),
+        item.photo && item.text && ce("div", { style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)" } }, item.text),
+        group.mine && ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+            ce("span", { style: { flex: 1 } }, "Seen by " + (item.views || 0)),
+            ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")));
+}
+function StatusScreen({ profile, token }) {
+    const [data, setData] = useState({ mine: [], feed: [] });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [composer, setComposer] = useState(false);
+    const [view, setView] = useState(null); // { groups, start }
+    const F = getFeatures();
+    const load = useCallback(() => api("/api/v1/status", { token }).then((d) => { setData(d); setError(""); }).catch((e) => setError(e.message)).finally(() => setLoading(false)), [token]);
+    useEffect(() => { load(); }, [load]);
+    const mineGroup = { mine: true, user: profile, items: data.mine };
+    const open = (groups, start) => setView({ groups, start });
+    const addTap = () => { if (!F.status) return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setComposer(true); };
+    const row = (key, ring, title, sub, onClick, right) => ce("div", { key, onClick, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", cursor: "pointer" } }, ring, ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, sub)), right);
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Status" }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            row("mine",
+                ce("div", { style: { position: "relative" } },
+                    ce(Ring, { size: 52, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: data.mine.length > 0 }),
+                    ce("div", { onClick: (e) => { e.stopPropagation(); addTap(); }, style: { position: "absolute", bottom: -1, right: -1, width: 19, height: 19, borderRadius: "50%", background: F.status ? "#35D0BA" : "#5B6673", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0E1116" } }, ce(Plus, { size: 12, color: "#0E1116" }))),
+                "My status",
+                data.mine.length ? data.mine.length + (data.mine.length === 1 ? " update" : " updates") + " · " + ago(data.mine[data.mine.length - 1].time) : F.status ? "Tap to add a status update" : "Status upload is turned off",
+                () => (data.mine.length ? open([mineGroup], 0) : addTap())),
+            loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+            !loading && data.feed.length > 0 && ce("div", { style: { padding: "14px 16px 4px", fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 } }, "Recent updates"),
+            data.feed.map((g, k) => row(g.user.id, ce(Ring, { size: 52, color: g.allSeen ? "#5B6673" : g.user.color, initials: g.user.initials, photo: g.user.avatar, ring: true }), g.user.name, g.items.length + (g.items.length === 1 ? " update" : " updates") + " · " + ago(g.latest), () => open(data.feed, k))),
+            !loading && !data.feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")),
+        composer && ce(StatusComposer, { token, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }),
+        view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load }));
+}
+
+// ---- Tools > Sounds & features ----
+function FeaturesScreen({ onBack }) {
+    const [f, setF] = useState(getFeatures);
+    const [notifs, setNotifs] = useState(getNotifs);
+    const setFeat = (patch) => { const next = { ...f, ...patch }; setF(next); saveJSON("features", next); };
+    const setNotif = (patch) => { const next = { ...notifs, ...patch }; setNotifs(next); saveJSON("notifs", next); };
+    const head = (t) => ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, t);
+    const row = (title, sub, on, onChange, disabled) => ce("div", { key: title, style: settingRow },
+        ce("div", { style: { flex: 1 } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, sub)),
+        ce(Toggle, { on, onChange, disabled }));
+    const quiet = !f.sound;
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Sounds & features", onBack }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
+            head("Sounds"),
+            row("Sound", "Turn every app sound on or off.", f.sound, (v) => { setFeat({ sound: v }); if (v) setTimeout(() => playSound("send"), 30); }),
+            row("Typing sound", "A soft keyboard tick while you type.", f.typingSound, (v) => { setFeat({ typingSound: v }); if (v && f.sound) setTimeout(() => playSound("typing"), 30); }, quiet),
+            row("Send sound", "A whoosh when your message is sent.", f.sendSound, (v) => { setFeat({ sendSound: v }); if (v && f.sound) setTimeout(() => playSound("send"), 30); }, quiet),
+            row("Notification sound", "A tone when a new message arrives.", notifs.sound, (v) => { setNotif({ sound: v }); if (v && f.sound) playPing(); }, quiet),
+            head("Status"),
+            row("Status upload", "Post photo and text updates that disappear after 24 hours.", f.status, (v) => setFeat({ status: v })),
+            head("Calls"),
+            row("Voice calling", "Make and receive voice calls. When off, incoming voice calls are declined.", f.voiceCalls, (v) => setFeat({ voiceCalls: v })),
+            row("Video calling", "Make and receive video calls. When off, incoming video calls are declined.", f.videoCalls, (v) => setFeat({ videoCalls: v })),
+            row("Clear voice", "Cut echo and background noise in calls and voice notes.", f.clearVoice, (v) => setFeat({ clearVoice: v })),
+            head("Voice notes"),
+            row("Voice recording and sending", "Show the microphone button so you can record and send voice notes.", f.voiceNotes, (v) => setFeat({ voiceNotes: v })),
+            ce("div", { style: { padding: "16px 16px 0", fontFamily: "Inter", fontSize: 12, color: "#5B6673", lineHeight: 1.5 } }, "These switches are saved on this device.")));
 }
 
 const SUPPORT = {
@@ -1120,6 +1544,7 @@ function ToolsScreen({ onProfile, onOpen = () => {}, settings = DEFAULT_SETTINGS
     { icon: Star, label: "Favourites", sub: nFav ? nFav + (nFav === 1 ? " chat" : " chats") + " pinned for quick access" : "Quick access chats", view: "favs" },
     { icon: Users, label: "Communities", sub: "Manage your groups", view: "communities" },
     { icon: Bell, label: "Notifications", sub: "Sound & alerts", view: "notifs" },
+    { icon: Volume2, label: "Sounds & features", sub: "Sounds, calls, status, voice", view: "features" },
     { icon: Lock, label: "Privacy", sub: nBlocked ? nBlocked + " blocked · read receipts, last seen" : "Blocked, read receipts", view: "privacy" },
     { icon: HelpCircle, label: "Help", sub: "FAQ, contact us", view: "help" },
   ];
@@ -1244,7 +1669,7 @@ function alertIncoming(m, convo, viewingThis) {
     if (convo && convo.isGroup && !n.groups) return;
     const hidden = document.hidden;
     if (viewingThis && !hidden) return;
-    if (n.sound) playPing();
+    if (n.sound && featOn("sound")) playPing();
     if (n.vibrate) { try { navigator.vibrate && navigator.vibrate(200); } catch { } }
     if (n.banner && hidden && "Notification" in window && Notification.permission === "granted") {
         try {
@@ -1307,7 +1732,7 @@ function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, 
             others.map(rowFor))));
 }
 const FAQ = [
-  ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a phone number with country code or an email, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
+  ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a username, email or phone number with country code, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
   ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
   ["How do I send a photo, file or voice note?", "Use the paperclip for files (up to 3 MB), the camera to take a photo and the microphone to record. Tap the mic again, or the send button, to send the voice note."],
   ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members and share an invite link from Group info."],
@@ -1358,7 +1783,7 @@ function HelpScreen({ onBack, user }) {
   );
 }
 
-function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {} }) {
+function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {} }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1416,6 +1841,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const text = draft.trim();
     setDraft("");
     notifyTyping(false);
+    playSound("send");
     socket.emit("message:send", { conversationId: conversation.id, text }, (ack) => {
       if (ack?.error) setError(ack.error);
     });
@@ -1433,16 +1859,18 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
       if (data.length > 4000000) throw new Error("File is too large (max 3 MB)");
       socket.emit("message:send", { conversationId: conversation.id, file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
         clearTimeout(done); setSending(false);
-        if (ack && ack.error) setError(ack.error);
+        if (ack && ack.error) setError(ack.error); else playSound("send");
       });
     } catch (e) { clearTimeout(done); setSending(false); setError(e.message || "Could not send that file"); }
   };
   const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; sendFile(f); };
 
   const startRec = async () => {
+    if (!featOn("voiceNotes")) return setError("Voice notes are turned off. Turn them on in Tools > Sounds & features.");
     if (!socket || !navigator.mediaDevices || !window.MediaRecorder) return setError("Voice notes are not supported on this device");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const clear = featOn("clearVoice"); // clear voice = echo cancellation + noise suppression
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear } });
       const mr = new MediaRecorder(stream, { audioBitsPerSecond: 24000 });
       const r = { mr, chunks: [], t0: Date.now(), cancel: false };
       mr.ondataavailable = (e) => { if (e.data.size) r.chunks.push(e.data); };
@@ -1450,7 +1878,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         stream.getTracks().forEach(t => t.stop());
         if (r.cancel) return;
         const fr = new FileReader();
-        fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error) setError(ack.error); });
+        fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
         fr.readAsDataURL(new Blob(r.chunks, { type: mr.mimeType || "audio/webm" }));
       };
       mr.start();
@@ -1495,8 +1923,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             {peerTyping ? "typing…" : isGroup ? conversation.members.length + " members · " + conversation.members.filter(m => m.id === myId || presence[m.id]).length + " online" : statusText(online, lastSeen[conversation.other.id])}
           </div>
         </div>
-        <Video size={19} color="#5B6673" style={{ marginRight: 16, opacity: 0.5 }} />
-        <Phone size={18} color="#5B6673" style={{ marginRight: 16, opacity: 0.5 }} />
+        {!isGroup && featOn("videoCalls") && <button aria-label="Video call" onClick={() => onCall(conversation, true)} style={iconBtnStyle}><Video size={20} color="#9BA7B4" /></button>}
+        {!isGroup && featOn("voiceCalls") && <button aria-label="Voice call" onClick={() => onCall(conversation, false)} style={iconBtnStyle}><Phone size={19} color="#9BA7B4" /></button>}
         <div onClick={() => setMenu(m => !m)} style={{ display: "flex", cursor: "pointer", padding: 4 }}><MoreVertical size={19} color="#9BA7B4" /></div>
       </div>
 
@@ -1566,14 +1994,14 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <input
             ref={inputRef}
             value={draft}
-            onChange={e => { setDraft(e.target.value); notifyTyping(true); }}
+            onChange={e => { if (e.target.value.length > draft.length) playSound("typing"); setDraft(e.target.value); notifyTyping(true); }}
             onKeyDown={e => e.key === "Enter" && send()}
             placeholder="Message" style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
           <button aria-label="Attach file" onClick={() => fileRef.current && fileRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Paperclip size={19} color="#8891A0" /></button>
           <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Camera size={19} color="#8891A0" /></button>
         </div>
         <button aria-label={rec ? "Stop and send voice note" : "Record voice note"} onClick={rec ? () => stopRec(false) : startRec}
-          style={{ width: 42, height: 42, borderRadius: "50%", border: rec ? "none" : "1px solid #2B3544", background: rec ? "#FF6B5D" : "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+          style={{ width: 42, height: 42, borderRadius: "50%", border: rec ? "none" : "1px solid #2B3544", background: rec ? "#FF6B5D" : "#1E2530", display: rec || featOn("voiceNotes") ? "flex" : "none", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
           <Mic size={18} color={rec ? "#0E1116" : "#35D0BA"} />
         </button>
         <button aria-label="Send" onClick={() => { if (rec) stopRec(false); else if (draft.trim()) send(); else if (inputRef.current) inputRef.current.focus(); }}
@@ -1674,6 +2102,7 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
   const rows = [
     { label: "Name", value: profile.name },
     { label: "About", value: profile.about },
+    { label: "Username", value: profile.username ? "@" + profile.username : "Not set (tap to add)" },
     profile.phone ? { label: "Phone", value: "+" + profile.phone, ro: true } : { label: "Email", value: profile.email || "", ro: true },
   ];
 
@@ -1815,6 +2244,7 @@ function CropModal({ file, onCancel, onDone }) {
 function EditProfileScreen({ onBack, profile, token, onSave }) {
   const [name, setName] = useState(profile.name);
   const [about, setAbout] = useState(profile.about);
+  const [username, setUsername] = useState(profile.username || "");
   const [avatar, setAvatar] = useState(profile.avatar || null);
   const [avatarChanged, setAvatarChanged] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1836,7 +2266,7 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
   const save = async () => {
     setSaving(true); setError("");
     try {
-      const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name, about, ...(avatarChanged ? { avatar } : {}) } });
+      const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name, about, username: username.trim(), ...(avatarChanged ? { avatar } : {}) } });
       onSave(user);
     } catch (e) {
       setError(e.message);
@@ -1867,6 +2297,14 @@ function EditProfileScreen({ onBack, profile, token, onSave }) {
         <div style={{ padding: "0 20px 20px" }}>
           <label style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 }}>About</label>
           <input value={about} onChange={e => setAbout(e.target.value)} style={{ width: "100%", background: "none", border: "none", borderBottom: "1px solid #262E3A", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, padding: "8px 0", outline: "none", marginTop: 4 }} />
+        </div>
+        <div style={{ padding: "0 20px 20px" }}>
+          <label style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 }}>Username</label>
+          <div style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #262E3A", marginTop: 4 }}>
+            <span style={{ color: "#5B6673", fontFamily: "Inter", fontSize: 15 }}>@</span>
+            <input value={username} onChange={e => setUsername(e.target.value.replace(/^@/, "").replace(/[^a-zA-Z0-9_.]/g, "").toLowerCase().slice(0, 20))} placeholder="choose a username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={{ flex: 1, background: "none", border: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, padding: "8px 0 8px 2px", outline: "none" }} />
+          </div>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 6 }}>3 to 20 characters: letters, numbers, _ or . People can add you with it.</div>
         </div>
         <button onClick={save} disabled={saving} style={{ margin: "10px 20px", padding: "13px", borderRadius: 12, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: saving ? "default" : "pointer", width: "calc(100% - 40px)", opacity: saving ? 0.7 : 1 }}>
           {saving ? "Saving…" : "Save changes"}
@@ -2116,7 +2554,7 @@ function LoginScreen({ onContinue }) {
 
       <div id="recaptcha-wrap" />
       <p style={{ textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 22, lineHeight: 1.6 }}>
-        Your phone number or Google email is your Letschat Africa ID, so others can find and message you.
+        Your phone number or Google email is your Letschat Africa ID. You can also pick a username in Edit profile so friends can find you without sharing either.
       </p>
     </div>
   );
@@ -2156,6 +2594,8 @@ function App() {
   });
   const closeChatLink = () => { clearJSON("pendingChat"); setChatCode(null); };
   const socketRef = useRef(null);
+  const callApi = useRef(null);
+  const startCall = (conversation, video) => { if (callApi.current) callApi.current.start(conversation, video); };
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -2295,6 +2735,7 @@ function App() {
         settings={settings}
         onToggleFavorite={toggleFavorite}
         onBlock={setBlocked}
+        onCall={startCall}
       />
     );
   } else if (toolsView === "favs") {
@@ -2303,6 +2744,8 @@ function App() {
     body = <PrivacyScreen settings={settings} onBack={() => setToolsView(null)} onPrivacy={savePrivacy} onBlock={setBlocked} />;
   } else if (toolsView === "communities") {
     body = <CommunitiesScreen conversations={conversations} myId={session.user.id} presence={presence} onBack={() => setToolsView(null)} onOpenChat={setActiveConvo} onNewGroup={() => { setToolsView(null); setShowNewGroup(true); }} />;
+  } else if (toolsView === "features") {
+    body = <FeaturesScreen onBack={() => setToolsView(null)} />;
   } else if (toolsView === "notifs") {
     body = <NotificationsScreen onBack={() => setToolsView(null)} />;
   } else if (toolsView === "help") {
@@ -2330,9 +2773,9 @@ function App() {
               favorites={settings.favorites}
             />
           )}
-          {tab === "calls" && <CallsScreen />}
+          {tab === "calls" && <CallsScreen conversations={conversations} onCall={startCall} />}
           {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
-          {tab === "status" && <StatusScreen profile={session.user} />}
+          {tab === "status" && <StatusScreen profile={session.user} token={session.token} />}
           {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} onOpen={setToolsView} settings={settings} />}
           {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} onClose={() => setShowNewGroup(false)} onCreated={(conv) => { setShowNewGroup(false); openGroup(conv); }} />}
           {showNewChat && <NewChatModal token={session.token} onClose={() => setShowNewChat(false)} onStarted={handleNewChatStarted} />}
@@ -2348,6 +2791,7 @@ function App() {
         <div style={frame}>
           {body}
           {toast && <div style={{ position: "absolute", left: 16, right: 16, bottom: 86, zIndex: 80, background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "11px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 10px 28px rgba(0,0,0,.45)" }}>{toast}</div>}
+          {session && <CallLayer socket={socketRef.current} apiRef={callApi} notify={flash} />}
           {session && chatCode && <ChatLinkModal code={chatCode} token={session.token} onClose={closeChatLink} onStarted={(conv) => { closeChatLink(); handleNewChatStarted(conv); }} />}
           {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
         </div>
