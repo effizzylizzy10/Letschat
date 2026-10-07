@@ -3830,6 +3830,15 @@ function HelpScreen({ onBack, user }) {
   );
 }
 
+// ---- emoji tray for the message box ----
+const EMOJI_TABS = [
+  { name: "Smileys", icon: "😀", list: "😀 😃 😄 😁 😆 😅 😂 🤣 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖".split(" ") },
+  { name: "Gestures", icon: "👍", list: "👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤝 🙏 👏 🙌 👐 🤲 💪 🙋 🙆 🙅 🤷 🤦 💁 🙇 🤳 ✍️ 💅 👀 👁️ 👂 👃 👄 🧠".split(" ") },
+  { name: "Hearts", icon: "❤️", list: "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 💋 💯 💢 💥 💫 💦 💨 🔥 ✨ ⭐ 🌟 🎉 🎊 🎁 🏆 🥇".split(" ") },
+  { name: "Animals & nature", icon: "🦁", list: "🦁 🐘 🦒 🦓 🐆 🦛 🦜 🐒 🦩 🐊 🐍 🐶 🐱 🐭 🐰 🦊 🐻 🐼 🐨 🐯 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🦅 🦋 🐝 🐢 🐠 🐬 🌳 🌴 🌵 🌸 🌹 🌻 🌞 🌙 ⭐ 🌈 ☀️ ⛅ 🌧️ ⚡ ❄️ 🌍".split(" ") },
+  { name: "Food & drink", icon: "🍔", list: "🍎 🍌 🍉 🍇 🍓 🍍 🥭 🥑 🌽 🥕 🍅 🥔 🍞 🧀 🍳 🥩 🍗 🍖 🍔 🍟 🍕 🌭 🌮 🍝 🍚 🍲 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 ☕ 🍵 🥤 🍺 🍷 💧".split(" ") },
+  { name: "Activities & objects", icon: "⚽", list: "⚽ 🏀 🏈 🎾 🏐 🏏 🥊 🎮 🎲 ♟️ 🎯 🎵 🎶 🎤 🎧 🎸 🥁 📱 💻 📷 📚 ✏️ 💡 🔑 🔒 💰 💵 🚗 🚌 ✈️ 🚀 🏠 ⏰ 📞 ✅ ❌ ❓ ❗ ⚠️ 🚫".split(" ") },
+];
 function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {}, focus = null }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
@@ -3941,6 +3950,18 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const openMenu = (m) => { if (m.senderId === myId && !m.deleted) { openedAt.current = Date.now(); setSel(m); } };
   const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => startPick(m), 450); };
   const pressEnd = () => clearTimeout(pressRef.current);
+
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiTab, setEmojiTab] = useState(0);
+  const insertEmoji = (em) => {
+    const el = inputRef.current;
+    const a = el && typeof el.selectionStart === "number" ? el.selectionStart : draft.length;
+    const b = el && typeof el.selectionEnd === "number" ? el.selectionEnd : draft.length;
+    setDraft((draft.slice(0, a) + em + draft.slice(b)).slice(0, MAX_MSG_CHARS));
+    notifyTyping(true);
+    setTimeout(() => { if (el) { const p = a + em.length; try { el.setSelectionRange(p, p); } catch (e) {} } }, 0);
+  };
+
 
   // ---- multi-select: long-press a bubble to start, then tap more bubbles to add or remove them ----
   const [picked, setPicked] = useState([]);
@@ -4175,6 +4196,16 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <button aria-label="Ignore this word" onMouseDown={e => e.preventDefault()} onClick={ignoreTypo} style={{ marginLeft: "auto", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={16} color="#8891A0" /></button>
         </div>
       )}
+      {emojiOpen && !iBlocked && !rec && (
+        <div style={{ background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 4, padding: "6px 8px", borderBottom: "1px solid #1B212B", overflowX: "auto" }}>
+            {EMOJI_TABS.map((t, i) => <button key={t.name} aria-label={t.name} onClick={() => setEmojiTab(i)} style={{ background: emojiTab === i ? "#1E2530" : "none", border: "none", borderRadius: 10, padding: "4px 10px", fontSize: 20, cursor: "pointer", flexShrink: 0 }}>{t.icon}</button>)}
+          </div>
+          <div style={{ height: 200, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(42px, 1fr))", padding: "6px 8px", gap: 2, alignContent: "start" }}>
+            {EMOJI_TABS[emojiTab].list.map(em => <button key={em} onMouseDown={ev => ev.preventDefault()} onClick={() => insertEmoji(em)} style={{ background: "none", border: "none", fontSize: 26, height: 40, lineHeight: "40px", cursor: "pointer", padding: 0 }}>{em}</button>)}
+          </div>
+        </div>
+      )}
       {iBlocked ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" }}>
           <span style={{ flex: 1 }}>You blocked this contact.</span>
@@ -4185,10 +4216,11 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <input ref={fileRef} type="file" onChange={pickFile} style={{ display: "none" }} />
         <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={pickFile} style={{ display: "none" }} />
         <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "flex-end", gap: 8, background: "#1E2530", borderRadius: 24, padding: "10px 12px" }}>
-          <Smile size={19} color="#8891A0" style={{ flexShrink: 0, marginBottom: 1 }} />
+          <button aria-label={emojiOpen ? "Close emoji" : "Open emoji"} onClick={() => setEmojiOpen(o => !o)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexShrink: 0, marginBottom: 1 }}><Smile size={19} color={emojiOpen ? "#35D0BA" : "#8891A0"} /></button>
           <textarea
             ref={inputRef}
             rows={1}
+            onFocus={() => setEmojiOpen(false)}
             value={draft}
             maxLength={MAX_MSG_CHARS}
             className="lc-plain"

@@ -4000,6 +4000,15 @@ function HelpScreen({ onBack, user }) {
                 React.createElement("button", { onClick: copyInfo, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, copied ? "Copied ✓" : "Copy my support info"),
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginTop: 4 } }, "Letschat Africa \u00B7 secure chat for everyone")))));
 }
+// ---- emoji tray for the message box ----
+const EMOJI_TABS = [
+  { name: "Smileys", icon: "😀", list: "😀 😃 😄 😁 😆 😅 😂 🤣 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖".split(" ") },
+  { name: "Gestures", icon: "👍", list: "👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤝 🙏 👏 🙌 👐 🤲 💪 🙋 🙆 🙅 🤷 🤦 💁 🙇 🤳 ✍️ 💅 👀 👁️ 👂 👃 👄 🧠".split(" ") },
+  { name: "Hearts", icon: "❤️", list: "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 💋 💯 💢 💥 💫 💦 💨 🔥 ✨ ⭐ 🌟 🎉 🎊 🎁 🏆 🥇".split(" ") },
+  { name: "Animals & nature", icon: "🦁", list: "🦁 🐘 🦒 🦓 🐆 🦛 🦜 🐒 🦩 🐊 🐍 🐶 🐱 🐭 🐰 🦊 🐻 🐼 🐨 🐯 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🦅 🦋 🐝 🐢 🐠 🐬 🌳 🌴 🌵 🌸 🌹 🌻 🌞 🌙 ⭐ 🌈 ☀️ ⛅ 🌧️ ⚡ ❄️ 🌍".split(" ") },
+  { name: "Food & drink", icon: "🍔", list: "🍎 🍌 🍉 🍇 🍓 🍍 🥭 🥑 🌽 🥕 🍅 🥔 🍞 🧀 🍳 🥩 🍗 🍖 🍔 🍟 🍕 🌭 🌮 🍝 🍚 🍲 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 ☕ 🍵 🥤 🍺 🍷 💧".split(" ") },
+  { name: "Activities & objects", icon: "⚽", list: "⚽ 🏀 🏈 🎾 🏐 🏏 🥊 🎮 🎲 ♟️ 🎯 🎵 🎶 🎤 🎧 🎸 🥁 📱 💻 📷 📚 ✏️ 💡 🔑 🔒 💰 💵 🚗 🚌 ✈️ 🚀 🏠 ⏰ 📞 ✅ ❌ ❓ ❗ ⚠️ 🚫".split(" ") },
+];
 function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, focus = null }) {
     const [msgs, setMsgs] = useState([]);
     const [draft, setDraft] = useState("");
@@ -4144,6 +4153,18 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     } };
     const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => startPick(m), 450); };
     const pressEnd = () => clearTimeout(pressRef.current);
+
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiTab, setEmojiTab] = useState(0);
+  const insertEmoji = (em) => {
+    const el = inputRef.current;
+    const a = el && typeof el.selectionStart === "number" ? el.selectionStart : draft.length;
+    const b = el && typeof el.selectionEnd === "number" ? el.selectionEnd : draft.length;
+    setDraft((draft.slice(0, a) + em + draft.slice(b)).slice(0, MAX_MSG_CHARS));
+    notifyTyping(true);
+    setTimeout(() => { if (el) { const p = a + em.length; try { el.setSelectionRange(p, p); } catch (e) {} } }, 0);
+  };
+
 
   // ---- multi-select: long-press a bubble to start, then tap more bubbles to add or remove them ----
   const [picked, setPicked] = useState([]);
@@ -4386,14 +4407,18 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             typoHit.options.map(o => (React.createElement("button", { key: o, onMouseDown: e => e.preventDefault(), onClick: () => applyTypo(o), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "5px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" } }, o))),
             React.createElement("button", { "aria-label": "Ignore this word", onMouseDown: e => e.preventDefault(), onClick: ignoreTypo, style: { marginLeft: "auto", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 } },
                 React.createElement(X, { size: 16, color: "#8891A0" })))),
-                iBlocked ? (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" } },
+                emojiOpen && !iBlocked && !rec && React.createElement("div", { style: { background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 } },
+            React.createElement("div", { style: { display: "flex", gap: 4, padding: "6px 8px", borderBottom: "1px solid #1B212B", overflowX: "auto" } }, EMOJI_TABS.map((t, i) => React.createElement("button", { key: t.name, "aria-label": t.name, onClick: () => setEmojiTab(i), style: { background: emojiTab === i ? "#1E2530" : "none", border: "none", borderRadius: 10, padding: "4px 10px", fontSize: 20, cursor: "pointer", flexShrink: 0 } }, t.icon))),
+            React.createElement("div", { style: { height: 200, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(42px, 1fr))", padding: "6px 8px", gap: 2, alignContent: "start" } }, EMOJI_TABS[emojiTab].list.map(em => React.createElement("button", { key: em, onMouseDown: ev => ev.preventDefault(), onClick: () => insertEmoji(em), style: { background: "none", border: "none", fontSize: 26, height: 40, lineHeight: "40px", cursor: "pointer", padding: 0 } }, em)))),
+        iBlocked ? (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" } },
             React.createElement("span", { style: { flex: 1 } }, "You blocked this contact."),
             React.createElement("button", { onClick: () => onBlock(conversation.other.id, false), style: smallBtn }, "Unblock"))) : (React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 } },
             React.createElement("input", { ref: fileRef, type: "file", onChange: pickFile, style: { display: "none" } }),
             React.createElement("input", { ref: camRef, type: "file", accept: "image/*", capture: "environment", onChange: pickFile, style: { display: "none" } }),
             React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "flex-end", gap: 8, background: "#1E2530", borderRadius: 24, padding: "10px 12px" } },
-                React.createElement(Smile, { size: 19, color: "#8891A0", style: { flexShrink: 0, marginBottom: 1 } }),
-                React.createElement("textarea", { ref: inputRef, rows: 1, className: "lc-plain", value: draft, maxLength: MAX_MSG_CHARS, onChange: e => { if (e.target.value.length > draft.length)
+                React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexShrink: 0, marginBottom: 1 } },
+                    React.createElement(Smile, { size: 19, color: emojiOpen ? "#35D0BA" : "#8891A0" })),
+                React.createElement("textarea", { ref: inputRef, rows: 1, onFocus: () => setEmojiOpen(false), className: "lc-plain", value: draft, maxLength: MAX_MSG_CHARS, onChange: e => { if (e.target.value.length > draft.length)
                         playSound("typing"); setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => { if (e.key === "Escape" && editing)
                         cancelEdit(); }, placeholder: editing ? "Edit message" : "Message", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "21px", padding: 0, margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
                 !editing && React.createElement("button", { "aria-label": "Attach file", onClick: () => fileRef.current && fileRef.current.click(), style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 } },
