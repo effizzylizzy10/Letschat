@@ -335,8 +335,8 @@ function CameraBadge({ onClick, busy }) {
   );
 }
 
-// ---- chat text styling: *bold*  _italic_  ~strike~  --underline--  !glow!  (also **bold**, __italic__, ~~strike~~, !!glow!!; can be nested) ----
-const RICH_SRC = "(^|\\W)(\\*\\*|__|~~|!!|--|\\*|~|!|_)(?=\\S)(?!\\2)([^\\n]*?\\S)\\2(?!\\w)";
+// ---- chat text styling: *bold*  _italic_  ~strike~  -underline-  !glow!  (also **bold**, __italic__, ~~strike~~, --underline--, !!glow!!; can be nested) ----
+const RICH_SRC = "(^|\\W)(\\*\\*|__|~~|!!|--|\\*|~|!|_|-)(?=\\S)(?!\\2)([^\\n]*?\\S)\\2(?!\\w)";
 const RICH_RE = new RegExp(RICH_SRC, "g");
 function richText(text) {
   if (typeof text !== "string" || !/[*_~!-]/.test(text)) return text;
@@ -348,7 +348,7 @@ function richText(text) {
     if (mk === "**" || mk === "*") props.style = { fontWeight: 700 };
     else if (mk === "__" || mk === "_") props.style = { fontStyle: "italic" };
     else if (mk === "~~" || mk === "~") props.style = { textDecoration: "line-through" };
-    else if (mk === "--") props.style = { textDecoration: "underline" };
+    else if (mk === "--" || mk === "-") props.style = { textDecoration: "underline" };
     else { props.className = "lc-glow"; props.style = { color: "#B8FFF3", textShadow: "0 0 6px #35D0BA, 0 0 14px #35D0BA, 0 0 24px rgba(53,208,186,.7)" }; }
     out.push(React.createElement("span", props, richText(m[3])));
     last = re.lastIndex;
@@ -2478,6 +2478,8 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
 function PostProductModal({ token, onClose, onPosted }) {
   const [f, setF] = useState({ title: "", price: "", description: "" });
   const [tags, setTags] = useState([]);
+  const descRef = useRef(null);
+  const insertAt = () => { setF((p) => ({ ...p, description: (p.description && !/\s$/.test(p.description) ? p.description + " " : p.description) + "@" })); setTimeout(() => descRef.current && descRef.current.focus(), 0); };
   const [photo, setPhoto] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -2506,7 +2508,7 @@ function PostProductModal({ token, onClose, onPosted }) {
           </label>
           <div style={inputBox}><input value={f.title} maxLength={80} onChange={set("title")} placeholder="Product name" style={inputEl} /></div>
           <div style={inputBox}><input value={f.price} maxLength={30} onChange={set("price")} placeholder="Price (e.g. ₦5,000)" style={inputEl} /></div>
-          <div style={inputBox}><MentionField token={token} multiline value={f.description} onChange={(t) => setF({ ...f, description: t })} tags={tags} setTags={setTags} maxLength={1000} rows={4} placeholder="Describe it: condition, size, location… Type @ to tag a contact or group" className="lc-plain" style={{ ...inputEl, width: "100%", boxSizing: "border-box", fontFamily: "Inter", fontWeight: 400, fontSize: 14, resize: "none" }} /></div>
+          <div style={inputBox}><MentionField token={token} fieldRef={descRef} multiline value={f.description} onChange={(t) => setF({ ...f, description: t })} tags={tags} setTags={setTags} maxLength={1000} rows={4} placeholder="Describe it: condition, size, location… Type @ to tag a contact or group" className="lc-plain" style={{ ...inputEl, width: "100%", boxSizing: "border-box", fontFamily: "Inter", fontWeight: 400, fontSize: 14, resize: "none" }} /><button onClick={insertAt} aria-label="Tag a contact or group" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignSelf: "flex-start" }}><AtSign size={22} color="#8891A0" /></button></div>
         </div>
         <button onClick={post} disabled={busy || !f.title.trim() || !f.price.trim()} style={primaryBtn(busy)}>{busy ? "Posting…" : "Post"}</button>
       </div>
@@ -2562,6 +2564,8 @@ function RateSellerSheet({ seller, token, onClose, onDone }) {
 function CommentsSheet({ listing, token, onClose, onChanged }) {
     const [comments, setComments] = useState(null);
     const [text, setText] = useState("");
+    const [tags, setTags] = useState([]);
+    const inputRef = useRef(null);
     const [showEmoji, setShowEmoji] = useState(false);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
@@ -2574,9 +2578,9 @@ function CommentsSheet({ listing, token, onClose, onChanged }) {
         if (!body || busy) return;
         setBusy(true);
         try {
-            const d = await api(base, { method: "POST", token, body: { text: body } });
+            const d = await api(base, { method: "POST", token, body: { text: body, tags: t === undefined ? liveTags(body, tags).map((x) => ({ type: x.type, id: x.id })) : [] } });
             setComments(d.comments);
-            if (t === undefined) { setText(""); setShowEmoji(false); }
+            if (t === undefined) { setText(""); setTags([]); setShowEmoji(false); }
             setErr("");
             onChanged();
         }
@@ -2602,15 +2606,17 @@ function CommentsSheet({ listing, token, onClose, onChanged }) {
                         React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member", c.author && c.author.verified && React.createElement(VerifiedBadge, { size: 13 })),
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#5B6673" } }, timeLabel(c.time)),
                         c.canDelete && React.createElement("button", { onClick: () => window.confirm("Delete this comment?") && remove(c.id), style: { marginLeft: "auto", background: "none", border: "none", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12, cursor: "pointer", padding: 0 } }, "Delete")),
-                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, c.text)))))),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, richText(c.text), React.createElement(TagPills, { tags: c.tags }))))))),
         err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#FF6B5D", padding: "6px 16px 0" } }, err),
         React.createElement("div", { style: { display: "flex", gap: 6, padding: "8px 16px 0", flexShrink: 0 } }, QUICK_EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => send(e), disabled: busy, "aria-label": "Send " + e, style: { flex: 1, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 10, padding: "6px 0", fontSize: 20, cursor: "pointer" } }, e)))),
         showEmoji && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 2, padding: "8px 12px 0", maxHeight: 130, overflowY: "auto", flexShrink: 0 } }, EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => setText(t => (t + e).slice(0, 500)), style: { background: "none", border: "none", fontSize: 24, padding: 5, cursor: "pointer" } }, e)))),
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 16px", flexShrink: 0 } },
             React.createElement("button", { onClick: () => setShowEmoji(v => !v), "aria-label": "Emoji", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
                 React.createElement(Smile, { size: 24, color: showEmoji ? "#35D0BA" : "#8891A0" })),
+            React.createElement("button", { onClick: () => { setText(t => (t && !/\s$/.test(t) ? t + " " : t) + "@"); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
+                React.createElement(AtSign, { size: 24, color: "#8891A0" })),
             React.createElement("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } },
-                React.createElement("input", { value: text, maxLength: 500, onChange: e => setText(e.target.value), onKeyDown: e => { if (e.key === "Enter") send(); }, placeholder: "Add a comment\u2026", style: { ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14 } })),
+                React.createElement(MentionField, { token: token, fieldRef: inputRef, value: text, onChange: setText, tags: tags, setTags: setTags, maxLength: 500, onEnter: () => send(), placeholder: "Add a comment\u2026 Type @ to tag", className: "lc-plain", style: { ...inputEl, width: "100%", fontFamily: "Inter", fontWeight: 400, fontSize: 14 } })),
             React.createElement("button", { onClick: () => send(), disabled: busy || !text.trim(), "aria-label": "Send comment", style: { width: 42, height: 42, borderRadius: 21, border: "none", background: "#35D0BA", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } },
                 React.createElement(Send, { size: 19, color: "#0E1116" })))));
 }
@@ -2649,7 +2655,7 @@ function MarketScreen({ token, myId, onMessageSeller }) {
                   <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" }}>{l.title}</span>
                   <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#35D0BA", whiteSpace: "nowrap" }}>{l.sold ? "SOLD" : l.price}</span>
                 </div>
-                {l.description && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" }}>{l.description}</div>}
+                {l.description && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" }}>{richText(l.description)}</div>}
                 {l.tags && l.tags.length > 0 && <div style={{ margin: "-4px 0 10px" }}><TagPills tags={l.tags} /></div>}
                 <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, margin: l.description ? "0 0 10px" : "8px 0 10px" }}>
                   <button onClick={() => setCommentsFor(l)} style={smallBtn}>{"\u{1F4AC} Comments" + (l.commentCount ? " (" + l.commentCount + ")" : "")}</button>
@@ -4582,7 +4588,7 @@ function App() {
     socket.on("message:updated", () => refreshConversations()); // edited / deleted message: refresh the chat list preview
     socket.on("conversation:added", () => refreshConversations());
     socket.on("conversation:update", () => refreshConversations());
-    socket.on("tagged", (d) => { if (d) flash((d.by || "Someone") + " tagged " + (d.group ? "the group " + d.group : "you") + " in a " + (d.kind === "market" ? "market post" : "status")); });
+    socket.on("tagged", (d) => { if (d) flash((d.by || "Someone") + " tagged " + (d.group ? "the group " + d.group : "you") + " in a " + (d.kind === "market" ? "market post" : d.kind === "comment" ? "market comment" : "status")); });
     socket.on("user:update", (u) => {
       // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
       setConversations(prev => prev.map(c => c.isGroup
