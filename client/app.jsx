@@ -2885,7 +2885,7 @@ function audioCtx() {
     return _sndCtx;
 }
 // phones only allow sound after a tap, so unlock the audio engine on the first touch / key press
-["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, () => { try { audioCtx(); } catch { } }, { passive: true }));
+["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, () => { try { const c = audioCtx(); if (c) { loadSwoosh(c); loadTyping(c); } } catch { } }, { passive: true }));
 function noiseSource(ctx, dur) {
     const n = Math.max(1, Math.floor(ctx.sampleRate * dur)), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
@@ -2893,8 +2893,33 @@ function noiseSource(ctx, dur) {
     s.buffer = buf;
     return s;
 }
+let _swooshBuf = null, _swooshLoading = false;
+function loadSwoosh(ctx) { // the send sound is the file swoosh.mp3, decoded once and kept in memory
+    if (_swooshBuf || _swooshLoading) return;
+    _swooshLoading = true;
+    fetch("swoosh.mp3").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _swooshBuf = buf; }).catch(() => { _swooshLoading = false; });
+}
+let _typeBuf = null, _typeLoading = false;
+function loadTyping(ctx) { // typing.wav = 12 real keystroke clicks, 0.1 s apart; one is picked at random per key press
+    if (_typeBuf || _typeLoading) return;
+    _typeLoading = true;
+    fetch("typing.wav").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _typeBuf = buf; }).catch(() => { _typeLoading = false; });
+}
+// One click per key press. Phones/PCs report the key straight away (keydown); some Android keyboards only report the text change,
+// so that path covers them. They never double up: playSound ignores a second click within 30 ms.
+function typingKeySound(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k === "Backspace" || k === "Delete" || k === "Enter" || k === " ") playSound("typing", true); // deeper click for these keys
+    else if (typeof k === "string" && k.length === 1) playSound("typing");
+}
+function typingChangeSound(e, before) {
+    const ne = e.nativeEvent || {}, t = ne.inputType || "", add = e.target.value.length - before.length;
+    if (add === 0 || /^(insertFromPaste|insertFromDrop|insertReplacementText|historyUndo|historyRedo)/.test(t)) return;
+    playSound("typing", add < 0 || /^(insertLineBreak|insertParagraph)/.test(t) || ne.data === " ");
+}
 let _lastTick = 0;
-function playSound(kind) { // "typing" | "send"
+function playSound(kind, alt) { // "typing" | "send"
     if (!featOn("sound")) return;
     if (kind === "typing" && !featOn("typingSound")) return;
     if (kind === "send" && !featOn("sendSound")) return;
@@ -2904,15 +2929,19 @@ function playSound(kind) { // "typing" | "send"
         const t = ctx.currentTime;
         if (kind === "typing") { // a soft keyboard tick
             const now = Date.now();
-            if (now - _lastTick < 45) return;
+            if (now - _lastTick < 30) return;
             _lastTick = now;
+            if (_typeBuf) { const s = ctx.createBufferSource(), tg = ctx.createGain(), k = Math.floor(Math.random() * 12); s.buffer = _typeBuf; s.playbackRate.value = (alt ? 0.8 : 1) * (0.96 + Math.random() * 0.08); tg.gain.setValueAtTime(0.8, t); tg.gain.linearRampToValueAtTime(0, t + 0.045); s.connect(tg); tg.connect(ctx.destination); s.start(t, k * 0.1, 0.05); return; }
+            loadTyping(ctx); // not loaded yet: use the built-in tick this one time
             const src = noiseSource(ctx, 0.04), f = ctx.createBiquadFilter(), g = ctx.createGain();
             f.type = "bandpass"; f.frequency.value = 1900 + Math.random() * 900; f.Q.value = 1.4;
             g.gain.value = 0.55;
             src.connect(f); f.connect(g); g.connect(ctx.destination);
             src.start(t);
         } else if (kind === "send") { // a quick upward "whoosh"
-            const src = noiseSource(ctx, 0.32), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            if (_swooshBuf) { const s = ctx.createBufferSource(), sg = ctx.createGain(); s.buffer = _swooshBuf; sg.gain.value = 0.9; s.connect(sg); sg.connect(ctx.destination); s.start(t); return; }
+            loadSwoosh(ctx); // not loaded yet: use the built-in whoosh this one time
+                        const src = noiseSource(ctx, 0.32), f = ctx.createBiquadFilter(), g = ctx.createGain();
             f.type = "bandpass"; f.Q.value = 0.9;
             f.frequency.setValueAtTime(500, t);
             f.frequency.exponentialRampToValueAtTime(3600, t + 0.26);
@@ -4247,8 +4276,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             value={draft}
             maxLength={MAX_MSG_CHARS}
             className="lc-plain"
-            onChange={e => { if (e.target.value.length > draft.length) playSound("typing"); setDraft(e.target.value); notifyTyping(true); }}
-            onKeyDown={e => { if (e.key === "Escape" && editing) cancelEdit(); }}
+            onChange={e => { typingChangeSound(e, draft); setDraft(e.target.value); notifyTyping(true); }}
+            onKeyDown={e => { typingKeySound(e); if (e.key === "Escape" && editing) cancelEdit(); }}
             placeholder={editing ? "Edit message" : "Message"} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "21px", padding: 0, margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
           {!editing && <button aria-label="Attach file" onClick={() => fileRef.current && fileRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Paperclip size={19} color="#8891A0" /></button>}
           {!editing && <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Camera size={19} color="#8891A0" /></button>}
