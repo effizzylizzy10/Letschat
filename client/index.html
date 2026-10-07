@@ -3011,7 +3011,7 @@ function loadSwoosh(ctx) { // the send sound is the file swoosh.mp3, decoded onc
     fetch("swoosh.mp3").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _swooshBuf = buf; }).catch(() => { _swooshLoading = false; });
 }
 let _typeBuf = null, _typeLoading = false;
-function loadTyping(ctx) { // typing.wav = 12 real keystroke clicks, 0.1 s apart; one is picked at random per key press
+function loadTyping(ctx) { // typing.wav = one key click, played once per key press (pitch varied a little)
     if (_typeBuf || _typeLoading) return;
     _typeLoading = true;
     fetch("typing.wav").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _typeBuf = buf; }).catch(() => { _typeLoading = false; });
@@ -3047,7 +3047,7 @@ function playSound(kind, alt) {
             if (now - _lastTick < 30)
                 return;
             _lastTick = now;
-            if (_typeBuf) { const s = ctx.createBufferSource(), tg = ctx.createGain(), k = Math.floor(Math.random() * 12); s.buffer = _typeBuf; s.playbackRate.value = (alt ? 0.8 : 1) * (0.96 + Math.random() * 0.08); tg.gain.setValueAtTime(0.8, t); tg.gain.linearRampToValueAtTime(0, t + 0.045); s.connect(tg); tg.connect(ctx.destination); s.start(t, k * 0.1, 0.05); return; }
+            if (_typeBuf) { const s = ctx.createBufferSource(), tg = ctx.createGain(), k = 0; s.buffer = _typeBuf; s.playbackRate.value = (alt ? 0.8 : 1) * (0.96 + Math.random() * 0.08); tg.gain.setValueAtTime(0.8, t); tg.gain.linearRampToValueAtTime(0, t + 0.045); s.connect(tg); tg.connect(ctx.destination); s.start(t, k * 0.1, 0.05); return; }
             loadTyping(ctx); // not loaded yet: use the built-in tick this one time
             const src = noiseSource(ctx, 0.04), f = ctx.createBiquadFilter(), g = ctx.createGain();
             f.type = "bandpass";
