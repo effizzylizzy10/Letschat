@@ -31,6 +31,42 @@
 
     /* every scrolling list (chats, messages, contacts, group info, profile, market) scrolls smoothly inside its own box */
     div[style*="overflow-y: auto"] { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #2B3544 transparent; }
+    /* ---- lite animations: short, subtle, CSS-only (replayed only when an element is newly added) ---- */
+    @keyframes lcFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes lcFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes lcPop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+    #root > * { animation: lcFade .3s ease-out backwards; }
+    div[style*="overflow-y: auto"] > * { animation: lcFadeUp .22s ease-out backwards; }
+    div[style*="overflow-y: auto"] > *:nth-child(2) { animation-delay: .03s; }
+    div[style*="overflow-y: auto"] > *:nth-child(3) { animation-delay: .06s; }
+    div[style*="overflow-y: auto"] > *:nth-child(4) { animation-delay: .09s; }
+    div[style*="overflow-y: auto"] > *:nth-child(5) { animation-delay: .12s; }
+    div[style*="overflow-y: auto"] > *:nth-child(n+6) { animation-delay: .15s; }
+    button, [role="tab"], [role="button"] { transition: transform .12s ease, opacity .15s ease, background-color .2s ease, box-shadow .2s ease; -webkit-tap-highlight-color: transparent; }
+    button:not(:disabled):active, [role="tab"]:active, [role="button"]:active { transform: scale(.95); }
+    @media (hover: hover) { button:not(:disabled):hover { opacity: .92; } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+    }
+    /* ---- lite transitions + glow ---- */
+    @keyframes lcBreathe { 50% { box-shadow: 0 0 0 4px rgba(53,208,186,.18), 0 0 12px rgba(53,208,186,.8); } }
+    @keyframes lcSheen { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+    .lc-tab svg { transition: transform .25s cubic-bezier(.3,.7,.4,1.4), filter .25s ease; }
+    .lc-tab span { transition: color .2s ease; }
+    .lc-tab.on svg { transform: translateY(-2px) scale(1.12); filter: drop-shadow(0 0 6px rgba(53,208,186,.85)); }
+    .lc-tab.on span { text-shadow: 0 0 8px rgba(53,208,186,.6); }
+    input, textarea, select { transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease; }
+    input:focus, textarea:focus, select:focus { border-color: #35D0BA !important; box-shadow: 0 0 0 3px rgba(53,208,186,.18), 0 0 14px rgba(53,208,186,.35) !important; }
+    button:focus-visible, [role="tab"]:focus-visible, [role="button"]:focus-visible { outline: 2px solid #35D0BA; outline-offset: 2px; box-shadow: 0 0 12px rgba(53,208,186,.5); }
+    @media (hover: hover) { button:not(:disabled):hover { filter: brightness(1.12) drop-shadow(0 0 6px rgba(53,208,186,.25)); } }
+    div[style*="width: 13px"][style*="height: 13px"][style*="border-radius: 50%"] { animation: lcBreathe 2.4s ease-in-out infinite; }
+    svg { transition: filter .2s ease; }
+    img { transition: opacity .3s ease; }
+    a { transition: color .2s ease, opacity .2s ease; }
+    @media (prefers-reduced-motion: reduce) { .lc-tab svg, input, textarea { transition: none !important; } }
+    @keyframes lcGlowText { 50% { text-shadow: 0 0 10px #35D0BA, 0 0 22px #35D0BA, 0 0 34px rgba(53,208,186,.8); } }
+    .lc-glow { animation: lcGlowText 2s ease-in-out infinite; }
+    .lc-plain:focus { box-shadow: none !important; border-color: transparent !important; }
     #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding-top: 40vh; }
     #error-box {
       display: none; position: fixed; inset: 0; background: #1a0000; color: #ff8080;
@@ -143,6 +179,11 @@ const Gamepad2 = makeIcon([["p", "M6 11h4"], ["p", "M8 9v4"], ["p", "M15 12h.01"
 const RotateCcw = makeIcon([["p", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"], ["p", "M3 3v5h5"]]);
 const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
 const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
+const MusicIcon = makeIcon([["p", "M9 18V5l12-2v13"], ["c", 6, 18, 3], ["c", 18, 16, 3]]);
+const RotateIcon = makeIcon([["p", "M6 2v14a2 2 0 0 0 2 2h14"], ["p", "M18 22V8a2 2 0 0 0-2-2H2"]]);
+const StickerIcon = makeIcon([["p", "M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"], ["p", "M15 3v6h6"], ["p", "M8 13h.01"], ["p", "M16 13h.01"], ["p", "M10 16s.8 1 2 1 2-1 2-1"]]);
+const ImagePlus = makeIcon([["p", "M16 5h6"], ["p", "M19 2v6"], ["p", "M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"], ["p", "m3 16 5-5c.9-.9 2.1-.9 3 0l5 5"], ["c", 9, 9, 2]]);
+const AtSign = makeIcon([["c", 12, 12, 4], ["p", "M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"]]);
 const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
 const Volume2 = makeIcon([["g", "11 5 6 9 2 9 2 15 6 15 11 19 11 5"], ["p", "M15.54 8.46a5 5 0 0 1 0 7.07"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
 const ShoppingBag = makeIcon([["p", "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"], ["p", "M3 6h18"], ["p", "M16 10a4 4 0 0 1-8 0"]]);
@@ -380,6 +421,29 @@ function CameraBadge({ onClick, busy }) {
         } },
         React.createElement(Camera, { size: 16, color: "#0E1116" })));
 }
+// ---- chat text styling: *bold*  _italic_  ~strike~  --underline--  !glow!  (also **bold**, __italic__, ~~strike~~, !!glow!!; can be nested) ----
+const RICH_SRC = "(^|\\W)(\\*\\*|__|~~|!!|--|\\*|~|!|_)(?=\\S)(?!\\2)([^\\n]*?\\S)\\2(?!\\w)";
+const RICH_RE = new RegExp(RICH_SRC, "g");
+function richText(text) {
+  if (typeof text !== "string" || !/[*_~!-]/.test(text)) return text;
+  const re = new RegExp(RICH_SRC, "g"), out = []; let last = 0, k = 0, m;
+  while ((m = re.exec(text))) {
+    const start = m.index + m[1].length;
+    if (start > last) out.push(text.slice(last, start));
+    const mk = m[2], props = { key: k++ };
+    if (mk === "**" || mk === "*") props.style = { fontWeight: 700 };
+    else if (mk === "__" || mk === "_") props.style = { fontStyle: "italic" };
+    else if (mk === "~~" || mk === "~") props.style = { textDecoration: "line-through" };
+    else if (mk === "--") props.style = { textDecoration: "underline" };
+    else { props.className = "lc-glow"; props.style = { color: "#B8FFF3", textShadow: "0 0 6px #35D0BA, 0 0 14px #35D0BA, 0 0 24px rgba(53,208,186,.7)" }; }
+    out.push(React.createElement("span", props, richText(m[3])));
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+const stripRich = (t) => (typeof t === "string" ? t.replace(new RegExp(RICH_SRC, "g"), "$1$3") : t);
+
 function TabBar({ active, setActive }) {
     const tabs = [
         { id: "chats", icon: MessageCircle, label: "Chats" },
@@ -392,7 +456,7 @@ function TabBar({ active, setActive }) {
     return (React.createElement("div", { style: { display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 } }, tabs.map(t => {
         const Icon = t.icon;
         const isActive = active === t.id;
-        return (React.createElement("button", { key: t.id, onClick: () => setActive(t.id), style: {
+        return (React.createElement("button", { key: t.id, className: isActive ? "lc-tab on" : "lc-tab", onClick: () => setActive(t.id), style: {
                 flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
                 alignItems: "center", gap: 4, cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
             } },
@@ -1674,7 +1738,7 @@ const sideOf = (fit, extra) => Math.max(120, Math.floor(Math.min(fit.w - 20, fit
 // decorated frame around a board: glowing gradient rim, dark inner mat, little studs in the corners
 function GameFrame({ color, children }) {
   const stud = (pos) => gh("i", { style: { position: "absolute", width: 6, height: 6, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, #fff, " + color + ")", boxShadow: "0 0 6px " + color, ...pos } });
-  return gh("div", { style: { position: "relative", padding: 7, borderRadius: 20, background: "linear-gradient(145deg, " + color + ", #F5B83D 48%, " + color + ")", boxShadow: "0 0 22px " + color + "66, 0 6px 18px rgba(0,0,0,.45)" } },
+  return gh("div", { className: "lc-game", style: { position: "relative", padding: 7, borderRadius: 20, background: "linear-gradient(145deg, " + color + ", #F5B83D 48%, " + color + ")", boxShadow: "0 0 22px " + color + "66, 0 6px 18px rgba(0,0,0,.45)" } },
     gh("div", { style: { padding: 3, borderRadius: 14, background: "#0B0F16", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.18)" } }, children),
     stud({ top: 1, left: 1 }), stud({ top: 1, right: 1 }), stud({ bottom: 1, left: 1 }), stud({ bottom: 1, right: 1 }));
 }
@@ -1804,9 +1868,9 @@ const WHOT_SH = [["●", "#FF5A5F"], ["▲", "#35D0BA"], ["✚", "#A78BFA"], ["�
 const WHOT_TAG = { 1: "Hold on", 2: "Pick 2", 5: "Pick 3", 8: "Suspend", 14: "Market" };
 function WhotCard({ c, can, onClick, big, sc = 1, ml = 0 }) {
   const w = Math.round((big ? 70 : 52) * sc), hgt = Math.round((big ? 100 : 76) * sc), R = GAME_RULES.whot, base = { width: w, height: hgt, borderRadius: 12, flexShrink: 0, marginLeft: ml, boxSizing: "border-box", padding: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", cursor: can ? "pointer" : "default", transform: can ? "translateY(-8px)" : "none", transition: "transform .15s" };
-  if (c == null) return gh("div", { style: { ...base, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "2px solid rgba(255,255,255,.35)", color: "#fff", fontFamily: "Sora", fontWeight: 800, fontSize: big ? 26 : 20 } }, "W");
+  if (c == null) return gh("div", { className: "lc-card", style: { ...base, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "2px solid rgba(255,255,255,.35)", color: "#fff", fontFamily: "Sora", fontWeight: 800, fontSize: big ? 26 : 20 } }, "W");
   const sh = R.sh(c), n = R.nm(c), col = sh === 5 ? "#F5B83D" : WHOT_SH[sh][1];
-  return gh("button", { onClick: can ? onClick : undefined, "aria-label": sh === 5 ? "Whot 20" : ["circle", "triangle", "cross", "square", "star"][sh] + " " + n, style: { ...base, background: sh === 5 ? "linear-gradient(145deg,#2A1A52,#0F141C)" : "#F5F7FA", border: "2px solid " + (can ? "#fff" : col), boxShadow: can ? "0 0 14px " + col : "none", opacity: can || big ? 1 : 0.62 } },
+  return gh("button", { className: "lc-card", onClick: can ? onClick : undefined, "aria-label": sh === 5 ? "Whot 20" : ["circle", "triangle", "cross", "square", "star"][sh] + " " + n, style: { ...base, background: sh === 5 ? "linear-gradient(145deg,#2A1A52,#0F141C)" : "#F5F7FA", border: "2px solid " + (can ? "#fff" : col), boxShadow: can ? "0 0 14px " + col : "none", opacity: can || big ? 1 : 0.62 } },
     gh("div", { style: { position: "absolute", top: 4, left: 6, fontFamily: "Sora", fontWeight: 800, fontSize: big ? 15 : 13, color: sh === 5 ? "#F5B83D" : "#0B0F16" } }, n),
     gh("div", { style: { fontSize: (sh === 5 ? (big ? 15 : 12) : (big ? 38 : 28)) * (sc < 1 ? 0.88 : 1), color: col, fontFamily: "Sora", fontWeight: 800, lineHeight: 1 } }, sh === 5 ? "WHOT" : WHOT_SH[sh][0]),
     WHOT_TAG[n] && sh < 5 ? gh("div", { style: { position: "absolute", bottom: 3, fontFamily: "Inter", fontSize: big ? 9.5 : 8, fontWeight: 700, color: "#4B5563" } }, WHOT_TAG[n]) : null);
@@ -2237,15 +2301,15 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
   const hit = (i) => g.line && g.line.includes(i);
   const cells = !Array.isArray(g.state) ? null : g.state.map((v, i) => {
     const col = v == null ? null : PCOL[v];
-    if (cfg.game === "ttt") return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : v === 0 ? "X" : "O");
+    if (cfg.game === "ttt") return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : gh("span", { key: "m" + v, className: "lc-mark" }, v === 0 ? "X" : "O"));
     return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } },
-      gh("div", { style: { width: "84%", height: "84%", margin: "8%", borderRadius: "50%", background: col || "#0A0E14", boxShadow: col ? "0 0 " + (hit(i) ? 16 : 8) + "px " + col : "inset 0 2px 6px rgba(0,0,0,.7)", border: hit(i) ? "2px solid #fff" : "none" } }));
+      gh("div", { key: col ? "f" : "e", className: col ? "lc-disc" : undefined, style: { width: "84%", height: "84%", margin: "8%", borderRadius: "50%", background: col || "#0A0E14", boxShadow: col ? "0 0 " + (hit(i) ? 16 : 8) + "px " + col : "inset 0 2px 6px rgba(0,0,0,.7)", border: hit(i) ? "2px solid #fff" : "none" } }));
   });
   const gw = cfg.game === "c4" ? Math.max(140, Math.floor(Math.min(fit.w - 20, (fit.h - 20) * 7 / 6, 420))) : Math.max(140, Math.floor(Math.min(fit.w - 20, fit.h - 20, 340)));
   const verdict = !g.over ? null : g.winner === -1 ? "It's a draw" : g.winner === g.you ? "You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
   return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #1B1440 0%, #0B0F16 60%)") },
     gh("div", { style: { display: "flex", gap: 8, padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
-    hubStatusRow(() => setRules(true), gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…"))),
+    hubStatusRow(() => setRules(true), gh("div", { role: "status", key: g.over ? "over" : "t" + g.turn, className: g.over ? "lc-status lc-over" : "lc-status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…"))),
     g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
     gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative" } },
       cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "checkers" ? gh(CheckersBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "whot" ? gh(WhotBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "chess" ? gh(ChessBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : gh(GameFrame, { color: gc }, gh("div", { style: { width: gw, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells)),
@@ -2272,7 +2336,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
   const [setup, setSetup] = useState(null); const [room, setRoom] = useState(null); const [searching, setSearching] = useState(null);
   const [invites, setInvites] = useState([]); const [alerts, setAlerts] = useState([]); const [unread, setUnread] = useState(0); const [bell, setBell] = useState(false);
   const [arcade, setArcade] = useState(false); const [period, setPeriod] = useState("day"); const [board, setBoard] = useState({ rows: [], me: null });
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState(""); const [onlinePops, setOnlinePops] = useState([]);
   const roomRef = useRef(room); roomRef.current = room; const activeRef = useRef(active); activeRef.current = active;
   const sock = () => socketRef.current;
   const alertNow = (icon, text) => { setAlerts((a) => [{ id: Math.random(), icon, text, at: Date.now() }, ...a].slice(0, 30)); setUnread((n) => n + 1); setToast(icon + " " + text); setTimeout(() => setToast(""), 3500); };
@@ -2286,6 +2350,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     const hs = {
       "game:invite": (d) => { setInvites((v) => [...v, d]); alertNow("⚔️", d.from.name + (d.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(d.game)); hubPing(); },
       "game:invite-expired": (d) => setInvites((v) => v.filter((i) => i.id !== d.id)),
+      "game:player-online": (d) => { const p = d && d.player; if (!p || p.id === myId) return; alertNow("🟢", p.name + " is online"); setLobby((l) => (l.players.some((x) => x.id === p.id) ? l : { ...l, players: [...l.players, { ...p, status: "online" }] })); if (activeRef.current && !roomRef.current) { setOnlinePops((v) => [...v.filter((x) => x.id !== p.id), p].slice(-3)); setTimeout(() => setOnlinePops((v) => v.filter((x) => x.id !== p.id)), 6000); hubPing(); } refresh(); },
       "game:accepted": (d) => alertNow("✅", d.by.name + " accepted your game"),
       "game:declined": (d) => alertNow("🙈", d.by.name + " declined your invite"),
       "game:start": (d) => { if (d.rematch) return; setSearching(null); setSetup(null); setInvites([]); setArcade(false); setRoom({ mode: "online", room: d.room, game: d.game, you: d.you, players: d.players, state: d.state, turn: d.turn, score: d.score }); goGames(); refresh(); },
@@ -2382,6 +2447,11 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     invites.map((iv) => gh("div", { key: iv.id, style: { ...GLASS, background: "rgba(15,20,28,.92)", borderColor: "#8B5CF6", padding: 12, pointerEvents: "auto", boxShadow: "0 0 24px rgba(139,92,246,.5)", animation: "hubUp .25s ease-out" } },
       gh("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10 } }, gh(Ring, { size: 40, color: iv.from.color, initials: iv.from.initials, photo: iv.from.avatar }), gh("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, gh("b", null, iv.from.name), (iv.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(iv.game))),
       gh("div", { style: { display: "flex", gap: 10 } }, hubBtn("Accept", () => respond(iv, true), { style: { flex: 1 }, small: true }), hubBtn("Decline", () => respond(iv, false), { style: { flex: 1 }, small: true, ghost: true })))),
+    active ? onlinePops.map((p) => gh("div", { key: "on" + p.id, style: { ...GLASS, background: "rgba(15,20,28,.94)", borderColor: "#35D0BA", padding: 10, pointerEvents: "auto", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 0 20px rgba(53,208,186,.4)", animation: "hubUp .25s ease-out" } },
+      gh(Ring, { size: 38, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
+      gh("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, gh("b", null, p.name), " is online"),
+      hubBtn("Play", () => { setOnlinePops((v) => v.filter((x) => x.id !== p.id)); go({ mode: "friend", player: p, kind: "invite" }); }, { small: true }),
+      gh("button", { onClick: () => setOnlinePops((v) => v.filter((x) => x.id !== p.id)), "aria-label": "Dismiss", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 16 } }, "✕"))) : null,
     toast && !active ? gh("div", { style: { ...GLASS, background: "rgba(15,20,28,.92)", padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, toast) : null);
 
   const tabs = gh("div", { role: "tablist", style: { display: "flex", gap: 6, padding: "0 16px 10px" } }, [["play", "🎮 Play"], ["lobby", "👥 Lobby"], ["ranks", "🏆 Ranks"]].map(([k, l]) => gh("button", { key: k, role: "tab", "aria-selected": sub === k, onClick: () => setSub(k), style: { flex: 1, padding: "9px 0", borderRadius: 14, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "none", background: sub === k ? "linear-gradient(135deg,rgba(53,208,186,.3),rgba(139,92,246,.3))" : "rgba(255,255,255,.05)", color: sub === k ? "#F5F7FA" : "#8891A0", boxShadow: sub === k ? "0 0 14px rgba(53,208,186,.3)" : "none" } }, l)));
@@ -2398,7 +2468,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
   const searchBox = searching ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 25, background: "rgba(3,5,9,.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 } },
     gh("div", { style: { fontSize: 54, animation: "hubPulse 1.2s infinite" } }, "🔎"), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, "Finding a " + hubName(searching.game) + " opponent…"), hubBtn("Cancel", () => { sock().emit("game:cancel"); setSearching(null); refresh(); }, { ghost: true })) : null;
   return gh(React.Fragment, null,
-    gh("style", null, "@keyframes hubUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}@keyframes hubPulse{50%{transform:scale(1.18)}}@keyframes hubFloat{to{transform:translateY(-170px);opacity:0}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
+    gh("style", null, "@keyframes hubUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}@keyframes hubPulse{50%{transform:scale(1.18)}}@keyframes hubFloat{to{transform:translateY(-170px);opacity:0}}@keyframes lcPop{from{opacity:0;transform:scale(.4)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDeal{from{opacity:0;transform:translateY(-14px) scale(.9)}to{opacity:1;transform:none}}@keyframes lcDrop{from{opacity:0;transform:translateY(-60%)}70%{transform:translateY(4%)}to{opacity:1;transform:none}}@keyframes lcGlow{50%{box-shadow:0 0 28px rgba(245,184,61,.9);transform:scale(1.07)}}@keyframes lcWin{from{opacity:0;transform:scale(.7)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDot{50%{opacity:.45;transform:scale(.8)}}.lc-game svg circle,.lc-game svg text{transition:cx .35s ease,cy .35s ease,x .35s ease,y .35s ease,fill .2s,opacity .25s;transform-box:fill-box;transform-origin:center;animation:lcPop .3s ease-out backwards}.lc-game svg g{transform-box:fill-box;transform-origin:center}.lc-mark{display:inline-block;animation:lcPop .28s ease-out backwards}.lc-disc{animation:lcDrop .38s cubic-bezier(.3,.7,.4,1) backwards}.lc-card{animation:lcDeal .28s ease-out backwards}.lc-status{animation:lcFade .25s ease-out backwards}.lc-status.lc-over{animation:lcWin .5s ease-out backwards}button[aria-label='Roll the dice']:not(:disabled){animation:lcGlow 1.4s ease-in-out infinite}.lc-game svg circle[fill='#F5B83D']:not([stroke]){animation:lcDot 1.3s ease-in-out infinite}@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}"),
     gh("div", { style: { position: "absolute", inset: 0, display: active ? "flex" : "none", flexDirection: "column", background: "radial-gradient(120% 50% at 50% 0%, #1A1240 0%, #0B0F16 55%)" } }, main, sheet, bellPanel, searchBox),
     popups);
 }
@@ -2544,7 +2614,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
                             favorites.includes(c.id) && React.createElement(Star, { size: 13, color: "#F2B84B", style: { fill: "#F2B84B" } })),
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" } }, c.lastMessage ? timeLabel(c.lastMessage.time) : "")),
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 } }, c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "Say hello 👋"),
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 } }, c.lastMessage ? senderPrefix(c) + stripRich(c.lastMessage.text) : "Say hello 👋"),
                         c.unread > 0 && (React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter", padding: "0 5px" } }, c.unread)))))))),
         React.createElement("button", { onClick: onNewChat, style: {
                 position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27,
@@ -2555,6 +2625,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
 }
 function PostProductModal({ token, onClose, onPosted }) {
     const [f, setF] = useState({ title: "", price: "", description: "" });
+    const [tags, setTags] = useState([]);
     const [photo, setPhoto] = useState(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -2578,7 +2649,7 @@ function PostProductModal({ token, onClose, onPosted }) {
         setBusy(true);
         setError("");
         try {
-            await api("/api/v1/market", { method: "POST", token, body: { ...f, photo } });
+            await api("/api/v1/market", { method: "POST", token, body: { ...f, photo, tags: liveTags(f.description, tags).map((t) => ({ type: t.type, id: t.id })) } });
             onPosted();
         }
         catch (e) {
@@ -2602,7 +2673,7 @@ function PostProductModal({ token, onClose, onPosted }) {
                 React.createElement("div", { style: inputBox },
                     React.createElement("input", { value: f.price, maxLength: 30, onChange: set("price"), placeholder: "Price (e.g. \u20A65,000)", style: inputEl })),
                 React.createElement("div", { style: inputBox },
-                    React.createElement("textarea", { value: f.description, maxLength: 1000, rows: 4, onChange: set("description"), placeholder: "Describe it: condition, size, location\u2026", style: { ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14, resize: "none" } }))),
+                    React.createElement(MentionField, { token: token, multiline: true, value: f.description, onChange: (t) => setF({ ...f, description: t }), tags: tags, setTags: setTags, maxLength: 1000, rows: 4, placeholder: "Describe it: condition, size, location\u2026 Type @ to tag a contact or group", className: "lc-plain", style: { ...inputEl, width: "100%", boxSizing: "border-box", fontFamily: "Inter", fontWeight: 400, fontSize: 14, resize: "none" } }))),
             React.createElement("button", { onClick: post, disabled: busy || !f.title.trim() || !f.price.trim(), style: primaryBtn(busy) }, busy ? "Posting…" : "Post"))));
 }
 // ---- market: seller ratings + product comments with emoji ----
@@ -2714,6 +2785,7 @@ function MarketScreen({ token, myId, onMessageSeller }) {
                             React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, l.title),
                             React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#35D0BA", whiteSpace: "nowrap" } }, l.sold ? "SOLD" : l.price)),
                         l.description && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" } }, l.description),
+                        l.tags && l.tags.length > 0 && React.createElement("div", { style: { margin: "-4px 0 10px" } }, React.createElement(TagPills, { tags: l.tags })),
                         React.createElement("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, margin: l.description ? "0 0 10px" : "8px 0 10px" } },
                             React.createElement("button", { onClick: () => setCommentsFor(l), style: smallBtn }, "\u{1F4AC} Comments" + (l.commentCount ? " (" + l.commentCount + ")" : "")),
                             l.seller && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: l.seller.rating && l.seller.rating.count ? "#F2B84B" : "#5B6673" } }, ratingText(l.seller.rating)),
@@ -3178,89 +3250,331 @@ function ago(ts) {
     const m = Math.round((Date.now() - ts) / 60000);
     return m < 1 ? "Just now" : m < 60 ? m + " min ago" : Math.floor(m / 60) + " h ago";
 }
+// ---- @tagging: type @ to tag a contact or a group (used by status captions and market posts) ----
+let TAG_CACHE = null;
+function useTagTargets(token) {
+    const [list, setList] = useState(TAG_CACHE || []);
+    useEffect(() => {
+        let off = false;
+        api("/api/v1/conversations", { token }).then((d) => {
+            const out = [];
+            for (const c of (d && d.conversations) || []) {
+                if (c.isGroup) out.push({ type: "group", id: c.id, name: c.name, color: "#8B5CF6", initials: String(c.name || "G").slice(0, 1).toUpperCase(), avatar: c.avatar });
+                else if (c.other && c.other.id) out.push({ type: "user", id: c.other.id, name: c.other.name, color: c.other.color, initials: c.other.initials, avatar: c.other.avatar });
+            }
+            TAG_CACHE = out;
+            if (!off) setList(out);
+        }).catch(() => { });
+        return () => { off = true; };
+    }, [token]);
+    return list;
+}
+function TagPills({ tags, light }) {
+    if (!tags || !tags.length) return null;
+    return ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, justifyContent: light ? "center" : "flex-start" } },
+        tags.map((t) => ce("span", { key: t.type + t.id, style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#35D0BA", background: "rgba(53,208,186,.14)", border: "1px solid rgba(53,208,186,.4)", borderRadius: 999, padding: "3px 10px" } }, (t.type === "group" ? "\u{1F465} " : "") + "@" + t.name)));
+}
+function MentionField({ token, value, onChange, tags, setTags, placeholder, multiline, maxLength, rows, style, fieldRef, onEnter, className }) {
+    const targets = useTagTargets(token);
+    const own = useRef(null), el = fieldRef || own;
+    const [open, setOpen] = useState(false);
+    const m = open ? /(^|\s)@([^\s@]{0,24})$/.exec(value || "") : null;
+    const q = m ? m[2].toLowerCase() : null;
+    const matches = q == null ? [] : targets.filter((t) => t.name && t.name.toLowerCase().includes(q)).slice(0, 6);
+    const pick = (t) => {
+        onChange(String(value).replace(/@[^\s@]*$/, "@" + t.name + " "));
+        setTags((p) => (p.some((x) => x.type === t.type && x.id === t.id) ? p : [...p, { type: t.type, id: t.id, name: t.name }]));
+        setTimeout(() => el.current && el.current.focus(), 0);
+    };
+    const common = {
+        ref: el, value, placeholder, className, style,
+        onChange: (e) => { onChange(maxLength ? e.target.value.slice(0, maxLength) : e.target.value); setOpen(true); },
+        onFocus: () => setOpen(true), onBlur: () => setTimeout(() => setOpen(false), 150),
+    };
+    return ce("div", { style: { position: "relative", flex: 1, minWidth: 0 } },
+        matches.length > 0 && ce("div", { onMouseDown: (e) => e.preventDefault(), role: "listbox", "aria-label": "Tag a contact or group", style: { position: "absolute", left: 0, right: 0, bottom: "calc(100% + 10px)", zIndex: 6, minWidth: 230, background: "#0F141C", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,.55), 0 0 14px rgba(53,208,186,.2)", animation: "lcFadeUp .18s ease-out" } },
+            matches.map((t) => ce("div", { key: t.type + t.id, onClick: () => pick(t), role: "option", style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+                ce(Ring, { size: 30, color: t.color || "#5B6673", initials: t.initials || "?", photo: t.avatar }),
+                ce("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.name),
+                ce("span", { style: { fontFamily: "Inter", fontSize: 11, color: t.type === "group" ? "#A78BFA" : "#35D0BA" } }, t.type === "group" ? "Group" : "Contact")))),
+        multiline ? ce("textarea", { ...common, rows: rows || 3 }) : ce("input", { ...common, onKeyDown: onEnter ? (e) => { if (e.key === "Enter") onEnter(); } : undefined }));
+}
+const liveTags = (text, tags) => (tags || []).filter((t) => String(text || "").toLowerCase().includes("@" + String(t.name).toLowerCase()));
+
+// ---- status editor helpers: photo loading, flattening stickers/text/drawing into the picture, trimmed music ----
+const loadImg = (url) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("Could not read that image")); i.src = url; });
+const STATUS_TEXT_COLORS = ["#FFFFFF", "#FFD60A", "#FF6B5D", "#35D0BA", "#A78BFA", "#4FA8E0", "#000000"];
+const STICKERS = ["\u{1F600}", "\u{1F602}", "\u{1F979}", "\u{1F60D}", "\u{1F973}", "\u{1F60E}", "\u{1F929}", "\u{1F62D}", "\u{1F621}", "\u{1F914}", "\u{1F64F}", "\u{1F44D}", "\u{1F44F}", "\u{1F525}", "❤️", "\u{1F4AF}", "\u{1F389}", "\u{1F382}", "\u{1F381}", "✨", "⭐", "\u{1F339}", "\u{1F334}", "☀️", "\u{1F319}", "\u{1F355}", "\u{1F354}", "\u{1F357}", "\u{1F37A}", "⚽", "\u{1F3C0}", "\u{1F3B5}", "\u{1F3B6}", "\u{1F483}", "\u{1F57A}", "\u{1F697}", "✈️", "\u{1F3E0}", "\u{1F4F8}", "\u{1F4B0}", "\u{1F451}", "\u{1F4AA}", "\u{1F64C}", "\u{1F91D}"];
+const clock = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+async function bakeStatus(photo, nat, bg, items, strokes) {
+    const W = photo ? nat.w : 720, H = photo ? nat.h : 1280;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    if (photo) g.drawImage(await loadImg(photo), 0, 0, W, H); else { g.fillStyle = bg; g.fillRect(0, 0, W, H); }
+    g.lineCap = "round"; g.lineJoin = "round";
+    for (const s of strokes) {
+        if (!s.p.length) continue;
+        g.strokeStyle = s.c; g.lineWidth = s.w * W; g.beginPath();
+        s.p.forEach((pt, i) => (i ? g.lineTo(pt[0] * W, pt[1] * H) : g.moveTo(pt[0] * W, pt[1] * H)));
+        if (s.p.length === 1) g.lineTo(s.p[0][0] * W + 0.1, s.p[0][1] * H);
+        g.stroke();
+    }
+    for (const it of items) {
+        const fs = it.s * W;
+        g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = it.c || "#fff";
+        if (it.kind === "text") {
+            g.font = "700 " + fs + "px Sora, Inter, sans-serif";
+            g.shadowColor = "rgba(0,0,0,.6)"; g.shadowBlur = fs * 0.2; g.shadowOffsetY = fs * 0.06;
+            const lines = it.v.split("\n");
+            lines.forEach((ln, i) => g.fillText(ln, it.x * W, it.y * H + (i - (lines.length - 1) / 2) * fs * 1.2));
+            g.shadowColor = "transparent";
+        } else { g.font = fs + "px 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif"; g.fillText(it.v, it.x * W, it.y * H); }
+    }
+    let q = 0.85, out;
+    do { out = c.toDataURL("image/jpeg", q); q -= 0.1; } while (out.length > 1400000 && q > 0.3);
+    return out;
+}
+function decodeAudioFile(file) {
+    return file.arrayBuffer().then((ab) => new Promise((res, rej) => {
+        const AC = window.AudioContext || window.webkitAudioContext; const ctx = new AC();
+        ctx.decodeAudioData(ab, (b) => { try { ctx.close(); } catch (e) { } res(b); }, (e) => rej(e || new Error("decode")));
+    }));
+}
+async function encodeClip(buf, start, len) { // trimmed clip -> small mono WAV data URL (22 kHz, 16-bit)
+    const rate = 22050, frames = Math.max(1, Math.floor(len * rate));
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const off = new OAC(1, frames, rate);
+    const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(0, start, len);
+    const out = await new Promise((res, rej) => { off.oncomplete = (e) => res(e.renderedBuffer); const p = off.startRendering(); if (p && p.then) p.then(res, rej); });
+    const d = out.getChannelData(0), n = d.length, fade = Math.min(n, Math.floor(rate * 0.4));
+    const ab = new ArrayBuffer(44 + n * 2), v = new DataView(ab);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) { let s = d[i]; if (i > n - fade) s *= (n - i) / fade; s = Math.max(-1, Math.min(1, s)); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+    const u = new Uint8Array(ab); let bin = "";
+    for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return "data:audio/wav;base64," + btoa(bin);
+}
+
+// ---- status editor (full screen): top icons = close, music, rotate, sticker, text, draw; caption bar with @; audience + send ----
 function StatusComposer({ token, onClose, onPosted }) {
-    const [text, setText] = useState("");
-    const [bg, setBg] = useState(STATUS_COLORS[0]);
     const [photo, setPhoto] = useState(null);
+    const [nat, setNat] = useState({ w: 720, h: 1280 });
+    const [bg, setBg] = useState(STATUS_COLORS[0]);
+    const [items, setItems] = useState([]);
+    const [strokes, setStrokes] = useState([]);
+    const [sel, setSel] = useState(null);
+    const [panel, setPanel] = useState(null); // "text" | "sticker" | "music"
+    const [draw, setDraw] = useState(false);
+    const [pen, setPen] = useState("#FFFFFF");
+    const [txt, setTxt] = useState({ id: null, v: "", c: "#FFFFFF" });
+    const [caption, setCaption] = useState("");
+    const [tags, setTags] = useState([]);
+    const [music, setMusic] = useState(null); // { name, buf, dur, start, len }
+    const [playing, setPlaying] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
-    const fileRef = useRef(null);
+    const [box, setBox] = useState({ w: 0, h: 0 });
+    const areaRef = useRef(null), fileRef = useRef(null), audioRef = useRef(null), capRef = useRef(null), dragRef = useRef(null), penRef = useRef(null), playRef = useRef(null);
+    useEffect(() => {
+        const el = areaRef.current; if (!el) return;
+        const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+        measure();
+        let ro; if (window.ResizeObserver) { ro = new ResizeObserver(measure); ro.observe(el); }
+        window.addEventListener("resize", measure);
+        return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", measure); };
+    }, []);
+    const stopPlay = () => { const p = playRef.current; playRef.current = null; if (p) { try { p.src.onended = null; p.src.stop(); } catch (e) { } try { p.ctx.close(); } catch (e) { } } setPlaying(false); };
+    useEffect(() => () => stopPlay(), []);
+    const startPlay = (m) => {
+        const mm = m || music; if (!mm) return; stopPlay();
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext; const ctx = new AC(); const src = ctx.createBufferSource();
+            src.buffer = mm.buf; src.connect(ctx.destination); src.onended = () => stopPlay(); src.start(0, mm.start, mm.len);
+            playRef.current = { ctx, src }; setPlaying(true);
+        } catch (e) { setError("Could not play that audio"); }
+    };
+    const aspect = nat.w / nat.h, pad = 8;
+    const availW = Math.max(0, box.w - pad * 2), availH = Math.max(0, box.h - pad * 2);
+    let sw = availW, sh = sw / aspect; if (sh > availH) { sh = availH; sw = sh * aspect; }
+    sw = Math.floor(sw); sh = Math.floor(sh);
+    const hasArt = !!photo || items.length > 0 || strokes.length > 0;
+    const canPost = !busy && (hasArt || caption.trim().length > 0);
     const pick = async (e) => {
-        const f = e.target.files && e.target.files[0];
-        e.target.value = "";
-        if (!f)
-            return;
-        if (!/^image\//.test(f.type))
-            return setError("Please choose a photo");
-        try {
-            setPhoto(await compressImage(f, 1080));
-            setError("");
-        }
-        catch (err) {
-            setError(err.message);
-        }
+        const f = e.target.files && e.target.files[0]; e.target.value = "";
+        if (!f) return;
+        if (!/^image\//.test(f.type)) return setError("Please choose a photo (videos are not supported yet)");
+        try { const url = await compressImage(f, 1080); const img = await loadImg(url); setPhoto(url); setNat({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height }); setError(""); }
+        catch (err) { setError(err.message || "Could not open that photo"); }
     };
+    const rotate = async () => {
+        if (!photo) return setBg(STATUS_COLORS[(STATUS_COLORS.indexOf(bg) + 1) % STATUS_COLORS.length]);
+        try {
+            const img = await loadImg(photo); const c = document.createElement("canvas"); c.width = img.height; c.height = img.width;
+            const g = c.getContext("2d"); g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(img, 0, 0);
+            const k = nat.w / nat.h;
+            setItems((a) => a.map((it) => ({ ...it, x: 1 - it.y, y: it.x, s: Math.min(1, it.s * k) })));
+            setStrokes((a) => a.map((s) => ({ ...s, w: s.w * k, p: s.p.map((pt) => [1 - pt[1], pt[0]]) })));
+            setPhoto(c.toDataURL("image/jpeg", 0.9)); setNat({ w: c.width, h: c.height });
+        } catch (e) { }
+    };
+    const upd = (id, patch) => setItems((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const addItem = (it) => { const id = Math.random().toString(36).slice(2); setItems((a) => [...a, { id, x: 0.5, y: 0.5, ...it }]); setSel(id); };
+    const selItem = items.find((x) => x.id === sel);
+    const down = (e, it) => {
+        e.stopPropagation(); setSel(it.id);
+        const r = e.currentTarget.parentNode.getBoundingClientRect();
+        dragRef.current = { id: it.id, r, dx: (e.clientX - r.left) / r.width - it.x, dy: (e.clientY - r.top) / r.height - it.y };
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { }
+    };
+    const move = (e) => { const d = dragRef.current; if (!d) return; upd(d.id, { x: Math.min(1, Math.max(0, (e.clientX - d.r.left) / d.r.width - d.dx)), y: Math.min(1, Math.max(0, (e.clientY - d.r.top) / d.r.height - d.dy)) }); };
+    const up = () => { dragRef.current = null; };
+    const pt = (e, r) => [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+    const dDown = (e) => { const r = e.currentTarget.getBoundingClientRect(); penRef.current = r; const p = pt(e, r); setStrokes((a) => [...a, { c: pen, w: 0.012, p: [p] }]); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { } };
+    const dMove = (e) => { const r = penRef.current; if (!r) return; const p = pt(e, r); setStrokes((a) => { const b = a.slice(); const l = b[b.length - 1]; if (l) b[b.length - 1] = { ...l, p: [...l.p, p] }; return b; }); };
+    const dUp = () => { penRef.current = null; };
+    const openText = (it) => { setTxt(it ? { id: it.id, v: it.v, c: it.c } : { id: null, v: "", c: "#FFFFFF" }); setSel(null); setPanel("text"); };
+    const saveText = () => {
+        const v = txt.v.replace(/\s+$/, "").replace(/^\s+/, "");
+        if (v) { if (txt.id) upd(txt.id, { v, c: txt.c }); else addItem({ kind: "text", v, c: txt.c, s: v.length > 14 ? 0.055 : 0.075 }); }
+        setPanel(null);
+    };
+    const resize = (k) => selItem && upd(selItem.id, { s: Math.min(1, Math.max(0.03, selItem.s * k)) });
+    const insertAt = () => { setCaption((c) => (c && !/\s$/.test(c) ? c + " " : c) + "@"); setTimeout(() => capRef.current && capRef.current.focus(), 0); };
+    const pickAudio = async (e) => {
+        const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+        if (f.size > 40 * 1024 * 1024) return setError("That audio file is too big (max 40 MB)");
+        try {
+            const buf = await decodeAudioFile(f);
+            const m = { name: f.name.replace(/\.[^.]+$/, "").slice(0, 40) || "Music", buf, dur: buf.duration, start: 0, len: Math.max(1, Math.min(15, Math.floor(buf.duration))) };
+            setMusic(m); setError(""); startPlay(m);
+        } catch (err) { setError("Could not read that audio file. Try an MP3, M4A or WAV."); }
+    };
+    const setClip = (patch) => { stopPlay(); setMusic((m) => { const n = { ...m, ...patch }; n.start = Math.max(0, Math.min(n.start, Math.max(0, n.dur - n.len))); return n; }); };
+    const close = () => { if ((hasArt || caption.trim() || music) && !window.confirm("Discard this status?")) return; stopPlay(); onClose(); };
     const post = async () => {
-        if (busy || (!text.trim() && !photo))
-            return;
-        setBusy(true);
-        setError("");
+        if (!canPost) return;
+        setBusy(true); setError(""); stopPlay();
         try {
-            await api("/api/v1/status", { method: "POST", token, body: { text: text.trim(), bg, photo } });
+            const body = { text: caption.trim(), bg, tags: liveTags(caption, tags).map((t) => ({ type: t.type, id: t.id })) };
+            if (hasArt) body.photo = await bakeStatus(photo, nat, bg, items, strokes);
+            if (music) { const data = await encodeClip(music.buf, music.start, music.len); body.music = { data, name: music.name, dur: music.len }; }
+            await api("/api/v1/status", { method: "POST", token, body });
             onPosted();
-        }
-        catch (e) {
-            setError(e.message);
-            setBusy(false);
-        }
+        } catch (e) { setError((e && e.message) || "Could not post your status"); setBusy(false); }
     };
-    return ce(SheetFrame, { title: "New status", onClose }, ce("div", { style: { padding: "0 16px 22px", overflowY: "auto" } }, error && ce(Banner, { text: error }), ce("div", { style: { position: "relative", borderRadius: 16, overflow: "hidden", background: bg, minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 } }, photo && ce("img", { src: photo, alt: "", style: { width: "100%", maxHeight: 320, objectFit: "contain", display: "block", background: "#000" } }), photo && ce("button", { onClick: () => setPhoto(null), "aria-label": "Remove photo", style: { position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: 15, border: "none", background: "rgba(0,0,0,.6)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(X, { size: 16, color: "#fff" })), !photo && ce("textarea", { value: text, onChange: (e) => setText(e.target.value.slice(0, 300)), placeholder: "Type a status", rows: 4, style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 20, padding: 20, boxSizing: "border-box" } })), photo && ce("input", { value: text, onChange: (e) => setText(e.target.value.slice(0, 300)), placeholder: "Add a caption (optional)", style: { width: "100%", boxSizing: "border-box", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: "11px 13px", marginBottom: 12 } }), ce("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 16 } }, !photo && STATUS_COLORS.map((c) => ce("button", { key: c, onClick: () => setBg(c), "aria-label": "Background colour", style: { width: 28, height: 28, borderRadius: 14, background: c, border: bg === c ? "3px solid #F5F7FA" : "3px solid transparent", cursor: "pointer", padding: 0 } })), ce("div", { style: { flex: 1 } }), ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }), ce("button", { onClick: () => fileRef.current && fileRef.current.click(), style: { ...smallBtn, display: "flex", alignItems: "center", gap: 6 } }, ce(Camera, { size: 15, color: "#35D0BA" }), photo ? "Change photo" : "Add photo")), ce("button", { onClick: post, disabled: busy || (!text.trim() && !photo), style: { ...primaryBtn(busy || (!text.trim() && !photo)) } }, busy ? "Posting…" : "Post status"), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginTop: 10 } }, "Disappears after 24 hours. People you chat with can see it.")));
+    const round = (on) => ({ width: 44, height: 44, borderRadius: 22, border: "none", background: on ? "#35D0BA" : "rgba(38,42,48,.92)", color: on ? "#0E1116" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, flexShrink: 0 });
+    const tool = (label, on, onClick, child) => ce("button", { key: label, onClick, "aria-label": label, style: round(on) }, child);
+    const top = ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "12px 12px 8px", flexShrink: 0 } },
+        tool("Close", false, close, ce(X, { size: 24, color: "#fff" })),
+        ce("div", { style: { flex: 1 } }),
+        tool("Add music", !!music, () => { setDraw(false); setPanel("music"); }, ce(MusicIcon, { size: 22, color: music ? "#0E1116" : "#fff" })),
+        tool(photo ? "Rotate photo" : "Change background colour", false, rotate, ce(RotateIcon, { size: 22, color: "#fff" })),
+        tool("Add sticker", false, () => { setDraw(false); setPanel("sticker"); }, ce(StickerIcon, { size: 22, color: "#fff" })),
+        tool("Add text", false, () => { setDraw(false); openText(null); }, ce("span", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 18 } }, "Aa")),
+        tool("Draw", draw, () => { setSel(null); setDraw((d) => !d); }, ce(Pencil, { size: 22, color: draw ? "#0E1116" : "#fff" })));
+    const stage = ce("div", { onPointerDown: () => setSel(null), style: { position: "relative", width: sw, height: sh, background: photo ? "#000" : bg, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(255,255,255,.08)", touchAction: "none", animation: "lcFade .3s ease-out" } },
+        photo && ce("img", { src: photo, alt: "", draggable: false, style: { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "fill", userSelect: "none", pointerEvents: "none" } }),
+        !photo && !items.length && !strokes.length && ce("div", { style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "rgba(255,255,255,.75)", pointerEvents: "none" } }, "Tap Aa to write, or add a photo"),
+        ce("svg", { width: sw, height: sh, viewBox: "0 0 " + sw + " " + sh, onPointerDown: draw ? dDown : undefined, onPointerMove: draw ? dMove : undefined, onPointerUp: draw ? dUp : undefined, onPointerCancel: draw ? dUp : undefined, style: { position: "absolute", left: 0, top: 0, touchAction: "none", pointerEvents: draw ? "auto" : "none", cursor: draw ? "crosshair" : "default" } },
+            strokes.map((s, i) => ce("polyline", { key: i, fill: "none", stroke: s.c, strokeWidth: s.w * sw, strokeLinecap: "round", strokeLinejoin: "round", points: s.p.map((q) => (q[0] * sw).toFixed(1) + "," + (q[1] * sh).toFixed(1)).join(" ") }))),
+        items.map((it) => ce("div", { key: it.id, onPointerDown: (e) => down(e, it), onPointerMove: move, onPointerUp: up, onPointerCancel: up, style: { position: "absolute", left: it.x * sw, top: it.y * sh, transform: "translate(-50%,-50%)", fontSize: it.s * sw, lineHeight: it.kind === "text" ? 1.2 : 1, color: it.c, fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, textAlign: "center", whiteSpace: "pre", cursor: "grab", touchAction: "none", userSelect: "none", pointerEvents: draw ? "none" : "auto", textShadow: it.kind === "text" ? "0 2px 8px rgba(0,0,0,.6)" : "none", outline: sel === it.id ? "2px dashed rgba(255,255,255,.85)" : "none", outlineOffset: 6, borderRadius: 4, animation: "lcPop .25s ease-out" } }, it.v)));
+    const selBar = selItem && !draw && ce("div", { style: { position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 3 } },
+        [["Smaller", "A−", () => resize(0.87)], ["Bigger", "A+", () => resize(1.15)], selItem.kind === "text" ? ["Edit text", "✎", () => openText(selItem)] : null, ["Delete", "\u{1F5D1}", () => { setItems((a) => a.filter((x) => x.id !== selItem.id)); setSel(null); }]].filter(Boolean).map(([l, g, f]) => ce("button", { key: l, onClick: f, "aria-label": l, style: { ...round(false), width: 38, height: 38, fontFamily: "Inter", fontWeight: 700, fontSize: 14, background: "rgba(0,0,0,.72)" } }, g)));
+    const musicChip = music && ce("button", { onClick: () => setPanel("music"), style: { position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", maxWidth: "88%", display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,.72)", border: "1px solid rgba(53,208,186,.5)", borderRadius: 999, padding: "6px 12px", color: "#fff", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", zIndex: 3 } }, ce(MusicIcon, { size: 15, color: "#35D0BA" }), ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, music.name + " · " + clock(music.start) + "–" + clock(music.start + music.len)));
+    const dot = (c, on, f) => ce("button", { key: c, onClick: f, "aria-label": "Colour " + c, style: { width: 28, height: 28, borderRadius: 14, background: c, border: on ? "3px solid #fff" : "3px solid rgba(255,255,255,.25)", cursor: "pointer", padding: 0, flexShrink: 0 } });
+    const bottom = draw
+        ? ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 18px", flexShrink: 0 } },
+            STATUS_TEXT_COLORS.map((c) => dot(c, pen === c, () => setPen(c))), ce("div", { style: { flex: 1 } }),
+            ce("button", { onClick: () => setStrokes((a) => a.slice(0, -1)), disabled: !strokes.length, style: { ...smallBtn, opacity: strokes.length ? 1 : 0.4 } }, "Undo"),
+            ce("button", { onClick: () => setDraw(false), style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done"))
+        : ce("div", { style: { flexShrink: 0 } },
+            !photo && ce("div", { style: { display: "flex", gap: 10, justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))),
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "0 12px", padding: "4px 12px", background: "#12161C", border: "1px solid #1F2733", borderRadius: 999 } },
+                ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
+                ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })),
+                ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }),
+                ce("button", { onClick: insertAt, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))),
+            ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } },
+                ce("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "#12161C", border: "1px solid #1F2733", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"),
+                ce("div", { style: { flex: 1 } }),
+                ce("button", { onClick: post, disabled: !canPost, "aria-label": "Post status", style: { width: 56, height: 56, borderRadius: 28, border: "none", background: "#21C063", cursor: canPost ? "pointer" : "default", opacity: canPost ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: canPost ? "0 0 18px rgba(33,192,99,.55)" : "none" } }, busy ? ce("span", { style: { color: "#06210F", fontFamily: "Inter", fontWeight: 700, fontSize: 12 } }, "…") : ce(Send, { size: 26, color: "#06210F" }))));
+    const sheetBox = { position: "absolute", left: 0, right: 0, bottom: 0, background: "#0F141C", borderRadius: "22px 22px 0 0", borderTop: "1px solid rgba(53,208,186,.5)", padding: "14px 16px 22px", maxHeight: "70%", overflowY: "auto", animation: "hubUp .22s ease-out", zIndex: 10 };
+    const musicPanel = panel === "music" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => { stopPlay(); setPanel(null); } },
+        ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
+            ce("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, "Add music"), ce("button", { onClick: () => { stopPlay(); setPanel(null); }, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
+            ce("input", { ref: audioRef, type: "file", accept: "audio/*", onChange: pickAudio, style: { display: "none" } }),
+            !music && ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 12 } }, "Pick a song or sound from your phone, then choose the part you want (up to 15 seconds)."),
+            ce("button", { onClick: () => audioRef.current && audioRef.current.click(), style: { ...smallBtn, width: "100%", padding: "11px 12px", marginBottom: 14 } }, music ? "Choose a different file" : "Choose audio from your device"),
+            music && ce("div", null,
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, "♪ " + music.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 12px" } }, "Full length " + clock(music.dur) + " · playing " + clock(music.start) + " to " + clock(music.start + music.len)),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 4 } }, "Start at"),
+                ce("input", { type: "range", min: 0, max: Math.max(0, Math.floor((music.dur - music.len) * 2) / 2), step: 0.5, value: music.start, disabled: music.dur - music.len < 0.5, onChange: (e) => setClip({ start: Number(e.target.value) }), style: { width: "100%", accentColor: "#35D0BA", marginBottom: 12 } }),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 6 } }, "Length"),
+                ce("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [5, 10, 15].filter((n) => n <= Math.floor(music.dur) || n === 5).map((n) => ce("button", { key: n, onClick: () => setClip({ len: Math.min(n, Math.floor(music.dur) || n) }), style: { ...smallBtn, flex: 1, background: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#35D0BA" : "#1E2530", color: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#0E1116" : "#35D0BA" } }, n + " sec"))),
+                ce("div", { style: { display: "flex", gap: 10 } },
+                    ce("button", { onClick: () => (playing ? stopPlay() : startPlay()), style: { ...smallBtn, flex: 1, padding: "10px 12px" } }, playing ? "⏹ Stop preview" : "▶ Preview"),
+                    ce("button", { onClick: () => { stopPlay(); setMusic(null); }, style: { ...smallBtn, flex: 1, padding: "10px 12px", color: "#FF6B5D" } }, "Remove music")))));
+    const stickerPanel = panel === "sticker" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => setPanel(null) },
+        ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Stickers"),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "rgba(255,255,255,.05)", border: "none", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s)))));
+    const textPanel = panel === "text" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } },
+        ce("div", { style: { display: "flex", alignItems: "center", padding: "12px" } }, ce("button", { onClick: () => setPanel(null), style: { ...smallBtn, color: "#9BA7B4" } }, "Cancel"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: saveText, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
+        ce("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" } },
+            ce("textarea", { autoFocus: true, value: txt.v, rows: 3, maxLength: 80, onChange: (e) => setTxt({ ...txt, v: e.target.value.split("\n").slice(0, 3).join("\n") }), placeholder: "Type something…", className: "lc-plain", style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: txt.c, fontFamily: "Sora", fontWeight: 700, fontSize: 30, textShadow: "0 2px 8px rgba(0,0,0,.6)" } })),
+        ce("div", { style: { display: "flex", justifyContent: "center", gap: 12, padding: "10px 12px 24px" } }, STATUS_TEXT_COLORS.map((c) => dot(c, txt.c === c, () => setTxt({ ...txt, c })))));
+    return ce("div", { role: "dialog", "aria-label": "New status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 65, background: "#000", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        top,
+        error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })),
+        ce("div", { ref: areaRef, style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, stage, selBar, musicChip),
+        bottom, musicPanel, stickerPanel, textPanel);
 }
 function StatusViewer({ groups, start, token, onClose, onChanged }) {
     const [g, setG] = useState(start);
     const [i, setI] = useState(0);
     const group = groups[g], item = group && group.items[i];
-    const next = () => { if (i + 1 < group.items.length)
-        setI(i + 1);
-    else if (g + 1 < groups.length) {
-        setG(g + 1);
-        setI(0);
-    }
-    else
-        onClose(); };
-    const prev = () => { if (i > 0)
-        setI(i - 1);
-    else if (g > 0) {
-        setG(g - 1);
-        setI(groups[g - 1].items.length - 1);
-    } };
+    const next = () => { if (i + 1 < group.items.length) setI(i + 1); else if (g + 1 < groups.length) { setG(g + 1); setI(0); } else onClose(); };
+    const prev = () => { if (i > 0) setI(i - 1); else if (g > 0) { setG(g - 1); setI(groups[g - 1].items.length - 1); } };
     useEffect(() => {
-        if (!item)
-            return;
-        if (!group.mine && !item.seen) {
-            api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { });
-        }
-        const t = setTimeout(next, 5500);
+        if (!item) return;
+        if (!group.mine && !item.seen) { api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { }); }
+        const t = setTimeout(next, Math.max(5500, (item.musicDur || 0) * 1000));
         return () => clearTimeout(t);
     }, [g, i]);
-    if (!item)
-        return null;
+    useEffect(() => { // play the trimmed music while this update is on screen
+        if (!item || !item.music) return;
+        let audio = null, url = null, dead = false;
+        fetch(photoSrc(item.music)).then((r) => r.blob()).then((b) => {
+            if (dead) return;
+            url = URL.createObjectURL(b); audio = new Audio(url); audio.loop = true;
+            const p = audio.play(); if (p && p.catch) p.catch(() => { });
+        }).catch(() => { });
+        return () => { dead = true; if (audio) audio.pause(); if (url) URL.revokeObjectURL(url); };
+    }, [g, i]);
+    if (!item) return null;
     const remove = async () => {
-        if (!window.confirm("Delete this status update?"))
-            return;
-        try {
-            await api("/api/v1/status/" + item.id, { method: "DELETE", token });
-            onChanged();
-            if (group.items.length === 1)
-                onClose();
-            else {
-                group.items.splice(i, 1);
-                setI(Math.max(0, i - 1));
-            }
-        }
+        if (!window.confirm("Delete this status update?")) return;
+        try { await api("/api/v1/status/" + item.id, { method: "DELETE", token }); onChanged(); if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } }
         catch { }
     };
-    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: k <= i ? "#fff" : "rgba(255,255,255,.35)" } }))), ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 2 } }, ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)" } }, ago(item.time))), ce("button", { onClick: onClose, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 26, color: "#fff" }))), ce("div", { style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, item.photo && ce("img", { src: photoSrc(item.photo), alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }), !item.photo && ce("div", { style: { padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, item.text), ce("div", { onClick: prev, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }), ce("div", { onClick: next, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })), item.photo && item.text && ce("div", { style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)" } }, item.text), group.mine && ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } }, ce("span", { style: { flex: 1 } }, "Seen by " + (item.views || 0)), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")));
+    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: k <= i ? "#fff" : "rgba(255,255,255,.35)" } }))),
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 2 } },
+            ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
+            ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))),
+            ce("button", { onClick: onClose, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 26, color: "#fff" }))),
+        ce("div", { style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } },
+            item.photo && ce("img", { src: photoSrc(item.photo), alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }),
+            !item.photo && ce("div", { style: { padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(item.text)),
+            ce("div", { onClick: prev, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }),
+            ce("div", { onClick: next, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })),
+        ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)" } }, item.photo && item.text ? richText(item.text) : null, ce(TagPills, { tags: item.tags, light: true })),
+        group.mine && ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+            ce("span", { style: { flex: 1 } }, "Seen by " + (item.views || 0)),
+            ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")));
 }
 function StatusScreen({ profile, token }) {
     const [data, setData] = useState({ mine: [], feed: [] });
@@ -3342,7 +3656,7 @@ function FavouritesScreen({ conversations, settings, presence, onBack, onOpenCha
                     React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                         c.other.name,
                         c.other.verified && React.createElement(VerifiedBadge, null)),
-                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.lastMessage ? senderPrefix(c) + c.lastMessage.text : "No messages yet")),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.lastMessage ? senderPrefix(c) + stripRich(c.lastMessage.text) : "No messages yet")),
                 c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread),
                 React.createElement("button", { "aria-label": "Remove from favourites", onClick: (e) => { e.stopPropagation(); onToggleFavorite(c.id); }, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } },
                     React.createElement(Star, { size: 20, color: "#F2B84B", style: { fill: "#F2B84B" } }))))))));
@@ -3798,7 +4112,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                                         React.createElement("span", { style: { display: "block", fontWeight: 600, fontSize: 13.5, wordBreak: "break-all" } }, m.file.name),
                                         React.createElement("span", { style: { display: "block", fontSize: 11.5, color: "#B9C2CC" } },
                                             fmtSize(m.file.size),
-                                            " \u00B7 tap to download")))) : React.createElement("div", null, m.text),
+                                            " \u00B7 tap to download")))) : React.createElement("div", null, richText(m.text)),
                     React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
                         m.edited && !m.deleted && React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" } }, "edited"),
                         React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, timeLabel(m.time)),
@@ -4467,6 +4781,7 @@ function App() {
         socket.on("message:updated", () => refreshConversations()); // edited / deleted message: refresh the chat list preview
         socket.on("conversation:added", () => refreshConversations());
         socket.on("conversation:update", () => refreshConversations());
+    socket.on("tagged", (d) => { if (d) flash((d.by || "Someone") + " tagged " + (d.group ? "the group " + d.group : "you") + " in a " + (d.kind === "market" ? "market post" : "status")); });
         socket.on("user:update", (u) => {
             // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
             setConversations(prev => prev.map(c => c.isGroup
