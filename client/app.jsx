@@ -3726,6 +3726,29 @@ function alertIncoming(m, convo, viewingThis) {
         } catch { }
     }
 }
+function PushRow() {
+    const P = window.LetschatPush;
+    const [st, setSt] = useState("checking");
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    useEffect(() => { let live = true; if (!P) { setSt("unsupported"); return; } P.status().then((s) => { if (live) setSt(s); }); return () => { live = false; }; }, []);
+    const change = async (v) => {
+        setBusy(true); setErr("");
+        try { if (v) { await P.enable(); setSt("on"); } else { await P.disable(); setSt("off"); } }
+        catch (e) { setErr(e.message || "Something went wrong"); setSt(await P.status()); }
+        setBusy(false);
+    };
+    const note = err || (st === "needs-install" ? "On iPhone: tap Share, then Add to Home Screen, open Letschat from there, and come back to turn this on."
+        : st === "unsupported" ? "Not supported in this browser."
+        : st === "denied" ? "Blocked in your browser settings. Allow notifications for this site to use this."
+        : st === "unavailable" ? "Not set up on the server yet."
+        : "Get message alerts even when the app is closed.");
+    return (React.createElement("div", { style: settingRow },
+        React.createElement("div", { style: { flex: 1 } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Push notifications"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: err ? "#FF6B5D" : "#8891A0", marginTop: 2 } }, note)),
+        React.createElement(Toggle, { on: st === "on", onChange: change, disabled: busy || st === "checking" || st === "unsupported" || st === "needs-install" || st === "denied" || st === "unavailable" })));
+}
 function NotificationsScreen({ onBack }) {
     const [prefs, setPrefs] = useState(getNotifs);
     const [perm, setPerm] = useState(() => ("Notification" in window ? Notification.permission : "unsupported"));
@@ -3750,7 +3773,7 @@ function NotificationsScreen({ onBack }) {
             row("Message sound", "Play a tone when a new message arrives.", prefs.sound, (v) => { set({ sound: v }); if (v) playPing(); }),
             row("Vibration", "Vibrate on new messages (supported phones only).", prefs.vibrate, (v) => { set({ vibrate: v }); if (v) { try { navigator.vibrate && navigator.vibrate(200); } catch { } } }),
             row("Group messages", "Get alerts for messages in groups.", prefs.groups, (v) => set({ groups: v })),
-            row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"),
+            React.createElement(PushRow, null), row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"),
             row("Show message preview", "Include the message text in background alerts.", prefs.preview, (v) => set({ preview: v })),
             React.createElement("div", { style: { padding: "18px 16px" } },
                 React.createElement("button", { onClick: playPing, style: smallBtn }, "Play test sound")))));
@@ -4869,7 +4892,7 @@ function App() {
   useEffect(() => {
     if (!session) return;
     const socket = io(SOCKET_URL, { auth: { token: session.token } });
-    socketRef.current = socket;
+    socketRef.current = socket; if (window.LetschatPush) window.LetschatPush.watch(socket);
     socket.on("connect", () => socket.emit("presence:get", applyPresence)); // who is online right now (also after reconnects)
     socket.on("presence:update", ({ userId, online, lastSeen: ts }) => {
       setPresence(prev => ({ ...prev, [userId]: online }));
