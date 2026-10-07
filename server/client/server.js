@@ -1585,6 +1585,34 @@ io.on("connection", (socket) => {
     if (m.senderId !== userId) { fail("You can only change your own messages"); return null; }
     return { db, m };
   };
+  // ---- emoji reactions: one per person per message; sending the same emoji again (or an empty one) removes it ----
+  const REACTION_RE = /^[\p{Extended_Pictographic}\p{Regional_Indicator}\u200d\ufe0f\u20e3\u{1F3FB}-\u{1F3FF}]+$/u;
+  socket.on("message:react", ({ messageId, emoji } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const db = readDB();
+    const m = db.messages.find((x) => x.id === messageId);
+    const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+    if (!m || !convo || !convo.participantIds.includes(userId)) return fail("Message not found");
+    if (m.deleted) return fail("This message was deleted");
+    if (!convo.isGroup) {
+      const otherId = convo.participantIds.find((id) => id !== userId);
+      const me = db.users.find((u) => u.id === userId), other = db.users.find((u) => u.id === otherId);
+      if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to react.");
+      if (other && (other.blocked || []).includes(userId)) return fail("This reaction couldn't be delivered.");
+    }
+    const map = { ...(m.reactions || {}) };
+    if (emoji === null || emoji === undefined || emoji === "" || map[userId] === emoji) delete map[userId];
+    else {
+      if (typeof emoji !== "string" || [...emoji].length > 10 || !REACTION_RE.test(emoji)) return fail("That emoji can't be used");
+      map[userId] = emoji;
+    }
+    if (Object.keys(map).length) m.reactions = map; else delete m.reactions;
+    writeDB(db);
+    const reactions = m.reactions || {};
+    io.to(`conv:${convo.id}`).emit("message:reaction", { conversationId: convo.id, messageId: m.id, reactions });
+    if (typeof ack === "function") ack({ reactions });
+  });
+
   socket.on("message:edit", ({ messageId, text } = {}, ack) => {
     const fail = (error) => { if (typeof ack === "function") ack({ error }); };
     const o = ownMessage(messageId, fail); if (!o) return;
