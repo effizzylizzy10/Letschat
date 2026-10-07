@@ -978,6 +978,63 @@ function joinUserToRoom(userId, room) {
 // Rules are shared word-for-word with the client (GAME_RULES in app.jsx) so both sides agree.
 const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
 const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
+// ---- chess engine (shared with the server) ----
+const CH_N = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]], CH_K = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]], CH_B = [[-1,-1],[-1,1],[1,-1],[1,1]], CH_R = [[-1,0],[1,0],[0,-1],[0,1]];
+function chKing(b, p) { return b.indexOf(6 + 8 * p); }
+function chAtt(b, sq, by) {
+  const r = sq >> 3, c = sq & 7, pr = by === 0 ? r + 1 : r - 1;
+  for (const dc of [-1, 1]) { const cc = c + dc; if (pr >= 0 && pr < 8 && cc >= 0 && cc < 8 && b[pr * 8 + cc] === 1 + 8 * by) return true; }
+  for (const [dr, dc] of CH_N) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 2 + 8 * by) return true; }
+  for (const [dr, dc] of CH_K) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 6 + 8 * by) return true; }
+  for (const [dirs, a, q] of [[CH_B, 3, 5], [CH_R, 4, 5]]) for (const [dr, dc] of dirs) {
+    let rr = r + dr, cc = c + dc;
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const v = b[rr * 8 + cc]; if (v != null) { if (v === a + 8 * by || v === q + 8 * by) return true; break; } rr += dr; cc += dc; }
+  }
+  return false;
+}
+function chPseudo(s, p) {
+  const b = s.b, out = [], fwd = p === 0 ? -1 : 1, start = p === 0 ? 6 : 1, last = p === 0 ? 0 : 7;
+  for (let i = 0; i < 64; i++) {
+    const v = b[i]; if (v == null || (v >> 3) !== p) continue; const t = v & 7, r = i >> 3, c = i & 7;
+    if (t === 1) {
+      const r1 = r + fwd; if (r1 < 0 || r1 > 7) continue;
+      const add = (to) => { if (r1 === last) for (let pt = 2; pt <= 5; pt++) out.push(i * 64 + to + 4096 * pt); else out.push(i * 64 + to); };
+      if (b[r1 * 8 + c] == null) { add(r1 * 8 + c); if (r === start && b[(r + 2 * fwd) * 8 + c] == null) out.push(i * 64 + (r + 2 * fwd) * 8 + c); }
+      for (const dc of [-1, 1]) { const cc = c + dc; if (cc < 0 || cc > 7) continue; const to = r1 * 8 + cc, o = b[to]; if ((o != null && (o >> 3) !== p) || (o == null && to === s.ep)) add(to); }
+    } else if (t === 2 || t === 6) {
+      for (const [dr, dc] of t === 2 ? CH_N : CH_K) { const rr = r + dr, cc = c + dc; if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue; const o = b[rr * 8 + cc]; if (o == null || (o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); }
+    } else {
+      for (const [dr, dc] of t === 3 ? CH_B : t === 4 ? CH_R : CH_B.concat(CH_R)) {
+        let rr = r + dr, cc = c + dc;
+        while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const o = b[rr * 8 + cc]; if (o == null) out.push(i * 64 + rr * 8 + cc); else { if ((o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); break; } rr += dr; cc += dc; }
+      }
+    }
+  }
+  const base = p === 0 ? 56 : 0, ks = base + 4;
+  if (b[ks] === 6 + 8 * p && !chAtt(b, ks, 1 - p)) {
+    if (s.c[p * 2] && b[base + 5] == null && b[base + 6] == null && b[base + 7] === 4 + 8 * p && !chAtt(b, base + 5, 1 - p) && !chAtt(b, base + 6, 1 - p)) out.push(ks * 64 + base + 6);
+    if (s.c[p * 2 + 1] && b[base + 3] == null && b[base + 2] == null && b[base + 1] == null && b[base] === 4 + 8 * p && !chAtt(b, base + 3, 1 - p) && !chAtt(b, base + 2, 1 - p)) out.push(ks * 64 + base + 2);
+  }
+  return out;
+}
+function chApply(s, m) {
+  const pt = Math.floor(m / 4096), mm = m % 4096, from = mm >> 6, to = mm & 63, b = s.b.slice(), v = b[from], p = v >> 3, t = v & 7, cap = b[to], c = s.c.slice();
+  let ep = -1, reset = t === 1 || cap != null; b[from] = null; b[to] = v;
+  if (t === 1) {
+    if (cap == null && (from & 7) !== (to & 7)) { b[to + (p === 0 ? 8 : -8)] = null; reset = true; }
+    if (Math.abs((to >> 3) - (from >> 3)) === 2) ep = (from + to) / 2;
+    if (pt) b[to] = pt + 8 * p;
+  }
+  if (t === 6) {
+    c[p * 2] = false; c[p * 2 + 1] = false;
+    if (Math.abs((to & 7) - (from & 7)) === 2) { const base = from - (from & 7); if ((to & 7) === 6) { b[base + 5] = b[base + 7]; b[base + 7] = null; } else { b[base + 3] = b[base]; b[base] = null; } }
+  }
+  for (const sq of [from, to]) { if (sq === 63) c[0] = false; if (sq === 56) c[1] = false; if (sq === 7) c[2] = false; if (sq === 0) c[3] = false; }
+  return { b, nx: 1 - p, c, ep, hm: reset ? 0 : s.hm + 1, lm: mm };
+}
+function chLegal(s, p) { return chPseudo(s, p).filter((m) => { const ns = chApply(s, m); return !chAtt(ns.b, chKing(ns.b, p), 1 - p); }); }
+// ---- end chess engine ----
+
 const GAME_RULES = {
   ttt: {
     init: () => Array(9).fill(null),
@@ -1039,6 +1096,129 @@ const GAME_RULES = {
     next: (s) => s.nx,
     draw: () => false,
   },
+  checkers: {
+    // Nigerian draughts on 8x8. Men step forward but capture forward AND backward, kings fly any distance, capturing is compulsory and you must take the route that captures the most pieces.
+    // Captured pieces stay on the board until your move ends (and can't be jumped twice). A man is crowned only if its move ends on the far row.
+    // 0/1 = player men, 2/3 = kings (owner = v % 2). Move = from * 64 + to. A multi-capture is a chain of jumps by one piece: mj = that piece, cp = pieces jumped so far this turn.
+    D: [[-1, -1], [-1, 1], [1, -1], [1, 1]],
+    init: () => { const b = Array(64).fill(null); for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if ((r + c) % 2 === 1) { if (r < 3) b[r * 8 + c] = 1; else if (r > 4) b[r * 8 + c] = 0; } return { b, nx: 0, mj: -1, q: 0, cp: [] }; },
+    jumps: (b, cp, i) => { // every jump the piece on square i could make now: [landing square, captured square]
+      const v = b[i], p = v % 2, r0 = Math.floor(i / 8), c0 = i % 8, out = [];
+      for (const [dr, dc] of GAME_RULES.checkers.D) {
+        let r = r0 + dr, c = c0 + dc;
+        if (v >= 2) while (r >= 0 && r < 8 && c >= 0 && c < 8 && b[r * 8 + c] == null) { r += dr; c += dc; }
+        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+        const j = r * 8 + c, t = b[j]; if (t == null || t % 2 === p || cp.includes(j)) continue;
+        let r2 = r + dr, c2 = c + dc;
+        while (r2 >= 0 && r2 < 8 && c2 >= 0 && c2 < 8 && b[r2 * 8 + c2] == null) { out.push([r2 * 8 + c2, j]); if (v < 2) break; r2 += dr; c2 += dc; }
+      }
+      return out;
+    },
+    dep: (b, cp, i) => { // most further pieces this piece can still capture from square i
+      const R = GAME_RULES.checkers, v = b[i]; let best = 0;
+      for (const [to, x] of R.jumps(b, cp, i)) { const b2 = b.slice(); b2[to] = v; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to); if (d > best) best = d; }
+      return best;
+    },
+    cap: (b, m) => { // the square jumped by move m, or -1 for a plain move
+      const from = Math.floor(m / 64), to = m % 64, dr = Math.sign(Math.floor(to / 8) - Math.floor(from / 8)), dc = Math.sign((to % 8) - (from % 8)); let x = -1;
+      for (let r = Math.floor(from / 8) + dr, c = (from % 8) + dc; r * 8 + c !== to; r += dr, c += dc) if (b[r * 8 + c] != null) x = r * 8 + c;
+      return x;
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return [];
+      const R = GAME_RULES.checkers, cp = s.cp || [], own = s.mj >= 0 ? [s.mj] : s.b.map((v, i) => (v != null && v % 2 === p ? i : -1)).filter((i) => i >= 0);
+      let best = 0, caps = [];
+      for (const i of own) for (const [to, x] of R.jumps(s.b, cp, i)) {
+        const b2 = s.b.slice(); b2[to] = b2[i]; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to);
+        if (d > best) { best = d; caps = []; } if (d === best) caps.push(i * 64 + to);
+      }
+      if (caps.length || s.mj >= 0) return caps;
+      const out = [];
+      for (const i of own) {
+        const v = s.b[i], r0 = Math.floor(i / 8), c0 = i % 8, dirs = v >= 2 ? R.D : p === 0 ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+        for (const [dr, dc] of dirs) { let r = r0 + dr, c = c0 + dc; while (r >= 0 && r < 8 && c >= 0 && c < 8 && s.b[r * 8 + c] == null) { out.push(i * 64 + r * 8 + c); if (v < 2) break; r += dr; c += dc; } }
+      }
+      return out;
+    },
+    play: (s, m, p) => {
+      const R = GAME_RULES.checkers, b = s.b.slice(), from = Math.floor(m / 64), to = m % 64, v = b[from], cp = (s.cp || []).slice(), x = R.cap(s.b, m);
+      b[from] = null; b[to] = v;
+      if (x >= 0) { cp.push(x); if (R.jumps(b, cp, to).length) return { b, nx: p, mj: to, q: 0, cp }; }
+      cp.forEach((i) => { b[i] = null; });
+      if (v < 2 && (p === 0 ? to < 8 : to >= 56)) b[to] = v + 2;
+      return { b, nx: 1 - p, mj: -1, q: x >= 0 || v < 2 ? 0 : s.q + 1, cp: [] };
+    },
+    win: (s) => (GAME_RULES.checkers.moves(s, s.nx).length ? null : { p: 1 - s.nx, line: null }),
+    next: (s) => s.nx,
+    draw: (s) => s.q >= 80,
+  },
+  whot: {
+    // Whot, Nigerian rules, 2 players, 54 cards. Card id = shape*100 + number (shapes 0-4; Whot = 520). Move: -1 draw, id plays a card, 520 + 1000*(shape+1) plays Whot calling a shape. Add 100000 to call "Last card".
+    // 1 Hold on / 8 Suspension: play again. 2 Pick two / 5 Pick three: stack the same number or draw. 14 General market: opponent picks one, you play again.
+    // Last card: when you play down to ONE card you must have called it (the +100000 flag, only offered with 2 cards in hand), otherwise you pick 2 as a penalty.
+    sh: (c) => Math.floor(c / 100), nm: (c) => c % 100,
+    shuf: (a, rnd) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; },
+    init: () => {
+      const R = GAME_RULES.whot, set = { 0: [1,2,3,4,5,7,8,10,11,12,13,14], 1: [1,2,3,4,5,7,8,10,11,12,13,14], 2: [1,2,3,5,7,10,11,13,14], 3: [1,2,3,5,7,10,11,13,14], 4: [1,2,3,4,5,7,8] };
+      let deck = []; for (const k in set) set[k].forEach((n) => deck.push(k * 100 + n)); for (let i = 0; i < 5; i++) deck.push(520);
+      deck = R.shuf(deck, Math.random); const h = [deck.splice(0, 6), deck.splice(0, 6)]; let disc = [];
+      for (;;) { const c = deck.shift(); if (R.sh(c) < 5 && ![1,2,5,8,14].includes(R.nm(c))) { disc = [c]; break; } deck.push(c); }
+      return { h, deck, disc, want: -1, pend: 0, pk: 0, nx: 0, last: null, t: 0 };
+    },
+    ok: (s, c) => {
+      const R = GAME_RULES.whot; if (s.pend > 0) return R.nm(c) === s.pk; if (R.sh(c) === 5) return true;
+      const top = s.disc[s.disc.length - 1]; return s.want >= 0 ? R.sh(c) === s.want : R.sh(c) === R.sh(top) || R.nm(c) === R.nm(top);
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return []; const R = GAME_RULES.whot, out = [-1];
+      const calls = s.h[p].length === 2 ? [0, 100000] : [0];
+      new Set(s.h[p]).forEach((c) => { if (!R.ok(s, c)) return; for (const f of calls) { if (R.sh(c) === 5) for (let k = 0; k < 5; k++) out.push(c + 1000 * (k + 1) + f); else out.push(c + f); } });
+      return out;
+    },
+    take: (s, p, n, rnd) => {
+      const R = GAME_RULES.whot;
+      for (let i = 0; i < n; i++) { if (!s.deck.length) { const top = s.disc.pop(); s.deck = R.shuf(s.disc, rnd); s.disc = [top]; if (!s.deck.length) break; } s.h[p].push(s.deck.shift()); }
+    },
+    play: (s, m, p, rnd) => {
+      const R = GAME_RULES.whot, ns = { ...s, h: s.h.map((a) => a.slice()), deck: s.deck.slice(), disc: s.disc.slice(), t: s.t + 1 };
+      if (m === -1) { const n = s.pend > 0 ? s.pend : 1; R.take(ns, p, n, rnd); ns.pend = 0; ns.pk = 0; ns.nx = 1 - p; ns.last = { by: p, draw: n }; return ns; }
+      const call = m >= 100000; if (call) m -= 100000;
+      const c = m % 1000, k = Math.floor(m / 1000) - 1, n = R.nm(c); ns.h[p].splice(ns.h[p].indexOf(c), 1); ns.disc.push(c);
+      ns.want = R.sh(c) === 5 ? k : -1; ns.last = { by: p, card: c, want: ns.want }; ns.nx = 1 - p;
+      if (n === 2) { ns.pend = s.pend + 2; ns.pk = 2; } else if (n === 5) { ns.pend = s.pend + 3; ns.pk = 5; }
+      else if (n === 1 || n === 8) ns.nx = p;
+      else if (n === 14) { R.take(ns, 1 - p, 1, rnd); ns.nx = p; }
+      if (ns.h[p].length === 1) { if (call) ns.last.lc = true; else { R.take(ns, p, 2, rnd); ns.last.pen = true; } }
+      return ns;
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.h[p].length === 0) return { p, line: null }; return null; },
+    view: (s, i) => ({ ...s, h: s.h.map((a, j) => (j === i ? a : a.map(() => null))), deck: s.deck.map(() => 0), disc: s.disc.slice(-1) }),
+    next: (s) => s.nx,
+    draw: (s) => s.t > 400,
+  },
+  race: {
+    // Turbo Racer is real-time, so it has no turns or moves. The room only carries the track seed; positions go through race:pos / race:finish.
+    init: () => ({ seed: Math.floor(Math.random() * 2147483647), len: 1800 }),
+    moves: () => [],
+    play: (s) => s,
+    win: () => null,
+    next: () => 0,
+    draw: () => false,
+  },
+  chess: {
+    // Chess. Player 0 = white (starts at the bottom), player 1 = black. Piece = type + 8*owner (1 P, 2 N, 3 B, 4 R, 5 Q, 6 K). Move = from*64 + to (+ 4096 * promotion type).
+    init: () => { const b = Array(64).fill(null), back = [4, 2, 3, 5, 6, 3, 2, 4]; for (let c = 0; c < 8; c++) { b[c] = back[c] + 8; b[8 + c] = 9; b[48 + c] = 1; b[56 + c] = back[c]; } return { b, nx: 0, c: [true, true, true, true], ep: -1, hm: 0, lm: null }; },
+    moves: (s, p) => (s.nx === p ? chLegal(s, p) : []),
+    play: (s, m) => chApply(s, m),
+    win: (s) => (chLegal(s, s.nx).length === 0 && chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx) ? { p: 1 - s.nx, line: null } : null),
+    draw: (s) => {
+      if (s.hm >= 100) return true;
+      const o = []; s.b.forEach((v) => { if (v != null && (v & 7) !== 6) o.push(v & 7); });
+      if (o.length === 0 || (o.length === 1 && (o[0] === 2 || o[0] === 3))) return true;
+      return chLegal(s, s.nx).length === 0 && !chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx);
+    },
+    next: (s) => s.nx,
+  },
 };
 const GAME_IDS = Object.keys(GAME_RULES);
 const COUNTRY_PREFIX = [["234","NG"],["233","GH"],["254","KE"],["255","TZ"],["256","UG"],["27","ZA"],["20","EG"],["44","GB"],["1","US"]];
@@ -1068,13 +1248,15 @@ function gRecord(userId, game, result, pvp, level) {
   if (db.gameLog.length > 6000) db.gameLog.splice(0, db.gameLog.length - 6000);
   writeDB(db); return { gain, xp: s.xp, level: gLevel(s.xp), streak: s.streak };
 }
+const gView = (room, i) => { const R = GAME_RULES[room.game]; return R.view ? R.view(room.state, i) : room.state; };
 function gStart(game, a, b) {
   const db = readDB(); const id = nanoid(10);
   const players = Math.random() < 0.5 ? [a, b] : [b, a];
   const room = { id, game, players, turn: 0, state: GAME_RULES[game].init(), over: false, rematch: new Set(), score: [0, 0], chat: [] };
   gRooms.set(id, room); for (const p of players) { gPlaying.set(p, id); gQueue.delete(p); }
   const cards = players.map((p) => gCard(db, p));
-  players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: id, game, you: i, players: cards, turn: 0, state: room.state, score: room.score }));
+  players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: id, game, you: i, players: cards, turn: 0, state: gView(room, i), score: room.score }));
+  if (game === "race") raceKick(room);
   return room;
 }
 function gFinish(room, winnerIdx) {
@@ -1087,11 +1269,26 @@ function gFinish(room, winnerIdx) {
 }
 function gLeave(userId) {
   const rid = gPlaying.get(userId); gQueue.delete(userId); if (!rid) return;
-  const room = gRooms.get(rid); gPlaying.delete(userId); if (!room) return;
+  const room = gRooms.get(rid); gPlaying.delete(userId); if (!room) return; clearTimeout(room.rt);
   const idx = room.players.indexOf(userId), other = room.players[1 - idx];
   if (!room.over) { const rec = gFinish(room, 1 - idx); io.to(`user:${other}`).emit("game:over", { room: rid, winner: 1 - idx, line: null, forfeit: true, score: room.score, reward: rec[other], result: "w" }); }
   io.to(`user:${other}`).emit("game:left", { room: rid });
   gPlaying.delete(other); gRooms.delete(rid);
+}
+const RACE_VMAX = 110; // fastest legal speed (m/s): boost + nitro + slipstream together top out near 95
+function raceKick(room) {
+  clearTimeout(room.rt); room.pos = [{ d: 0, x: 0, v: 0 }, { d: 0, x: 0, v: 0 }]; room.fin = [null, null]; room.t0 = 0;
+  room.rt = setTimeout(() => {
+    if (room.over || !gRooms.has(room.id)) return;
+    room.t0 = Date.now(); room.players.forEach((p) => io.to(`user:${p}`).emit("race:go", { room: room.id }));
+    room.rt = setTimeout(() => raceEnd(room, null), 150000); // nobody finished in 2.5 minutes: furthest car wins
+  }, 3500);
+}
+function raceEnd(room, w) {
+  if (room.over) return; clearTimeout(room.rt);
+  if (w == null) { const a = room.pos[0].d, b = room.pos[1].d; w = Math.abs(a - b) < 1 ? -1 : a > b ? 0 : 1; }
+  const rec = gFinish(room, w);
+  room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:over", { room: room.id, winner: w, line: null, score: room.score, reward: rec[p], result: w < 0 ? "d" : w === i ? "w" : "l", times: room.fin }));
 }
 function registerGames(socket) {
   const me = socket.userId; const ack = (f, v) => { if (typeof f === "function") f(v); };
@@ -1125,8 +1322,8 @@ function registerGames(socket) {
     const w = R.win(room.state); const full = R.draw ? R.draw(room.state) : R.moves(room.state).length === 0;
     if (w || full) {
       const rec = gFinish(room, w ? w.p : -1);
-      room.players.forEach((p, i) => { io.to(`user:${p}`).emit("game:move", { room: rid, state: room.state, turn: -1, last: move, by: idx }); io.to(`user:${p}`).emit("game:over", { room: rid, winner: w ? w.p : -1, line: w ? w.line : null, score: room.score, reward: rec[p], result: w ? (w.p === i ? "w" : "l") : "d" }); });
-    } else { room.turn = R.next ? R.next(room.state) : 1 - idx; room.players.forEach((p) => io.to(`user:${p}`).emit("game:move", { room: rid, state: room.state, turn: room.turn, last: move, by: idx, next: room.players[room.turn] })); }
+      room.players.forEach((p, i) => { io.to(`user:${p}`).emit("game:move", { room: rid, state: gView(room, i), turn: -1, last: move, by: idx }); io.to(`user:${p}`).emit("game:over", { room: rid, winner: w ? w.p : -1, line: w ? w.line : null, score: room.score, reward: rec[p], result: w ? (w.p === i ? "w" : "l") : "d" }); });
+    } else { room.turn = R.next ? R.next(room.state) : 1 - idx; room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:move", { room: rid, state: gView(room, i), turn: room.turn, last: move, by: idx, next: room.players[room.turn] })); }
   });
   const relay = (ev) => socket.on(ev, ({ room: rid, text, emoji } = {}) => {
     const room = gRooms.get(rid); if (!room || !room.players.includes(me)) return;
@@ -1140,7 +1337,24 @@ function registerGames(socket) {
     if (room.rematch.size < 2) return void io.to(`user:${other}`).emit("game:rematch-request", { room: rid, from: gCard(readDB(), me) });
     room.state = GAME_RULES[room.game].init(); room.players.reverse(); room.score.reverse(); room.turn = 0; room.over = false; room.rematch.clear();
     const cards = room.players.map((p) => gCard(readDB(), p));
-    room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: rid, game: room.game, you: i, players: cards, turn: 0, state: room.state, score: room.score, rematch: true }));
+    room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: rid, game: room.game, you: i, players: cards, turn: 0, state: gView(room, i), score: room.score, rematch: true }));
+    if (room.game === "race") raceKick(room);
+  });
+  socket.on("race:pos", ({ room: rid, d, x, v, c, n } = {}) => {
+    const room = gRooms.get(rid); if (!room || room.game !== "race" || room.over || !room.t0) return;
+    const idx = room.players.indexOf(me); if (idx < 0) return;
+    d = Number(d); x = Number(x); v = Number(v);
+    if (!(d >= 0) || !(x >= 0) || !(v >= 0)) return;
+    const el = (Date.now() - room.t0) / 1000; if (d > el * RACE_VMAX + 30) return; // faster than any car can go: ignore
+    room.pos[idx] = { d, x: Math.min(3, x), v: Math.min(RACE_VMAX, v) };
+    io.to(`user:${room.players[1 - idx]}`).emit("race:pos", { room: rid, d, x: Math.min(3, x), v: Math.min(RACE_VMAX, v), c: c ? 1 : 0, n: n ? 1 : 0 });
+  });
+  socket.on("race:finish", ({ room: rid } = {}) => {
+    const room = gRooms.get(rid); if (!room || room.game !== "race" || room.over || !room.t0) return;
+    const idx = room.players.indexOf(me); if (idx < 0 || room.fin[idx] != null) return;
+    const el = Date.now() - room.t0;
+    if (room.pos[idx].d < room.state.len - 25 || el < (room.state.len / RACE_VMAX) * 1000 - 500) return; // has not really driven the whole track
+    room.fin[idx] = el; raceEnd(room, idx);
   });
   socket.on("game:leave", () => gLeave(me));
   socket.on("game:solo", ({ game, level, result } = {}, f) => {
