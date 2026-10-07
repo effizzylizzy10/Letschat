@@ -1196,6 +1196,63 @@ function GamesScreen({ myId }) {
 const gh = React.createElement;
 const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
 const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
+// ---- chess engine (shared with the server) ----
+const CH_N = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]], CH_K = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]], CH_B = [[-1,-1],[-1,1],[1,-1],[1,1]], CH_R = [[-1,0],[1,0],[0,-1],[0,1]];
+function chKing(b, p) { return b.indexOf(6 + 8 * p); }
+function chAtt(b, sq, by) {
+  const r = sq >> 3, c = sq & 7, pr = by === 0 ? r + 1 : r - 1;
+  for (const dc of [-1, 1]) { const cc = c + dc; if (pr >= 0 && pr < 8 && cc >= 0 && cc < 8 && b[pr * 8 + cc] === 1 + 8 * by) return true; }
+  for (const [dr, dc] of CH_N) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 2 + 8 * by) return true; }
+  for (const [dr, dc] of CH_K) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 6 + 8 * by) return true; }
+  for (const [dirs, a, q] of [[CH_B, 3, 5], [CH_R, 4, 5]]) for (const [dr, dc] of dirs) {
+    let rr = r + dr, cc = c + dc;
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const v = b[rr * 8 + cc]; if (v != null) { if (v === a + 8 * by || v === q + 8 * by) return true; break; } rr += dr; cc += dc; }
+  }
+  return false;
+}
+function chPseudo(s, p) {
+  const b = s.b, out = [], fwd = p === 0 ? -1 : 1, start = p === 0 ? 6 : 1, last = p === 0 ? 0 : 7;
+  for (let i = 0; i < 64; i++) {
+    const v = b[i]; if (v == null || (v >> 3) !== p) continue; const t = v & 7, r = i >> 3, c = i & 7;
+    if (t === 1) {
+      const r1 = r + fwd; if (r1 < 0 || r1 > 7) continue;
+      const add = (to) => { if (r1 === last) for (let pt = 2; pt <= 5; pt++) out.push(i * 64 + to + 4096 * pt); else out.push(i * 64 + to); };
+      if (b[r1 * 8 + c] == null) { add(r1 * 8 + c); if (r === start && b[(r + 2 * fwd) * 8 + c] == null) out.push(i * 64 + (r + 2 * fwd) * 8 + c); }
+      for (const dc of [-1, 1]) { const cc = c + dc; if (cc < 0 || cc > 7) continue; const to = r1 * 8 + cc, o = b[to]; if ((o != null && (o >> 3) !== p) || (o == null && to === s.ep)) add(to); }
+    } else if (t === 2 || t === 6) {
+      for (const [dr, dc] of t === 2 ? CH_N : CH_K) { const rr = r + dr, cc = c + dc; if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue; const o = b[rr * 8 + cc]; if (o == null || (o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); }
+    } else {
+      for (const [dr, dc] of t === 3 ? CH_B : t === 4 ? CH_R : CH_B.concat(CH_R)) {
+        let rr = r + dr, cc = c + dc;
+        while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const o = b[rr * 8 + cc]; if (o == null) out.push(i * 64 + rr * 8 + cc); else { if ((o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); break; } rr += dr; cc += dc; }
+      }
+    }
+  }
+  const base = p === 0 ? 56 : 0, ks = base + 4;
+  if (b[ks] === 6 + 8 * p && !chAtt(b, ks, 1 - p)) {
+    if (s.c[p * 2] && b[base + 5] == null && b[base + 6] == null && b[base + 7] === 4 + 8 * p && !chAtt(b, base + 5, 1 - p) && !chAtt(b, base + 6, 1 - p)) out.push(ks * 64 + base + 6);
+    if (s.c[p * 2 + 1] && b[base + 3] == null && b[base + 2] == null && b[base + 1] == null && b[base] === 4 + 8 * p && !chAtt(b, base + 3, 1 - p) && !chAtt(b, base + 2, 1 - p)) out.push(ks * 64 + base + 2);
+  }
+  return out;
+}
+function chApply(s, m) {
+  const pt = Math.floor(m / 4096), mm = m % 4096, from = mm >> 6, to = mm & 63, b = s.b.slice(), v = b[from], p = v >> 3, t = v & 7, cap = b[to], c = s.c.slice();
+  let ep = -1, reset = t === 1 || cap != null; b[from] = null; b[to] = v;
+  if (t === 1) {
+    if (cap == null && (from & 7) !== (to & 7)) { b[to + (p === 0 ? 8 : -8)] = null; reset = true; }
+    if (Math.abs((to >> 3) - (from >> 3)) === 2) ep = (from + to) / 2;
+    if (pt) b[to] = pt + 8 * p;
+  }
+  if (t === 6) {
+    c[p * 2] = false; c[p * 2 + 1] = false;
+    if (Math.abs((to & 7) - (from & 7)) === 2) { const base = from - (from & 7); if ((to & 7) === 6) { b[base + 5] = b[base + 7]; b[base + 7] = null; } else { b[base + 3] = b[base]; b[base] = null; } }
+  }
+  for (const sq of [from, to]) { if (sq === 63) c[0] = false; if (sq === 56) c[1] = false; if (sq === 7) c[2] = false; if (sq === 0) c[3] = false; }
+  return { b, nx: 1 - p, c, ep, hm: reset ? 0 : s.hm + 1, lm: mm };
+}
+function chLegal(s, p) { return chPseudo(s, p).filter((m) => { const ns = chApply(s, m); return !chAtt(ns.b, chKing(ns.b, p), 1 - p); }); }
+// ---- end chess engine ----
+
 const GAME_RULES = {
   ttt: {
     init: () => Array(9).fill(null),
@@ -1257,15 +1314,139 @@ const GAME_RULES = {
     next: (s) => s.nx,
     draw: () => false,
   },
+  checkers: {
+    // Nigerian draughts on 8x8. Men step forward but capture forward AND backward, kings fly any distance, capturing is compulsory and you must take the route that captures the most pieces.
+    // Captured pieces stay on the board until your move ends (and can't be jumped twice). A man is crowned only if its move ends on the far row.
+    // 0/1 = player men, 2/3 = kings (owner = v % 2). Move = from * 64 + to. A multi-capture is a chain of jumps by one piece: mj = that piece, cp = pieces jumped so far this turn.
+    D: [[-1, -1], [-1, 1], [1, -1], [1, 1]],
+    init: () => { const b = Array(64).fill(null); for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if ((r + c) % 2 === 1) { if (r < 3) b[r * 8 + c] = 1; else if (r > 4) b[r * 8 + c] = 0; } return { b, nx: 0, mj: -1, q: 0, cp: [] }; },
+    jumps: (b, cp, i) => { // every jump the piece on square i could make now: [landing square, captured square]
+      const v = b[i], p = v % 2, r0 = Math.floor(i / 8), c0 = i % 8, out = [];
+      for (const [dr, dc] of GAME_RULES.checkers.D) {
+        let r = r0 + dr, c = c0 + dc;
+        if (v >= 2) while (r >= 0 && r < 8 && c >= 0 && c < 8 && b[r * 8 + c] == null) { r += dr; c += dc; }
+        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+        const j = r * 8 + c, t = b[j]; if (t == null || t % 2 === p || cp.includes(j)) continue;
+        let r2 = r + dr, c2 = c + dc;
+        while (r2 >= 0 && r2 < 8 && c2 >= 0 && c2 < 8 && b[r2 * 8 + c2] == null) { out.push([r2 * 8 + c2, j]); if (v < 2) break; r2 += dr; c2 += dc; }
+      }
+      return out;
+    },
+    dep: (b, cp, i) => { // most further pieces this piece can still capture from square i
+      const R = GAME_RULES.checkers, v = b[i]; let best = 0;
+      for (const [to, x] of R.jumps(b, cp, i)) { const b2 = b.slice(); b2[to] = v; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to); if (d > best) best = d; }
+      return best;
+    },
+    cap: (b, m) => { // the square jumped by move m, or -1 for a plain move
+      const from = Math.floor(m / 64), to = m % 64, dr = Math.sign(Math.floor(to / 8) - Math.floor(from / 8)), dc = Math.sign((to % 8) - (from % 8)); let x = -1;
+      for (let r = Math.floor(from / 8) + dr, c = (from % 8) + dc; r * 8 + c !== to; r += dr, c += dc) if (b[r * 8 + c] != null) x = r * 8 + c;
+      return x;
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return [];
+      const R = GAME_RULES.checkers, cp = s.cp || [], own = s.mj >= 0 ? [s.mj] : s.b.map((v, i) => (v != null && v % 2 === p ? i : -1)).filter((i) => i >= 0);
+      let best = 0, caps = [];
+      for (const i of own) for (const [to, x] of R.jumps(s.b, cp, i)) {
+        const b2 = s.b.slice(); b2[to] = b2[i]; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to);
+        if (d > best) { best = d; caps = []; } if (d === best) caps.push(i * 64 + to);
+      }
+      if (caps.length || s.mj >= 0) return caps;
+      const out = [];
+      for (const i of own) {
+        const v = s.b[i], r0 = Math.floor(i / 8), c0 = i % 8, dirs = v >= 2 ? R.D : p === 0 ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+        for (const [dr, dc] of dirs) { let r = r0 + dr, c = c0 + dc; while (r >= 0 && r < 8 && c >= 0 && c < 8 && s.b[r * 8 + c] == null) { out.push(i * 64 + r * 8 + c); if (v < 2) break; r += dr; c += dc; } }
+      }
+      return out;
+    },
+    play: (s, m, p) => {
+      const R = GAME_RULES.checkers, b = s.b.slice(), from = Math.floor(m / 64), to = m % 64, v = b[from], cp = (s.cp || []).slice(), x = R.cap(s.b, m);
+      b[from] = null; b[to] = v;
+      if (x >= 0) { cp.push(x); if (R.jumps(b, cp, to).length) return { b, nx: p, mj: to, q: 0, cp }; }
+      cp.forEach((i) => { b[i] = null; });
+      if (v < 2 && (p === 0 ? to < 8 : to >= 56)) b[to] = v + 2;
+      return { b, nx: 1 - p, mj: -1, q: x >= 0 || v < 2 ? 0 : s.q + 1, cp: [] };
+    },
+    win: (s) => (GAME_RULES.checkers.moves(s, s.nx).length ? null : { p: 1 - s.nx, line: null }),
+    next: (s) => s.nx,
+    draw: (s) => s.q >= 80,
+  },
+  whot: {
+    // Whot, Nigerian rules, 2 players, 54 cards. Card id = shape*100 + number (shapes 0-4; Whot = 520). Move: -1 draw, id plays a card, 520 + 1000*(shape+1) plays Whot calling a shape. Add 100000 to call "Last card".
+    // 1 Hold on / 8 Suspension: play again. 2 Pick two / 5 Pick three: stack the same number or draw. 14 General market: opponent picks one, you play again.
+    // Last card: when you play down to ONE card you must have called it (the +100000 flag, only offered with 2 cards in hand), otherwise you pick 2 as a penalty.
+    sh: (c) => Math.floor(c / 100), nm: (c) => c % 100,
+    shuf: (a, rnd) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; },
+    init: () => {
+      const R = GAME_RULES.whot, set = { 0: [1,2,3,4,5,7,8,10,11,12,13,14], 1: [1,2,3,4,5,7,8,10,11,12,13,14], 2: [1,2,3,5,7,10,11,13,14], 3: [1,2,3,5,7,10,11,13,14], 4: [1,2,3,4,5,7,8] };
+      let deck = []; for (const k in set) set[k].forEach((n) => deck.push(k * 100 + n)); for (let i = 0; i < 5; i++) deck.push(520);
+      deck = R.shuf(deck, Math.random); const h = [deck.splice(0, 6), deck.splice(0, 6)]; let disc = [];
+      for (;;) { const c = deck.shift(); if (R.sh(c) < 5 && ![1,2,5,8,14].includes(R.nm(c))) { disc = [c]; break; } deck.push(c); }
+      return { h, deck, disc, want: -1, pend: 0, pk: 0, nx: 0, last: null, t: 0 };
+    },
+    ok: (s, c) => {
+      const R = GAME_RULES.whot; if (s.pend > 0) return R.nm(c) === s.pk; if (R.sh(c) === 5) return true;
+      const top = s.disc[s.disc.length - 1]; return s.want >= 0 ? R.sh(c) === s.want : R.sh(c) === R.sh(top) || R.nm(c) === R.nm(top);
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return []; const R = GAME_RULES.whot, out = [-1];
+      const calls = s.h[p].length === 2 ? [0, 100000] : [0];
+      new Set(s.h[p]).forEach((c) => { if (!R.ok(s, c)) return; for (const f of calls) { if (R.sh(c) === 5) for (let k = 0; k < 5; k++) out.push(c + 1000 * (k + 1) + f); else out.push(c + f); } });
+      return out;
+    },
+    take: (s, p, n, rnd) => {
+      const R = GAME_RULES.whot;
+      for (let i = 0; i < n; i++) { if (!s.deck.length) { const top = s.disc.pop(); s.deck = R.shuf(s.disc, rnd); s.disc = [top]; if (!s.deck.length) break; } s.h[p].push(s.deck.shift()); }
+    },
+    play: (s, m, p, rnd) => {
+      const R = GAME_RULES.whot, ns = { ...s, h: s.h.map((a) => a.slice()), deck: s.deck.slice(), disc: s.disc.slice(), t: s.t + 1 };
+      if (m === -1) { const n = s.pend > 0 ? s.pend : 1; R.take(ns, p, n, rnd); ns.pend = 0; ns.pk = 0; ns.nx = 1 - p; ns.last = { by: p, draw: n }; return ns; }
+      const call = m >= 100000; if (call) m -= 100000;
+      const c = m % 1000, k = Math.floor(m / 1000) - 1, n = R.nm(c); ns.h[p].splice(ns.h[p].indexOf(c), 1); ns.disc.push(c);
+      ns.want = R.sh(c) === 5 ? k : -1; ns.last = { by: p, card: c, want: ns.want }; ns.nx = 1 - p;
+      if (n === 2) { ns.pend = s.pend + 2; ns.pk = 2; } else if (n === 5) { ns.pend = s.pend + 3; ns.pk = 5; }
+      else if (n === 1 || n === 8) ns.nx = p;
+      else if (n === 14) { R.take(ns, 1 - p, 1, rnd); ns.nx = p; }
+      if (ns.h[p].length === 1) { if (call) ns.last.lc = true; else { R.take(ns, p, 2, rnd); ns.last.pen = true; } }
+      return ns;
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.h[p].length === 0) return { p, line: null }; return null; },
+    view: (s, i) => ({ ...s, h: s.h.map((a, j) => (j === i ? a : a.map(() => null))), deck: s.deck.map(() => 0), disc: s.disc.slice(-1) }),
+    next: (s) => s.nx,
+    draw: (s) => s.t > 400,
+  },
+  race: {
+    // Turbo Racer is real-time, so it has no turns or moves. The room only carries the track seed; positions go through race:pos / race:finish.
+    init: () => ({ seed: Math.floor(Math.random() * 2147483647), len: 1800 }),
+    moves: () => [],
+    play: (s) => s,
+    win: () => null,
+    next: () => 0,
+    draw: () => false,
+  },
+  chess: {
+    // Chess. Player 0 = white (starts at the bottom), player 1 = black. Piece = type + 8*owner (1 P, 2 N, 3 B, 4 R, 5 Q, 6 K). Move = from*64 + to (+ 4096 * promotion type).
+    init: () => { const b = Array(64).fill(null), back = [4, 2, 3, 5, 6, 3, 2, 4]; for (let c = 0; c < 8; c++) { b[c] = back[c] + 8; b[8 + c] = 9; b[48 + c] = 1; b[56 + c] = back[c]; } return { b, nx: 0, c: [true, true, true, true], ep: -1, hm: 0, lm: null }; },
+    moves: (s, p) => (s.nx === p ? chLegal(s, p) : []),
+    play: (s, m) => chApply(s, m),
+    win: (s) => (chLegal(s, s.nx).length === 0 && chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx) ? { p: 1 - s.nx, line: null } : null),
+    draw: (s) => {
+      if (s.hm >= 100) return true;
+      const o = []; s.b.forEach((v) => { if (v != null && (v & 7) !== 6) o.push(v & 7); });
+      if (o.length === 0 || (o.length === 1 && (o[0] === 2 || o[0] === 3))) return true;
+      return chLegal(s, s.nx).length === 0 && !chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx);
+    },
+    next: (s) => s.nx,
+  },
 };
 const HUB_GAMES = [
   { id: "ttt", name: "Tic-Tac-Toe", emoji: "✖️", color: "#35D0BA", blurb: "Three in a row", ready: true },
   { id: "c4", name: "Connect 4", emoji: "🔴", color: "#FF4FA3", blurb: "Drop discs, link four", ready: true },
   { id: "snl", name: "Snakes & Ladders", emoji: "🐍", color: "#2DD4A0", blurb: "Climb up, slide down", ready: true },
-  { id: "whot", name: "Smart Whot", emoji: "🃏", color: "#F5B83D", blurb: "Card game" },
-  { id: "chess", name: "Chess", emoji: "♟️", color: "#8B5CF6", blurb: "Classic strategy" },
-  { id: "checkers", name: "Checkers", emoji: "🏁", color: "#4C8DFF", blurb: "Jump and capture" },
+  { id: "whot", name: "Smart Whot", emoji: "🃏", color: "#F5B83D", blurb: "Nigerian rules", ready: true },
+  { id: "chess", name: "Chess", emoji: "♟️", color: "#8B5CF6", blurb: "Classic strategy", ready: true },
+  { id: "checkers", name: "Checkers", emoji: "⚫", color: "#4C8DFF", blurb: "Nigerian rules", ready: true },
   { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Roll, race, capture", ready: true },
+  { id: "race", name: "Turbo Racer", emoji: "🏎️", color: "#FF3B5C", blurb: "Race, dodge, nitro", ready: true },
   { id: "dominoes", name: "Dominoes", emoji: "🧩", color: "#2DD4A0", blurb: "Match the tiles" },
 ];
 const hubName = (id) => (HUB_GAMES.find((g) => g.id === id) || { name: id }).name;
@@ -1294,6 +1475,9 @@ function robotNega(game, s, p, d, a, b) {
 function robotPick(game, s, me, level) {
   if (game === "ludo") return ludoPick(s, me, level);
   if (game === "snl") return -1;
+  if (game === "chess") return chPick(s, me, level);
+  if (game === "whot") return whotPick(s, me, level);
+  if (game === "checkers") return ckPick(s, me, level);
   const R = GAME_RULES[game], mv = R.moves(s);
   if (Math.random() < [0.7, 0.35, 0.1, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
   const depth = game === "ttt" ? 9 : [1, 3, 5, 6][level];
@@ -1331,7 +1515,53 @@ function ludoXY(p, r, i) {
   const c = r > 50 ? [7, p ? 64 - r : r - 50] : LUDO_RING[(p * 26 + r) % 52];
   return [c[1] + 0.5, c[0] + 0.5];
 }
-function LudoBoard({ s, you, myTurn, onTap }) {
+// ---- fit-to-screen helpers: boards size themselves to the space the game card has, so nothing scrolls while you play ----
+function useFit() {
+  const ref = useRef(null), [box, setBox] = useState({ w: 320, h: 420 });
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const upd = () => { const w = el.clientWidth, h = el.clientHeight; setBox((b) => (b.w === w && b.h === h ? b : { w, h })); };
+    upd(); let ro; if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(upd); ro.observe(el); }
+    window.addEventListener("resize", upd);
+    return () => { ro && ro.disconnect(); window.removeEventListener("resize", upd); };
+  }, []);
+  return [ref, box];
+}
+const gameColor = (id) => (HUB_GAMES.find((x) => x.id === id) || {}).color || "#8B5CF6";
+const sideOf = (fit, extra) => Math.max(120, Math.floor(Math.min(fit.w - 20, fit.h - extra - 20)));
+// decorated frame around a board: glowing gradient rim, dark inner mat, little studs in the corners
+function GameFrame({ color, children }) {
+  const stud = (pos) => gh("i", { style: { position: "absolute", width: 6, height: 6, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, #fff, " + color + ")", boxShadow: "0 0 6px " + color, ...pos } });
+  return gh("div", { style: { position: "relative", padding: 7, borderRadius: 20, background: "linear-gradient(145deg, " + color + ", #F5B83D 48%, " + color + ")", boxShadow: "0 0 22px " + color + "66, 0 6px 18px rgba(0,0,0,.45)" } },
+    gh("div", { style: { padding: 3, borderRadius: 14, background: "#0B0F16", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.18)" } }, children),
+    stud({ top: 1, left: 1 }), stud({ top: 1, right: 1 }), stud({ bottom: 1, left: 1 }), stud({ bottom: 1, right: 1 }));
+}
+const RULES_TEXT = {
+  ttt: "Take turns placing X and O. The first to get three in a row wins.",
+  c4: "Drop a disc into a column. The first to connect four in a row wins.",
+  ludo: "Roll a 6 to leave base. A 6 or a capture gives another roll. Get all your pieces home first.",
+  snl: "Reach 100 with an exact roll. A 6 gives another roll. Ladders take you up, snakes slide you down.",
+  checkers: "Nigerian rules: men capture backwards too, kings fly across the board, and you must take the route that captures the most pieces. Captured pieces come off when your move ends. Reach the far row to be crowned.",
+  whot: "Nigerian rules: match the shape or number. 1 Hold on and 8 Suspension play again. 2 and 5 make the other player pick; pass it on with the same number. 14 is General Market. 20 Whot calls a shape. With 2 cards left, call Last card before you play or you pick 2. Empty your hand to win.",
+  chess: "Castling, en passant and promotion are included. A game is drawn by stalemate, 50 quiet moves or too few pieces.",
+  race: "Tap left or right (or A / D, arrow keys) to change lane, space for nitro. Dodge cars and cones, avoid oil, grab ⚡ and boost pads, and tuck in behind your rival for a slipstream. First across the line wins.",
+};
+function RulesSheet({ game, color, onClose }) {
+  const g = HUB_GAMES.find((x) => x.id === game) || {};
+  return gh("div", { onClick: onClose, style: { position: "absolute", inset: 6, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(7,10,16,.86)", borderRadius: 18 } },
+    gh("div", { onClick: (e) => e.stopPropagation(), style: { ...GLASS, borderRadius: 18, padding: "16px 18px", maxWidth: 320, border: "1px solid " + color, boxShadow: "0 0 24px " + color + "55", textAlign: "center" } },
+      gh("div", { style: { fontSize: 30 } }, g.emoji),
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: "#F5F7FA", marginTop: 2 } }, (g.name || "Game") + " rules"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#C9D1DC", marginTop: 8 } }, RULES_TEXT[game] || ""),
+      hubBtn("Got it", onClose, { small: true, style: { marginTop: 12 } })));
+}
+function hubStatusRow(onRules, status) {
+  return gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "2px 10px 5px" } }, status,
+    gh("button", { onClick: onRules, "aria-label": "Game rules", style: { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", borderRadius: 999, padding: "3px 10px", color: "#C9D1DC", fontFamily: "Inter", fontWeight: 600, fontSize: 11.5, cursor: "pointer" } }, "ⓘ Rules"));
+}
+const roomShell = (gc, bg) => ({ display: "flex", flexDirection: "column", height: "calc(100% - 8px)", margin: "4px 6px", boxSizing: "border-box", border: "2px solid transparent", borderRadius: 22, overflow: "hidden", position: "relative", background: bg + " padding-box, linear-gradient(160deg, " + gc + ", rgba(245,184,61,.6) 50%, " + gc + ") border-box", boxShadow: "0 0 24px " + gc + "55, inset 0 0 30px " + gc + "22" });
+
+function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
   const R = GAME_RULES.ludo, canRoll = myTurn && s.d == null, legal = myTurn && s.d != null ? R.moves(s, you) : [];
   const kids = [gh("rect", { key: "bg", x: 0, y: 0, width: 15, height: 15, rx: 0.6, fill: "#0F141C" }),
     gh("rect", { key: "b0", x: 0, y: 0, width: 6, height: 6, rx: 0.5, fill: PCOL[0] + "22" }), gh("rect", { key: "b1", x: 9, y: 9, width: 6, height: 6, rx: 0.5, fill: PCOL[1] + "22" }),
@@ -1346,17 +1576,17 @@ function LudoBoard({ s, you, myTurn, onTap }) {
     const can = p === you && legal.includes(i);
     kids.push(gh("circle", { key: "t" + p + i, cx: x, cy: y, r: 0.36, fill: PCOL[p], stroke: can ? "#fff" : "#0B0F16", strokeWidth: can ? 0.14 : 0.07, style: { cursor: can ? "pointer" : "default", filter: can ? "drop-shadow(0 0 0.35px #fff)" : "none" }, onClick: can ? () => onTap(i) : undefined, role: can ? "button" : undefined, "aria-label": can ? "Move piece " + (i + 1) : undefined }));
   }));
-  return gh("div", { style: { width: "100%", maxWidth: 360 } },
-    gh("svg", { viewBox: "0 0 15 15", style: { width: "100%", display: "block", borderRadius: 16, boxShadow: "0 0 24px rgba(139,92,246,.3)" } }, kids),
-    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "12px 0 4px" } },
-      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 64, height: 64, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 40, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
-      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, myTurn ? (s.d == null ? "Tap the dice to roll." : legal.length > 1 ? "Tap a glowing piece to move it." : "Moving…") : "Waiting for the other player.")),
-    gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", textAlign: "center", paddingBottom: 6 } }, "Roll a 6 to leave base. A 6 or a capture gives another roll."));
+  const side = sideOf(fit, 66);
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh(GameFrame, { color: gameColor("ludo") }, gh("svg", { viewBox: "0 0 15 15", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 0 0" } },
+      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, myTurn ? (s.d == null ? "Tap the dice to roll." : legal.length > 1 ? "Tap a glowing piece to move it." : "Moving…") : "Waiting for the other player.")));
 }
 
 // ---- Snakes & Ladders: board ----
 function snlXY(n) { const r = Math.floor((n - 1) / 10), c = r % 2 ? 9 - ((n - 1) % 10) : (n - 1) % 10; return [c + 0.5, 9 - r + 0.5]; }
-function SnlBoard({ s, you, myTurn, onTap }) {
+function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
   const canRoll = myTurn;
   const kids = [];
   for (let n = 1; n <= 100; n++) { const [x, y] = snlXY(n); kids.push(gh("rect", { key: "c" + n, x: x - 0.5 + 0.02, y: y - 0.5 + 0.02, width: 0.96, height: 0.96, rx: 0.12, fill: (Math.floor((n - 1) / 10) + n) % 2 ? "#1B2330" : "#141B26" }), gh("text", { key: "n" + n, x: x - 0.4, y: y - 0.26, fontSize: 0.3, fill: "#5B6673" }, n)); }
@@ -1370,12 +1600,418 @@ function SnlBoard({ s, you, myTurn, onTap }) {
     }
   });
   [0, 1].forEach((p) => { const n = s.p[p], [x, y] = n === 0 ? [p ? 9.6 : 0.4, 10.35] : snlXY(n), off = n > 0 && s.p[0] === s.p[1] ? (p ? 0.18 : -0.18) : 0; kids.push(gh("circle", { key: "t" + p, cx: x + off, cy: y, r: 0.3, fill: PCOL[p], stroke: "#0B0F16", strokeWidth: 0.07, style: { filter: "drop-shadow(0 0 0.25px " + PCOL[p] + ")", transition: "all .35s" } })); });
-  return gh("div", { style: { width: "100%", maxWidth: 360 } },
-    gh("svg", { viewBox: "0 0 10 10.8", style: { width: "100%", display: "block", borderRadius: 16, background: "#0F141C", boxShadow: "0 0 24px rgba(45,212,160,.25)" } }, kids),
-    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "12px 0 4px" } },
-      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 64, height: 64, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 40, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
-      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player."))),
-    gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", textAlign: "center", paddingBottom: 6 } }, "Reach 100 with an exact roll. A 6 gives another roll."));
+  const side = Math.max(120, Math.floor(Math.min(fit.w - 20, (fit.h - 66 - 20) / 1.08)));
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh(GameFrame, { color: gameColor("snl") }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids)),
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 0 0" } },
+      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player."))));
+}
+
+// ---- Draughts: robot brain and board ----
+function ckEval(s, p) { let v = 0; s.b.forEach((x, i) => { if (x == null) return; const o = x % 2, k = x >= 2, r = i >> 3, val = (k ? 28 : 10) + (k ? 0 : (o ? r : 7 - r)) * 0.3; v += o === p ? val : -val; }); return v; }
+function ckNega(s, d, a, b) {
+  const R = GAME_RULES.checkers, p = s.nx, w = R.win(s);
+  if (w) return -1000 - d; if (R.draw(s)) return 0; if (d === 0) return ckEval(s, p);
+  let best = -1e9;
+  for (const m of R.moves(s, p)) { const ns = R.play(s, m, p), v = ns.nx === p ? ckNega(ns, d - 1, a, b) : -ckNega(ns, d - 1, -b, -a); if (v > best) best = v; if (best > a) a = best; if (a >= b) break; }
+  return best;
+}
+function ckPick(s, me, level) {
+  const R = GAME_RULES.checkers, mv = R.moves(s, me);
+  if (Math.random() < [0.6, 0.25, 0.05, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  const depth = [1, 3, 5, 6][level]; let best = -1e9, picks = [];
+  for (const m of mv) { const ns = R.play(s, m, me), v = ns.nx === me ? ckNega(ns, depth - 1, -1e9, 1e9) : -ckNega(ns, depth - 1, -1e9, 1e9); if (v > best) { best = v; picks = [m]; } else if (v === best) picks.push(m); }
+  return picks[Math.floor(Math.random() * picks.length)];
+}
+function CheckersBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const R = GAME_RULES.checkers, [sel, setSel] = useState(null);
+  const legal = myTurn ? R.moves(s, you) : [], froms = new Set(legal.map((m) => Math.floor(m / 64)));
+  const cur = s.mj >= 0 && myTurn ? s.mj : sel != null && froms.has(sel) ? sel : null;
+  const xy = (i) => { const r = i >> 3, c = i & 7; return you === 1 ? [7 - c, 7 - r] : [c, r]; };
+  const kids = [];
+  for (let i = 0; i < 64; i++) { const [x, y] = xy(i), dark = ((i >> 3) + (i & 7)) % 2 === 1, dest = cur != null && legal.includes(cur * 64 + i);
+    kids.push(gh("rect", { key: "q" + i, x, y, width: 1, height: 1, fill: dark ? "#1E2A3D" : "#121821", onClick: dest ? () => { setSel(null); onTap(cur * 64 + i); } : undefined, style: { cursor: dest ? "pointer" : "default" } }));
+    if (dest) kids.push(gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.18, fill: "#F5B83D", style: { pointerEvents: "none" } })); }
+  s.b.forEach((v, i) => { if (v == null) return; const [x, y] = xy(i), o = v % 2, can = froms.has(i), on = cur === i;
+    kids.push(gh("g", { key: "p" + i, opacity: (s.cp || []).includes(i) ? 0.35 : 1, onClick: can && s.mj < 0 ? () => setSel(i) : undefined, style: { cursor: can ? "pointer" : "default" }, role: can ? "button" : undefined, "aria-label": can ? "Select piece" : undefined },
+      gh("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.38, fill: PCOL[o], stroke: on ? "#fff" : can ? "#F5B83D" : "#0B0F16", strokeWidth: on ? 0.1 : can ? 0.07 : 0.05, style: { filter: "drop-shadow(0 0 0.2px " + PCOL[o] + ")" } }),
+      v >= 2 ? gh("text", { x: x + 0.5, y: y + 0.68, fontSize: 0.55, textAnchor: "middle", fill: "#0B0F16" }, "♛") : gh("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.2, fill: "none", stroke: "#0B0F16", strokeWidth: 0.04, opacity: 0.4 }))); });
+  const side = sideOf(fit, 26);
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh(GameFrame, { color: gameColor("checkers") }, gh("svg", { viewBox: "0 0 8 8", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#C9D1DC", textAlign: "center", padding: "6px 0 0", height: 20, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, !myTurn ? "Waiting for the other player." : s.mj >= 0 ? "Keep jumping with the same piece." : cur != null ? "Tap a gold dot to move there." : legal.length && R.cap(s.b, legal[0]) >= 0 ? "You must capture. Take the route that captures the most pieces." : "Tap a glowing piece to move it."));
+}
+
+// ---- Smart Whot: robot brain and cards ----
+function whotPick(s, me, level) {
+  const R = GAME_RULES.whot, callIt = Math.random() < [0.7, 0.88, 0.97, 1][level], plays = R.moves(s, me).filter((m) => m >= 0 && (s.h[me].length !== 2 || (m >= 100000) === callIt)), rand = () => plays[Math.floor(Math.random() * plays.length)];
+  if (!plays.length) return -1;
+  if (s.pend > 0) return Math.random() < [0.3, 0.15, 0.05, 0][level] ? -1 : rand();
+  if (Math.random() < [0.55, 0.25, 0.05, 0][level]) return Math.random() < 0.15 ? -1 : rand();
+  const hand = s.h[me], opp = s.h[1 - me].length; let best = -1e9, pick = plays[0];
+  for (const m of plays) {
+    const mm = m % 100000, c = mm % 1000, n = R.nm(c), sh = R.sh(c), k = Math.floor(mm / 1000) - 1; let v = 3 + hand.filter((x) => R.sh(x) === sh).length * 0.5;
+    if (hand.length === 1) v = 100; else if (n === 1 || n === 8) v = 8; else if (n === 2) v = 6 + (opp <= 3 ? 4 : 0); else if (n === 5) v = 7 + (opp <= 3 ? 4 : 0); else if (n === 14) v = 7;
+    else if (sh === 5) v = (hand.length <= 2 ? 10 : 0.5) + hand.filter((x) => R.sh(x) === k).length * 0.8;
+    v += Math.random() * [8, 4, 1.2, 0.2][level]; if (v > best) { best = v; pick = m; }
+  }
+  return pick;
+}
+const WHOT_SH = [["●", "#FF5A5F"], ["▲", "#35D0BA"], ["✚", "#A78BFA"], ["■", "#4C8DFF"], ["★", "#F5B83D"]];
+const WHOT_TAG = { 1: "Hold on", 2: "Pick 2", 5: "Pick 3", 8: "Suspend", 14: "Market" };
+function WhotCard({ c, can, onClick, big, sc = 1, ml = 0 }) {
+  const w = Math.round((big ? 70 : 52) * sc), hgt = Math.round((big ? 100 : 76) * sc), R = GAME_RULES.whot, base = { width: w, height: hgt, borderRadius: 12, flexShrink: 0, marginLeft: ml, boxSizing: "border-box", padding: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", cursor: can ? "pointer" : "default", transform: can ? "translateY(-8px)" : "none", transition: "transform .15s" };
+  if (c == null) return gh("div", { style: { ...base, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "2px solid rgba(255,255,255,.35)", color: "#fff", fontFamily: "Sora", fontWeight: 800, fontSize: big ? 26 : 20 } }, "W");
+  const sh = R.sh(c), n = R.nm(c), col = sh === 5 ? "#F5B83D" : WHOT_SH[sh][1];
+  return gh("button", { onClick: can ? onClick : undefined, "aria-label": sh === 5 ? "Whot 20" : ["circle", "triangle", "cross", "square", "star"][sh] + " " + n, style: { ...base, background: sh === 5 ? "linear-gradient(145deg,#2A1A52,#0F141C)" : "#F5F7FA", border: "2px solid " + (can ? "#fff" : col), boxShadow: can ? "0 0 14px " + col : "none", opacity: can || big ? 1 : 0.62 } },
+    gh("div", { style: { position: "absolute", top: 4, left: 6, fontFamily: "Sora", fontWeight: 800, fontSize: big ? 15 : 13, color: sh === 5 ? "#F5B83D" : "#0B0F16" } }, n),
+    gh("div", { style: { fontSize: (sh === 5 ? (big ? 15 : 12) : (big ? 38 : 28)) * (sc < 1 ? 0.88 : 1), color: col, fontFamily: "Sora", fontWeight: 800, lineHeight: 1 } }, sh === 5 ? "WHOT" : WHOT_SH[sh][0]),
+    WHOT_TAG[n] && sh < 5 ? gh("div", { style: { position: "absolute", bottom: 3, fontFamily: "Inter", fontSize: big ? 9.5 : 8, fontWeight: 700, color: "#4B5563" } }, WHOT_TAG[n]) : null);
+}
+function WhotBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const R = GAME_RULES.whot, [pick, setPick] = useState(false), [lc, setLc] = useState(false), mv = myTurn ? R.moves(s, you) : [], ids = new Set(mv.filter((m) => m >= 0).map((m) => m % 1000));
+  const hand = s.h[you].slice().sort((a, b) => a - b), top = s.disc[s.disc.length - 1], opp = s.h[1 - you].length, l = s.last;
+  const sc = fit.h >= 430 ? 1 : fit.h >= 390 ? 0.86 : 0.72, cw = 52 * sc, nh = hand.length, step = nh > 1 ? Math.min(cw + 6, (fit.w - 8 - cw) / (nh - 1)) : 0;
+  const who = l ? (l.by === you ? "You" : "Opponent") : "";
+  let note = !l ? "" : l.draw ? who + " picked " + l.draw + " card" + (l.draw > 1 ? "s" : "") + "." : R.nm(l.card) === 14 ? who + " played General Market: the other player picked 1." : R.nm(l.card) === 1 || R.nm(l.card) === 8 ? who + " played " + WHOT_TAG[R.nm(l.card)] + " and plays again." : "";
+  if (l && l.card != null) { if (l.pen) note = (note + " " + who + " forgot to call Last card and picks 2!").trim(); else if (l.lc) note = (note + " " + who + " called Last card!").trim(); }
+  const call = lc && hand.length === 2 ? 100000 : 0, tapCard = (c) => { if (R.sh(c) === 5) setPick(true); else { setLc(false); onTap(c + call); } };
+  return gh("div", { style: { width: "100%", maxWidth: 380, display: "flex", flexDirection: "column" } },
+    gh("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } }, gh("div", { style: { display: "flex" } }, Array.from({ length: Math.min(opp, 7) }, (_, i) => gh("div", { key: i, style: { width: 18, height: 28, borderRadius: 5, marginLeft: i ? -10 : 0, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "1px solid rgba(255,255,255,.4)" } }))), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC" } }, "Opponent has " + opp + " card" + (opp === 1 ? "" : "s"))),
+    gh("div", { style: { ...GLASS, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, marginBottom: 6, border: "2px solid rgba(245,184,61,.6)", boxShadow: "0 0 18px rgba(245,184,61,.28), inset 0 0 0 3px rgba(11,15,22,.9), inset 0 0 0 4px rgba(245,184,61,.3)" } },
+      gh("button", { onClick: myTurn ? () => onTap(-1) : undefined, disabled: !myTurn, "aria-label": s.pend > 0 && myTurn ? "Pick " + s.pend + " cards" : "Pick a card from the market", style: { background: "none", border: "none", padding: 0, cursor: myTurn ? "pointer" : "default", textAlign: "center" } }, gh(WhotCard, { c: null, big: true, sc, can: myTurn }), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: myTurn ? "#F5B83D" : "#8891A0", marginTop: 6 } }, (s.pend > 0 && myTurn ? "Pick " + s.pend : "Market") + " · " + s.deck.length)),
+      gh("div", { style: { textAlign: "center" } }, gh(WhotCard, { c: top, big: true, sc }), s.want >= 0 ? gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 12.5, color: WHOT_SH[s.want][1], marginTop: 6 } }, "Needs " + WHOT_SH[s.want][0]) : gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", marginTop: 6 } }, "Play pile"))),
+    s.pend > 0 ? gh("div", { style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#FF4FA3", marginBottom: 3 } }, s.nx === you ? "Pick " + s.pend + " is coming! Play a " + s.pk + " or pick." : "Opponent must play a " + s.pk + " or pick " + s.pend + ".") : null,
+    note ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 3 } }, note) : null,
+    pick ? gh("div", { style: { ...GLASS, padding: 8, marginBottom: 4, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginBottom: 8 } }, "Call a shape"), gh("div", { style: { display: "flex", justifyContent: "center", gap: 8 } }, WHOT_SH.map(([g, col], k) => gh("button", { key: k, onClick: () => { setPick(false); setLc(false); onTap(520 + 1000 * (k + 1) + call); }, "aria-label": "Call " + ["circle", "triangle", "cross", "square", "star"][k], style: { width: 48, height: 48, borderRadius: 14, border: "2px solid " + col, background: "rgba(255,255,255,.06)", color: col, fontSize: 24, cursor: "pointer" } }, g))), gh("button", { onClick: () => setPick(false), style: { background: "none", border: "none", color: "#9BA7B4", fontFamily: "Inter", fontSize: 12.5, marginTop: 8, cursor: "pointer" } }, "Cancel")) : null,
+    myTurn && hand.length === 2 && ids.size ? gh("button", { onClick: () => setLc(!lc), "aria-pressed": lc, style: { display: "block", margin: "2px auto 0", padding: "8px 18px", borderRadius: 999, border: "2px solid " + (lc ? "#F5B83D" : "rgba(255,255,255,.25)"), background: lc ? "rgba(245,184,61,.2)" : "rgba(255,255,255,.06)", color: lc ? "#F5B83D" : "#C9D1DC", fontFamily: "Sora", fontWeight: 800, fontSize: 13, cursor: "pointer" } }, lc ? "✋ Last card! (called)" : "Tap to call Last card before you play") : null,
+    gh("div", { style: { display: "flex", justifyContent: "center", padding: "12px 4px 4px" } }, hand.map((c, i) => gh(WhotCard, { key: i + "-" + c, c, sc, ml: i ? step - cw : 0, can: ids.has(c), onClick: () => tapCard(c) }))),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "center", padding: "2px 0" } }, !myTurn ? "Waiting for the other player." : s.pend > 0 ? "Play a " + s.pk + " to pass it on, or tap the market." : ids.size ? "Tap a raised card to play it, or tap the market." : "No card fits. Tap the market to pick one."));
+}
+
+// ---- Chess: robot brain and board ----
+const CH_VAL = [0, 100, 320, 330, 500, 900, 0];
+function chEval(b) {
+  let v = 0;
+  for (let i = 0; i < 64; i++) {
+    const x = b[i]; if (x == null) continue; const t = x & 7, o = x >> 3, r = i >> 3, c = i & 7, cen = 7 - Math.abs(c - 3.5) - Math.abs(r - 3.5);
+    let sc = CH_VAL[t]; if (t === 1) sc += (o === 0 ? 6 - r : r - 1) * 6 + (c > 1 && c < 6 ? cen : 0); else if (t === 2 || t === 3) sc += cen * 4;
+    v += o === 0 ? sc : -sc;
+  }
+  return v;
+}
+const chOrder = (s, mv) => mv.map((m) => { const f = (m % 4096) >> 6, t = m & 63, cp = s.b[t]; return [m, (cp != null ? CH_VAL[cp & 7] * 10 - CH_VAL[s.b[f] & 7] : 0) + (m >= 4096 ? 800 : 0)]; }).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+function chQ(s, a, bt, qd, ctx) {
+  const p = s.nx, e = chEval(s.b), stand = p === 0 ? e : -e;
+  if (stand >= bt) return stand; if (stand > a) a = stand; if (qd === 0) return stand;
+  for (const m of chOrder(s, chLegal(s, p).filter((x) => s.b[x & 63] != null))) { const v = -chQ(chApply(s, m), -bt, -a, qd - 1, ctx); if (v >= bt) return v; if (v > a) a = v; }
+  return a;
+}
+function chSearch(s, d, a, bt, ply, ctx) {
+  if ((++ctx.n & 255) === 0 && Date.now() > ctx.t) throw ctx;
+  const p = s.nx, mv = chLegal(s, p);
+  if (!mv.length) return chAtt(s.b, chKing(s.b, p), 1 - p) ? -30000 + ply : 0;
+  if (s.hm >= 100) return 0; if (d === 0) return chQ(s, a, bt, 2, ctx);
+  let best = -1e9;
+  for (const m of chOrder(s, mv)) { const v = -chSearch(chApply(s, m), d - 1, -bt, -a, ply + 1, ctx); if (v > best) best = v; if (best > a) a = best; if (a >= bt) break; }
+  return best;
+}
+function chPick(s, me, level) {
+  const mv = chLegal(s, me);
+  if (Math.random() < [0.45, 0.15, 0.03, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  const ctx = { n: 0, t: Date.now() + [150, 450, 900, 1500][level] }; let best = chOrder(s, mv)[0], order = chOrder(s, mv);
+  for (let d = 1; d <= [1, 2, 3, 5][level]; d++) {
+    try {
+      let bv = -1e9, bm = order[0]; const scored = [];
+      for (const m of order) { const v = -chSearch(chApply(s, m), d - 1, -1e9, 1e9, 1, ctx) + Math.random() * [40, 15, 4, 1][level]; scored.push([m, v]); if (v > bv) { bv = v; bm = m; } }
+      best = bm; order = scored.sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+      if (bv > 20000) break;
+    } catch (e) { if (e !== ctx) throw e; break; }
+  }
+  return best;
+}
+function ChessBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const [sel, setSel] = useState(null), [promo, setPromo] = useState(null);
+  const legal = myTurn ? chLegal(s, you) : [], froms = new Set(legal.map((m) => (m % 4096) >> 6)), cur = sel != null && froms.has(sel) ? sel : null;
+  const xy = (i) => { const r = i >> 3, c = i & 7; return you === 1 ? [7 - c, 7 - r] : [c, r]; };
+  const inCheck = chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx), kingSq = chKing(s.b, s.nx), G = ["", "♟", "♞", "♝", "♜", "♛", "♚"];
+  const handle = (i) => {
+    if (!myTurn) return;
+    const vs = cur != null ? legal.filter((m) => m % 4096 === cur * 64 + i) : [];
+    if (vs.length) { setSel(null); if (vs.length > 1) setPromo(cur * 64 + i); else onTap(vs[0]); return; }
+    setSel(froms.has(i) ? i : null);
+  };
+  const kids = [];
+  for (let i = 0; i < 64; i++) {
+    const [x, y] = xy(i), dark = ((i >> 3) + (i & 7)) % 2 === 1, dest = cur != null && legal.some((m) => m % 4096 === cur * 64 + i), isLast = s.lm != null && (i === s.lm >> 6 || i === (s.lm & 63));
+    kids.push(gh("rect", { key: "q" + i, x, y, width: 1, height: 1, fill: dark ? "#16202E" : "#27364D", onClick: () => handle(i), style: { cursor: myTurn && (dest || froms.has(i)) ? "pointer" : "default" }, "aria-label": "abcdefgh"[i & 7] + (8 - (i >> 3)) }));
+    if (isLast) kids.push(gh("rect", { key: "l" + i, x, y, width: 1, height: 1, fill: "rgba(245,184,61,.2)", style: { pointerEvents: "none" } }));
+    if (inCheck && i === kingSq) kids.push(gh("circle", { key: "k" + i, cx: x + 0.5, cy: y + 0.5, r: 0.48, fill: "rgba(255,70,70,.5)", style: { pointerEvents: "none" } }));
+    if (cur === i) kids.push(gh("rect", { key: "s" + i, x: x + 0.04, y: y + 0.04, width: 0.92, height: 0.92, fill: "none", stroke: "#fff", strokeWidth: 0.07, style: { pointerEvents: "none" } }));
+    if (dest) kids.push(s.b[i] != null ? gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.44, fill: "none", stroke: "#F5B83D", strokeWidth: 0.09, style: { pointerEvents: "none" } }) : gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.16, fill: "#F5B83D", style: { pointerEvents: "none" } }));
+  }
+  s.b.forEach((v, i) => { if (v == null) return; const [x, y] = xy(i), o = v >> 3; kids.push(gh("text", { key: "p" + i, x: x + 0.5, y: y + 0.78, fontSize: 0.86, textAnchor: "middle", fill: o ? "#1A1030" : "#F5F7FA", stroke: o ? "#FF4FA3" : "#35D0BA", strokeWidth: 0.035, style: { pointerEvents: "none", userSelect: "none" } }, G[v & 7] + "\uFE0E")); });
+  const side = sideOf(fit, 26);
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh("div", { style: { position: "relative" } },
+      gh(GameFrame, { color: gameColor("chess") }, gh("svg", { viewBox: "0 0 8 8", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
+      promo != null ? gh("div", { style: { ...GLASS, position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 3, background: "rgba(11,15,22,.95)", padding: 10, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", marginBottom: 6 } }, "Promote your pawn to"), gh("div", { style: { display: "flex", gap: 8, justifyContent: "center" } }, [5, 4, 3, 2].map((t) => gh("button", { key: t, onClick: () => { const m = promo + 4096 * t; setPromo(null); onTap(m); }, "aria-label": ["", "", "Knight", "Bishop", "Rook", "Queen"][t], style: { width: 48, height: 48, borderRadius: 14, border: "1px solid #F5B83D", background: "rgba(255,255,255,.07)", color: "#F5F7FA", fontSize: 28, cursor: "pointer" } }, G[t] + "\uFE0E")))) : null),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: inCheck ? "#FF8A8A" : "#C9D1DC", textAlign: "center", padding: "6px 0 0", height: 20, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (inCheck ? "Check! " : "") + (!myTurn ? "Waiting for the other player." : cur != null ? "Tap a gold dot to move there." : "Tap one of your pieces.")));
+}
+
+// ---- Turbo Racer: real-time racing. Both drivers get the same track (built from a seed); first across the line wins. ----
+const RACE = { vmax: 45, accel: 30, len: 1800 };
+function raceItems(seed, len) {
+  let a = seed >>> 0;
+  const rnd = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const it = [];
+  for (let d = 150; d < len - 100; d += 30) {
+    const r = rnd(), dd = d + rnd() * 8, lanes = [0, 1, 2, 3];
+    for (let i = 3; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const x = lanes[i]; lanes[i] = lanes[j]; lanes[j] = x; }
+    if (r < 0.36) { const n = rnd() < 0.3 ? 2 : 1; for (let k = 0; k < n; k++) it.push({ d: dd, l: lanes[k], t: rnd() < 0.6 ? "car" : "cone" }); }
+    else if (r < 0.5) it.push({ d: dd, l: lanes[0], t: "oil" });
+    else if (r < 0.64) it.push({ d: dd, l: lanes[0], t: "boost" });
+    else if (r < 0.74) it.push({ d: dd, l: lanes[0], t: "nitro" });
+  }
+  return it;
+}
+const raceCar = (n) => ({ d: 0, x: 1.5, l: 1, v: 0, crash: 0, oil: 0, boost: 0, nt: 0, nitro: 1, hit: new Uint8Array(n), i: 0, draft: false });
+const raceDraft = (c, o) => { const g = o.d - c.d; return g > 3.5 && g < 24 && Math.abs(o.x - c.x) < 0.7; };
+// one physics step for any car (you, the robot). inp = { lane: 0..3 or null, nitro: bool }, vm = speed multiplier. Returns "crash" / "boost" / "nitro" / "oil" or null.
+function raceStep(c, dt, items, inp, vm, draft) {
+  if (inp.nitro && c.nitro > 0 && c.nt <= 0) { c.nitro--; c.nt = 2; }
+  if (inp.lane != null && c.oil <= 0 && c.crash <= 0) c.l = Math.max(0, Math.min(3, inp.lane));
+  const dx = c.l - c.x, st = 6.5 * dt; c.x += Math.abs(dx) <= st ? dx : Math.sign(dx) * st;
+  c.crash = Math.max(0, c.crash - dt); c.oil = Math.max(0, c.oil - dt); c.boost = Math.max(0, c.boost - dt); c.nt = Math.max(0, c.nt - dt);
+  const tv = RACE.vmax * vm * (c.crash > 0 ? 0.4 : c.oil > 0 ? 0.7 : 1) * (c.boost > 0 ? 1.45 : 1) * (c.nt > 0 ? 1.35 : 1) * (draft ? 1.08 : 1);
+  c.v += Math.sign(tv - c.v) * Math.min(Math.abs(tv - c.v), (tv > c.v ? RACE.accel : 70) * dt);
+  c.d += c.v * dt;
+  while (c.i < items.length && items[c.i].d < c.d - 6) c.i++;
+  let ev = null;
+  for (let k = c.i; k < items.length && items[k].d < c.d + 3.5; k++) {
+    const it = items[k];
+    if (c.hit[k] || it.d < c.d - 3.5 || Math.abs(c.x - it.l) > 0.62) continue;
+    c.hit[k] = 1;
+    if (it.t === "car" || it.t === "cone") { if (c.crash <= 0) { c.crash = it.t === "car" ? 0.9 : 0.5; c.v *= 0.35; ev = "crash"; } }
+    else if (it.t === "oil") { c.oil = 1; ev = ev || "oil"; }
+    else if (it.t === "boost") { c.boost = 1.4; ev = ev || "boost"; }
+    else if (it.t === "nitro") { c.nitro = Math.min(3, c.nitro + 1); ev = ev || "nitro"; }
+  }
+  return ev;
+}
+// robot driver: looks ahead, picks the safest lane (and likes boost pads / nitro), sometimes misses things on lower levels
+function raceBotThink(b, items, level) {
+  const look = [16, 22, 28, 34][level] + b.v * 0.2, att = [0.55, 0.78, 0.92, 0.99][level];
+  const danger = [0, 0, 0, 0], bonus = [0, 0, 0, 0];
+  for (let k = b.i; k < items.length && items[k].d < b.d + look; k++) {
+    const it = items[k]; if (b.hit[k] || it.d < b.d + 1) continue;
+    if (it.t === "car" || it.t === "cone") danger[it.l] += 2; else if (it.t === "oil") danger[it.l] += 0.8; else bonus[it.l] += it.t === "nitro" ? 1.2 : 1;
+  }
+  let lane = null;
+  if (Math.random() < att) {
+    let best = 1e9;
+    for (let l = 0; l < 4; l++) { const cost = danger[l] * 10 - bonus[l] * 3 + Math.abs(l - b.l) * 1.6 + Math.random() * [3, 1.5, 0.6, 0.15][level]; if (cost < best) { best = cost; lane = l; } }
+    if (lane === b.l) lane = null;
+  }
+  const nitro = b.nitro > 0 && b.nt <= 0 && b.crash <= 0 && danger[b.l] === 0 && Math.random() < [0.02, 0.08, 0.18, 0.3][level];
+  return { lane, nitro };
+}
+const RACE_BOT_SPEED = [0.84, 0.92, 0.97, 1];
+const fmtRace = (s) => (s == null ? "–" : s.toFixed(1) + "s");
+
+function RaceRoom({ cfg, socket, myId, onExit, active }) {
+  const robot = cfg.mode === "robot";
+  const [g, setG] = useState(() => ({ you: cfg.you, players: cfg.players, score: cfg.score || [0, 0], seed: robot ? (Math.random() * 2147483647) | 0 : cfg.state.seed, len: robot ? RACE.len : cfg.state.len, round: 0, over: false, winner: null, reward: null, times: null, myTime: null, best: null, asked: false, theyAsked: false, gone: false, note: "" }));
+  const [stat, setStat] = useState("Get ready…");
+  const [msgs, setMsgs] = useState([]); const [text, setText] = useState(""); const [floats, setFloats] = useState([]);
+  const gRef = useRef(g); gRef.current = g;
+  const [fitRef, box] = useFit(), [rules, setRules] = useState(false), gc = gameColor("race");
+  const cv = useRef(null), ctl = useRef({}), sRef = useRef(null), actRef = useRef(active); actRef.current = active;
+  const float = (e) => { const id = Math.random(); setFloats((f) => [...f, { id, e, x: 15 + Math.random() * 70 }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800); };
+
+  useEffect(() => {
+    const G = gRef.current, items = raceItems(G.seed, G.len), you = G.you, len = G.len, level = cfg.level || 0, canvas = cv.current, ctx = canvas.getContext("2d");
+    const dpr = Math.min(2, window.devicePixelRatio || 1), W = 360, H = 500, PX = 5.6, PY = H - 115, LW = 74, RX = (W - 4 * LW) / 2, cx = (l) => RX + (l + 0.5) * LW;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const COL = [PCOL[you], PCOL[1 - you]];
+    const me = raceCar(items.length), opp = raceCar(items.length), bot = { t: 0, inp: { lane: null, nitro: false } };
+    me.l = me.x = you ? 2 : 1; opp.l = opp.x = you ? 1 : 2;
+    const S = { phase: robot ? "count" : "wait", t0: performance.now(), last: performance.now(), tm: 0, want: null, nit: false, shake: 0, sent: false, done: false, sendT: 0, R: null };
+    sRef.current = S; setStat("Get ready…");
+    const move = (dir) => { if (S.phase === "go") S.want = Math.max(0, Math.min(3, me.l + dir)); };
+    const boost = () => { if (S.phase === "go") S.nit = true; };
+    ctl.current = { move, boost };
+    const onKey = (e) => {
+      if (/^(input|textarea)$/i.test((e.target && e.target.tagName) || "")) return; const k = e.key;
+      if (k === "ArrowLeft" || k === "a" || k === "A") { e.preventDefault(); move(-1); }
+      else if (k === "ArrowRight" || k === "d" || k === "D") { e.preventDefault(); move(1); }
+      else if (k === " " || k === "ArrowUp" || k === "w" || k === "W" || k === "Shift") { e.preventDefault(); boost(); }
+    };
+    window.addEventListener("keydown", onKey);
+    const onPos = (d) => { if (d.room === cfg.room) S.R = { d: d.d, x: d.x, v: d.v, c: d.c, n: d.n, at: performance.now() }; };
+    const onGo = (d) => { if (d.room === cfg.room && S.phase === "wait") { S.phase = "go"; S.last = performance.now(); setStat("Racing!"); } };
+    if (!robot && socket) { socket.on("race:pos", onPos); socket.on("race:go", onGo); }
+
+    const endRobot = (w) => { // w: 0 = you crossed first, 1 = the robot did
+      if (S.done) return; S.done = true; S.phase = "over";
+      const cur = gRef.current, score = cur.score.slice(); score[w === 0 ? cur.you : 1 - cur.you] += 1;
+      let best = null;
+      if (w === 0) { try { best = loadJSON("race:best", null); if (best == null || S.tm < best) { best = S.tm; saveJSON("race:best", best); } } catch (e) {} }
+      setG((p) => ({ ...p, over: true, winner: w === 0 ? p.you : 1 - p.you, score, myTime: w === 0 ? S.tm : null, best }));
+      setStat("Race over");
+      if (socket) socket.emit("game:solo", { game: "race", level, result: w === 0 ? "w" : "l" }, (r) => r && setG((p) => ({ ...p, reward: r })));
+    };
+
+    const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+    const drawCar = (x, y, col, o) => {
+      ctx.save(); ctx.globalAlpha = o.a == null ? 1 : o.a; ctx.translate(x, y); if (o.tilt) ctx.rotate(o.tilt);
+      if (o.flame) { const f = 14 + Math.random() * 14, gr = ctx.createLinearGradient(0, 28, 0, 28 + f); gr.addColorStop(0, "#FFF3B0"); gr.addColorStop(0.5, "#35D0FF"); gr.addColorStop(1, "rgba(53,160,255,0)"); ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(-7, 27); ctx.lineTo(0, 28 + f); ctx.lineTo(7, 27); ctx.closePath(); ctx.fill(); }
+      ctx.fillStyle = "#05070A"; ctx.fillRect(-20, -22, 7, 14); ctx.fillRect(13, -22, 7, 14); ctx.fillRect(-20, 10, 7, 14); ctx.fillRect(13, 10, 7, 14);
+      if (o.glow) { ctx.shadowColor = col; ctx.shadowBlur = 18; }
+      ctx.fillStyle = col; rr(-14, -30, 28, 60, 9); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(255,255,255,.28)"; ctx.fillRect(-2.5, -30, 5, 60);
+      ctx.fillStyle = "#0B0F16"; rr(-9, -9, 18, 18, 5); ctx.fill(); ctx.fillStyle = "rgba(160,220,255,.5)"; rr(-7, -8, 14, 6, 3); ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,.45)"; rr(-15, 24, 30, 5, 2); ctx.fill();
+      ctx.fillStyle = "#FFE9A0"; ctx.fillRect(-10, -29, 5, 3); ctx.fillRect(5, -29, 5, 3);
+      ctx.restore();
+    };
+    const draw = (now) => {
+      const t = now / 1000, camD = me.d, yOf = (d) => PY - (d - camD) * PX;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = "#070A10"; ctx.fillRect(0, 0, W, H);
+      ctx.save(); if (S.shake > 0) ctx.translate((Math.random() - 0.5) * S.shake * 16, (Math.random() - 0.5) * S.shake * 16);
+      ctx.fillStyle = "#0C1219"; ctx.fillRect(-10, 0, RX + 10, H); ctx.fillRect(RX + 4 * LW, 0, RX + 10, H);
+      const rg = ctx.createLinearGradient(RX, 0, RX + 4 * LW, 0); rg.addColorStop(0, "#151B25"); rg.addColorStop(0.5, "#1D2533"); rg.addColorStop(1, "#151B25"); ctx.fillStyle = rg; ctx.fillRect(RX, 0, 4 * LW, H);
+      for (let dd = Math.floor((camD - (H - PY) / PX - 8) / 8) * 8; yOf(dd) > -8 * PX; dd += 8) { const y = yOf(dd); ctx.fillStyle = (dd / 8) & 1 ? "#FF4FA3" : "#F5F7FA"; ctx.fillRect(RX - 5, y - 8 * PX, 5, 8 * PX); ctx.fillRect(RX + 4 * LW, y - 8 * PX, 5, 8 * PX); }
+      ctx.fillStyle = "rgba(255,255,255,.22)";
+      for (let i = 1; i < 4; i++) for (let dd = Math.floor((camD - (H - PY) / PX - 7) / 7) * 7; yOf(dd) > -7 * PX; dd += 7) ctx.fillRect(RX + i * LW - 1.5, yOf(dd) - 3 * PX, 3, 3 * PX);
+      [[0, "START"], [len, "FINISH"]].forEach(([d, label]) => { const y = yOf(d); if (y < -40 || y > H + 40) return; for (let r = 0; r < 2; r++) for (let c = 0; c < (4 * LW) / 12; c++) { ctx.fillStyle = (r + c) % 2 ? "#F5F7FA" : "#0B0F16"; ctx.fillRect(RX + c * 12, y - 12 + r * 12, 12, 12); } ctx.fillStyle = "#F5B83D"; ctx.font = "800 13px Sora, sans-serif"; ctx.textAlign = "center"; ctx.fillText(label, W / 2, y - 18); });
+      for (let k = 0; k < items.length && items[k].d < camD + PY / PX + 8; k++) {
+        const it = items[k], y = yOf(it.d); if (y > H + 40 || y < -40) continue; const x = cx(it.l);
+        if ((it.t === "boost" || it.t === "nitro") && me.hit[k]) continue;
+        if (it.t === "car") { ctx.fillStyle = ["#8A94A6", "#B08A5A", "#6B8FB0", "#9A7BB8"][k % 4]; rr(x - 15, y - 28, 30, 56, 8); ctx.fill(); ctx.fillStyle = "#0B0F16"; rr(x - 10, y - 12, 20, 16, 4); ctx.fill(); ctx.fillStyle = "#FF3B3B"; ctx.fillRect(x - 12, y + 24, 6, 3); ctx.fillRect(x + 6, y + 24, 6, 3); }
+        else if (it.t === "cone") { ctx.fillStyle = "#FF8A3D"; ctx.beginPath(); ctx.moveTo(x, y - 17); ctx.lineTo(x + 14, y + 14); ctx.lineTo(x - 14, y + 14); ctx.closePath(); ctx.fill(); ctx.fillStyle = "#F5F7FA"; ctx.fillRect(x - 8, y + 1, 16, 5); }
+        else if (it.t === "oil") { ctx.fillStyle = "#04060A"; ctx.beginPath(); ctx.ellipse(x, y, 30, 22, 0, 0, 7); ctx.fill(); ctx.fillStyle = "rgba(139,92,246,.35)"; ctx.beginPath(); ctx.ellipse(x - 6, y - 5, 14, 7, 0.4, 0, 7); ctx.fill(); }
+        else if (it.t === "boost") { ctx.fillStyle = "rgba(53,208,255,.16)"; rr(x - 26, y - 30, 52, 60, 8); ctx.fill(); ctx.strokeStyle = "#35D0FF"; ctx.lineWidth = 4; ctx.lineCap = "round"; for (let a = 0; a < 3; a++) { const yy = y + 14 - a * 14 - ((t * 40) % 14); ctx.beginPath(); ctx.moveTo(x - 14, yy + 8); ctx.lineTo(x, yy - 4); ctx.lineTo(x + 14, yy + 8); ctx.stroke(); } }
+        else { ctx.shadowColor = "#F5B83D"; ctx.shadowBlur = 14; ctx.fillStyle = "#F5B83D"; ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = "#0B0F16"; ctx.beginPath(); ctx.moveTo(x + 3, y - 10); ctx.lineTo(x - 6, y + 2); ctx.lineTo(x, y + 2); ctx.lineTo(x - 3, y + 10); ctx.lineTo(x + 6, y - 2); ctx.lineTo(x, y - 2); ctx.closePath(); ctx.fill(); }
+      }
+      if (me.v > 50) { ctx.fillStyle = "rgba(255,255,255,.09)"; for (let i = 0; i < 12; i++) ctx.fillRect(RX + ((i * 97) % (4 * LW)), (t * 500 * (me.v / 45) + i * 83) % H, 2, 30 + me.v * 0.5); }
+      const oy = PY - (opp.d - camD) * PX, ox = cx(opp.x), wob = (c) => (c.crash > 0 ? Math.sin(t * 40) * 0.25 : c.oil > 0 ? Math.sin(t * 18) * 0.12 : 0);
+      if (oy > -40 && oy < H + 40) drawCar(ox, oy, COL[1], { a: 0.95, tilt: wob(opp), flame: opp.nt > 0, glow: opp.boost > 0 || opp.nt > 0 });
+      else { const ahead = oy < 0, yy = ahead ? 62 : H - 14; ctx.fillStyle = COL[1]; ctx.beginPath(); if (ahead) { ctx.moveTo(ox, yy - 8); ctx.lineTo(ox + 9, yy + 6); ctx.lineTo(ox - 9, yy + 6); } else { ctx.moveTo(ox, yy + 6); ctx.lineTo(ox + 9, yy - 8); ctx.lineTo(ox - 9, yy - 8); } ctx.closePath(); ctx.fill(); ctx.font = "700 11px Inter, sans-serif"; ctx.textAlign = "left"; ctx.fillText((Math.abs(opp.d - me.d) | 0) + " m", ox + 13, yy + 4); }
+      drawCar(cx(me.x), PY, COL[0], { tilt: wob(me), flame: me.nt > 0, glow: true });
+      if (me.crash > 0) { ctx.fillStyle = "rgba(255,60,60," + 0.25 * Math.min(1, me.crash) + ")"; ctx.fillRect(-10, -10, W + 20, H + 20); }
+      if (me.boost > 0 || me.nt > 0) { const g2 = ctx.createLinearGradient(0, 0, 0, H); g2.addColorStop(0, "rgba(53,208,255,.0)"); g2.addColorStop(1, "rgba(53,208,255,.22)"); ctx.fillStyle = g2; ctx.fillRect(-10, -10, W + 20, H + 20); }
+      ctx.restore();
+      // HUD
+      const pct = (c) => Math.max(0, Math.min(1, c.d / len)), bx = 18, bw = W - 36;
+      ctx.fillStyle = "rgba(255,255,255,.14)"; rr(bx, 12, bw, 7, 3.5); ctx.fill(); ctx.fillStyle = COL[0]; rr(bx, 12, Math.max(7, bw * pct(me)), 7, 3.5); ctx.fill();
+      [[opp, COL[1]], [me, COL[0]]].forEach(([c, col]) => { ctx.fillStyle = col; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bx + bw * pct(c), 15.5, 7, 0, 7); ctx.fill(); ctx.stroke(); });
+      const lead = me.d >= opp.d; ctx.textAlign = "left"; ctx.fillStyle = lead ? "#F5B83D" : "#F5F7FA"; ctx.font = "800 24px Sora, sans-serif"; ctx.fillText(lead ? "1st" : "2nd", 18, 50);
+      ctx.font = "600 12px Inter, sans-serif"; ctx.fillStyle = "#C9D1DC"; ctx.fillText((Math.abs(me.d - opp.d) | 0) + " m " + (lead ? "ahead" : "behind"), 18, 66);
+      ctx.textAlign = "right"; ctx.font = "700 13px Sora, sans-serif"; ctx.fillStyle = "#F5F7FA"; ctx.fillText(Math.max(0, len - me.d | 0) + " m to go", W - 18, 50);
+      ctx.textAlign = "left"; ctx.font = "800 20px Sora, sans-serif"; ctx.fillStyle = "#F5F7FA"; ctx.fillText((me.v * 4 | 0) + "", 14, H - 14); ctx.font = "600 11px Inter, sans-serif"; ctx.fillStyle = "#8891A0"; ctx.fillText("km/h", 14 + ((me.v * 4 | 0) + "").length * 12 + 4, H - 14);
+      ctx.textAlign = "right"; ctx.font = "700 11px Inter, sans-serif"; ctx.fillStyle = "#8891A0"; ctx.fillText("NITRO", W - 62, H - 14);
+      for (let i = 0; i < 3; i++) { ctx.fillStyle = i < me.nitro ? "#F5B83D" : "rgba(255,255,255,.18)"; rr(W - 56 + i * 14, H - 26, 11, 14, 3); ctx.fill(); }
+      if (me.draft && S.phase === "go") { ctx.textAlign = "center"; ctx.font = "800 12px Sora, sans-serif"; ctx.fillStyle = "#35D0FF"; ctx.fillText("SLIPSTREAM", W / 2, 90); }
+      ctx.textAlign = "center"; ctx.font = "800 64px Sora, sans-serif"; ctx.shadowColor = "#8B5CF6"; ctx.shadowBlur = 24; ctx.fillStyle = "#F5F7FA";
+      if (S.phase === "count") { const e = (now - S.t0) / 1000; ctx.fillText(e < 3 ? String(Math.ceil(3 - e)) : "GO!", W / 2, H / 2 - 30); }
+      else if (S.phase === "wait") { ctx.font = "800 28px Sora, sans-serif"; ctx.fillText("GET READY…", W / 2, H / 2 - 30); }
+      else if (S.phase === "go" && S.tm < 0.7) ctx.fillText("GO!", W / 2, H / 2 - 30);
+      ctx.shadowBlur = 0;
+    };
+
+    let raf;
+    const frame = (now) => {
+      raf = requestAnimationFrame(frame);
+      if (robot && !actRef.current) { S.last = now; return; }
+      const dt = Math.min(0.05, Math.max(0, (now - S.last) / 1000)); S.last = now;
+      if (S.phase === "count" && now - S.t0 > 3200) { S.phase = "go"; setStat("Racing!"); }
+      if (S.phase === "go" || S.phase === "fin") {
+        S.tm += dt;
+        const dr = raceDraft(me, opp), ev = raceStep(me, dt, items, { lane: S.want, nitro: S.nit }, 1, dr); S.want = null; S.nit = false; me.draft = dr;
+        if (ev === "crash") { S.shake = 0.4; try { navigator.vibrate && navigator.vibrate(70); } catch (e) {} }
+        if (robot) {
+          bot.t -= dt; if (bot.t <= 0) { bot.t = 0.09; bot.inp = raceBotThink(opp, items, level); }
+          const inn = bot.inp; bot.inp = { lane: inn.lane, nitro: false };
+          raceStep(opp, dt, items, inn, RACE_BOT_SPEED[level], raceDraft(opp, me));
+          if (S.phase === "go") { if (me.d >= len) endRobot(0); else if (opp.d >= len) endRobot(1); }
+        } else {
+          const R = S.R;
+          if (R) { const est = R.d + R.v * (now - R.at) / 1000; opp.d += (est - opp.d) * Math.min(1, dt * 10); opp.x += (R.x - opp.x) * Math.min(1, dt * 12); opp.v = R.v; opp.crash = R.c ? 0.3 : 0; opp.nt = R.n ? 1 : 0; }
+          if (!S.sent && socket) {
+            S.sendT -= dt;
+            if (me.d >= len) { S.sent = true; S.phase = "fin"; setStat("Finished! Waiting for the result…"); socket.emit("race:pos", { room: cfg.room, d: me.d, x: me.x, v: me.v, c: 0, n: 0 }); socket.emit("race:finish", { room: cfg.room }); }
+            else if (S.sendT <= 0) { S.sendT = 0.1; socket.emit("race:pos", { room: cfg.room, d: me.d, x: me.x, v: me.v, c: me.crash > 0 ? 1 : 0, n: me.nt > 0 ? 1 : 0 }); }
+          }
+        }
+      }
+      if (S.shake > 0) S.shake = Math.max(0, S.shake - dt);
+      draw(now);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("keydown", onKey); if (!robot && socket) { socket.off("race:pos", onPos); socket.off("race:go", onGo); } };
+  }, [g.round]);
+
+  useEffect(() => {
+    if (robot || !socket) return;
+    const mine = (d) => d.room === cfg.room;
+    const hs = {
+      "game:over": (d) => { if (!mine(d)) return; if (sRef.current) sRef.current.phase = "over"; setStat("Race over"); setG((p) => ({ ...p, over: true, winner: d.winner, score: d.score, reward: d.reward, times: d.times, note: d.forfeit ? "Your opponent left, so you win." : "" })); },
+      "game:chat": (d) => mine(d) && setMsgs((m) => [...m.slice(-40), d]),
+      "game:react": (d) => mine(d) && float(d.emoji),
+      "game:rematch-request": (d) => mine(d) && setG((p) => ({ ...p, theyAsked: true })),
+      "game:start": (d) => { if (mine(d) && d.rematch) setG((p) => ({ you: d.you, players: d.players, score: d.score, seed: d.state.seed, len: d.state.len, round: p.round + 1, over: false, winner: null, reward: null, times: null, myTime: null, best: null, asked: false, theyAsked: false, gone: false, note: "" })); },
+      "game:left": (d) => mine(d) && setG((p) => ({ ...p, gone: true })),
+    };
+    for (const k in hs) socket.on(k, hs[k]);
+    return () => { for (const k in hs) socket.off(k, hs[k]); };
+  }, []);
+
+  const rematch = () => {
+    if (robot) { setG((p) => ({ ...p, you: 1 - p.you, players: [p.players[1], p.players[0]], score: [p.score[1], p.score[0]], seed: (Math.random() * 2147483647) | 0, round: p.round + 1, over: false, winner: null, reward: null, myTime: null, best: null, note: "" })); return; }
+    setG((p) => ({ ...p, asked: true })); socket.emit("game:rematch", { room: cfg.room });
+  };
+  const send = () => { const t = text.trim(); if (!t) return; socket.emit("game:chat", { room: cfg.room, text: t }); setText(""); };
+  const react = (e) => (robot ? float(e) : socket.emit("game:react", { room: cfg.room, emoji: e }));
+  const chip = (i) => {
+    const p = g.players[i];
+    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)" } },
+      gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
+      gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
+        gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, i === g.you ? "You" : p.name),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (i ? "Pink" : "Teal") + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 20, color: "#F5F7FA" } }, g.score[i]));
+  };
+  const won = g.over && g.winner === g.you, draw = g.over && g.winner === -1;
+  const verdict = !g.over ? null : draw ? "It's a draw" : won ? "🏆 You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
+  const tline = !g.over ? "" : robot ? (g.myTime != null ? "Your time " + fmtRace(g.myTime) + (g.best != null ? " · Best " + fmtRace(g.best) : "") : "Better luck next lap") : g.times ? "You " + fmtRace(g.times[g.you] == null ? null : g.times[g.you] / 1000) + " · Them " + fmtRace(g.times[1 - g.you] == null ? null : g.times[1 - g.you] / 1000) : "";
+  const ctlBtn = (label, onDown, o = {}) => gh("button", { onPointerDown: (e) => { e.preventDefault(); onDown(); }, "aria-label": o.aria || label, style: { flex: o.flex || 1, height: 48, borderRadius: 16, border: "1px solid " + (o.col || "rgba(255,255,255,.16)"), background: o.bg || "rgba(255,255,255,.07)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 800, fontSize: o.fs || 24, cursor: "pointer", touchAction: "manipulation", userSelect: "none", WebkitUserSelect: "none", boxShadow: o.glow || "none" } }, label);
+  const cH = Math.max(160, Math.floor(Math.min(box.h - 6 - 20 - 58, (box.w - 24 - 20) * 500 / 360))), cW = Math.floor(cH * 360 / 500);
+  return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #2A1030 0%, #0B0F16 60%)") },
+    gh("div", { style: { display: "flex", gap: 8, padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
+    hubStatusRow(() => setRules(true), gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : stat)),
+    g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
+    gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative", gap: 8 } },
+      gh("div", { style: { position: "relative" } }, gh(GameFrame, { color: gc }, gh("div", { style: { position: "relative" } },
+        gh("canvas", { ref: cv, "aria-label": "Race track", onPointerDown: (e) => { const r = e.currentTarget.getBoundingClientRect(); ctl.current.move && ctl.current.move(e.clientX - r.left < r.width / 2 ? -1 : 1); }, style: { width: cW, height: cH, display: "block", borderRadius: 10, touchAction: "none" } }),
+        g.over ? gh("div", { style: { position: "absolute", inset: 0, borderRadius: 10, background: "rgba(7,10,16,.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 26, color: "#F5F7FA" } }, verdict), gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#C9D1DC" } }, tline)) : null,
+        floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e))))),
+      gh("div", { style: { display: "flex", gap: 10, width: cW + 20 } },
+        ctlBtn("◀", () => ctl.current.move && ctl.current.move(-1), { aria: "Move left" }),
+        ctlBtn("⚡ NITRO", () => ctl.current.boost && ctl.current.boost(), { flex: 1.6, fs: 15, col: "#F5B83D", bg: "rgba(245,184,61,.16)", glow: "0 0 16px rgba(245,184,61,.4)", aria: "Use nitro" }),
+        ctlBtn("▶", () => ctl.current.move && ctl.current.move(1), { aria: "Move right" })),
+      rules ? gh(RulesSheet, { game: "race", color: gc, onClose: () => setRules(false) }) : null),
+    gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } },
+      gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } }, ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e))),
+      robot ? null : gh("div", null,
+        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Talk some trash while you race.")),
+        gh("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+          gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Race chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
+          hubBtn("Send", send, { small: true }))),
+      gh("div", { style: { display: "flex", gap: 10 } },
+        hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
+        hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
 }
 
 function hubBtn(label, onClick, o = {}) {
@@ -1400,6 +2036,7 @@ function PlayerCard({ p, onPlay, onChallenge }) {
 // ---- the game room: board, avatars, score, turn, live chat, reactions, rematch, exit ----
 function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
   const R = GAME_RULES[cfg.game], robot = cfg.mode === "robot";
+  const [fitRef, box] = useFit(), [rules, setRules] = useState(false), fit = { w: box.w - 24, h: box.h - 6 }, gc = gameColor(cfg.game);
   const [g, setG] = useState({ you: cfg.you, players: cfg.players, state: cfg.state || R.init(), turn: cfg.turn || 0, over: false, winner: null, line: null, score: cfg.score || [0, 0], reward: null, note: "", asked: false, theyAsked: false });
   const [msgs, setMsgs] = useState([]); const [text, setText] = useState(""); const [floats, setFloats] = useState([]);
   const gRef = useRef(g); gRef.current = g;
@@ -1448,12 +2085,12 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
   const myTurn = !g.over && g.turn === g.you;
   const chip = (i) => {
     const p = g.players[i], on = !g.over && g.turn === i;
-    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: 8, borderRadius: 18, border: "1px solid " + (on ? PCOL[i] : "rgba(255,255,255,0.1)"), boxShadow: on ? "0 0 18px " + PCOL[i] + "88" : "none", transition: "box-shadow .25s, border-color .25s", background: "rgba(255,255,255,0.05)" } },
-      gh(Ring, { size: 40, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
+    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid " + (on ? PCOL[i] : "rgba(255,255,255,0.1)"), boxShadow: on ? "0 0 18px " + PCOL[i] + "88" : "none", transition: "box-shadow .25s, border-color .25s", background: "rgba(255,255,255,0.05)" } },
+      gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
       gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
         gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (i === g.you ? "You" : p.name)),
-        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (cfg.game === "ttt" ? (i ? "O" : "X") : (i ? "Pink" : "Teal")) + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
-      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, g.score[i]));
+        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (cfg.game === "ttt" ? (i ? "O" : "X") : cfg.game === "chess" ? (i ? "Black" : "White") : (i ? "Pink" : "Teal")) + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 20, color: "#F5F7FA" } }, g.score[i]));
   };
   const hit = (i) => g.line && g.line.includes(i);
   const cells = !Array.isArray(g.state) ? null : g.state.map((v, i) => {
@@ -1462,27 +2099,28 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
     return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } },
       gh("div", { style: { width: "84%", height: "84%", margin: "8%", borderRadius: "50%", background: col || "#0A0E14", boxShadow: col ? "0 0 " + (hit(i) ? 16 : 8) + "px " + col : "inset 0 2px 6px rgba(0,0,0,.7)", border: hit(i) ? "2px solid #fff" : "none" } }));
   });
+  const gw = cfg.game === "c4" ? Math.max(140, Math.floor(Math.min(fit.w - 20, (fit.h - 20) * 7 / 6, 420))) : Math.max(140, Math.floor(Math.min(fit.w - 20, fit.h - 20, 340)));
   const verdict = !g.over ? null : g.winner === -1 ? "It's a draw" : g.winner === g.you ? "You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
-  return gh("div", { style: { display: "flex", flexDirection: "column", height: "100%", background: "radial-gradient(120% 60% at 50% 0%, #1B1440 0%, #0B0F16 60%)" } },
-    gh("div", { style: { display: "flex", gap: 8, padding: "12px 12px 6px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
-    gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: "4px 0 8px", color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…")),
+  return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #1B1440 0%, #0B0F16 60%)") },
+    gh("div", { style: { display: "flex", gap: 8, padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
+    hubStatusRow(() => setRules(true), gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…"))),
     g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
-    gh("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center", padding: "4px 14px", position: "relative" } },
-      cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap }) : gh("div", { style: { width: "100%", maxWidth: cfg.game === "c4" ? 380 : 320, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells),
-      floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e))),
-    gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "8px 12px 10px", flexShrink: 0 } },
-      gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 8 } },
-        ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "5px 9px", fontSize: 18, cursor: "pointer" } }, e)),
+    gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative" } },
+      cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "checkers" ? gh(CheckersBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "whot" ? gh(WhotBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "chess" ? gh(ChessBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : gh(GameFrame, { color: gc }, gh("div", { style: { width: gw, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells)),
+      floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e)), rules ? gh(RulesSheet, { game: cfg.game, color: gc, onClose: () => setRules(false) }) : null),
+    gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } },
+      gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } },
+        ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e)),
         gh("div", { style: { flex: 1 } }),
         !robot && convo ? hubBtn("🎙 Voice", () => onCall(convo, false), { small: true, ghost: true, aria: "Start voice call" }) : null),
-      robot ? gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", padding: "2px 2px 8px" } }, "Chat opens when you play a real person.") : gh("div", null,
-        gh("div", { style: { maxHeight: 74, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 6 } }, msgs.length ? msgs.map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Say hi while you play.")),
-        gh("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+      robot ? null : gh("div", null,
+        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Say hi while you play.")),
+        gh("div", { style: { display: "flex", gap: 8, marginBottom: 6 } },
           gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Game chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
           hubBtn("Send", send, { small: true }))),
       gh("div", { style: { display: "flex", gap: 10 } },
-        hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
-        hubBtn("Exit game", onExit, { ghost: true, style: { flex: 1 } }))));
+        hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
+        hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
 }
 
 // ---- hub: tabs, setup sheet, lobby, rankings, notifications, challenge pop-ups ----
@@ -1606,7 +2244,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
 
   const tabs = gh("div", { role: "tablist", style: { display: "flex", gap: 6, padding: "0 16px 10px" } }, [["play", "🎮 Play"], ["lobby", "👥 Lobby"], ["ranks", "🏆 Ranks"]].map(([k, l]) => gh("button", { key: k, role: "tab", "aria-selected": sub === k, onClick: () => setSub(k), style: { flex: 1, padding: "9px 0", borderRadius: 14, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "none", background: sub === k ? "linear-gradient(135deg,rgba(53,208,186,.3),rgba(139,92,246,.3))" : "rgba(255,255,255,.05)", color: sub === k ? "#F5F7FA" : "#8891A0", boxShadow: sub === k ? "0 0 14px rgba(53,208,186,.3)" : "none" } }, l)));
   let main;
-  if (room) main = gh(GameRoom, { key: room.room || "robot", cfg: room, socket: sock(), myId, onExit: exitRoom, onCall, convo: room.mode === "online" ? dmOf((room.players.find((p) => p.id !== myId) || {}).id) : null });
+  if (room) main = gh(room.game === "race" ? RaceRoom : GameRoom, { key: room.room || "robot", cfg: room, socket: sock(), myId, onExit: exitRoom, onCall, active, convo: room.mode === "online" ? dmOf((room.players.find((p) => p.id !== myId) || {}).id) : null });
   else if (arcade) main = gh("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, gh("button", { onClick: () => setArcade(false), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, textAlign: "left", padding: "12px 16px 0", cursor: "pointer" } }, "← Back to Games"), gh("div", { style: { flex: 1, minHeight: 0 } }, gh(GamesScreen, { myId })));
   else main = gh(React.Fragment, null,
     gh("div", { style: { display: "flex", alignItems: "center", padding: "14px 16px 10px" } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, "Games"),
