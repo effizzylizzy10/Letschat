@@ -590,10 +590,44 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   // pagination: ?limit=1..500 (default 200) and ?before=<timestamp ms> for older pages
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
   const before = Number(req.query.before) || Infinity;
+  const since = Number(req.query.since) || 0; // ?since=<ms>: the first `limit` messages from that moment on (jump to an old search result)
   const older = all.filter((m) => m.time < before);
-  const page = older.slice(-limit);
-  res.json({ messages: page.map((m) => receiptView(db, m, req.user, convo)), hasMore: older.length > page.length });
+  const page = since ? all.filter((m) => m.time >= since).slice(0, limit) : older.slice(-limit);
+  res.json({ messages: page.map((m) => receiptView(db, m, req.user, convo)), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
 });
+
+// ---- search: keyword suggestions + matching messages from your chats and groups ----
+// Only text messages in conversations you are in are searched (voice notes, photos, files and deleted messages are skipped).
+const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'\u2019_-]*/gu;
+function searchMessages(db, userId, rawQuery) {
+  const raw = String(rawQuery || "").trim().toLowerCase().slice(0, 100);
+  const tokens = raw.split(/\s+/).filter(Boolean).slice(0, 6);
+  if (!tokens.length) return { query: "", suggestions: [], results: [] };
+  const mine = new Set(db.conversations.filter((c) => c.participantIds.includes(userId)).map((c) => c.id));
+  const last = tokens[tokens.length - 1], head = tokens.slice(0, -1);
+  const prefix = new Map(), inside = new Map(); // word -> how many messages use it
+  const hits = [];
+  for (const m of db.messages) {
+    if (!mine.has(m.conversationId) || m.deleted || m.audio || m.file || typeof m.text !== "string") continue;
+    const low = m.text.toLowerCase();
+    if (tokens.every((t) => low.includes(t))) hits.push(m);
+    if (head.length && !head.every((t) => low.includes(t))) continue;
+    const seen = new Set();
+    for (const w of low.match(WORD_RE) || []) {
+      const word = w.replace(/['\u2019_-]+$/, "");
+      if (word.length < 2 || word === last || seen.has(word) || !word.includes(last)) continue;
+      seen.add(word);
+      const bucket = word.startsWith(last) ? prefix : last.length >= 3 ? inside : null;
+      if (bucket) bucket.set(word, (bucket.get(word) || 0) + 1);
+    }
+  }
+  const rank = (map) => [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length || (a[0] < b[0] ? -1 : 1));
+  const suggestions = [...rank(prefix), ...rank(inside)].slice(0, 8).map(([word, count]) => ({ text: [...head, word].join(" "), count }));
+  const results = hits.sort((a, b) => b.time - a.time).slice(0, 50)
+    .map((m) => ({ id: m.id, conversationId: m.conversationId, senderId: m.senderId, mine: m.senderId === userId, time: m.time, text: m.text.slice(0, 500) }));
+  return { query: raw, suggestions, results };
+}
+app.get("/api/search", authMiddleware, (req, res) => res.json(searchMessages(readDB(), req.user.id, req.query.q)));
 
 // ---- group chats: creator is admin; admin adds registered users or shares an invite link ----
 const MAX_GROUP = 256;
@@ -1019,6 +1053,48 @@ io.on("connection", (socket) => {
 
     io.to(`conv:${conversationId}`).emit("message:new", message);
     if (ack) ack({ message });
+  });
+
+  // ---- edit / delete your own messages (everyone in the chat sees the change live) ----
+  // Delete works any time. Text edits are allowed for EDIT_WINDOW_MS after sending (0 = no limit).
+  const EDIT_WINDOW_MS = 15 * 60 * 1000;
+  const ownMessage = (messageId, fail) => {
+    const db = readDB();
+    const m = db.messages.find((x) => x.id === messageId);
+    const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+    if (!m || !convo || !convo.participantIds.includes(userId)) { fail("Message not found"); return null; }
+    if (m.senderId !== userId) { fail("You can only change your own messages"); return null; }
+    return { db, m };
+  };
+  socket.on("message:edit", ({ messageId, text } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const o = ownMessage(messageId, fail); if (!o) return;
+    const { db, m } = o;
+    if (m.deleted) return fail("This message was deleted");
+    if (m.audio || m.file) return fail("Only text messages can be edited");
+    if (EDIT_WINDOW_MS && Date.now() - m.time > EDIT_WINDOW_MS) return fail("Messages can only be edited for 15 minutes after sending");
+    const t = String(text || "").trim();
+    if (!t) return fail("Message text required");
+    if (t.length > 4000) return fail("Message is too long (max 4000 characters)");
+    if (t !== m.text) {
+      m.text = t; m.edited = true; m.editedAt = Date.now();
+      writeDB(db);
+      io.to(`conv:${m.conversationId}`).emit("message:updated", m);
+    }
+    if (typeof ack === "function") ack({ message: m });
+  });
+  socket.on("message:delete", ({ messageId } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const o = ownMessage(messageId, fail); if (!o) return;
+    const { db, m } = o;
+    if (!m.deleted) {
+      // keep the row (so the chat shows "This message was deleted") but drop the content, audio and file bytes for good
+      delete m.audio; delete m.duration; delete m.file; delete m.edited; delete m.editedAt;
+      m.text = "🚫 This message was deleted"; m.deleted = true; m.deletedAt = Date.now();
+      writeDB(db);
+      io.to(`conv:${m.conversationId}`).emit("message:updated", m);
+    }
+    if (typeof ack === "function") ack({ message: m });
   });
 
   socket.on("call:invite", ({ to, conversationId, video } = {}, ack) => {
