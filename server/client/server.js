@@ -471,6 +471,68 @@ app.patch("/api/me/settings", authMiddleware, (req, res) => {
   if (p.lastSeen !== undefined) sendPresenceFor(user);
   res.json(settingsView(db, user));
 });
+// ===================== WEB PUSH (alerts when the app is closed) =====================
+// Needs env vars VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (and optionally VAPID_SUBJECT) on the host.
+// Without them push is simply switched off and everything else works as before.
+let webpush = null;
+try { webpush = require("web-push"); } catch { console.warn("web-push is not installed: run `npm install` to enable push notifications."); }
+const PUSH_ON = !!(webpush && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+if (PUSH_ON) webpush.setVapidDetails(process.env.VAPID_SUBJECT || "https://letschat-taupe.vercel.app", process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+else console.warn("Push notifications are OFF: set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.");
+
+app.get("/api/push/key", (req, res) => {
+  if (!PUSH_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
+  res.json({ key: process.env.VAPID_PUBLIC_KEY });
+});
+app.post("/api/push/subscribe", authMiddleware, (req, res) => {
+  if (!PUSH_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
+  const s = (req.body && req.body.subscription) || {};
+  const k = s.keys || {};
+  if (typeof s.endpoint !== "string" || !/^https:\/\//.test(s.endpoint) || s.endpoint.length > 1000 || typeof k.p256dh !== "string" || typeof k.auth !== "string" || k.p256dh.length > 200 || k.auth.length > 100)
+    return res.status(400).json({ error: "Invalid push subscription" });
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const subs = (user.pushSubs || []).filter((x) => x.endpoint !== s.endpoint);
+  subs.push({ endpoint: s.endpoint, keys: { p256dh: k.p256dh, auth: k.auth }, preview: req.body.preview !== false, groups: req.body.groups !== false, time: Date.now() });
+  user.pushSubs = subs.slice(-5); // at most 5 devices per person
+  writeDB(db);
+  res.json({ ok: true });
+});
+app.post("/api/push/unsubscribe", authMiddleware, (req, res) => {
+  const endpoint = req.body && req.body.endpoint;
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (user && user.pushSubs && typeof endpoint === "string") { user.pushSubs = user.pushSubs.filter((x) => x.endpoint !== endpoint); writeDB(db); }
+  res.json({ ok: true });
+});
+
+// true when the person has the app open on screen right now (no push needed, they see it live)
+function userIsActive(id) {
+  for (const sid of userSockets.get(id) || []) { const s = io.sockets.sockets.get(sid); if (s && s.data.visible !== false) return true; }
+  return false;
+}
+function pushMessage(db, convo, message, senderId) {
+  if (!PUSH_ON) return;
+  const sender = db.users.find((u) => u.id === senderId);
+  const title = convo.isGroup ? ((sender && sender.name) || "Someone") + " \u00B7 " + (convo.name || "Group") : (sender && sender.name) || "Letschat Africa";
+  for (const id of convo.participantIds) {
+    if (id === senderId || userIsActive(id)) continue;
+    const u = db.users.find((x) => x.id === id);
+    if (!u || !(u.pushSubs || []).length || (u.blocked || []).includes(senderId)) continue;
+    for (const sub of u.pushSubs) {
+      if (convo.isGroup && sub.groups === false) continue;
+      const body = sub.preview === false ? "New message" : String(message.text || "New message").slice(0, 140);
+      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "conv-" + convo.id, url: "./" }), { TTL: 86400, urgency: "high" })
+        .catch((err) => {
+          if (err && (err.statusCode === 404 || err.statusCode === 410)) { // device unsubscribed: forget it
+            const d2 = readDB(), u2 = d2.users.find((x) => x.id === id);
+            if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
+          }
+        });
+    }
+  }
+}
+
 app.post("/api/me/favorites", authMiddleware, (req, res) => {
   const db = readDB();
   const user = db.users.find((u) => u.id === req.user.id);
@@ -1440,6 +1502,8 @@ io.on("connection", (socket) => {
   userSockets.get(userId).add(socket.id);
   socket.join(`user:${userId}`);
   socket.on("presence:get", (ack) => { if (typeof ack === "function") ack(presenceSnapshot(userId)); });
+  socket.data.visible = true;
+  socket.on("app:visible", (v) => { socket.data.visible = !!v; }); // lets the server know when the app is in the background, so it sends a push instead
 
   const db = readDB();
   const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
@@ -1506,6 +1570,7 @@ io.on("connection", (socket) => {
     writeDB(db);
 
     io.to(`conv:${conversationId}`).emit("message:new", message);
+    try { pushMessage(db, convo, message, userId); } catch (e) { console.error("push failed", e.message); }
     if (ack) ack({ message });
   });
 
