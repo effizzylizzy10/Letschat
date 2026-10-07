@@ -1194,6 +1194,8 @@ function GamesScreen({ myId }) {
 // ===================== GAMES HUB =====================
 // Plain JS on purpose (no JSX): the same block is used in app.jsx and the compiled index.html.
 const gh = React.createElement;
+const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
+const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
 const GAME_RULES = {
   ttt: {
     init: () => Array(9).fill(null),
@@ -1221,14 +1223,49 @@ const GAME_RULES = {
       return null;
     },
   },
+  ludo: {
+    // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
+    init: () => ({ t: [[-1,-1,-1,-1],[-1,-1,-1,-1]], d: null, last: 0, nx: 0 }),
+    can: (s, p, i) => { const r = s.t[p][i], d = s.d; if (r === 56 || d == null) return false; if (r === -1) return d === 6; return r + d <= 56; },
+    moves: (s, p) => (s.nx !== p ? [] : s.d == null ? [-1] : [0,1,2,3].filter((i) => GAME_RULES.ludo.can(s, p, i))),
+    play: (s, m, p, rnd) => {
+      const t = s.t.map((a) => a.slice());
+      if (m === -1) {
+        const d = 1 + Math.floor(rnd() * 6), ns = { t, d, last: d, nx: p };
+        if (![0,1,2,3].some((i) => GAME_RULES.ludo.can(ns, p, i))) { ns.d = null; ns.nx = 1 - p; }
+        return ns;
+      }
+      const d = s.d, r = t[p][m], nr = r === -1 ? 0 : r + d; let extra = d === 6; t[p][m] = nr;
+      if (nr <= 50) { const a = (p * 26 + nr) % 52; if (!LUDO_SAFE.includes(a)) { const q = 1 - p; t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) { t[q][j] = -1; extra = true; } }); } }
+      if (nr === 56) extra = true;
+      return { t, d: null, last: d, nx: extra ? p : 1 - p };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.t[p].every((r) => r === 56)) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
+  },
+  snl: {
+    // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
+    init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
+    moves: (s, p) => (s.nx === p ? [-1] : []),
+    play: (s, m, p, rnd) => {
+      const d = 1 + Math.floor(rnd() * 6), pos = s.p.slice(); let np = pos[p] + d; if (np > 100) np = pos[p];
+      const jump = SNL_JUMPS[np], ev = jump ? (jump > np ? 1 : -1) : 0; if (jump) np = jump; pos[p] = np;
+      return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.p[p] === 100) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
+  },
 };
 const HUB_GAMES = [
   { id: "ttt", name: "Tic-Tac-Toe", emoji: "✖️", color: "#35D0BA", blurb: "Three in a row", ready: true },
   { id: "c4", name: "Connect 4", emoji: "🔴", color: "#FF4FA3", blurb: "Drop discs, link four", ready: true },
+  { id: "snl", name: "Snakes & Ladders", emoji: "🐍", color: "#2DD4A0", blurb: "Climb up, slide down", ready: true },
   { id: "whot", name: "Smart Whot", emoji: "🃏", color: "#F5B83D", blurb: "Card game" },
   { id: "chess", name: "Chess", emoji: "♟️", color: "#8B5CF6", blurb: "Classic strategy" },
   { id: "checkers", name: "Checkers", emoji: "🏁", color: "#4C8DFF", blurb: "Jump and capture" },
-  { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Race home" },
+  { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Roll, race, capture", ready: true },
   { id: "dominoes", name: "Dominoes", emoji: "🧩", color: "#2DD4A0", blurb: "Match the tiles" },
 ];
 const hubName = (id) => (HUB_GAMES.find((g) => g.id === id) || { name: id }).name;
@@ -1255,6 +1292,8 @@ function robotNega(game, s, p, d, a, b) {
   return best;
 }
 function robotPick(game, s, me, level) {
+  if (game === "ludo") return ludoPick(s, me, level);
+  if (game === "snl") return -1;
   const R = GAME_RULES[game], mv = R.moves(s);
   if (Math.random() < [0.7, 0.35, 0.1, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
   const depth = game === "ttt" ? 9 : [1, 3, 5, 6][level];
@@ -1264,6 +1303,79 @@ function robotPick(game, s, me, level) {
     if (v > best) { best = v; picks = [m]; } else if (v === best) picks.push(m);
   }
   return picks[Math.floor(Math.random() * picks.length)];
+}
+
+// ---- Ludo: robot brain and board ----
+function ludoPick(s, me, level) {
+  const R = GAME_RULES.ludo, mv = R.moves(s, me);
+  if (mv[0] === -1) return -1;
+  if (Math.random() < [0.8, 0.4, 0.1, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  let best = -1e9, pick = mv[0];
+  for (const m of mv) {
+    const ns = R.play(s, m, me, () => 0.5), r0 = s.t[me][m], r1 = ns.t[me][m];
+    let v = (r1 === 56 ? 40 : 0) + (r0 === -1 ? 25 : 0) + r1 * 0.3 + Math.random();
+    ns.t[1 - me].forEach((q, j) => { if (q === -1 && s.t[1 - me][j] !== -1) v += 50; });
+    if (r1 <= 50) {
+      const a = (me * 26 + r1) % 52;
+      if (LUDO_SAFE.includes(a)) v += 12;
+      else if (level >= 2) s.t[1 - me].forEach((q) => { if (q >= 0 && q <= 50) { const gap = (a - ((1 - me) * 26 + q) + 52) % 52; if (gap >= 1 && gap <= 6) v -= level === 3 ? 30 : 18; } });
+    }
+    if (v > best) { best = v; pick = m; }
+  }
+  return pick;
+}
+const LUDO_RING = [[6,1],[6,2],[6,3],[6,4],[6,5],[5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],[8,14],[8,13],[8,12],[8,11],[8,10],[8,9],[9,8],[10,8],[11,8],[12,8],[13,8],[14,8],[14,7],[14,6],[13,6],[12,6],[11,6],[10,6],[9,6],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0]];
+function ludoXY(p, r, i) {
+  if (r === -1) return [[[1.5,1.5],[3.5,1.5],[1.5,3.5],[3.5,3.5]], [[10.5,10.5],[12.5,10.5],[10.5,12.5],[12.5,12.5]]][p][i];
+  if (r === 56) return [7.5 + (p ? 1 : -1) * 0.95, 7.5 + (i - 1.5) * 0.3];
+  const c = r > 50 ? [7, p ? 64 - r : r - 50] : LUDO_RING[(p * 26 + r) % 52];
+  return [c[1] + 0.5, c[0] + 0.5];
+}
+function LudoBoard({ s, you, myTurn, onTap }) {
+  const R = GAME_RULES.ludo, canRoll = myTurn && s.d == null, legal = myTurn && s.d != null ? R.moves(s, you) : [];
+  const kids = [gh("rect", { key: "bg", x: 0, y: 0, width: 15, height: 15, rx: 0.6, fill: "#0F141C" }),
+    gh("rect", { key: "b0", x: 0, y: 0, width: 6, height: 6, rx: 0.5, fill: PCOL[0] + "22" }), gh("rect", { key: "b1", x: 9, y: 9, width: 6, height: 6, rx: 0.5, fill: PCOL[1] + "22" }),
+    gh("rect", { key: "b2", x: 9, y: 0, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }), gh("rect", { key: "b3", x: 0, y: 9, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }),
+    gh("rect", { key: "ct", x: 6, y: 6, width: 3, height: 3, fill: "#1B1440", stroke: "#8B5CF6", strokeWidth: 0.06 })];
+  LUDO_RING.forEach((c, i) => kids.push(gh("rect", { key: "r" + i, x: c[1] + 0.04, y: c[0] + 0.04, width: 0.92, height: 0.92, rx: 0.15, fill: i === 0 ? PCOL[0] + "77" : i === 26 ? PCOL[1] + "77" : "#1B2330" }),
+    LUDO_SAFE.includes(i) ? gh("text", { key: "s" + i, x: c[1] + 0.5, y: c[0] + 0.75, fontSize: 0.6, textAnchor: "middle", fill: "#8891A0" }, "★") : null));
+  for (let k = 1; k <= 5; k++) kids.push(gh("rect", { key: "h0" + k, x: k + 0.04, y: 7.04, width: 0.92, height: 0.92, rx: 0.15, fill: PCOL[0] + "55" }), gh("rect", { key: "h1" + k, x: 14 - k + 0.04, y: 7.04, width: 0.92, height: 0.92, rx: 0.15, fill: PCOL[1] + "55" }));
+  const seen = {};
+  [0, 1].forEach((p) => s.t[p].forEach((r, i) => {
+    let [x, y] = ludoXY(p, r, i); const key = x + "," + y, n = seen[key] || 0; seen[key] = n + 1; x += n * 0.14; y -= n * 0.14;
+    const can = p === you && legal.includes(i);
+    kids.push(gh("circle", { key: "t" + p + i, cx: x, cy: y, r: 0.36, fill: PCOL[p], stroke: can ? "#fff" : "#0B0F16", strokeWidth: can ? 0.14 : 0.07, style: { cursor: can ? "pointer" : "default", filter: can ? "drop-shadow(0 0 0.35px #fff)" : "none" }, onClick: can ? () => onTap(i) : undefined, role: can ? "button" : undefined, "aria-label": can ? "Move piece " + (i + 1) : undefined }));
+  }));
+  return gh("div", { style: { width: "100%", maxWidth: 360 } },
+    gh("svg", { viewBox: "0 0 15 15", style: { width: "100%", display: "block", borderRadius: 16, boxShadow: "0 0 24px rgba(139,92,246,.3)" } }, kids),
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "12px 0 4px" } },
+      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 64, height: 64, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 40, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, myTurn ? (s.d == null ? "Tap the dice to roll." : legal.length > 1 ? "Tap a glowing piece to move it." : "Moving…") : "Waiting for the other player.")),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", textAlign: "center", paddingBottom: 6 } }, "Roll a 6 to leave base. A 6 or a capture gives another roll."));
+}
+
+// ---- Snakes & Ladders: board ----
+function snlXY(n) { const r = Math.floor((n - 1) / 10), c = r % 2 ? 9 - ((n - 1) % 10) : (n - 1) % 10; return [c + 0.5, 9 - r + 0.5]; }
+function SnlBoard({ s, you, myTurn, onTap }) {
+  const canRoll = myTurn;
+  const kids = [];
+  for (let n = 1; n <= 100; n++) { const [x, y] = snlXY(n); kids.push(gh("rect", { key: "c" + n, x: x - 0.5 + 0.02, y: y - 0.5 + 0.02, width: 0.96, height: 0.96, rx: 0.12, fill: (Math.floor((n - 1) / 10) + n) % 2 ? "#1B2330" : "#141B26" }), gh("text", { key: "n" + n, x: x - 0.4, y: y - 0.26, fontSize: 0.3, fill: "#5B6673" }, n)); }
+  Object.keys(SNL_JUMPS).forEach((k) => {
+    const a = +k, b = SNL_JUMPS[k], [x1, y1] = snlXY(a), [x2, y2] = snlXY(b), dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, px = -dy / len, py = dx / len;
+    if (b > a) {
+      kids.push(gh("g", { key: "L" + a, stroke: "#F5B83D", strokeLinecap: "round", opacity: 0.9 }, gh("line", { x1: x1 + px * 0.12, y1: y1 + py * 0.12, x2: x2 + px * 0.12, y2: y2 + py * 0.12, strokeWidth: 0.07 }), gh("line", { x1: x1 - px * 0.12, y1: y1 - py * 0.12, x2: x2 - px * 0.12, y2: y2 - py * 0.12, strokeWidth: 0.07 }),
+        [0.2, 0.4, 0.6, 0.8].map((t) => gh("line", { key: t, x1: x1 + dx * t + px * 0.12, y1: y1 + dy * t + py * 0.12, x2: x1 + dx * t - px * 0.12, y2: y1 + dy * t - py * 0.12, strokeWidth: 0.05 }))));
+    } else {
+      kids.push(gh("g", { key: "S" + a, opacity: 0.9 }, gh("path", { d: "M" + x1 + " " + y1 + " Q" + ((x1 + x2) / 2 + px * 1.1) + " " + ((y1 + y2) / 2 + py * 1.1) + " " + x2 + " " + y2, fill: "none", stroke: "#FF4FA3", strokeWidth: 0.17, strokeLinecap: "round" }), gh("circle", { cx: x1, cy: y1, r: 0.2, fill: "#FF4FA3" }), gh("circle", { cx: x1 - 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" }), gh("circle", { cx: x1 + 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" })));
+    }
+  });
+  [0, 1].forEach((p) => { const n = s.p[p], [x, y] = n === 0 ? [p ? 9.6 : 0.4, 10.35] : snlXY(n), off = n > 0 && s.p[0] === s.p[1] ? (p ? 0.18 : -0.18) : 0; kids.push(gh("circle", { key: "t" + p, cx: x + off, cy: y, r: 0.3, fill: PCOL[p], stroke: "#0B0F16", strokeWidth: 0.07, style: { filter: "drop-shadow(0 0 0.25px " + PCOL[p] + ")", transition: "all .35s" } })); });
+  return gh("div", { style: { width: "100%", maxWidth: 360 } },
+    gh("svg", { viewBox: "0 0 10 10.8", style: { width: "100%", display: "block", borderRadius: 16, background: "#0F141C", boxShadow: "0 0 24px rgba(45,212,160,.25)" } }, kids),
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "12px 0 4px" } },
+      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 64, height: 64, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 40, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player."))),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", textAlign: "center", paddingBottom: 6 } }, "Reach 100 with an exact roll. A 6 gives another roll."));
 }
 
 function hubBtn(label, onClick, o = {}) {
@@ -1294,23 +1406,23 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
   const robotIdx = 1 - g.you;
   const float = (e) => { const id = Math.random(); setFloats((f) => [...f, { id, e, x: 15 + Math.random() * 70 }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800); };
   const finish = (state, w, idx) => {
-    const cur = gRef.current, full = R.moves(state).length === 0;
-    if (!w && !full) { setG((p) => ({ ...p, state, turn: 1 - idx })); return; }
+    const cur = gRef.current, full = R.draw ? R.draw(state) : R.moves(state).length === 0;
+    if (!w && !full) { setG((p) => ({ ...p, state, turn: R.next ? R.next(state) : 1 - idx })); return; }
     const result = !w ? "d" : w.p === cur.you ? "w" : "l";
     const score = cur.score.slice(); if (w) score[w.p] += 1;
     setG((p) => ({ ...p, state, turn: -1, over: true, winner: w ? w.p : -1, line: w ? w.line : null, score, reward: null }));
     if (socket) socket.emit("game:solo", { game: cfg.game, level: cfg.level, result }, (r) => r && setG((p) => ({ ...p, reward: r })));
   };
-  const place = (m, idx) => { const state = R.play(gRef.current.state, m, idx); finish(state, R.win(state), idx); };
+  const place = (m, idx) => { const state = R.play(gRef.current.state, m, idx, Math.random); finish(state, R.win(state), idx); };
   const tap = (m) => {
-    if (g.over || g.turn !== g.you || !R.moves(g.state).includes(m)) return;
+    if (g.over || g.turn !== g.you || !R.moves(g.state, g.you).includes(m)) return;
     if (robot) place(m, g.you); else socket.emit("game:move", { room: cfg.room, move: m });
   };
   useEffect(() => {
     if (!robot || g.over || g.turn !== robotIdx) return;
     const t = setTimeout(() => { const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null) place(m, robotIdx); }, 550 + Math.random() * 500);
     return () => clearTimeout(t);
-  }, [g.turn, g.over]);
+  }, [g.turn, g.over, g.state]);
   useEffect(() => { if (!robot && !g.over && g.turn === g.you) hubPing(); }, [g.turn]);
   useEffect(() => {
     if (robot || !socket) return;
@@ -1344,7 +1456,7 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
       gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, g.score[i]));
   };
   const hit = (i) => g.line && g.line.includes(i);
-  const cells = g.state.map((v, i) => {
+  const cells = !Array.isArray(g.state) ? null : g.state.map((v, i) => {
     const col = v == null ? null : PCOL[v];
     if (cfg.game === "ttt") return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : v === 0 ? "X" : "O");
     return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } },
@@ -1356,7 +1468,7 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
     gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: "4px 0 8px", color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…")),
     g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
     gh("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center", padding: "4px 14px", position: "relative" } },
-      gh("div", { style: { width: "100%", maxWidth: cfg.game === "c4" ? 380 : 320, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells),
+      cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap }) : gh("div", { style: { width: "100%", maxWidth: cfg.game === "c4" ? 380 : 320, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells),
       floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e))),
     gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "8px 12px 10px", flexShrink: 0 } },
       gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 8 } },
