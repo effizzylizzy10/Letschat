@@ -4083,6 +4083,27 @@ const EMOJI_TABS = [
   { name: "Food & drink", icon: "🍔", list: "🍎 🍌 🍉 🍇 🍓 🍍 🥭 🥑 🌽 🥕 🍅 🥔 🍞 🧀 🍳 🥩 🍗 🍖 🍔 🍟 🍕 🌭 🌮 🍝 🍚 🍲 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 ☕ 🍵 🥤 🍺 🍷 💧".split(" ") },
   { name: "Activities & objects", icon: "⚽", list: "⚽ 🏀 🏈 🎾 🏐 🏏 🥊 🎮 🎲 ♟️ 🎯 🎵 🎶 🎤 🎧 🎸 🥁 📱 💻 📷 📚 ✏️ 💡 🔑 🔒 💰 💵 🚗 🚌 ✈️ 🚀 🏠 ⏰ 📞 ✅ ❌ ❓ ❗ ⚠️ 🚫".split(" ") },
 ];
+// ---- tap the name/photo area in a chat header to see that person's profile ----
+function ContactProfileSheet({ u, online, lastSeen, onVoice, onVideo, onClose }) {
+    const [zoom, setZoom] = useState(false);
+    return (React.createElement("div", { style: { ...sheet, zIndex: 45 }, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: { ...card, alignItems: "center", textAlign: "center" } },
+            React.createElement(Ring, { size: 110, color: u.color, initials: u.initials, photo: u.avatar, online: online, onClick: u.avatar ? () => setZoom(true) : undefined }),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 12, display: "flex", alignItems: "center", gap: 6 } },
+                u.name,
+                u.verified && React.createElement(VerifiedBadge, null)),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginBottom: 8 } }, statusText(online, lastSeen)),
+            u.about && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 10, overflowWrap: "anywhere" } }, u.about),
+            (onVoice || onVideo) && (React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 6 } },
+                onVoice && React.createElement("button", { onClick: () => { onClose(); onVoice(); }, style: { ...smallBtn, display: "flex", alignItems: "center", gap: 6, padding: "9px 16px" } },
+                    React.createElement(Phone, { size: 16, color: "#35D0BA" }),
+                    "Voice call"),
+                onVideo && React.createElement("button", { onClick: () => { onClose(); onVideo(); }, style: { ...smallBtn, display: "flex", alignItems: "center", gap: 6, padding: "9px 16px" } },
+                    React.createElement(Video, { size: 16, color: "#35D0BA" }),
+                    "Video call"))),
+            zoom && React.createElement(ImageZoomModal, { photo: u.avatar, initials: u.initials, color: u.color, onClose: () => setZoom(false) }))));
+}
+
 function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, focus = null }) {
     const [msgs, setMsgs] = useState([]);
     const [draft, setDraft] = useState("");
@@ -4091,6 +4112,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const [peerTyping, setPeerTyping] = useState(false);
     const [zoomed, setZoomed] = useState(false);
     const [info, setInfo] = useState(false);
+    const [peerInfo, setPeerInfo] = useState(false); // 1:1 contact profile sheet
     const [rec, setRec] = useState(null);
     const [recSec, setRecSec] = useState(0);
     const [sending, setSending] = useState(false);
@@ -4405,7 +4427,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
                 React.createElement(ArrowLeft, { size: 22 })),
             React.createElement(Ring, { size: 38, color: conversation.other.color, initials: conversation.other.initials, photo: conversation.other.avatar, online: isGroup ? undefined : online, onClick: conversation.other.avatar ? () => setZoomed(true) : undefined }),
-            React.createElement("div", { onClick: isGroup ? () => setInfo(true) : undefined, style: { flex: 1, minWidth: 0, cursor: isGroup ? "pointer" : "default" } },
+            React.createElement("div", { onClick: isGroup ? () => setInfo(true) : () => setPeerInfo(true), style: { flex: 1, minWidth: 0, cursor: "pointer" } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                     conversation.other.name,
                     conversation.other.verified && React.createElement(VerifiedBadge, null)),
@@ -4532,6 +4554,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             React.createElement("img", { src: viewer, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }),
             React.createElement("div", { style: { position: "absolute", top: 14, right: 14, color: "#F5F7FA" } },
                 React.createElement(X, { size: 26 })))),
+        peerInfo && !isGroup && React.createElement(ContactProfileSheet, { u: conversation.other, online: online, lastSeen: lastSeen[conversation.other.id], onVoice: featOn("voiceCalls") ? () => onCall(conversation, false) : null, onVideo: featOn("videoCalls") ? () => onCall(conversation, true) : null, onClose: () => setPeerInfo(false) }),
         info && isGroup && React.createElement(GroupInfoScreen, { conversation: conversation, myId: myId, token: token, contacts: contacts, presence: presence, lastSeen: lastSeen, onBack: () => setInfo(false), onChanged: onGroupChanged }),
         zoomed && (React.createElement(ImageZoomModal, { photo: conversation.other.avatar, initials: conversation.other.initials, color: conversation.other.color, onClose: () => setZoomed(false) }))));
 }

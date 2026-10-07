@@ -3913,6 +3913,28 @@ const EMOJI_TABS = [
   { name: "Food & drink", icon: "🍔", list: "🍎 🍌 🍉 🍇 🍓 🍍 🥭 🥑 🌽 🥕 🍅 🥔 🍞 🧀 🍳 🥩 🍗 🍖 🍔 🍟 🍕 🌭 🌮 🍝 🍚 🍲 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 ☕ 🍵 🥤 🍺 🍷 💧".split(" ") },
   { name: "Activities & objects", icon: "⚽", list: "⚽ 🏀 🏈 🎾 🏐 🏏 🥊 🎮 🎲 ♟️ 🎯 🎵 🎶 🎤 🎧 🎸 🥁 📱 💻 📷 📚 ✏️ 💡 🔑 🔒 💰 💵 🚗 🚌 ✈️ 🚀 🏠 ⏰ 📞 ✅ ❌ ❓ ❗ ⚠️ 🚫".split(" ") },
 ];
+// ---- tap the name/photo area in a chat header to see that person's profile ----
+function ContactProfileSheet({ u, online, lastSeen, onVoice, onVideo, onClose }) {
+  const [zoom, setZoom] = useState(false);
+  return (
+    <div style={{ ...sheet, zIndex: 45 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, alignItems: "center", textAlign: "center" }}>
+        <Ring size={110} color={u.color} initials={u.initials} photo={u.avatar} online={online} onClick={u.avatar ? () => setZoom(true) : undefined} />
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 12, display: "flex", alignItems: "center", gap: 6 }}>{u.name}{u.verified && <VerifiedBadge />}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginBottom: 8 }}>{statusText(online, lastSeen)}</div>
+        {u.about && <div style={{ fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 10, overflowWrap: "anywhere" }}>{u.about}</div>}
+        {(onVoice || onVideo) && (
+          <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+            {onVoice && <button onClick={() => { onClose(); onVoice(); }} style={{ ...smallBtn, display: "flex", alignItems: "center", gap: 6, padding: "9px 16px" }}><Phone size={16} color="#35D0BA" />Voice call</button>}
+            {onVideo && <button onClick={() => { onClose(); onVideo(); }} style={{ ...smallBtn, display: "flex", alignItems: "center", gap: 6, padding: "9px 16px" }}><Video size={16} color="#35D0BA" />Video call</button>}
+          </div>
+        )}
+        {zoom && <ImageZoomModal photo={u.avatar} initials={u.initials} color={u.color} onClose={() => setZoom(false)} />}
+      </div>
+    </div>
+  );
+}
+
 function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {}, focus = null }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
@@ -3921,6 +3943,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const [peerTyping, setPeerTyping] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [info, setInfo] = useState(false);
+  const [peerInfo, setPeerInfo] = useState(false); // 1:1 contact profile sheet
   const [rec, setRec] = useState(null);
   const [recSec, setRecSec] = useState(0);
   const [sending, setSending] = useState(false);
@@ -4173,7 +4196,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         )}
         <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}><ArrowLeft size={22} /></button>
         <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={isGroup ? undefined : online} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
-        <div onClick={isGroup ? () => setInfo(true) : undefined} style={{ flex: 1, minWidth: 0, cursor: isGroup ? "pointer" : "default" }}>
+        <div onClick={isGroup ? () => setInfo(true) : () => setPeerInfo(true)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
           <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}{conversation.other.verified && <VerifiedBadge />}</div>
           <div style={{ fontFamily: "Inter", fontSize: 12, color: peerTyping || (!isGroup && online) ? "#35D0BA" : isGroup ? "#8891A0" : "#5B6673" }}>
             {peerTyping ? "typing…" : isGroup ? conversation.members.length + " members · " + conversation.members.filter(m => m.id === myId || presence[m.id]).length + " online" : statusText(online, lastSeen[conversation.other.id])}
@@ -4341,6 +4364,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <div style={{ position: "absolute", top: 14, right: 14, color: "#F5F7FA" }}><X size={26} /></div>
         </div>
       )}
+      {peerInfo && !isGroup && <ContactProfileSheet u={conversation.other} online={online} lastSeen={lastSeen[conversation.other.id]} onVoice={featOn("voiceCalls") ? () => onCall(conversation, false) : null} onVideo={featOn("videoCalls") ? () => onCall(conversation, true) : null} onClose={() => setPeerInfo(false)} />}
       {info && isGroup && <GroupInfoScreen conversation={conversation} myId={myId} token={token} contacts={contacts} presence={presence} lastSeen={lastSeen} onBack={() => setInfo(false)} onChanged={onGroupChanged} />}
       {zoomed && (
         <ImageZoomModal photo={conversation.other.avatar} initials={conversation.other.initials} color={conversation.other.color} onClose={() => setZoomed(false)} />
