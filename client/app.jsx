@@ -621,22 +621,36 @@ const initialsOf = (n) => (String(n).trim().split(/\s+/).map((w) => w[0]).join("
 
 function PhonebookView({ token, onBack, onStarted }) {
   const [book, setBook] = useState(() => loadJSON("phonebook", [])); // [{ name, phone }] kept on this device only
-  const [matches, setMatches] = useState({});
+  const [matches, setMatches] = useState(() => loadJSON("phonebookMatches", {})); // last known result, so registered contacts show on top instantly
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const vcfRef = useRef(null);
 
-  const sync = async (entries) => {
-    if (!entries.length) { setMatches({}); return; }
-    setBusy(true); setError("");
+  // silent: no "Checking…" banner or errors (background refresh). partial: only update the numbers that were sent.
+  const sync = async (entries, opts = {}) => {
+    if (!entries.length) { if (!opts.partial) setMatches({}); return; }
+    if (!opts.silent) { setBusy(true); setError(""); }
     try {
       const d = await api("/api/v1/users/match", { method: "POST", token, body: { phones: entries.map((e) => e.phone) } });
-      setMatches(d.matches || {});
-    } catch (e) { setError(e.message); }
-    finally { setBusy(false); }
+      const found = d.matches || {};
+      setMatches((prev) => {
+        if (!opts.partial) return found;
+        const next = { ...prev };
+        for (const e of entries) { if (found[e.phone]) next[e.phone] = found[e.phone]; else delete next[e.phone]; }
+        return next;
+      });
+    } catch (e) { if (!opts.silent) setError(e.message); }
+    finally { if (!opts.silent) setBusy(false); }
   };
-  useEffect(() => { sync(book); }, []);
+  useEffect(() => { try { saveJSON("phonebookMatches", matches); } catch (e) {} }, [matches]);
+  const bookRef = useRef(book); bookRef.current = book;
+  // refresh right when the screen opens (silently if we already have a saved result), then keep refreshing while it is open
+  useEffect(() => {
+    sync(book, { silent: Object.keys(matches).length > 0 });
+    const t = setInterval(() => { if (!document.hidden && bookRef.current.length) sync(bookRef.current, { silent: true }); }, 15000);
+    return () => clearInterval(t);
+  }, []);
 
   const addEntries = (raw) => { // raw: [{ name, tel }]
     const seen = new Set(); const next = [];
@@ -663,7 +677,7 @@ function PhonebookView({ token, onBack, onStarted }) {
     if (!raw.length) return setError("No phone numbers found in that file");
     addEntries(raw);
   };
-  const clearBook = () => { setBook([]); setMatches({}); clearJSON("phonebook"); };
+  const clearBook = () => { setBook([]); setMatches({}); clearJSON("phonebook"); clearJSON("phonebookMatches"); };
   const start = async (u) => {
     setBusy(true); setError("");
     try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone: u.phone } }); onStarted(conversation); }
@@ -677,8 +691,16 @@ function PhonebookView({ token, onBack, onStarted }) {
 
   const needle = q.trim().toLowerCase(); const needleDigits = q.replace(/\D/g, "");
   const shown = book.filter((e) => !needle || e.name.toLowerCase().includes(needle) || (needleDigits && e.phone.includes(needleDigits)));
-  const onApp = shown.filter((e) => matches[e.phone]);
-  const notOn = shown.filter((e) => !matches[e.phone]);
+  const byName = (x, y) => String(x.name).localeCompare(String(y.name));
+  const onApp = shown.filter((e) => matches[e.phone]).sort(byName); // registered contacts always come first
+  const notOn = shown.filter((e) => !matches[e.phone]).sort(byName);
+
+  // while searching, re-check the numbers on screen a moment after each keystroke
+  useEffect(() => {
+    if (!needle) return;
+    const t = setTimeout(() => { const list = shown.slice(0, 100); if (list.length) sync(list, { silent: true, partial: true }); }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
   return (
     <div style={{ ...card, height: "88%" }}>
@@ -4191,9 +4213,11 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
               onContextMenu={!m.deleted ? (e) => { e.preventDefault(); startPick(m); } : undefined}
               onClickCapture={picking ? (e) => { e.preventDefault(); e.stopPropagation(); if (!m.deleted) togglePick(m); } : undefined}
               onTouchStart={!m.deleted ? () => pressStart(m) : undefined} onTouchEnd={pressEnd} onTouchMove={pressEnd} onTouchCancel={pressEnd}
-              style={{
+              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", width: "100%", padding: "4px 0", margin: "-4px 0", WebkitTouchCallout: "none", userSelect: picking ? "none" : undefined, WebkitUserSelect: picking ? "none" : undefined }}>
+            <div style={{
               WebkitTouchCallout: "none", userSelect: picking ? "none" : undefined, WebkitUserSelect: picking ? "none" : undefined, boxShadow: picking && picked.includes(m.id) && !m.deleted ? "0 0 0 2px #35D0BA, 0 0 0 6px rgba(53,208,186,.18)" : hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
-              alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%",
+              alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%", position: "relative",
+              marginBottom: !mine && window.LCReactions && window.LCReactions.has(m) ? 14 : 0,
               background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
               borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
@@ -4211,13 +4235,14 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                     </span>
                   </a>
                 ) : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{richText(m.text)}</div>}
-              {window.LCReactions && window.LCReactions.chips(m, myId, reactTo)}
+              {window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine)}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
                 {m.edited && !m.deleted && <span style={{ fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" }}>edited</span>}
                 <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{timeLabel(m.time)}</span>
                 {mine && !m.deleted && <button aria-label="Message options" onClick={() => openMenu(m)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" }}><ChevronDown size={14} color="#B9C2CC" /></button>}
                 {mine && (m.read || (m.readBy && m.readBy.length) ? <CheckCheck size={13} color="#35D0BA" /> : <Check size={13} color="#B9C2CC" />)}
               </div>
+            </div>
             </div>
           );
         })}
@@ -4862,7 +4887,10 @@ function LoginScreen({ onContinue }) {
 
 function App() {
   const [session, setSession] = useState(() => loadJSON("session", null)); // { token, user }
-  const [conversations, setConversations] = useState([]);
+  const [conversations, setConversations] = useState(() => { // show the last chat list instantly while the fresh one loads
+    const c = loadJSON("convCache", null), s = loadJSON("session", null);
+    return c && s && s.user && c.uid === s.user.id && Array.isArray(c.list) ? c.list : [];
+  });
   const [convError, setConvError] = useState("");
   const [convLoading, setConvLoading] = useState(false);
   const [presence, setPresence] = useState({});
@@ -4911,14 +4939,18 @@ function App() {
   }, []);
 
   const refreshConversations = useCallback(async () => {
-    if (!session) return;
+    if (!session) return false;
     try {
       const { conversations } = await api("/api/v1/conversations", { token: session.token });
-      setConversations(conversations.map(c => normalizeConvo(c, session.user.id)));
+      const list = conversations.map(c => normalizeConvo(c, session.user.id));
+      setConversations(list);
+      saveJSON("convCache", { uid: session.user.id, list });
       if (socketRef.current) socketRef.current.emit("presence:get", applyPresence);
       setConvError("");
+      return true;
     } catch (e) {
       setConvError(e.message);
+      return false;
     }
   }, [session]);
 
@@ -4927,7 +4959,7 @@ function App() {
     if (!session) return;
     const socket = io(SOCKET_URL, { auth: { token: session.token } });
     socketRef.current = socket; if (window.LetschatPush) window.LetschatPush.watch(socket);
-    socket.on("connect", () => socket.emit("presence:get", applyPresence)); // who is online right now (also after reconnects)
+    socket.on("connect", () => { socket.emit("presence:get", applyPresence); refreshConversations(); }); // who is online right now + fresh chat list (also after reconnects)
     socket.on("presence:update", ({ userId, online, lastSeen: ts }) => {
       setPresence(prev => ({ ...prev, [userId]: online }));
       if (ts) setLastSeen(prev => ({ ...prev, [userId]: ts }));
@@ -4948,10 +4980,21 @@ function App() {
     return () => socket.disconnect();
   }, [session, refreshConversations]);
 
+  // fast refresh on start: retry quickly if the server is still waking up, and refresh whenever the app comes back into view
   useEffect(() => {
     if (!session) return;
-    setConvLoading(true);
-    refreshConversations().finally(() => setConvLoading(false));
+    let dead = false, tries = 0;
+    setConvLoading(!convosRef.current.length);
+    const go = async () => {
+      const ok = await refreshConversations();
+      if (dead) return;
+      if (!ok && tries < 6) { tries++; setTimeout(go, Math.min(400 * tries, 2500)); }
+      else setConvLoading(false);
+    };
+    go();
+    const again = () => { if (!document.hidden) refreshConversations(); };
+    document.addEventListener("visibilitychange", again); window.addEventListener("focus", again); window.addEventListener("online", again);
+    return () => { dead = true; document.removeEventListener("visibilitychange", again); window.removeEventListener("focus", again); window.removeEventListener("online", again); };
   }, [session, refreshConversations]);
 
   useEffect(() => {
@@ -4980,7 +5023,7 @@ function App() {
   const handleLogOut = () => {
     socketRef.current?.disconnect();
     try { firebase.auth().signOut(); } catch (e) {}
-    clearJSON("session");
+    clearJSON("session"); clearJSON("convCache"); clearJSON("phonebookMatches");
     setSession(null);
     setConversations([]);
     setActiveConvo(null);
@@ -5111,4 +5154,42 @@ function App() {
 
 // ---- mount ----
 const rootEl = document.getElementById("root");
-ReactDOM.createRoot(rootEl).render(React.createElement(App));
+// ---- only open the app once the server is awake (free hosting sleeps when idle) ----
+function ServerGate() {
+  const [awake, setAwake] = React.useState(false);
+  const [secs, setSecs] = React.useState(0);
+  const [offline, setOffline] = React.useState(typeof navigator !== "undefined" && navigator.onLine === false);
+  React.useEffect(() => {
+    let dead = false, done = false, timer = null, tries = 0;
+    const started = Date.now();
+    const tick = setInterval(() => { if (!dead) { setSecs(Math.floor((Date.now() - started) / 1000)); setOffline(navigator.onLine === false); } }, 1000);
+    const ping = async () => {
+      let ok = false;
+      const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const to = setTimeout(() => { if (ctl) ctl.abort(); }, 10000);
+      try {
+        const res = await fetch(API_URL + "/api/health?t=" + Date.now(), { cache: "no-store", signal: ctl ? ctl.signal : undefined });
+        const d = await res.json().catch(() => ({}));
+        ok = res.ok && d && d.ok === true;
+      } catch (e) { ok = false; }
+      clearTimeout(to);
+      if (dead) return;
+      if (ok) { done = true; setAwake(true); return; }
+      tries++;
+      timer = setTimeout(ping, Math.min(1000 + tries * 500, 3000));
+    };
+    ping();
+    const back = () => { if (!done) { clearTimeout(timer); ping(); } };
+    window.addEventListener("online", back);
+    return () => { dead = true; clearTimeout(timer); clearInterval(tick); window.removeEventListener("online", back); };
+  }, []);
+  if (awake) return React.createElement(App);
+  return React.createElement("div", { className: "app-shell", style: { background: "#0E1116", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 24, fontFamily: "Inter, sans-serif", color: "#F5F7FA" } },
+    React.createElement("div", { style: { width: 44, height: 44, borderRadius: "50%", border: "4px solid #1E2530", borderTopColor: "#35D0BA", animation: "lcGateSpin 0.9s linear infinite", marginBottom: 20 } }),
+    React.createElement("div", { style: { fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, fontSize: 20, marginBottom: 8 } }, "Letschat Africa"),
+    React.createElement("div", { style: { fontSize: 14, color: "#9BA7B4", maxWidth: 280, lineHeight: 1.5 } },
+      offline ? "No internet connection. Waiting to reconnect…" : secs < 4 ? "Connecting…" : "Waking up the server. This can take up to a minute the first time (" + secs + "s)"),
+    React.createElement("style", null, "@keyframes lcGateSpin{to{transform:rotate(360deg)}}"));
+}
+
+ReactDOM.createRoot(rootEl).render(React.createElement(ServerGate));

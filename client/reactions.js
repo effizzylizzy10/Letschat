@@ -23,21 +23,29 @@
       open && h("div", { style: { display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 2, marginTop: 4 } }, MORE.map(btn)));
   }
 
-  // the emojis under a bubble, with a count when more than one person used the same one
+  // the emojis on a bubble, with a count when more than one person used the same one.
+  // Received messages: pills sit on the bottom-left edge of the bubble. Sent messages: plain emojis, no pill.
   function Chips(p) {
     var r = p.m.reactions || {}, counts = {}, order = [];
     Object.keys(r).forEach(function (u) { var e = r[u]; if (!counts[e]) { counts[e] = 0; order.push(e); } counts[e]++; });
-    return h("div", { style: { display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 } },
-      order.map(function (e) {
-        var on = r[p.myId] === e;
-        return h("button", { key: e, "aria-label": e + " " + counts[e], onClick: function () { p.onReact(p.m, e); },
-          style: { display: "flex", alignItems: "center", gap: 3, background: "rgba(14,17,22,0.55)", border: on ? "1px solid #35D0BA" : "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "1px 7px", cursor: "pointer", color: "#F5F7FA", fontFamily: "Inter", fontSize: 12.5, lineHeight: "20px" } },
-          h("span", { style: { fontSize: 14 } }, e), counts[e] > 1 && h("span", null, counts[e]));
-      }));
+    var mine = !!p.mine;
+    var items = order.map(function (e) {
+      var on = r[p.myId] === e;
+      return h("button", { key: e, "aria-label": e + " " + counts[e], onClick: function () { p.onReact(p.m, e); },
+        style: mine
+          ? { display: "flex", alignItems: "center", gap: 3, background: "none", border: "none", padding: 0, cursor: "pointer", color: "#F5F7FA", fontFamily: "Inter", fontSize: 12.5, lineHeight: "20px" }
+          : { display: "flex", alignItems: "center", gap: 3, background: "#10141B", border: on ? "1px solid #35D0BA" : "1px solid #2B3544", borderRadius: 999, padding: "1px 7px", cursor: "pointer", color: "#F5F7FA", fontFamily: "Inter", fontSize: 12.5, lineHeight: "20px" } },
+        h("span", { style: { fontSize: 14 } }, e), counts[e] > 1 && h("span", null, counts[e]));
+    });
+    return h("div", { style: mine
+      ? { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }
+      : { position: "absolute", left: 8, bottom: -14, display: "flex", gap: 4, zIndex: 1 } }, items);
   }
 
+  function has(m) { return !!m && !m.deleted && !!m.reactions && Object.keys(m.reactions).length > 0; }
+
   function bar(m, myId, onReact) { return !m || m.deleted ? null : h(Bar, { m: m, myId: myId, onReact: onReact }); }
-  function chips(m, myId, onReact) { return !m || m.deleted || !m.reactions || !Object.keys(m.reactions).length ? null : h(Chips, { m: m, myId: myId, onReact: onReact }); }
+  function chips(m, myId, onReact, mine) { return has(m) ? h(Chips, { m: m, myId: myId, onReact: onReact, mine: mine }) : null; }
 
   // applies reactions other people (or you, on another device) add while the chat is open
   function useLive(socket, convId, setMsgs) {
@@ -52,5 +60,5 @@
     }, [socket, convId]);
   }
 
-  window.LCReactions = { bar: bar, chips: chips, useLive: useLive };
+  window.LCReactions = { bar: bar, chips: chips, has: has, useLive: useLive };
 })();
