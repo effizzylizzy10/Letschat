@@ -5324,45 +5324,7 @@ function App() {
 }
 // ---- mount ----
 const rootEl = document.getElementById("root");
-// ---- only open the app once the server is awake (free hosting sleeps when idle) ----
-function ServerGate() {
-  const [awake, setAwake] = React.useState(false);
-  const [secs, setSecs] = React.useState(0);
-  const [offline, setOffline] = React.useState(typeof navigator !== "undefined" && navigator.onLine === false);
-  React.useEffect(() => {
-    let dead = false, done = false, timer = null, tries = 0;
-    const started = Date.now();
-    const tick = setInterval(() => { if (!dead) { setSecs(Math.floor((Date.now() - started) / 1000)); setOffline(navigator.onLine === false); } }, 1000);
-    const ping = async () => {
-      let ok = false;
-      const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const to = setTimeout(() => { if (ctl) ctl.abort(); }, 10000);
-      try {
-        const res = await fetch(API_URL + "/api/health?t=" + Date.now(), { cache: "no-store", signal: ctl ? ctl.signal : undefined });
-        const d = await res.json().catch(() => ({}));
-        ok = res.ok && d && d.ok === true;
-      } catch (e) { ok = false; }
-      clearTimeout(to);
-      if (dead) return;
-      if (ok) { done = true; setAwake(true); return; }
-      tries++;
-      timer = setTimeout(ping, Math.min(1000 + tries * 500, 3000));
-    };
-    ping();
-    const back = () => { if (!done) { clearTimeout(timer); ping(); } };
-    window.addEventListener("online", back);
-    return () => { dead = true; clearTimeout(timer); clearInterval(tick); window.removeEventListener("online", back); };
-  }, []);
-  if (awake) return React.createElement(App);
-  return React.createElement("div", { className: "app-shell", style: { background: "#0E1116", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 24, fontFamily: "Inter, sans-serif", color: "#F5F7FA" } },
-    React.createElement("div", { style: { width: 44, height: 44, borderRadius: "50%", border: "4px solid #1E2530", borderTopColor: "#35D0BA", animation: "lcGateSpin 0.9s linear infinite", marginBottom: 20 } }),
-    React.createElement("div", { style: { fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, fontSize: 20, marginBottom: 8 } }, "Letschat Africa"),
-    React.createElement("div", { style: { fontSize: 14, color: "#9BA7B4", maxWidth: 280, lineHeight: 1.5 } },
-      offline ? "No internet connection. Waiting to reconnect…" : secs < 4 ? "Connecting…" : "Waking up the server. This can take up to a minute the first time (" + secs + "s)"),
-    React.createElement("style", null, "@keyframes lcGateSpin{to{transform:rotate(360deg)}}"));
-}
-
-ReactDOM.createRoot(rootEl).render(React.createElement(ServerGate));
+ReactDOM.createRoot(rootEl).render(React.createElement(App));
 </script>
   <script>
     if ("serviceWorker" in navigator) {
