@@ -821,7 +821,7 @@ function liveListing(req, res) {
   if (!l) { res.status(404).json({ error: "Product not found. It may have expired." }); return null; }
   return { db, l };
 }
-const commentViews = (db, l, uid) => (l.comments || []).map((c) => ({ id: c.id, text: c.text, time: c.time, mine: c.userId === uid, canDelete: c.userId === uid || l.sellerId === uid, author: memberView(db.users.find((u) => u.id === c.userId)) }));
+const commentViews = (db, l, uid) => (l.comments || []).map((c) => ({ id: c.id, text: c.text, time: c.time, mine: c.userId === uid, canDelete: c.userId === uid || l.sellerId === uid, author: memberView(db.users.find((u) => u.id === c.userId)), tags: tagViews(db, c.tags) }));
 app.get("/api/market/:id/comments", authMiddleware, (req, res) => {
   const o = liveListing(req, res); if (!o) return;
   res.json({ comments: commentViews(o.db, o.l, req.user.id) });
@@ -833,8 +833,10 @@ app.post("/api/market/:id/comments", authMiddleware, (req, res) => {
   if ([...text].length > 500) return res.status(400).json({ error: "Comments can be up to 500 characters" });
   o.l.comments = o.l.comments || [];
   if (o.l.comments.length >= 200) return res.status(400).json({ error: "This product has reached its comment limit" });
-  o.l.comments.push({ id: nanoid(8), userId: req.user.id, text, time: Date.now() });
+  const tags = cleanTags(o.db, req.user.id, req.body.tags);
+  o.l.comments.push({ id: nanoid(8), userId: req.user.id, text, time: Date.now(), tags });
   writeDB(o.db);
+  notifyTags(o.db, req.user.id, tags, "comment");
   res.json({ comments: commentViews(o.db, o.l, req.user.id) });
 });
 app.delete("/api/market/:id/comments/:cid", authMiddleware, (req, res) => {
