@@ -3999,6 +3999,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     if (!window.confirm("Delete this " + (m.audio || m.hasAudio ? "voice note" : "message") + " for everyone?")) return;
     socket.emit("message:delete", { messageId: m.id }, (ack) => { if (ack && ack.error) setError(ack.error); });
   };
+  const reactTo = (m, emoji) => { setSel(null); setPicked([]); if (!socket) return setError("Not connected yet. Try again in a moment."); socket.emit("message:react", { messageId: m.id, emoji }, (ack) => { if (ack && ack.error) setError(ack.error); }); };
+  if (window.LCReactions) window.LCReactions.useLive(socket, conversation.id, setMsgs);
   const openMenu = (m) => { if (m.senderId === myId && !m.deleted) { openedAt.current = Date.now(); setSel(m); } };
   const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => startPick(m), 450); };
   const pressEnd = () => clearTimeout(pressRef.current);
@@ -4160,6 +4162,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <div onClick={() => setMenu(m => !m)} style={{ display: "flex", cursor: "pointer", padding: 4 }}><MoreVertical size={19} color="#9BA7B4" /></div>
       </div>
 
+      {picking && pickedMsgs.length === 1 && window.LCReactions && window.LCReactions.bar(pickedMsgs[0], myId, reactTo)}
       {fText !== null && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "8px 11px" }}>
@@ -4208,6 +4211,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                     </span>
                   </a>
                 ) : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{richText(m.text)}</div>}
+              {window.LCReactions && window.LCReactions.chips(m, myId, reactTo)}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
                 {m.edited && !m.deleted && <span style={{ fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" }}>edited</span>}
                 <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{timeLabel(m.time)}</span>
@@ -4296,6 +4300,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         <div onClick={() => { if (Date.now() - openedAt.current > 500) setSel(null); }} style={{ position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" }}>
             <div style={{ padding: "6px 10px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel.audio || sel.hasAudio ? "🎤 Voice note" : sel.text}</div>
+            {window.LCReactions && window.LCReactions.bar(sel, myId, reactTo)}
             <div onClick={() => startPick(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Check size={18} color="#35D0BA" />Select messages</div>
             {canEdit(sel) && (
               <div onClick={() => startEdit(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Pencil size={18} color="#35D0BA" />Edit message</div>

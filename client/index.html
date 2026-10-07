@@ -101,6 +101,7 @@
   <!-- Your server config (single source of truth: config.js; must load before the app) -->
   <script src="config.js"></script>
   <script src="push.js"></script>
+  <script src="reactions.js"></script>
 </head>
 <body>
   <div id="root"><div id="boot">Loading Letschat Africa…</div></div>
@@ -4181,7 +4182,9 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         socket.emit("message:delete", { messageId: m.id }, (ack) => { if (ack && ack.error)
             setError(ack.error); });
     };
-    const openMenu = (m) => { if (m.senderId === myId && !m.deleted) {
+    const reactTo = (m, emoji) => { setSel(null); setPicked([]); if (!socket) return setError("Not connected yet. Try again in a moment."); socket.emit("message:react", { messageId: m.id, emoji }, (ack) => { if (ack && ack.error) setError(ack.error); }); };
+  if (window.LCReactions) window.LCReactions.useLive(socket, conversation.id, setMsgs);
+  const openMenu = (m) => { if (m.senderId === myId && !m.deleted) {
         openedAt.current = Date.now();
         setSel(m);
     } };
@@ -4374,6 +4377,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 React.createElement(Phone, { size: 19, color: "#9BA7B4" })),
             React.createElement("div", { onClick: () => setMenu(m => !m), style: { display: "flex", cursor: "pointer", padding: 4 } },
                 React.createElement(MoreVertical, { size: 19, color: "#9BA7B4" }))),
+        picking && pickedMsgs.length === 1 && window.LCReactions && window.LCReactions.bar(pickedMsgs[0], myId, reactTo),
         fText !== null && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 } },
             React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "8px 11px" } },
                 React.createElement(Search, { size: 16, color: "#8891A0", style: { flexShrink: 0 } }),
@@ -4413,6 +4417,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                                         React.createElement("span", { style: { display: "block", fontSize: 11.5, color: "#B9C2CC" } },
                                             fmtSize(m.file.size),
                                             " \u00B7 tap to download")))) : React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, richText(m.text)),
+                    window.LCReactions && window.LCReactions.chips(m, myId, reactTo),
                     React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
                         m.edited && !m.deleted && React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" } }, "edited"),
                         React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, timeLabel(m.time)),
@@ -4471,6 +4476,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 setSel(null); }, style: { position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
             React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" } },
                 React.createElement("div", { style: { padding: "6px 10px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, sel.audio || sel.hasAudio ? "🎤 Voice note" : sel.text),
+                window.LCReactions && window.LCReactions.bar(sel, myId, reactTo),
                 React.createElement("div", { onClick: () => startPick(sel), style: { display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" } },
                     React.createElement(Check, { size: 18, color: "#35D0BA" }),
                     "Select messages"),
