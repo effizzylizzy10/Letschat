@@ -976,6 +976,8 @@ function joinUserToRoom(userId, room) {
 
 // ===================== GAMES HUB (matchmaking, invites, rooms, rankings) =====================
 // Rules are shared word-for-word with the client (GAME_RULES in app.jsx) so both sides agree.
+const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
+const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
 const GAME_RULES = {
   ttt: {
     init: () => Array(9).fill(null),
@@ -1002,6 +1004,40 @@ const GAME_RULES = {
       }
       return null;
     },
+  },
+  ludo: {
+    // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
+    init: () => ({ t: [[-1,-1,-1,-1],[-1,-1,-1,-1]], d: null, last: 0, nx: 0 }),
+    can: (s, p, i) => { const r = s.t[p][i], d = s.d; if (r === 56 || d == null) return false; if (r === -1) return d === 6; return r + d <= 56; },
+    moves: (s, p) => (s.nx !== p ? [] : s.d == null ? [-1] : [0,1,2,3].filter((i) => GAME_RULES.ludo.can(s, p, i))),
+    play: (s, m, p, rnd) => {
+      const t = s.t.map((a) => a.slice());
+      if (m === -1) {
+        const d = 1 + Math.floor(rnd() * 6), ns = { t, d, last: d, nx: p };
+        if (![0,1,2,3].some((i) => GAME_RULES.ludo.can(ns, p, i))) { ns.d = null; ns.nx = 1 - p; }
+        return ns;
+      }
+      const d = s.d, r = t[p][m], nr = r === -1 ? 0 : r + d; let extra = d === 6; t[p][m] = nr;
+      if (nr <= 50) { const a = (p * 26 + nr) % 52; if (!LUDO_SAFE.includes(a)) { const q = 1 - p; t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) { t[q][j] = -1; extra = true; } }); } }
+      if (nr === 56) extra = true;
+      return { t, d: null, last: d, nx: extra ? p : 1 - p };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.t[p].every((r) => r === 56)) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
+  },
+  snl: {
+    // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
+    init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
+    moves: (s, p) => (s.nx === p ? [-1] : []),
+    play: (s, m, p, rnd) => {
+      const d = 1 + Math.floor(rnd() * 6), pos = s.p.slice(); let np = pos[p] + d; if (np > 100) np = pos[p];
+      const jump = SNL_JUMPS[np], ev = jump ? (jump > np ? 1 : -1) : 0; if (jump) np = jump; pos[p] = np;
+      return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.p[p] === 100) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
   },
 };
 const GAME_IDS = Object.keys(GAME_RULES);
@@ -1084,13 +1120,13 @@ function registerGames(socket) {
   socket.on("game:move", ({ room: rid, move } = {}) => {
     const room = gRooms.get(rid); if (!room || room.over) return;
     const idx = room.players.indexOf(me); if (idx !== room.turn) return;
-    const R = GAME_RULES[room.game]; if (!R.moves(room.state).includes(move)) return;
-    room.state = R.play(room.state, move, idx);
-    const w = R.win(room.state); const full = R.moves(room.state).length === 0;
+    const R = GAME_RULES[room.game]; if (!R.moves(room.state, idx).includes(move)) return;
+    room.state = R.play(room.state, move, idx, Math.random);
+    const w = R.win(room.state); const full = R.draw ? R.draw(room.state) : R.moves(room.state).length === 0;
     if (w || full) {
       const rec = gFinish(room, w ? w.p : -1);
       room.players.forEach((p, i) => { io.to(`user:${p}`).emit("game:move", { room: rid, state: room.state, turn: -1, last: move, by: idx }); io.to(`user:${p}`).emit("game:over", { room: rid, winner: w ? w.p : -1, line: w ? w.line : null, score: room.score, reward: rec[p], result: w ? (w.p === i ? "w" : "l") : "d" }); });
-    } else { room.turn = 1 - idx; room.players.forEach((p) => io.to(`user:${p}`).emit("game:move", { room: rid, state: room.state, turn: room.turn, last: move, by: idx, next: room.players[room.turn] })); }
+    } else { room.turn = R.next ? R.next(room.state) : 1 - idx; room.players.forEach((p) => io.to(`user:${p}`).emit("game:move", { room: rid, state: room.state, turn: room.turn, last: move, by: idx, next: room.players[room.turn] })); }
   });
   const relay = (ev) => socket.on(ev, ({ room: rid, text, emoji } = {}) => {
     const room = gRooms.get(rid); if (!room || !room.players.includes(me)) return;
