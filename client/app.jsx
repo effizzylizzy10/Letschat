@@ -45,6 +45,10 @@ const Users = makeIcon([["p", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"], ["c"
 const Star = makeIcon([["g", "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"]]);
 const LogOut = makeIcon([["p", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"], ["p", "m16 17 5-5-5-5"], ["p", "M21 12H9"]]);
 const User = makeIcon([["p", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"], ["c", 12, 7, 4]]);
+const Trash2 = makeIcon([["p", "M3 6h18"], ["p", "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"], ["p", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"], ["p", "M10 11v6"], ["p", "M14 11v6"]]);
+const ChevronDown = makeIcon([["p", "m6 9 6 6 6-6"]]);
+const Gamepad2 = makeIcon([["p", "M6 11h4"], ["p", "M8 9v4"], ["p", "M15 12h.01"], ["p", "M18 10h.01"], ["p", "M17.32 5H6.68a4 4 0 0 0-3.978 3.59C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258A4 4 0 0 0 17.32 5z"]]);
+const RotateCcw = makeIcon([["p", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"], ["p", "M3 3v5h5"]]);
 const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
 const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
 const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
@@ -332,6 +336,7 @@ function TabBar({ active, setActive }) {
     { id: "calls", icon: PhoneCall, label: "Calls" },
     { id: "status", icon: Radio, label: "Status" },
     { id: "market", icon: ShoppingBag, label: "Market" },
+    { id: "games", icon: Gamepad2, label: "Games" },
     { id: "tools", icon: Grid3x3, label: "Tools" },
   ];
   return (
@@ -812,7 +817,503 @@ function JoinGroupModal({ code, token, onClose, onJoined }) {
   );
 }
 
+// ---- games: single-player games that run on the phone (no server needed). Best scores are kept on this device. ----
+const shuffled = (arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const gameBtn = { background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "10px 16px", fontFamily: "Inter", fontWeight: 600, fontSize: 14, cursor: "pointer" };
+
+// swipe on an element -> "left" | "right" | "up" | "down" (the element also stops the page from scrolling while you play)
+function useSwipe(ref, onSwipe) {
+  const cb = useRef(onSwipe); cb.current = onSwipe;
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    let sx = 0, sy = 0, on = false;
+    const ts = (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; on = true; };
+    const te = (e) => {
+      if (!on) return; on = false;
+      const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+      cb.current(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
+    };
+    const tm = (e) => e.preventDefault();
+    el.addEventListener("touchstart", ts, { passive: true });
+    el.addEventListener("touchend", te, { passive: true });
+    el.addEventListener("touchmove", tm, { passive: false });
+    return () => { el.removeEventListener("touchstart", ts); el.removeEventListener("touchend", te); el.removeEventListener("touchmove", tm); };
+  }, []);
+}
+const ARROWS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+function useArrowKeys(onDir) {
+  const cb = useRef(onDir); cb.current = onDir;
+  useEffect(() => {
+    const h = (e) => { const d = ARROWS[e.key]; if (!d || /^(input|textarea)$/i.test((e.target && e.target.tagName) || "")) return; e.preventDefault(); cb.current(d); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+}
+
+// ---------- Tic-Tac-Toe (you are X, the computer is O) ----------
+const TTT_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+function tttWinner(b) {
+  for (const [x, y, z] of TTT_LINES) if (b[x] && b[x] === b[y] && b[x] === b[z]) return { who: b[x], line: [x, y, z] };
+  return b.every(Boolean) ? { who: "draw", line: [] } : null;
+}
+function tttScore(b, turn, depth) {
+  const w = tttWinner(b);
+  if (w) return w.who === "O" ? 10 - depth : w.who === "X" ? depth - 10 : 0;
+  let best = turn === "O" ? -99 : 99;
+  for (let i = 0; i < 9; i++) if (!b[i]) {
+    b[i] = turn;
+    const s = tttScore(b, turn === "O" ? "X" : "O", depth + 1);
+    b[i] = null;
+    best = turn === "O" ? Math.max(best, s) : Math.min(best, s);
+  }
+  return best;
+}
+function tttPick(board, level) {
+  const b = board.slice();
+  const free = [];
+  b.forEach((v, i) => { if (!v) free.push(i); });
+  if (!free.length) return -1;
+  const rnd = () => free[Math.floor(Math.random() * free.length)];
+  if (level === "easy") return rnd();
+  if (level === "normal") { // win if it can, block you if it must, otherwise take the centre or anything
+    for (const who of ["O", "X"]) for (const i of free) { b[i] = who; const w = tttWinner(b); b[i] = null; if (w && w.who === who) return i; }
+    return b[4] ? rnd() : 4;
+  }
+  if (free.length === 9) return [0, 2, 4, 6, 8][Math.floor(Math.random() * 5)];
+  let best = -99, pick = free[0];
+  for (const i of free) { b[i] = "O"; const s = tttScore(b, "X", 1); b[i] = null; if (s > best || (s === best && Math.random() < 0.3)) { best = s; pick = i; } }
+  return pick;
+}
+function TicTacToeGame({ stats, onResult }) {
+  const [level, setLevel] = useState("normal");
+  const [board, setBoard] = useState(Array(9).fill(null));
+  const [turn, setTurn] = useState("X");
+  const [youStart, setYouStart] = useState(true);
+  const reported = useRef(false);
+  const result = tttWinner(board);
+  useEffect(() => {
+    if (result) { if (!reported.current) { reported.current = true; onResult(result.who === "X" ? "w" : result.who === "O" ? "l" : "d"); } return; }
+    if (turn !== "O") return;
+    const t = setTimeout(() => {
+      setBoard(b => { const i = tttPick(b, level); if (i < 0) return b; const nb = b.slice(); nb[i] = "O"; return nb; });
+      setTurn("X");
+    }, 380);
+    return () => clearTimeout(t);
+  }, [board, turn, level]);
+  const play = (i) => { if (result || turn !== "X" || board[i]) return; const nb = board.slice(); nb[i] = "X"; setBoard(nb); setTurn("O"); };
+  const again = () => { const ys = !youStart; setYouStart(ys); setBoard(Array(9).fill(null)); reported.current = false; setTurn(ys ? "X" : "O"); };
+  const msg = result ? (result.who === "X" ? "You win! 🎉" : result.who === "O" ? "Computer wins" : "It's a draw") : turn === "X" ? "Your turn (X)" : "Computer is thinking…";
+  const s = stats || { w: 0, d: 0, l: 0 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        {[["easy", "Easy"], ["normal", "Normal"], ["hard", "Hard"]].map(([id, label]) => (
+          <button key={id} onClick={() => setLevel(id)} style={{ ...gameBtn, padding: "7px 14px", fontSize: 13, background: level === id ? "#35D0BA" : "#1E2530", color: level === id ? "#0E1116" : "#F5F7FA" }}>{label}</button>
+        ))}
+      </div>
+      <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", minHeight: 24 }}>{msg}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, width: "100%", maxWidth: 300 }}>
+        {board.map((v, i) => {
+          const win = result && result.line.includes(i);
+          return (
+            <button key={i} aria-label={"Square " + (i + 1)} onClick={() => play(i)} style={{ aspectRatio: "1 / 1", borderRadius: 14, border: win ? "2px solid #35D0BA" : "1px solid #2B3544", background: win ? "#35D0BA22" : "#161B22", fontFamily: "Sora", fontWeight: 800, fontSize: 42, color: v === "X" ? "#35D0BA" : "#F2B84B", cursor: v || result ? "default" : "pointer", padding: 0 }}>{v}</button>
+          );
+        })}
+      </div>
+      {result && <button onClick={again} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>Play again</button>}
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Wins {s.w} · Draws {s.d} · Losses {s.l}</div>
+    </div>
+  );
+}
+
+// ---------- Memory Match ----------
+const MEM_EMOJI = ["🦁", "🐘", "🦒", "🦓", "🐆", "🦛", "🦜", "🐒", "🦩", "🐊", "🦏", "🐍"];
+function MemoryGame({ best, onScore }) {
+  const [cards] = useState(() => { const p = shuffled(MEM_EMOJI).slice(0, 8); return shuffled([...p, ...p]); });
+  const [open, setOpen] = useState([]);
+  const [done, setDone] = useState([]);
+  const [moves, setMoves] = useState(0);
+  const [secs, setSecs] = useState(0);
+  const [started, setStarted] = useState(false);
+  const won = done.length === cards.length;
+  useEffect(() => { if (!started || won) return; const t = setInterval(() => setSecs(x => x + 1), 1000); return () => clearInterval(t); }, [started, won]);
+  useEffect(() => { if (won) onScore(moves); }, [won]);
+  const flip = (i) => {
+    if (open.length >= 2 || open.includes(i) || done.includes(i)) return;
+    setStarted(true);
+    const next = [...open, i];
+    setOpen(next);
+    if (next.length === 2) {
+      setMoves(m => m + 1);
+      const [a, b] = next;
+      if (cards[a] === cards[b]) setTimeout(() => { setDone(d => [...d, a, b]); setOpen([]); }, 350);
+      else setTimeout(() => setOpen([]), 800);
+    }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 22, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+        <span>Moves <b style={{ color: "#F5F7FA" }}>{moves}</b></span>
+        <span>Time <b style={{ color: "#F5F7FA" }}>{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}</b></span>
+        <span>Best <b style={{ color: "#F2B84B" }}>{best || "–"}</b></span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, width: "100%", maxWidth: 340 }}>
+        {cards.map((e, i) => {
+          const up = open.includes(i) || done.includes(i);
+          return (
+            <button key={i} aria-label={up ? e : "Hidden card"} onClick={() => flip(i)} style={{ aspectRatio: "1 / 1", borderRadius: 12, border: done.includes(i) ? "2px solid #35D0BA" : "1px solid #2B3544", background: up ? "#161B22" : "#1E8677", fontSize: 32, padding: 0, cursor: up ? "default" : "pointer", opacity: done.includes(i) ? 0.75 : 1 }}>{up ? e : ""}</button>
+          );
+        })}
+      </div>
+      {won && <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#35D0BA", textAlign: "center" }}>You found them all in {moves} moves! 🎉<div style={{ fontFamily: "Inter", fontWeight: 400, fontSize: 13, color: "#8891A0", marginTop: 4 }}>Tap ↻ at the top to play again.</div></div>}
+    </div>
+  );
+}
+
+// ---------- Snake ----------
+const SNAKE_N = 16, SNAKE_CELL = 20;
+const SNAKE_DIRS = { left: { x: -1, y: 0 }, right: { x: 1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
+function SnakeGame({ best, onScore }) {
+  const canvasRef = useRef(null);
+  const g = useRef(null);
+  const timer = useRef(null);
+  const scoreCb = useRef(onScore); scoreCb.current = onScore;
+  const [status, setStatus] = useState("ready");
+  const [score, setScore] = useState(0);
+  const stop = () => { clearInterval(timer.current); timer.current = null; };
+  useEffect(() => { draw(); return stop; }, []);
+  const placeFood = (snake) => {
+    const free = [];
+    for (let x = 0; x < SNAKE_N; x++) for (let y = 0; y < SNAKE_N; y++) if (!snake.some(p => p.x === x && p.y === y)) free.push({ x, y });
+    return free[Math.floor(Math.random() * free.length)];
+  };
+  const draw = () => {
+    const cv = canvasRef.current; if (!cv) return;
+    const c = cv.getContext("2d"), s = g.current, C = SNAKE_CELL;
+    c.fillStyle = "#0B0E13"; c.fillRect(0, 0, cv.width, cv.height);
+    c.fillStyle = "#121821";
+    for (let x = 0; x < SNAKE_N; x++) for (let y = 0; y < SNAKE_N; y++) if ((x + y) % 2) c.fillRect(x * C, y * C, C, C);
+    if (!s) return;
+    c.fillStyle = "#FF6B5D"; c.beginPath(); c.arc(s.food.x * C + C / 2, s.food.y * C + C / 2, C / 2 - 3, 0, Math.PI * 2); c.fill();
+    s.snake.forEach((p, i) => { c.fillStyle = i === 0 ? "#7CF0DE" : "#35D0BA"; c.fillRect(p.x * C + 1, p.y * C + 1, C - 2, C - 2); });
+  };
+  const speed = (sc) => Math.max(70, 140 - Math.floor(sc / 10) * 4);
+  const tick = () => {
+    const s = g.current; if (!s) return;
+    s.dir = s.next;
+    const head = { x: s.snake[0].x + s.dir.x, y: s.snake[0].y + s.dir.y };
+    const eat = head.x === s.food.x && head.y === s.food.y;
+    const body = eat ? s.snake : s.snake.slice(0, -1);
+    if (head.x < 0 || head.y < 0 || head.x >= SNAKE_N || head.y >= SNAKE_N || body.some(p => p.x === head.x && p.y === head.y)) {
+      stop(); setStatus("over"); scoreCb.current(s.score); draw(); return;
+    }
+    s.snake = [head, ...body];
+    if (eat) { s.score += 10; setScore(s.score); s.food = placeFood(s.snake); stop(); timer.current = setInterval(tick, speed(s.score)); }
+    draw();
+  };
+  const start = () => {
+    stop();
+    const snake = [{ x: 5, y: 8 }, { x: 4, y: 8 }, { x: 3, y: 8 }];
+    g.current = { snake, dir: SNAKE_DIRS.right, next: SNAKE_DIRS.right, food: placeFood(snake), score: 0 };
+    setScore(0); setStatus("playing"); draw();
+    timer.current = setInterval(tick, speed(0));
+  };
+  const turn = (name) => {
+    const s = g.current, v = SNAKE_DIRS[name];
+    if (!s || !timer.current || (v.x === -s.dir.x && v.y === -s.dir.y)) return;
+    s.next = v;
+  };
+  useSwipe(canvasRef, turn);
+  useArrowKeys(turn);
+  const pad = { width: 62, height: 52, borderRadius: 14, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", fontSize: 22, cursor: "pointer", padding: 0 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 24, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+        <span>Score <b style={{ color: "#F5F7FA" }}>{score}</b></span>
+        <span>Best <b style={{ color: "#F2B84B" }}>{Math.max(best || 0, status === "over" ? score : 0)}</b></span>
+      </div>
+      <div style={{ position: "relative", width: "100%", maxWidth: 340 }}>
+        <canvas ref={canvasRef} width={SNAKE_N * SNAKE_CELL} height={SNAKE_N * SNAKE_CELL} style={{ width: "100%", aspectRatio: "1 / 1", display: "block", borderRadius: 14, border: "1px solid #2B3544", touchAction: "none" }} />
+        {status !== "playing" && (
+          <div style={{ position: "absolute", inset: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+            <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" }}>{status === "over" ? "Game over · " + score : "Snake 🐍"}</div>
+            <button onClick={start} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>{status === "over" ? "Try again" : "Start"}</button>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8891A0" }}>Swipe or use the arrows to steer</div>
+          </div>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 62px)", gap: 6, justifyContent: "center" }}>
+        <span /><button aria-label="Up" onClick={() => turn("up")} style={pad}>▲</button><span />
+        <button aria-label="Left" onClick={() => turn("left")} style={pad}>◀</button>
+        <button aria-label="Down" onClick={() => turn("down")} style={pad}>▼</button>
+        <button aria-label="Right" onClick={() => turn("right")} style={pad}>▶</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 2048 ----------
+function g2048Slide(row) {
+  const a = row.filter(Boolean); let gained = 0;
+  for (let i = 0; i < a.length - 1; i++) if (a[i] === a[i + 1]) { a[i] *= 2; gained += a[i]; a.splice(i + 1, 1); }
+  while (a.length < 4) a.push(0);
+  return [a, gained];
+}
+function g2048Move(grid, dir) {
+  const out = grid.map(r => r.slice());
+  let gained = 0, moved = false;
+  const at = (i, j) => (dir === "left" ? [i, j] : dir === "right" ? [i, 3 - j] : dir === "up" ? [j, i] : [3 - j, i]);
+  for (let i = 0; i < 4; i++) {
+    const line = [];
+    for (let j = 0; j < 4; j++) { const [r, c] = at(i, j); line.push(grid[r][c]); }
+    const [res, gain] = g2048Slide(line);
+    gained += gain;
+    for (let j = 0; j < 4; j++) { const [r, c] = at(i, j); if (out[r][c] !== res[j]) moved = true; out[r][c] = res[j]; }
+  }
+  return { grid: out, gained, moved };
+}
+function g2048Add(grid) {
+  const empty = [];
+  grid.forEach((row, r) => row.forEach((v, c) => { if (!v) empty.push([r, c]); }));
+  if (!empty.length) return grid;
+  const [r, c] = empty[Math.floor(Math.random() * empty.length)];
+  const out = grid.map(x => x.slice());
+  out[r][c] = Math.random() < 0.9 ? 2 : 4;
+  return out;
+}
+const g2048CanMove = (grid) => ["left", "right", "up", "down"].some(d => g2048Move(grid, d).moved);
+const TILE_COLORS = { 0: ["#1B222D", "#1B222D"], 2: ["#2B3544", "#F5F7FA"], 4: ["#34445A", "#F5F7FA"], 8: ["#F2B84B", "#0E1116"], 16: ["#F29A4B", "#0E1116"], 32: ["#FF8A5D", "#0E1116"], 64: ["#FF6B5D", "#0E1116"], 128: ["#35D0BA", "#0E1116"], 256: ["#2BB8A3", "#0E1116"], 512: ["#4FA8E0", "#0E1116"], 1024: ["#8B7CF6", "#0E1116"], 2048: ["#F5F7FA", "#0E1116"] };
+function Game2048({ best, onScore }) {
+  const [grid, setGrid] = useState(() => g2048Add(g2048Add(Array.from({ length: 4 }, () => Array(4).fill(0)))));
+  const [score, setScore] = useState(0);
+  const [over, setOver] = useState(false);
+  const [won, setWon] = useState(false);
+  const boardRef = useRef(null);
+  const cur = useRef({}); cur.current = { grid, score, over };
+  const move = (dir) => {
+    const s = cur.current; if (s.over) return;
+    const r = g2048Move(s.grid, dir); if (!r.moved) return;
+    const next = g2048Add(r.grid), sc = s.score + r.gained;
+    setGrid(next); setScore(sc); onScore(sc);
+    if (next.some(row => row.includes(2048))) setWon(true);
+    if (!g2048CanMove(next)) setOver(true);
+  };
+  useSwipe(boardRef, move);
+  useArrowKeys(move);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 24, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+        <span>Score <b style={{ color: "#F5F7FA" }}>{score}</b></span>
+        <span>Best <b style={{ color: "#F2B84B" }}>{Math.max(best || 0, score)}</b></span>
+      </div>
+      <div ref={boardRef} style={{ position: "relative", width: "100%", maxWidth: 340, touchAction: "none", background: "#10151C", borderRadius: 14, padding: 8, border: "1px solid #2B3544", boxSizing: "border-box" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          {grid.flat().map((v, i) => {
+            const [bg, fg] = TILE_COLORS[v] || ["#F5F7FA", "#0E1116"];
+            return <div key={i} style={{ aspectRatio: "1 / 1", borderRadius: 10, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 800, fontSize: v >= 1024 ? 20 : v >= 128 ? 24 : 28 }}>{v || ""}</div>;
+          })}
+        </div>
+        {(over || won) && (
+          <div style={{ position: "absolute", inset: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+            <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" }}>{over ? "No more moves" : "You made 2048! 🎉"}</div>
+            {over ? <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Score {score} · tap ↻ for a new game</div> : <button onClick={() => setWon(false)} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>Keep going</button>}
+          </div>
+        )}
+      </div>
+      <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", textAlign: "center" }}>Swipe to slide the tiles. Matching numbers merge.</div>
+    </div>
+  );
+}
+
+// ---------- the Games tab ----------
+const GAME_LIST = [
+  { id: "ttt", name: "Tic-Tac-Toe", emoji: "❌", blurb: "Beat the computer", color: "#8B7CF6" },
+  { id: "memory", name: "Memory Match", emoji: "🧠", blurb: "Find all the pairs", color: "#35D0BA" },
+  { id: "snake", name: "Snake", emoji: "🐍", blurb: "Eat, grow, don't crash", color: "#4FA8E0" },
+  { id: "g2048", name: "2048", emoji: "🔢", blurb: "Slide and merge tiles", color: "#F2B84B" },
+];
+function GamesScreen({ myId }) {
+  const [scores, setScores] = useState(() => loadJSON("games:" + myId, {}));
+  const [playing, setPlaying] = useState(null);
+  const [round, setRound] = useState(0);
+  const record = (id, v) => setScores(prev => {
+    const cur = prev[id];
+    let next;
+    if (id === "ttt") { const t = cur || { w: 0, d: 0, l: 0 }; next = { ...t, [v]: t[v] + 1 }; }
+    else if (id === "memory") next = { best: cur && cur.best ? Math.min(cur.best, v) : v };
+    else next = { best: Math.max((cur && cur.best) || 0, v) };
+    const all = { ...prev, [id]: next };
+    saveJSON("games:" + myId, all);
+    return all;
+  });
+  const line = (id) => {
+    const s = scores[id];
+    if (id === "ttt") return s ? "W " + s.w + " · D " + s.d + " · L " + s.l : "Not played yet";
+    return s && s.best ? "Best: " + s.best + (id === "memory" ? " moves" : "") : "Not played yet";
+  };
+  if (playing) {
+    const game = GAME_LIST.find(x => x.id === playing);
+    const best = scores[playing] && scores[playing].best;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", flexShrink: 0 }}>
+          <button aria-label="Back to games" onClick={() => setPlaying(null)} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
+          <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA" }}>{game.emoji} {game.name}</div>
+          <button aria-label="Restart" onClick={() => setRound(r => r + 1)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><RotateCcw size={20} color="#9BA7B4" /></button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+          {playing === "ttt" && <TicTacToeGame key={round} stats={scores.ttt} onResult={(r) => record("ttt", r)} />}
+          {playing === "memory" && <MemoryGame key={round} best={best} onScore={(v) => record("memory", v)} />}
+          {playing === "snake" && <SnakeGame key={round} best={best} onScore={(v) => v > 0 && record("snake", v)} />}
+          {playing === "g2048" && <Game2048 key={round} best={best} onScore={(v) => record("g2048", v)} />}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Games" />
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 20px" }}>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 14 }}>Pick a game. Your best scores are saved on this device.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {GAME_LIST.map(gm => (
+            <div key={gm.id} onClick={() => { setRound(0); setPlaying(gm.id); }} style={{ background: "#161B22", border: "1px solid #262E3A", borderRadius: 18, padding: "16px 14px", cursor: "pointer" }}>
+              <div style={{ width: 52, height: 52, borderRadius: 16, background: gm.color + "26", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 12 }}>{gm.emoji}</div>
+              <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" }}>{gm.name}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "3px 0 8px" }}>{gm.blurb}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: gm.color }}>{line(gm.id)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- search: suggests words that appear in your chats and groups, and lists the messages that match ----
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function Marked({ text, tokens }) {
+  const t = tokens.filter(Boolean);
+  if (!t.length) return <>{text}</>;
+  return <>{text.split(new RegExp("(" + t.map(escRe).join("|") + ")", "ig")).map((p, i) => (i % 2 ? <b key={i} style={{ color: "#35D0BA", fontWeight: 700 }}>{p}</b> : p))}</>;
+}
+const snippetOf = (text, tokens) => {
+  const low = text.toLowerCase();
+  const at = Math.min(...tokens.map(t => { const k = low.indexOf(t); return k < 0 ? Infinity : k; }));
+  return !isFinite(at) || at < 25 ? text : "…" + text.slice(at - 20);
+};
+function SearchPanel({ token, conversations, onOpen, onClose }) {
+  const [q, setQ] = useState("");
+  const [data, setData] = useState({ suggestions: [], results: [] });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const reqId = useRef(0);
+  const inputRef = useRef(null);
+  const term = q.trim();
+  const low = term.toLowerCase();
+  const tokens = low.split(/\s+/).filter(Boolean);
+
+  useEffect(() => {
+    const id = ++reqId.current;
+    if (!term) { setData({ suggestions: [], results: [] }); setBusy(false); setError(""); return; }
+    setBusy(true);
+    const t = setTimeout(() => {
+      api("/api/v1/search?q=" + encodeURIComponent(term), { token })
+        .then(d => { if (id === reqId.current) { setData(d); setError(""); } })
+        .catch(e => { if (id === reqId.current) setError(e.message); })
+        .finally(() => { if (id === reqId.current) setBusy(false); });
+    }, 220);
+    return () => clearTimeout(t);
+  }, [term]);
+
+  const byId = new Map(conversations.map(c => [c.id, c]));
+  const nameHits = term ? conversations.filter(c => (c.other.name || "").toLowerCase().includes(low)).slice(0, 5) : [];
+  const pick = (text) => { setQ(text); if (inputRef.current) inputRef.current.blur(); };
+  const who = (c, h) => (h.mine ? "You: " : c.isGroup ? ((c.members.find(x => x.id === h.senderId) || {}).name || "Former member").split(" ")[0] + ": " : "");
+  const empty = term && !busy && !error && !nameHits.length && !data.suggestions.length && !data.results.length;
+  const label = { fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.6, padding: "12px 16px 4px" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid #1B212B", flexShrink: 0 }}>
+        <button aria-label="Close search" onClick={onClose} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 22, padding: "9px 14px" }}>
+          <Search size={17} color="#8891A0" style={{ flexShrink: 0 }} />
+          <input ref={inputRef} autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search chats and groups" maxLength={100}
+            style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
+          {q && <button aria-label="Clear" onClick={() => { setQ(""); if (inputRef.current) inputRef.current.focus(); }} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={17} color="#8891A0" /></button>}
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+        {error && <Banner text={error} onClose={() => setError("")} />}
+        {!term && (
+          <div style={{ padding: "50px 30px", textAlign: "center" }}>
+            <Search size={32} color="#262E3A" style={{ marginBottom: 12 }} />
+            <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#5B6673" }}>Search for a word from any of your chats or groups. Matching words are suggested as you type.</div>
+          </div>
+        )}
+        {empty && <div style={{ padding: "40px 30px", textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#5B6673" }}>No matches for “{term}”</div>}
+        {data.suggestions.length > 0 && (
+          <>
+            <div style={label}>Suggestions</div>
+            {data.suggestions.map(s => {
+              const starts = s.text.startsWith(low);
+              return (
+                <div key={s.text} onClick={() => pick(s.text)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }}>
+                  <Search size={16} color="#5B6673" style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 15, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {starts ? <>{s.text.slice(0, low.length)}<b style={{ color: "#F5F7FA", fontWeight: 600 }}>{s.text.slice(low.length)}</b></> : <span style={{ color: "#F5F7FA" }}>{s.text}</span>}
+                  </span>
+                  <span style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673" }}>{s.count}×</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+        {nameHits.length > 0 && (
+          <>
+            <div style={label}>Chats and groups</div>
+            {nameHits.map(c => (
+              <div key={c.id} onClick={() => onOpen(c)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", cursor: "pointer" }}>
+                <Ring size={40} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} />
+                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}><Marked text={c.other.name} tokens={tokens} /></span>
+              </div>
+            ))}
+          </>
+        )}
+        {data.results.length > 0 && (
+          <>
+            <div style={label}>Messages{data.results.length >= 50 ? " (latest 50)" : ""}</div>
+            {data.results.map(h => {
+              const c = byId.get(h.conversationId);
+              if (!c) return null;
+              return (
+                <div key={h.id} onClick={() => onOpen(c, h)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", cursor: "pointer" }}>
+                  <Ring size={44} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} />
+                  <div style={{ flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 9 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}</span>
+                      <span style={{ fontFamily: "Inter", fontSize: 11.5, color: "#5B6673", flexShrink: 0 }}>{timeLabel(h.time)}</span>
+                    </div>
+                    <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {who(c, h)}<Marked text={snippetOf(h.text, tokens)} tokens={tokens} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+        {busy && !data.results.length && !data.suggestions.length && <div style={{ padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 }}>Searching…</div>}
+      </div>
+    </div>
+  );
+}
+
 function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence, favorites = [] }) {
+  const [searching, setSearching] = useState(false);
+  if (searching) return <SearchPanel token={token} conversations={conversations} onClose={() => setSearching(false)} onOpen={(c, hit) => { setSearching(false); onOpenChat(c, hit); }} />;
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <TopBar
@@ -820,7 +1321,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
         right={
           <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
             <div onClick={onNewGroup} title="New group" style={{ cursor: "pointer", display: "flex" }}><Users size={21} color="#9BA7B4" /></div>
-            <Search size={20} color="#9BA7B4" />
+            <div onClick={() => setSearching(true)} role="button" aria-label="Search" style={{ cursor: "pointer", display: "flex" }}><Search size={20} color="#9BA7B4" /></div>
             <div onClick={onProfile} style={{ cursor: "pointer" }}>
               <Ring size={30} color="#35D0BA" initials={profile.initials} photo={profile.avatar} online />
             </div>
@@ -1783,7 +2284,7 @@ function HelpScreen({ onBack, user }) {
   );
 }
 
-function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {} }) {
+function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {}, focus = null }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1796,6 +2297,14 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const [sending, setSending] = useState(false);
   const [menu, setMenu] = useState(false);
   const [viewer, setViewer] = useState(null);
+  const [sel, setSel] = useState(null);         // message whose Edit / Delete sheet is open
+  const [editing, setEditing] = useState(null); // message being edited (its text sits in the input)
+  const pressRef = useRef(null);
+  const focusId = focus && focus.conversationId === conversation.id ? focus.id : null;
+  const pendingFocus = useRef(focusId);
+  const focusEl = useRef(null);
+  const [hl, setHl] = useState(null); // search result being highlighted
+  const openedAt = useRef(0);
   const fileRef = useRef(null);
   const camRef = useRef(null);
   const inputRef = useRef(null);
@@ -1805,8 +2314,16 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    pendingFocus.current = focusId;
     api(`/api/v1/conversations/${conversation.id}/messages`, { token })
-      .then(({ messages }) => { if (!cancelled) setMsgs(messages); })
+      .then(async ({ messages }) => {
+        let list = messages;
+        if (focusId && !list.some(x => x.id === focusId)) { // the search result is older than the latest page: load from there
+          try { list = (await api(`/api/v1/conversations/${conversation.id}/messages?since=${Math.max(0, focus.time - 60000)}&limit=200`, { token })).messages; } catch (e) {}
+        }
+        if (focusId && !list.some(x => x.id === focusId)) pendingFocus.current = null; // result no longer exists: just open at the bottom
+        if (!cancelled) { setMsgs(list); if (focusId) { setHl(focusId); setTimeout(() => setHl(null), 2800); } }
+      })
       .catch(e => setError(e.message))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
@@ -1821,12 +2338,25 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const onTyping = ({ conversationId, userId, typing }) => {
       if (conversationId === conversation.id && userId !== myId) setPeerTyping(typing);
     };
+    const onUpdated = (m) => {
+      if (m.conversationId !== conversation.id) return;
+      setMsgs(prev => prev.map(x => {
+        if (x.id !== m.id) return x;
+        if (m.deleted) { const { audio, file, duration, hasAudio, edited, editedAt, ...rest } = x; return { ...rest, text: m.text, deleted: true }; }
+        return { ...x, text: m.text, edited: true, editedAt: m.editedAt };
+      }));
+      if (m.deleted) { setEditing(e => (e && e.id === m.id ? null : e)); setSel(s => (s && s.id === m.id ? null : s)); }
+    };
     socket.on("message:new", onNew);
+    socket.on("message:updated", onUpdated);
     socket.on("typing", onTyping);
-    return () => { socket.off("message:new", onNew); socket.off("typing", onTyping); };
+    return () => { socket.off("message:new", onNew); socket.off("message:updated", onUpdated); socket.off("typing", onTyping); };
   }, [socket, conversation.id, myId]);
 
-  useEffect(() => { endRef.current?.scrollIntoView(); }, [msgs, peerTyping]);
+  useEffect(() => {
+    if (pendingFocus.current && focusEl.current) { focusEl.current.scrollIntoView({ block: "center" }); pendingFocus.current = null; return; }
+    if (!pendingFocus.current) endRef.current?.scrollIntoView();
+  }, [msgs, peerTyping]);
   useEffect(() => { onLocalUpdate(conversation.id, msgs); }, [msgs]);
 
   const notifyTyping = (isTyping) => {
@@ -1836,9 +2366,37 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     if (isTyping) typingTimeout.current = setTimeout(() => socket.emit("typing", { conversationId: conversation.id, typing: false }), 1500);
   };
 
+  const EDIT_WINDOW_MS = 15 * 60 * 1000; // keep in step with the server
+  const canEdit = (m) => !!m && !m.deleted && !m.audio && !m.hasAudio && !m.file && Date.now() - m.time <= EDIT_WINDOW_MS;
+  const startEdit = (m) => {
+    setSel(null);
+    if (!canEdit(m)) return setError("Messages can only be edited for 15 minutes after sending");
+    setEditing(m); setDraft(m.text);
+    setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
+  };
+  const cancelEdit = () => { setEditing(null); setDraft(""); };
+  const removeMsg = (m) => {
+    setSel(null);
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    if (!window.confirm("Delete this " + (m.audio || m.hasAudio ? "voice note" : "message") + " for everyone?")) return;
+    socket.emit("message:delete", { messageId: m.id }, (ack) => { if (ack && ack.error) setError(ack.error); });
+  };
+  const openMenu = (m) => { if (m.senderId === myId && !m.deleted) { openedAt.current = Date.now(); setSel(m); } };
+  const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => openMenu(m), 450); };
+  const pressEnd = () => clearTimeout(pressRef.current);
+
   const send = () => {
     if (!draft.trim() || !socket) return;
     const text = draft.trim();
+    if (editing) {
+      if (text === editing.text) return cancelEdit();
+      const id = editing.id;
+      return socket.emit("message:edit", { messageId: id, text }, (ack) => {
+        if (ack && ack.error) return setError(ack.error);
+        setEditing(null); setDraft("");
+        if (ack && ack.message) setMsgs(prev => prev.map(x => (x.id === id ? { ...x, text: ack.message.text, edited: true, editedAt: ack.message.editedAt } : x)));
+      });
+    }
     setDraft("");
     notifyTyping(false);
     playSound("send");
@@ -1940,14 +2498,19 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           const mine = m.senderId === myId;
           const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
           return (
-            <div key={m.id} style={{
+            <div key={m.id} ref={m.id === focusId ? focusEl : undefined}
+              onContextMenu={mine && !m.deleted ? (e) => { e.preventDefault(); openMenu(m); } : undefined}
+              onTouchStart={mine && !m.deleted ? () => pressStart(m) : undefined} onTouchEnd={pressEnd} onTouchMove={pressEnd} onTouchCancel={pressEnd}
+              style={{
+              WebkitTouchCallout: "none", boxShadow: hl === m.id ? "0 0 0 2px #F2B84B" : "none", transition: "box-shadow .4s",
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%",
               background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
               borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
             }}>
               {isGroup && !mine && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
-              {m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} />
+              {m.deleted ? <div style={{ fontStyle: "italic", color: "#B9C2CC" }}>{m.text}</div>
+                : m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} />
                 : m.file && m.file.data && /^data:image\//.test(m.file.data) ? <img src={m.file.data} alt={m.file.name} onClick={() => setViewer(m.file.data)} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" }} />
                 : m.file && m.file.data ? (
                   <a href={m.file.data} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 }}>
@@ -1959,7 +2522,9 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                   </a>
                 ) : <div>{m.text}</div>}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
+                {m.edited && !m.deleted && <span style={{ fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" }}>edited</span>}
                 <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{timeLabel(m.time)}</span>
+                {mine && !m.deleted && <button aria-label="Message options" onClick={() => openMenu(m)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" }}><ChevronDown size={14} color="#B9C2CC" /></button>}
                 {mine && (m.read || (m.readBy && m.readBy.length) ? <CheckCheck size={13} color="#35D0BA" /> : <Check size={13} color="#B9C2CC" />)}
               </div>
             </div>
@@ -1980,6 +2545,13 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           {rec && <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>}
         </div>
       )}
+      {editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", flexShrink: 0 }}>
+          <Pencil size={15} color="#35D0BA" />
+          <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><b style={{ color: "#35D0BA" }}>Editing message</b> · {editing.text}</span>
+          <button aria-label="Cancel editing" onClick={cancelEdit} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}><X size={18} color="#8891A0" /></button>
+        </div>
+      )}
       {iBlocked ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" }}>
           <span style={{ flex: 1 }}>You blocked this contact.</span>
@@ -1995,13 +2567,13 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             ref={inputRef}
             value={draft}
             onChange={e => { if (e.target.value.length > draft.length) playSound("typing"); setDraft(e.target.value); notifyTyping(true); }}
-            onKeyDown={e => e.key === "Enter" && send()}
-            placeholder="Message" style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
-          <button aria-label="Attach file" onClick={() => fileRef.current && fileRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Paperclip size={19} color="#8891A0" /></button>
-          <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Camera size={19} color="#8891A0" /></button>
+            onKeyDown={e => { if (e.key === "Enter") send(); else if (e.key === "Escape" && editing) cancelEdit(); }}
+            placeholder={editing ? "Edit message" : "Message"} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
+          {!editing && <button aria-label="Attach file" onClick={() => fileRef.current && fileRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Paperclip size={19} color="#8891A0" /></button>}
+          {!editing && <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Camera size={19} color="#8891A0" /></button>}
         </div>
         <button aria-label={rec ? "Stop and send voice note" : "Record voice note"} onClick={rec ? () => stopRec(false) : startRec}
-          style={{ width: 42, height: 42, borderRadius: "50%", border: rec ? "none" : "1px solid #2B3544", background: rec ? "#FF6B5D" : "#1E2530", display: rec || featOn("voiceNotes") ? "flex" : "none", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+          style={{ width: 42, height: 42, borderRadius: "50%", border: rec ? "none" : "1px solid #2B3544", background: rec ? "#FF6B5D" : "#1E2530", display: !editing && (rec || featOn("voiceNotes")) ? "flex" : "none", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
           <Mic size={18} color={rec ? "#0E1116" : "#35D0BA"} />
         </button>
         <button aria-label="Send" onClick={() => { if (rec) stopRec(false); else if (draft.trim()) send(); else if (inputRef.current) inputRef.current.focus(); }}
@@ -2009,6 +2581,18 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <Send size={17} color="#0E1116" />
         </button>
       </div>
+      )}
+      {sel && (
+        <div onClick={() => { if (Date.now() - openedAt.current > 500) setSel(null); }} style={{ position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" }}>
+            <div style={{ padding: "6px 10px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel.audio || sel.hasAudio ? "🎤 Voice note" : sel.text}</div>
+            {canEdit(sel) && (
+              <div onClick={() => startEdit(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Pencil size={18} color="#35D0BA" />Edit message</div>
+            )}
+            <div onClick={() => removeMsg(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#FF6B5D" }}><Trash2 size={18} color="#FF6B5D" />Delete for everyone</div>
+            <div onClick={() => setSel(null)} style={{ padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#9BA7B4", textAlign: "center" }}>Cancel</div>
+          </div>
+        </div>
       )}
       {viewer && (
         <div onClick={() => setViewer(null)} style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2568,6 +3152,7 @@ function App() {
   const [presence, setPresence] = useState({});
   const [tab, setTab] = useState("chats");
   const [activeConvo, setActiveConvo] = useState(null);
+  const [focusMsg, setFocusMsg] = useState(null); // search result to jump to when a chat opens
   const [showProfile, setShowProfile] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
@@ -2632,6 +3217,7 @@ function App() {
       if (ts) setLastSeen(prev => ({ ...prev, [userId]: ts }));
     });
     socket.on("message:new", (m) => { refreshConversations(); if (m && m.senderId !== session.user.id) alertIncoming(m, convosRef.current.find(c => c.id === m.conversationId), !!(activeRef.current && activeRef.current.id === m.conversationId)); });
+    socket.on("message:updated", () => refreshConversations()); // edited / deleted message: refresh the chat list preview
     socket.on("conversation:added", () => refreshConversations());
     socket.on("conversation:update", () => refreshConversations());
     socket.on("user:update", (u) => {
@@ -2723,6 +3309,7 @@ function App() {
     body = (
       <ChatDetail
         conversation={conversations.find(c => c.id === activeConvo.id) || activeConvo}
+        focus={focusMsg}
         myId={session.user.id}
         lastSeen={lastSeen}
         contacts={contacts}
@@ -2766,7 +3353,7 @@ function App() {
               loading={convLoading}
               error={convError}
               presence={presence}
-              onOpenChat={setActiveConvo}
+              onOpenChat={(c, hit) => { setFocusMsg(hit || null); setActiveConvo(c); }}
               onProfile={() => setShowProfile(true)}
               onNewChat={() => setShowNewChat(true)}
               onNewGroup={() => setShowNewGroup(true)}
@@ -2775,6 +3362,7 @@ function App() {
           )}
           {tab === "calls" && <CallsScreen conversations={conversations} onCall={startCall} />}
           {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
+          {tab === "games" && <GamesScreen myId={session.user.id} />}
           {tab === "status" && <StatusScreen profile={session.user} token={session.token} />}
           {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} onOpen={setToolsView} settings={settings} />}
           {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} onClose={() => setShowNewGroup(false)} onCreated={(conv) => { setShowNewGroup(false); openGroup(conv); }} />}
