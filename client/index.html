@@ -5198,5 +5198,12 @@ function App() {
 const rootEl = document.getElementById("root");
 ReactDOM.createRoot(rootEl).render(React.createElement(App));
 </script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      });
+    }
+  </script>
 </body>
 </html>
