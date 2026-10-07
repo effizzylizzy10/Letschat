@@ -1,6 +1,183 @@
 // ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
 const { useState, useRef, useEffect, useCallback } = React;
 const MAX_MSG_CHARS = 15000; // ~2,000+ words per message (keep in step with the server)
+// ---- Typo suggestions while typing (plain JS on purpose: the same block is used in app.jsx and the compiled index.html) ----
+// Never changes text by itself: it only offers tappable corrections for the last finished word that looks misspelled.
+const TYPO_WORDS = ("the be to of and a in that have it for not on with he as you do at this but his by from they we say her she or an will my one all would there their what so up out if about who get which go me when make can like time no just him know take people into year your good some could them see other than then now look only come its over think also back after use two how our work first well way even new want because any these give day most us " +
+  "is are was were been being has had does did done am said says made makes got gets went goes gone came comes took takes saw seen knew known thought told tell asked ask need needs needed feel felt feels try tried keep kept let put seem leave left call called find found show shown move live believe hold bring brought happen write wrote written provide sit stand lose pay meet include continue set learn change lead understand watch follow stop create speak read allow add spend grow open walk win offer remember love consider appear buy wait serve die send expect build stay fall cut reach kill remain " +
+  "again always never often sometimes usually really very quite maybe perhaps probably actually already almost enough especially exactly finally generally honestly instead simply suddenly together tonight tomorrow today yesterday morning afternoon evening night week weekend month year years later early soon still while until since before during between through without within against across around among another every each either neither both many much more most less least several something anything everything nothing someone anyone everyone somebody anybody everybody nobody somewhere anywhere everywhere nowhere " +
+  "hello hi hey thanks thank please sorry welcome goodbye bye okay yes yeah yep nope sure fine great awesome amazing nice cool beautiful wonderful lovely perfect lovely happy sad angry tired hungry sleepy busy free ready late early sorry glad proud excited worried scared afraid surprised confused bored lonely sick healthy strong weak hard easy difficult simple important special different same similar possible impossible necessary available interested interesting serious funny crazy silly lucky " +
+  "mother father mom dad mummy daddy brother sister son daughter wife husband friend friends family cousin uncle aunt grandma grandpa child children baby boy girl man woman men women person people guy guys neighbour neighbor boss colleague teacher student pastor doctor nurse driver customer client manager partner team group community church mosque school college university class lesson exam test homework assignment project report result results " +
+  "house home room kitchen bathroom bedroom door window floor wall roof gate compound street road market shop store mall office building city town village state country world place area location address airport station park beach hotel restaurant hospital bank church bus car bike truck train plane flight ticket journey travel trip drive ride traffic fuel petrol phone mobile call message text chat photo picture video voice audio network data airtime internet wifi online offline app application website link email password username account profile settings notification " +
+  "food water rice beans bread egg eggs meat chicken fish fruit orange banana apple mango yam plantain pepper onion tomato salt sugar oil milk tea coffee juice drink eat drank ate breakfast lunch dinner cook cooking hungry thirsty snack " +
+  "money cash price cost cheap expensive pay payment paid transfer balance salary rent bill budget save saving spend sell sold buy bought order delivery deliver deliveries shipping package parcel receipt invoice discount offer deal business company job work working worked career interview meeting appointment schedule deadline plan plans idea ideas problem problems solution question questions answer answers reason reasons issue issues matter matters mistake mistakes " +
+  "time hour hours minute minutes second seconds moment monday tuesday wednesday thursday friday saturday sunday january february march april june july august september october november december spring summer winter weather rain sunny cloudy hot cold warm cool wind " +
+  "head face eye eyes ear ears nose mouth teeth hand hands arm arms leg legs foot feet finger heart body hair skin back stomach chest shoulder health medicine tablet hospital pain headache fever " +
+  "big small large little long short tall high low heavy light dark bright loud quiet fast slow quick early late full empty open closed clean dirty wet dry old young new best better worst worse more less right wrong true false real fake clear sure careful safe dangerous ready wonderful terrible horrible lovely fantastic excellent brilliant " +
+  "black white red blue green yellow brown pink purple grey gray gold silver color colour number numbers first second third last next previous final only whole half double single double couple few lot lots plenty enough " +
+  "going coming doing making taking having getting being saying looking thinking working playing talking walking running sitting standing waiting trying calling asking helping hoping wishing planning learning teaching reading writing listening watching sleeping eating drinking cooking driving travelling traveling shopping " +
+  "game games play played player music song songs dance movie movies film show series episode news story stories book books page pages word words language english yoruba igbo hausa pidgin french spanish sport football match goal score winner lost won win lose champion league cup " +
+  "help support service services free offer special welcome verify verified confirm confirmed cancel cancelled delete deleted edit edited send sent receive received forward reply replied block blocked report share shared save saved download upload update updated install login logout register signup sign join joined invite invited accept accepted decline declined search find found contact contacts status story stories group groups member members admin " +
+  "about above across after against along already among around because before behind below beside besides beyond despite except inside outside instead near onto outside toward towards under unlike until upon within without " +
+  "birthday wedding party celebration celebrate congratulations congrats blessing blessed bless prayer pray god lord amen christmas easter ramadan eid holiday vacation festival gift present surprise invitation welcome " +
+  "love like hate enjoy prefer miss care worry hope wish wonder doubt agree disagree decide choose forgive forget remember promise trust lie truth secret joke laugh smile cry shout scream whisper listen hear heard sound speak spoke talk argue fight quarrel apologise apologize explain describe discuss suggest recommend advise warn complain " +
+  "should would could might must shall cannot cant dont doesnt didnt isnt wasnt arent werent wont wouldnt couldnt shouldnt havent hasnt hadnt " +
+  "abeg wahala wetin oga abi sha naija jare biko sef dey omo haba wallahi inshallah mashallah alhamdulillah jollof suya danfo okada kolo shey sabi pikin chop gist gbam ehen oya sebi nawa mumu oyinbo ankara owambe amala egusi garri akara lagos abuja nigeria nigerian africa african ghana kenya yoruba igbo hausa " +
+  "whatsapp facebook instagram twitter tiktok youtube google gmail zoom telegram snapchat letschat loop " +
+  "yourself myself himself herself itself ourselves themselves anyway anyhow somehow however whatever whenever wherever whoever whichever although though unless whether either nor yet rather quite fairly pretty really truly deeply highly nearly merely barely hardly mostly partly fully " +
+  "school class semester course degree certificate graduate graduation scholarship library lecture lecturer professor principal headmaster uniform " +
+  "answer attention beginning business certain chance condition decision difference direction education effect effort energy evening experience foreign future government history information interest knowledge level library material member minute moment mountain nature opinion position president pressure process quality reality relationship report research response responsibility science sentence situation society subject success suggestion system technology thousand tonight understanding usually variety village weight whether wonder yesterday").split(/\s+/).filter(Boolean);
+const TYPO_SET = new Set(TYPO_WORDS);
+
+// Common misspellings -> correction (checked before anything else, so these are the most reliable suggestions)
+const TYPO_FIX = {
+  teh: "the", hte: "the", taht: "that", adn: "and", nad: "and", waht: "what", wnat: "want", jsut: "just", yuo: "you", yoru: "your", youre: "you're", theyre: "they're", thier: "their", theri: "their",
+  recieve: "receive", recieved: "received", reciept: "receipt", beleive: "believe", belive: "believe", beleived: "believed", acheive: "achieve", wierd: "weird", freind: "friend", freinds: "friends", cheif: "chief",
+  definately: "definitely", definatly: "definitely", defintely: "definitely", seperate: "separate", seperately: "separately", occured: "occurred", occurence: "occurrence", untill: "until", wich: "which", whcih: "which",
+  becuase: "because", beacuse: "because", becasue: "because", becuz: "because", alot: "a lot", tommorow: "tomorrow", tomorow: "tomorrow", tommorrow: "tomorrow", tomorrw: "tomorrow", tonite: "tonight", tonigth: "tonight",
+  writting: "writing", begining: "beginning", comming: "coming", runing: "running", geting: "getting", puting: "putting", stoping: "stopping", planing: "planning",
+  goverment: "government", enviroment: "environment", accomodate: "accommodate", embarass: "embarrass", embarassed: "embarrassed", commited: "committed", comitted: "committed", conscious: "conscious", concious: "conscious",
+  dissapoint: "disappoint", dissapointed: "disappointed", disapointed: "disappointed", existance: "existence", foriegn: "foreign", grammer: "grammar", happend: "happened", humourous: "humorous",
+  immediatly: "immediately", immediatley: "immediately", independant: "independent", knowlege: "knowledge", millenium: "millennium", neccessary: "necessary", necesary: "necessary", necessery: "necessary",
+  noticable: "noticeable", occassion: "occasion", occassionally: "occasionally", persistant: "persistent", posession: "possession", prefered: "preferred", probly: "probably", probaly: "probably", publically: "publicly",
+  realy: "really", reallly: "really", reccomend: "recommend", recomend: "recommend", refered: "referred", relevent: "relevant", resturant: "restaurant", restaurent: "restaurant", rythm: "rhythm", sence: "sense",
+  succesful: "successful", successfull: "successful", sucess: "success", succes: "success", suprise: "surprise", suprised: "surprised", tendancy: "tendency", truely: "truly", unfortunatly: "unfortunately",
+  vaccum: "vacuum", wensday: "Wednesday", wednesay: "Wednesday", thurday: "Thursday", febuary: "February", saturaday: "Saturday", wether: "whether", wheather: "weather", wierdly: "weirdly",
+  adress: "address", addres: "address", agian: "again", aganist: "against", alright: "all right", amature: "amateur", arguement: "argument", athiest: "atheist", basicly: "basically", buisness: "business",
+  bussiness: "business", busines: "business", calender: "calendar", catagory: "category", collegue: "colleague", commitee: "committee", completly: "completely", concensus: "consensus", curiousity: "curiosity",
+  decison: "decision", desparate: "desperate", dilema: "dilemma", dissappear: "disappear", doesnt: "doesn't", dont: "don't", didnt: "didn't", isnt: "isn't", wasnt: "wasn't", arent: "aren't", werent: "weren't",
+  wouldnt: "wouldn't", couldnt: "couldn't", shouldnt: "shouldn't", havent: "haven't", hasnt: "hasn't", hadnt: "hadn't", wont: "won't", cant: "can't", thats: "that's", whats: "what's", heres: "here's", theres: "there's",
+  im: "I'm", ive: "I've", ill: "I'll", id: "I'd", i: "I", embarassing: "embarrassing", excercise: "exercise", exagerate: "exaggerate", experiance: "experience", explaination: "explanation",
+  familar: "familiar", finaly: "finally", fourty: "forty", gaurd: "guard", gaurantee: "guarantee", guidence: "guidance", harrass: "harass", heighth: "height", hieght: "height", hygene: "hygiene",
+  ignorence: "ignorance", intresting: "interesting", interesing: "interesting", inteligent: "intelligent", jewelery: "jewellery", lenght: "length", libary: "library", lisence: "licence", lollypop: "lollipop",
+  maintainance: "maintenance", managment: "management", mispell: "misspell", neighbour: "neighbour", nieghbor: "neighbor", ocasion: "occasion", oppurtunity: "opportunity", oportunity: "opportunity",
+  paralell: "parallel", parliment: "parliament", pasttime: "pastime", percieve: "perceive", perhasp: "perhaps", personel: "personnel", pheonix: "phoenix", plesant: "pleasant", pursue: "pursue",
+  questionaire: "questionnaire", rediculous: "ridiculous", refering: "referring", relize: "realize", religous: "religious", remeber: "remember", rember: "remember", repitition: "repetition", responsability: "responsibility",
+  sargent: "sergeant", scedule: "schedule", shedule: "schedule", sieze: "seize", similiar: "similar", sincerly: "sincerely", speach: "speech", strenght: "strength", sucessful: "successful",
+  temperture: "temperature", threshhold: "threshold", tounge: "tongue", tranfer: "transfer", transfered: "transferred", tyrany: "tyranny", underate: "underrate", usefull: "useful", vegatable: "vegetable",
+  vehical: "vehicle", visable: "visible", wellcome: "welcome", whereever: "wherever", wich: "which", wiht: "with", wrok: "work", wokr: "work", woudl: "would", wuold: "would", shoud: "should", coudl: "could",
+  poeple: "people", peopel: "people", pepole: "people", pleae: "please", pleas: "please", plese: "please", thnks: "thanks", thanx: "thanks", thankyou: "thank you", thankss: "thanks", gud: "good", goodd: "good",
+  helo: "hello", hellow: "hello", helllo: "hello", moring: "morning", mornig: "morning", evenig: "evening", afternon: "afternoon", sory: "sorry", sorrry: "sorry", sorery: "sorry", wellcom: "welcome",
+  mesage: "message", messge: "message", mesaage: "message", massage: "message", numbr: "number", nubmer: "number", accont: "account", acount: "account", pasword: "password", passwrod: "password",
+  tranfers: "transfers", paymnt: "payment", pyament: "payment", moeny: "money", mony: "money", monye: "money", delivary: "delivery", delievery: "delivery", deliverd: "delivered", recive: "receive", recived: "received",
+  beutiful: "beautiful", beatiful: "beautiful", beautifull: "beautiful", baeutiful: "beautiful", amzing: "amazing", amazin: "amazing", awsome: "awesome", awesom: "awesome", exicted: "excited", excitd: "excited",
+  tired: "tired", tirred: "tired", hapy: "happy", hapyy: "happy", angy: "angry", angrey: "angry", sleeep: "sleep", sleping: "sleeping", wating: "waiting", waitng: "waiting", wanna: "want to", gonna: "going to"
+};
+
+function typoEdit(a, b, max) { // Damerau-Levenshtein (optimal string alignment); returns max + 1 when the words differ by more than max
+  const la = a.length, lb = b.length;
+  if (Math.abs(la - lb) > max) return max + 1;
+  let prev2 = null, prev = [], cur = [];
+  for (let j = 0; j <= lb; j++) prev[j] = j;
+  for (let i = 1; i <= la; i++) {
+    cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= lb; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prev2[j - 2] + 1);
+      cur[j] = v;
+      if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > max) return max + 1;
+    prev2 = prev; prev = cur;
+  }
+  return prev[lb];
+}
+
+// True when the word (or its plain base form: plural, -ed, -ing, -ly, -er, -est, 's) is a known word.
+function typoKnown(w) {
+  if (TYPO_SET.has(w)) return true;
+  const n = w.length;
+  const t = (s) => s.length >= 2 && TYPO_SET.has(s);
+  const dbl = (s) => s.length >= 3 && s[s.length - 1] === s[s.length - 2] ? s.slice(0, -1) : null;
+  if (/['’]s$/.test(w)) return typoKnown(w.slice(0, -2));
+  if (/s$/.test(w) && (t(w.slice(0, -1)) || (/es$/.test(w) && t(w.slice(0, -2))) || (/ies$/.test(w) && t(w.slice(0, -3) + "y")))) return true;
+  if (/ed$/.test(w) && (t(w.slice(0, -2)) || t(w.slice(0, -1)) || (dbl(w.slice(0, -2)) && t(dbl(w.slice(0, -2)))) || (/ied$/.test(w) && t(w.slice(0, -3) + "y")))) return true;
+  if (/ing$/.test(w) && (t(w.slice(0, -3)) || t(w.slice(0, -3) + "e") || (dbl(w.slice(0, -3)) && t(dbl(w.slice(0, -3)))))) return true;
+  if (/ly$/.test(w) && (t(w.slice(0, -2)) || (/ily$/.test(w) && t(w.slice(0, -3) + "y")) || (/ally$/.test(w) && t(w.slice(0, -4))))) return true;
+  if (/(er|est)$/.test(w)) { const s = w.replace(/(er|est)$/, ""); if (t(s) || t(s + "e") || (dbl(s) && t(dbl(s))) || (/i$/.test(s) && t(s.slice(0, -1) + "y"))) return true; }
+  if (/(ness|ment|ful|less)$/.test(w) && t(w.replace(/(ness|ment|ful|less)$/, ""))) return true;
+  return n < 3;
+}
+
+function typoMatchCase(src, fix) {
+  if (src.length > 1 && src === src.toUpperCase()) return fix.toUpperCase();
+  if (src[0] !== src[0].toLowerCase()) return fix[0].toUpperCase() + fix.slice(1);
+  return fix;
+}
+
+// Closest dictionary words to a lowercase word, best first. To keep false alarms rare (the built-in word list is small),
+// only three kinds of slip are accepted: two neighbouring letters swapped (teh, wlaking), a doubled letter added or missing
+// (comming, tomorow), and - for long words only - one wrong, missing or extra letter.
+function typoCollapse(w) { return w.replace(/(.)\1+/g, "$1"); }
+function typoNear(w) {
+  const n = w.length;
+  const hits = [];
+  for (let i = 0; i < TYPO_WORDS.length; i++) {
+    const d = TYPO_WORDS[i];
+    if (d.length < 4 || Math.abs(d.length - n) > 1 || d === w) continue;
+    let dist = 0;
+    if (d.length === n && typoSwap(w, d)) dist = 1;
+    else if (n >= 5 && typoCollapse(w) === typoCollapse(d)) dist = 1;
+    else if (n >= 8 && d[0] === w[0] && typoEdit(w, d, 1) <= 1) dist = 2;
+    if (dist) hits.push({ d, dist, i });
+  }
+  hits.sort((a, b) => a.dist - b.dist || a.i - b.i);
+  const seen = {};
+  return hits.map(h => h.d).filter(d => (seen[d] ? false : (seen[d] = true)));
+}
+
+function typoSwap(a, b) { // true when b is a with two neighbouring letters swapped
+  let i = 0;
+  while (i < a.length && a[i] === b[i]) i++;
+  return i < a.length - 1 && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+}
+
+function typoOptions(lower) {
+  if (TYPO_FIX[lower]) return [TYPO_FIX[lower]];
+  if (typoKnown(lower)) return [];
+  if (lower.length < 4) return [];
+  let out = typoNear(lower);
+  if (!out.length) { // a misspelled inflection: fix the stem, then put the ending back
+    const m = lower.match(/^(.{4,})(ing|ed|es|s|ly|er)$/);
+    if (m) out = typoNear(m[1]).concat(typoNear(m[1] + "e")).map(s => (/^[aeiouy]/.test(m[2]) && /e$/.test(s) ? s.slice(0, -1) : s) + m[2]);
+  }
+  return out.slice(0, 3);
+}
+
+// Looks at the finished words in `text` and returns { start, end, word, options } for the LAST one that looks misspelled, else null.
+// A word still being typed (no space or punctuation after it yet) is never judged.
+function typoCheck(text, ignored) {
+  if (!text || text.length > 4000) return null;
+  const skip = ignored || [];
+  const re = /\S+/g;
+  let m, found = null, prevEnd = "";
+  while ((m = re.exec(text))) {
+    const chunk = m[0], at = m.index;
+    const lead = prevEnd; prevEnd = chunk.slice(-1);
+    const p = chunk.match(/^([^A-Za-z]*)([A-Za-z]+(?:['’][A-Za-z]+)*)([^A-Za-z]*)$/);
+    if (!p) continue;                                   // digits, links, emoji, accents, @tags inside the chunk
+    if (/[@#\/]/.test(p[1])) continue;                  // @mention or #tag
+    const word = p[2], trail = p[3];
+    if (!trail && at + chunk.length === text.length) continue; // still typing this word
+    const wordStart = at + p[1].length;
+    if (/[.][A-Za-z]/.test(text.slice(wordStart + word.length, wordStart + word.length + 2))) continue;
+    const lower = word.toLowerCase().replace(/’/g, "'");
+    if (skip.indexOf(lower) !== -1) continue;
+    const isCap = word[0] !== word[0].toLowerCase();
+    const sentenceStart = at === 0 || /[.!?]\s*$/.test(text.slice(0, at)) || /\n\s*$/.test(text.slice(0, at));
+    if (word.length > 1 && word === word.toUpperCase()) continue;      // SHOUTING, abbreviations
+    if (isCap && !sentenceStart && lower !== "i") continue;            // probably a name
+    const options = typoOptions(lower).filter(o => o !== word);
+    if (options.length) found = { start: wordStart, end: wordStart + word.length, word, options: options.map(o => typoMatchCase(word, o)) };
+  }
+  return found;
+}
+function typoApply(text, hit, fix) { return text.slice(0, hit.start) + fix + text.slice(hit.end); }
+function typoLoadIgnored() { try { return JSON.parse(localStorage.getItem("lc_typo_ignore") || "[]"); } catch (e) { return []; } }
+function typoSaveIgnored(list) { try { localStorage.setItem("lc_typo_ignore", JSON.stringify(list.slice(-200))); } catch (e) {} }
+
 
 function makeIcon(nodes) {
   return function Icon({ size = 24, color = "currentColor", strokeWidth = 2, style }) {
@@ -3685,6 +3862,11 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const inputRef = useRef(null);
   const endRef = useRef(null);
   const typingTimeout = useRef(null);
+  // Typo suggestions: the last finished word that looks misspelled, with tappable corrections above the input.
+  const [typoIgnored, setTypoIgnored] = useState(typoLoadIgnored);
+  const typoHit = typoCheck(draft, typoIgnored);
+  const applyTypo = (fix) => { if (!typoHit) return; setDraft(typoApply(draft, typoHit, fix)); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+  const ignoreTypo = () => { if (!typoHit) return; const next = typoIgnored.concat(typoHit.word.toLowerCase()); setTypoIgnored(next); typoSaveIgnored(next); };
 
   useEffect(() => {
     let cancelled = false;
@@ -3946,6 +4128,15 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <Pencil size={15} color="#35D0BA" />
           <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><b style={{ color: "#35D0BA" }}>Editing message</b> · {editing.text}</span>
           <button aria-label="Cancel editing" onClick={cancelEdit} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}><X size={18} color="#8891A0" /></button>
+        </div>
+      )}
+      {!iBlocked && !rec && typoHit && (
+        <div role="group" aria-label="Spelling suggestions" style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" }}>
+          <span style={{ color: "#8891A0", flexShrink: 0, whiteSpace: "nowrap" }}><s style={{ color: "#FF6B5D" }}>{typoHit.word}</s> →</span>
+          {typoHit.options.map(o => (
+            <button key={o} onMouseDown={e => e.preventDefault()} onClick={() => applyTypo(o)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "5px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{o}</button>
+          ))}
+          <button aria-label="Ignore this word" onMouseDown={e => e.preventDefault()} onClick={ignoreTypo} style={{ marginLeft: "auto", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={16} color="#8891A0" /></button>
         </div>
       )}
       {iBlocked ? (
