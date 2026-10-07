@@ -1191,6 +1191,326 @@ function GamesScreen({ myId }) {
   );
 }
 
+// ===================== GAMES HUB =====================
+// Plain JS on purpose (no JSX): the same block is used in app.jsx and the compiled index.html.
+const gh = React.createElement;
+const GAME_RULES = {
+  ttt: {
+    init: () => Array(9).fill(null),
+    moves: (s) => s.map((v, i) => (v == null ? i : -1)).filter((i) => i >= 0),
+    play: (s, m, p) => { const n = s.slice(); n[m] = p; return n; },
+    win: (s) => {
+      for (const l of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]])
+        if (s[l[0]] != null && s[l[0]] === s[l[1]] && s[l[1]] === s[l[2]]) return { p: s[l[0]], line: l };
+      return null;
+    },
+  },
+  c4: {
+    init: () => Array(42).fill(null),
+    moves: (s) => [0,1,2,3,4,5,6].filter((c) => s[c] == null),
+    play: (s, c, p) => { const n = s.slice(); for (let r = 5; r >= 0; r--) if (n[r * 7 + c] == null) { n[r * 7 + c] = p; break; } return n; },
+    win: (s) => {
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) {
+        const p = s[r * 7 + c]; if (p == null) continue;
+        for (const [dr, dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+          const line = [];
+          for (let k = 0; k < 4; k++) { const rr = r + dr * k, cc = c + dc * k; if (rr < 0 || rr > 5 || cc < 0 || cc > 6 || s[rr * 7 + cc] !== p) break; line.push(rr * 7 + cc); }
+          if (line.length === 4) return { p, line };
+        }
+      }
+      return null;
+    },
+  },
+};
+const HUB_GAMES = [
+  { id: "ttt", name: "Tic-Tac-Toe", emoji: "✖️", color: "#35D0BA", blurb: "Three in a row", ready: true },
+  { id: "c4", name: "Connect 4", emoji: "🔴", color: "#FF4FA3", blurb: "Drop discs, link four", ready: true },
+  { id: "whot", name: "Smart Whot", emoji: "🃏", color: "#F5B83D", blurb: "Card game" },
+  { id: "chess", name: "Chess", emoji: "♟️", color: "#8B5CF6", blurb: "Classic strategy" },
+  { id: "checkers", name: "Checkers", emoji: "🏁", color: "#4C8DFF", blurb: "Jump and capture" },
+  { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Race home" },
+  { id: "dominoes", name: "Dominoes", emoji: "🧩", color: "#2DD4A0", blurb: "Match the tiles" },
+];
+const hubName = (id) => (HUB_GAMES.find((g) => g.id === id) || { name: id }).name;
+const LEVELS = ["Easy", "Medium", "Hard", "Expert"];
+const PCOL = ["#35D0BA", "#FF4FA3"];
+const ROBOT = { id: "robot", name: "Robot", initials: "🤖", color: "#8B5CF6", level: 0, robot: true };
+const GLASS = { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.11)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: 20 };
+const rankName = (lv) => (lv >= 10 ? "Legend" : lv >= 6 ? "Pro" : lv >= 3 ? "Challenger" : "Rookie");
+const flag = (cc) => (cc && cc.length === 2 ? String.fromCodePoint(...[...cc].map((c) => 127397 + c.charCodeAt(0))) : "🌍");
+const hubPing = () => { try { if (typeof playPing === "function") playPing(); } catch (e) {} };
+
+// ---- robot brain: negamax with alpha-beta; lower levels also blunder on purpose ----
+function robotNega(game, s, p, d, a, b) {
+  const R = GAME_RULES[game], w = R.win(s);
+  if (w) return w.p === p ? 1000 + d : -1000 - d;
+  const mv = R.moves(s);
+  if (!mv.length) return 0;
+  if (d === 0) { if (game !== "c4") return 0; let v = 0; for (let r = 0; r < 6; r++) { const x = s[r * 7 + 3]; if (x != null) v += x === p ? 3 : -3; } return v; }
+  let best = -1e9;
+  for (const m of mv.slice().sort((x, y) => Math.abs(x - 3) - Math.abs(y - 3))) {
+    const v = -robotNega(game, R.play(s, m, p), 1 - p, d - 1, -b, -a);
+    if (v > best) best = v; if (best > a) a = best; if (a >= b) break;
+  }
+  return best;
+}
+function robotPick(game, s, me, level) {
+  const R = GAME_RULES[game], mv = R.moves(s);
+  if (Math.random() < [0.7, 0.35, 0.1, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  const depth = game === "ttt" ? 9 : [1, 3, 5, 6][level];
+  let best = -1e9, picks = [];
+  for (const m of mv) {
+    const v = -robotNega(game, R.play(s, m, me), 1 - me, depth - 1, -1e9, 1e9);
+    if (v > best) { best = v; picks = [m]; } else if (v === best) picks.push(m);
+  }
+  return picks[Math.floor(Math.random() * picks.length)];
+}
+
+function hubBtn(label, onClick, o = {}) {
+  return gh("button", { onClick, disabled: o.disabled, "aria-label": o.aria || label, style: { border: o.ghost ? "1px solid rgba(255,255,255,0.18)" : "none", cursor: o.disabled ? "default" : "pointer", opacity: o.disabled ? 0.45 : 1, borderRadius: 999, padding: o.small ? "7px 14px" : "12px 20px", fontFamily: "Sora", fontWeight: 700, fontSize: o.small ? 12.5 : 14.5, color: o.ghost ? "#E8ECF2" : "#04110F", background: o.ghost ? "transparent" : (o.bg || "linear-gradient(135deg,#35D0BA,#6EE7D2)"), boxShadow: o.ghost || o.disabled ? "none" : "0 0 18px " + (o.glow || "rgba(53,208,186,0.45)"), ...(o.style || {}) } }, label);
+}
+
+function PlayerCard({ p, onPlay, onChallenge }) {
+  const dot = { online: "#35D0BA", looking: "#F5B83D", playing: "#FF4FA3" }[p.status] || "#5B6673";
+  const label = { online: "Online", looking: "Wants a game", playing: "In a game", offline: "Offline" }[p.status];
+  return gh("div", { style: { ...GLASS, padding: 12, display: "flex", alignItems: "center", gap: 12 } },
+    gh(Ring, { size: 48, color: p.color, initials: p.initials, photo: p.avatar, online: p.status !== "offline" }),
+    gh("div", { style: { flex: 1, minWidth: 0 } },
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, flag(p.country) + " " + (p.username || p.name)),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Lv " + p.level + " " + rankName(p.level) + " · " + p.w + "W " + p.l + "L"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, marginTop: 3, color: dot, display: "flex", alignItems: "center", gap: 5 } },
+        gh("span", { style: { width: 7, height: 7, borderRadius: 4, background: dot, boxShadow: "0 0 8px " + dot } }), label + (p.fav ? " · Likes " + hubName(p.fav) : ""))),
+    p.status === "playing" ? null : gh("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+      hubBtn("Play", onPlay, { small: true, aria: "Invite " + p.name + " to play" }),
+      hubBtn("Challenge", onChallenge, { small: true, ghost: true, aria: "Challenge " + p.name })));
+}
+
+// ---- the game room: board, avatars, score, turn, live chat, reactions, rematch, exit ----
+function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
+  const R = GAME_RULES[cfg.game], robot = cfg.mode === "robot";
+  const [g, setG] = useState({ you: cfg.you, players: cfg.players, state: cfg.state || R.init(), turn: cfg.turn || 0, over: false, winner: null, line: null, score: cfg.score || [0, 0], reward: null, note: "", asked: false, theyAsked: false });
+  const [msgs, setMsgs] = useState([]); const [text, setText] = useState(""); const [floats, setFloats] = useState([]);
+  const gRef = useRef(g); gRef.current = g;
+  const robotIdx = 1 - g.you;
+  const float = (e) => { const id = Math.random(); setFloats((f) => [...f, { id, e, x: 15 + Math.random() * 70 }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800); };
+  const finish = (state, w, idx) => {
+    const cur = gRef.current, full = R.moves(state).length === 0;
+    if (!w && !full) { setG((p) => ({ ...p, state, turn: 1 - idx })); return; }
+    const result = !w ? "d" : w.p === cur.you ? "w" : "l";
+    const score = cur.score.slice(); if (w) score[w.p] += 1;
+    setG((p) => ({ ...p, state, turn: -1, over: true, winner: w ? w.p : -1, line: w ? w.line : null, score, reward: null }));
+    if (socket) socket.emit("game:solo", { game: cfg.game, level: cfg.level, result }, (r) => r && setG((p) => ({ ...p, reward: r })));
+  };
+  const place = (m, idx) => { const state = R.play(gRef.current.state, m, idx); finish(state, R.win(state), idx); };
+  const tap = (m) => {
+    if (g.over || g.turn !== g.you || !R.moves(g.state).includes(m)) return;
+    if (robot) place(m, g.you); else socket.emit("game:move", { room: cfg.room, move: m });
+  };
+  useEffect(() => {
+    if (!robot || g.over || g.turn !== robotIdx) return;
+    const t = setTimeout(() => { const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null) place(m, robotIdx); }, 550 + Math.random() * 500);
+    return () => clearTimeout(t);
+  }, [g.turn, g.over]);
+  useEffect(() => { if (!robot && !g.over && g.turn === g.you) hubPing(); }, [g.turn]);
+  useEffect(() => {
+    if (robot || !socket) return;
+    const mine = (d) => d.room === cfg.room;
+    const hs = {
+      "game:move": (d) => mine(d) && setG((p) => ({ ...p, state: d.state, turn: d.turn })),
+      "game:over": (d) => mine(d) && setG((p) => ({ ...p, over: true, turn: -1, winner: d.winner, line: d.line, score: d.score, reward: d.reward, note: d.forfeit ? "Your opponent left, so you win." : "" })),
+      "game:chat": (d) => mine(d) && setMsgs((m) => [...m.slice(-40), d]),
+      "game:react": (d) => mine(d) && float(d.emoji),
+      "game:rematch-request": (d) => mine(d) && setG((p) => ({ ...p, theyAsked: true })),
+      "game:start": (d) => { if (d.room === cfg.room && d.rematch) setG({ you: d.you, players: d.players, state: d.state, turn: d.turn, over: false, winner: null, line: null, score: d.score, reward: null, note: "", asked: false, theyAsked: false }); },
+      "game:left": (d) => mine(d) && setG((p) => ({ ...p, gone: true })),
+    };
+    for (const k in hs) socket.on(k, hs[k]);
+    return () => { for (const k in hs) socket.off(k, hs[k]); };
+  }, []);
+  const rematch = () => {
+    if (robot) { const you = 1 - g.you; setG({ you, players: [g.players[1], g.players[0]], state: R.init(), turn: 0, over: false, winner: null, line: null, score: [g.score[1], g.score[0]], reward: null, note: "", asked: false, theyAsked: false }); return; }
+    setG((p) => ({ ...p, asked: true })); socket.emit("game:rematch", { room: cfg.room });
+  };
+  const send = () => { const t = text.trim(); if (!t) return; socket.emit("game:chat", { room: cfg.room, text: t }); setText(""); };
+  const react = (e) => (robot ? float(e) : socket.emit("game:react", { room: cfg.room, emoji: e }));
+  const myTurn = !g.over && g.turn === g.you;
+  const chip = (i) => {
+    const p = g.players[i], on = !g.over && g.turn === i;
+    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: 8, borderRadius: 18, border: "1px solid " + (on ? PCOL[i] : "rgba(255,255,255,0.1)"), boxShadow: on ? "0 0 18px " + PCOL[i] + "88" : "none", transition: "box-shadow .25s, border-color .25s", background: "rgba(255,255,255,0.05)" } },
+      gh(Ring, { size: 40, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
+      gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
+        gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (i === g.you ? "You" : p.name)),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (cfg.game === "ttt" ? (i ? "O" : "X") : (i ? "Pink" : "Teal")) + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, g.score[i]));
+  };
+  const hit = (i) => g.line && g.line.includes(i);
+  const cells = g.state.map((v, i) => {
+    const col = v == null ? null : PCOL[v];
+    if (cfg.game === "ttt") return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : v === 0 ? "X" : "O");
+    return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } },
+      gh("div", { style: { width: "84%", height: "84%", margin: "8%", borderRadius: "50%", background: col || "#0A0E14", boxShadow: col ? "0 0 " + (hit(i) ? 16 : 8) + "px " + col : "inset 0 2px 6px rgba(0,0,0,.7)", border: hit(i) ? "2px solid #fff" : "none" } }));
+  });
+  const verdict = !g.over ? null : g.winner === -1 ? "It's a draw" : g.winner === g.you ? "You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
+  return gh("div", { style: { display: "flex", flexDirection: "column", height: "100%", background: "radial-gradient(120% 60% at 50% 0%, #1B1440 0%, #0B0F16 60%)" } },
+    gh("div", { style: { display: "flex", gap: 8, padding: "12px 12px 6px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
+    gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: "4px 0 8px", color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…")),
+    g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
+    gh("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center", padding: "4px 14px", position: "relative" } },
+      gh("div", { style: { width: "100%", maxWidth: cfg.game === "c4" ? 380 : 320, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells),
+      floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e))),
+    gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "8px 12px 10px", flexShrink: 0 } },
+      gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 8 } },
+        ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "5px 9px", fontSize: 18, cursor: "pointer" } }, e)),
+        gh("div", { style: { flex: 1 } }),
+        !robot && convo ? hubBtn("🎙 Voice", () => onCall(convo, false), { small: true, ghost: true, aria: "Start voice call" }) : null),
+      robot ? gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", padding: "2px 2px 8px" } }, "Chat opens when you play a real person.") : gh("div", null,
+        gh("div", { style: { maxHeight: 74, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 6 } }, msgs.length ? msgs.map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Say hi while you play.")),
+        gh("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+          gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Game chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
+          hubBtn("Send", send, { small: true }))),
+      gh("div", { style: { display: "flex", gap: 10 } },
+        hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
+        hubBtn("Exit game", onExit, { ghost: true, style: { flex: 1 } }))));
+}
+
+// ---- hub: tabs, setup sheet, lobby, rankings, notifications, challenge pop-ups ----
+function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goGames }) {
+  const [sub, setSub] = useState("play"); const [sk, setSk] = useState(null);
+  const [lobby, setLobby] = useState({ players: [], recent: [], me: null });
+  const [setup, setSetup] = useState(null); const [room, setRoom] = useState(null); const [searching, setSearching] = useState(null);
+  const [invites, setInvites] = useState([]); const [alerts, setAlerts] = useState([]); const [unread, setUnread] = useState(0); const [bell, setBell] = useState(false);
+  const [arcade, setArcade] = useState(false); const [period, setPeriod] = useState("day"); const [board, setBoard] = useState({ rows: [], me: null });
+  const [toast, setToast] = useState("");
+  const roomRef = useRef(room); roomRef.current = room; const activeRef = useRef(active); activeRef.current = active;
+  const sock = () => socketRef.current;
+  const alertNow = (icon, text) => { setAlerts((a) => [{ id: Math.random(), icon, text, at: Date.now() }, ...a].slice(0, 30)); setUnread((n) => n + 1); setToast(icon + " " + text); setTimeout(() => setToast(""), 3500); };
+  const refresh = () => { const s = sock(); if (s) s.emit("game:lobby", setLobby); };
+  useEffect(() => { const t = setInterval(() => { if (socketRef.current !== sk) setSk(socketRef.current); }, 700); return () => clearInterval(t); }, [sk]);
+  useEffect(() => { if (!sk) return; refresh(); const t = setInterval(() => activeRef.current && refresh(), 8000); return () => clearInterval(t); }, [sk]);
+  useEffect(() => { if (active) { refresh(); setUnread(0); } }, [active]);
+  useEffect(() => { if (sk && active && sub === "ranks") sk.emit("game:board", { period }, setBoard); }, [sk, active, sub, period, room]);
+  useEffect(() => {
+    if (!sk) return;
+    const hs = {
+      "game:invite": (d) => { setInvites((v) => [...v, d]); alertNow("⚔️", d.from.name + (d.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(d.game)); hubPing(); },
+      "game:invite-expired": (d) => setInvites((v) => v.filter((i) => i.id !== d.id)),
+      "game:accepted": (d) => alertNow("✅", d.by.name + " accepted your game"),
+      "game:declined": (d) => alertNow("🙈", d.by.name + " declined your invite"),
+      "game:start": (d) => { if (d.rematch) return; setSearching(null); setSetup(null); setInvites([]); setArcade(false); setRoom({ mode: "online", room: d.room, game: d.game, you: d.you, players: d.players, state: d.state, turn: d.turn, score: d.score }); goGames(); refresh(); },
+      "game:over": (d) => alertNow(d.result === "w" ? "🏆" : d.result === "l" ? "💔" : "🤝", d.result === "w" ? "You won! +" + (d.reward ? d.reward.gain : 0) + " XP" : d.result === "l" ? "You lost this one. Rematch?" : "It was a draw"),
+      "game:rematch-request": (d) => alertNow("🔁", d.from.name + " wants a rematch"),
+      "game:move": (d) => { if (d.next === myId && !activeRef.current) { alertNow("⏰", "Your turn"); hubPing(); } },
+    };
+    for (const k in hs) sk.on(k, hs[k]);
+    return () => { for (const k in hs) sk.off(k, hs[k]); };
+  }, [sk]);
+  const meCard = lobby.me || { id: myId, name: me.name, initials: me.initials, color: me.color, avatar: me.avatar, level: 1, xp: 0, w: 0, l: 0, d: 0, streak: 0, best: 0 };
+  const startRobot = (game, level) => setRoom({ mode: "robot", game, level, you: 0, players: [meCard, ROBOT], score: [0, 0] });
+  const findRandom = (game) => { const s = sock(); if (!s) return; setSearching({ game }); s.emit("game:find", { game }, (r) => r && !r.ok && setSearching(null)); };
+  const invite = (p, game, kind) => {
+    const s = sock(); if (!s) return;
+    s.emit("game:invite", { to: p.id, game, kind }, (r) => {
+      if (!r || !r.ok) return alertNow("⚠️", p.name + (r && r.reason === "busy" ? " is in a game" : " is not available"));
+      alertNow("📨", "Invite sent to " + p.name);
+      const c = conversations.find((x) => !x.isGroup && x.other && x.other.id === p.id);
+      if (c) s.emit("message:send", { conversationId: c.id, text: "🎮 " + (kind === "challenge" ? "I challenge you to " : "Let's play ") + hubName(game) + "! Open the Games tab to accept." });
+    });
+  };
+  const go = (patch) => {
+    const s = { ...(setup || {}), ...patch };
+    if (s.mode === "random" && s.game) { setSetup(null); return findRandom(s.game); }
+    if (s.mode === "friend" && s.game && s.player) { setSetup(null); return invite(s.player, s.game, s.kind || "invite"); }
+    if (s.mode === "robot" && s.game && s.level != null) { setSetup(null); return startRobot(s.game, s.level); }
+    setSetup(s);
+  };
+  const respond = (iv, accept) => { sock().emit("game:respond", { id: iv.id, accept }); setInvites((v) => v.filter((i) => i.id !== iv.id)); };
+  const exitRoom = () => { const r = roomRef.current; if (r && r.mode === "online" && sock()) sock().emit("game:leave"); setRoom(null); refresh(); };
+  const dmOf = (id) => conversations.find((x) => !x.isGroup && x.other && x.other.id === id);
+  const others = lobby.players;
+  const section = (title, list, empty) => gh("div", { style: { marginBottom: 18 } },
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, title + " (" + list.length + ")"),
+    list.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, list.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ mode: "friend", player: p, kind: "invite" }), onChallenge: () => go({ mode: "friend", player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", padding: "2px 2px" } }, empty));
+  const xpInLevel = meCard.xp % 100;
+  const badges = [["🏆", "Champion", "Win 10 games", meCard.w >= 10], ["🔥", "Win Streak", "Win 3 in a row", meCard.best >= 3], ["🎯", "Master Player", "Reach level 5", meCard.level >= 5], ["👑", "Top Player", "Be #1 on a leaderboard", board.rows[0] && board.rows[0].user.id === myId], ["⭐", "Rising Star", "Win 3 games", meCard.w >= 3]];
+
+  const playTab = gh("div", null,
+    gh("div", { style: { ...GLASS, padding: 14, display: "flex", gap: 12, alignItems: "center", marginBottom: 14, boxShadow: "0 0 24px rgba(139,92,246,.18)" } },
+      gh(Ring, { size: 52, color: meCard.color, initials: meCard.initials, photo: meCard.avatar, online: true }),
+      gh("div", { style: { flex: 1 } },
+        gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, "Level " + meCard.level + " " + rankName(meCard.level)),
+        gh("div", { style: { height: 7, borderRadius: 4, background: "rgba(255,255,255,0.1)", margin: "7px 0 5px", overflow: "hidden" } }, gh("div", { style: { width: xpInLevel + "%", height: "100%", background: "linear-gradient(90deg,#35D0BA,#8B5CF6)", transition: "width .6s" } })),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, xpInLevel + "/100 XP · " + meCard.w + "W " + meCard.l + "L · 🔥 " + meCard.streak))),
+    gh("div", { style: { display: "flex", gap: 10, marginBottom: 10 } },
+      hubBtn("👥 Find a Player", () => go({ mode: "friend" }), { style: { flex: 1 } }),
+      hubBtn("🎲 Random Player", () => go({ mode: "random" }), { style: { flex: 1 }, bg: "linear-gradient(135deg,#FF4FA3,#FF8FC4)", glow: "rgba(255,79,163,.45)" })),
+    gh("button", { onClick: () => go({ mode: "robot" }), style: { width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid rgba(139,92,246,.5)", borderRadius: 22, padding: "18px 18px", marginBottom: 18, background: "linear-gradient(135deg,rgba(139,92,246,.35),rgba(53,208,186,.18))", boxShadow: "0 0 26px rgba(139,92,246,.3)", display: "flex", alignItems: "center", gap: 14 } },
+      gh("div", { style: { fontSize: 44 } }, "🤖"),
+      gh("div", null, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 19, color: "#F5F7FA" } }, "Play vs Robot"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", marginTop: 2 } }, "Easy to Expert. Starts right away."))),
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 10px" } }, "Pick a game"),
+    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } },
+      HUB_GAMES.map((gm) => gh("button", { key: gm.id, disabled: !gm.ready, onClick: () => go({ game: gm.id, mode: null }), "aria-label": gm.name + (gm.ready ? "" : " coming soon"), style: { textAlign: "left", padding: 0, border: "1px solid " + gm.color + "55", borderRadius: 20, overflow: "hidden", cursor: gm.ready ? "pointer" : "default", background: "#121821", opacity: gm.ready ? 1 : 0.6 } },
+        gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "linear-gradient(145deg," + gm.color + "55," + gm.color + "10)" } }, gm.emoji),
+        gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, gm.name), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: gm.ready ? "#9BA7B4" : "#F5B83D", marginTop: 2 } }, gm.ready ? gm.blurb : "Coming soon")))),
+      gh("button", { onClick: () => setArcade(true), style: { textAlign: "left", padding: 0, border: "1px solid rgba(255,255,255,.14)", borderRadius: 20, overflow: "hidden", cursor: "pointer", background: "#121821" } },
+        gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "rgba(255,255,255,0.06)" } }, "🕹️"),
+        gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, "Solo arcade"), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Snake, 2048, Memory")))));
+
+  const lobbyTab = gh("div", null,
+    gh("div", { style: { display: "flex", gap: 8, marginBottom: 16 } }, [["Online", others.length, "#35D0BA"], ["Playing", others.filter((p) => p.status === "playing").length, "#FF4FA3"], ["Looking", others.filter((p) => p.status === "looking").length, "#F5B83D"]].map(([l, n, c]) => gh("div", { key: l, style: { ...GLASS, flex: 1, padding: "10px 6px", textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 22, color: c } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, l)))),
+    section("Friends available", others.filter((p) => dmOf(p.id) && p.status !== "playing"), "None of your chat friends are free right now."),
+    section("Looking for opponents", others.filter((p) => p.status === "looking"), "Nobody is waiting. Tap Random Player to be the first."),
+    section("Playing now", others.filter((p) => p.status === "playing"), "No games running."),
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, "Recently played"),
+    lobby.recent.length ? lobby.recent.map((r, i) => gh("div", { key: i, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: "#C9D1DC" } }, hubName(r.game) + ": " + (r.aName || "Player") + " vs " + (r.bName || "Player") + (r.w ? " · " + (r.w === r.a ? r.aName : r.bName) + " won" : " · draw"))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Finished games show up here."));
+
+  const ranksTab = gh("div", null,
+    gh("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]].map(([k, l]) => gh("button", { key: k, onClick: () => setPeriod(k), style: { flex: 1, padding: "9px 0", borderRadius: 999, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "1px solid " + (period === k ? "#35D0BA" : "rgba(255,255,255,.14)"), background: period === k ? "rgba(53,208,186,.18)" : "transparent", color: period === k ? "#35D0BA" : "#9BA7B4" } }, l))),
+    board.rows.length ? board.rows.map((r) => gh("div", { key: r.user.id, style: { ...GLASS, padding: "9px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, borderColor: r.user.id === myId ? "#35D0BA" : "rgba(255,255,255,.11)" } },
+      gh("div", { style: { width: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: r.rank === 1 ? "#F5B83D" : "#9BA7B4" } }, r.rank === 1 ? "👑" : r.rank),
+      gh(Ring, { size: 38, color: r.user.color, initials: r.user.initials, photo: r.user.avatar }),
+      gh("div", { style: { flex: 1, minWidth: 0 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA" } }, r.user.id === myId ? "You" : r.user.username || r.user.name), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, "Lv " + r.user.level + " · " + r.xp + " XP earned")),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "right" } }, r.w + "W " + r.l + "L"))) : gh("div", { style: { ...GLASS, padding: 18, textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 14 } }, "No ranked games yet this " + period + ". Beat a real player to take the first spot."),
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "14px 2px 8px" } }, "Your badges"),
+    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, badges.map(([e, n, how, got]) => gh("div", { key: n, style: { ...GLASS, padding: 12, opacity: got ? 1 : 0.5, borderColor: got ? "#F5B83D" : "rgba(255,255,255,.11)" } }, gh("div", { style: { fontSize: 26, filter: got ? "none" : "grayscale(1)" } }, e), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginTop: 4 } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, got ? "Unlocked" : how)))));
+
+  // setup sheet (one question at a time: game → how → difficulty / player)
+  let sheet = null;
+  if (setup) {
+    const s = setup; let title, body;
+    if (!s.game) { title = "Pick a game"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, HUB_GAMES.filter((x) => x.ready).map((gm) => gh("button", { key: gm.id, onClick: () => go({ game: gm.id }), style: { padding: 14, borderRadius: 18, border: "1px solid " + gm.color + "88", background: gm.color + "1f", cursor: "pointer", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 14 } }, gh("div", { style: { fontSize: 32 } }, gm.emoji), gm.name))); }
+    else if (!s.mode) { title = hubName(s.game) + ": how do you want to play?"; body = gh("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, [["friend", "👥 Play vs Friend", "Invite someone who is online"], ["random", "🎲 Play vs Random Player", "We match you with anyone waiting"], ["robot", "🤖 Play vs Robot", "Practice at your own level"]].map(([m, t, d]) => gh("button", { key: m, onClick: () => go({ mode: m }), style: { textAlign: "left", padding: "14px 16px", borderRadius: 18, border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.06)", cursor: "pointer" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, t), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", marginTop: 2 } }, d)))); }
+    else if (s.mode === "robot") { title = "Choose difficulty"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, LEVELS.map((l, i) => gh("button", { key: l, onClick: () => go({ level: i }), style: { padding: "16px 8px", borderRadius: 18, border: "1px solid " + ["#35D0BA", "#F5B83D", "#FF7A45", "#FF4FA3"][i], background: "rgba(255,255,255,.05)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, ["🌱", "⚡", "🔥", "💀"][i] + " " + l))); }
+    else { title = "Who do you want to play?"; const pool = others.filter((p) => p.status !== "playing").sort((a, b) => !!dmOf(b.id) - !!dmOf(a.id)); body = pool.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, pool.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ player: p, kind: "invite" }), onChallenge: () => go({ player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", padding: "8px 2px" } }, "No one is online right now. Try Random Player, or play the Robot."); }
+    sheet = gh("div", { style: { position: "absolute", inset: 0, zIndex: 20, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setSetup(null) },
+      gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "82%", overflowY: "auto", background: "#0F141C", borderTop: "1px solid rgba(139,92,246,.5)", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", animation: "hubUp .25s ease-out" } },
+        gh("div", { style: { display: "flex", alignItems: "center", marginBottom: 14 } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, title), gh("button", { onClick: () => setSetup(null), "aria-label": "Close", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 20 } }, "✕")), body));
+  }
+
+  const popups = gh("div", { style: { position: "fixed", top: 10, left: 10, right: 10, zIndex: 60, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" } },
+    invites.map((iv) => gh("div", { key: iv.id, style: { ...GLASS, background: "rgba(15,20,28,.92)", borderColor: "#8B5CF6", padding: 12, pointerEvents: "auto", boxShadow: "0 0 24px rgba(139,92,246,.5)", animation: "hubUp .25s ease-out" } },
+      gh("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10 } }, gh(Ring, { size: 40, color: iv.from.color, initials: iv.from.initials, photo: iv.from.avatar }), gh("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, gh("b", null, iv.from.name), (iv.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(iv.game))),
+      gh("div", { style: { display: "flex", gap: 10 } }, hubBtn("Accept", () => respond(iv, true), { style: { flex: 1 }, small: true }), hubBtn("Decline", () => respond(iv, false), { style: { flex: 1 }, small: true, ghost: true })))),
+    toast && !active ? gh("div", { style: { ...GLASS, background: "rgba(15,20,28,.92)", padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, toast) : null);
+
+  const tabs = gh("div", { role: "tablist", style: { display: "flex", gap: 6, padding: "0 16px 10px" } }, [["play", "🎮 Play"], ["lobby", "👥 Lobby"], ["ranks", "🏆 Ranks"]].map(([k, l]) => gh("button", { key: k, role: "tab", "aria-selected": sub === k, onClick: () => setSub(k), style: { flex: 1, padding: "9px 0", borderRadius: 14, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "none", background: sub === k ? "linear-gradient(135deg,rgba(53,208,186,.3),rgba(139,92,246,.3))" : "rgba(255,255,255,.05)", color: sub === k ? "#F5F7FA" : "#8891A0", boxShadow: sub === k ? "0 0 14px rgba(53,208,186,.3)" : "none" } }, l)));
+  let main;
+  if (room) main = gh(GameRoom, { key: room.room || "robot", cfg: room, socket: sock(), myId, onExit: exitRoom, onCall, convo: room.mode === "online" ? dmOf((room.players.find((p) => p.id !== myId) || {}).id) : null });
+  else if (arcade) main = gh("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, gh("button", { onClick: () => setArcade(false), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, textAlign: "left", padding: "12px 16px 0", cursor: "pointer" } }, "← Back to Games"), gh("div", { style: { flex: 1, minHeight: 0 } }, gh(GamesScreen, { myId })));
+  else main = gh(React.Fragment, null,
+    gh("div", { style: { display: "flex", alignItems: "center", padding: "14px 16px 10px" } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, "Games"),
+      gh("button", { onClick: () => { setBell(true); setUnread(0); }, "aria-label": "Game notifications", style: { position: "relative", background: "rgba(255,255,255,.07)", border: "none", borderRadius: 14, padding: "8px 11px", fontSize: 18, cursor: "pointer" } }, "🔔", unread ? gh("span", { style: { position: "absolute", top: -4, right: -4, background: "#FF4FA3", color: "#fff", borderRadius: 10, fontSize: 10.5, fontFamily: "Sora", fontWeight: 700, padding: "1px 6px" } }, unread) : null)),
+    tabs, gh("div", { style: { flex: 1, overflowY: "auto", padding: "4px 16px 24px", WebkitOverflowScrolling: "touch" } }, sub === "play" ? playTab : sub === "lobby" ? lobbyTab : ranksTab));
+  const bellPanel = bell ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 30, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setBell(false) }, gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", overflowY: "auto", background: "#0F141C", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", borderTop: "1px solid rgba(53,208,186,.5)" } },
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Game notifications"),
+    alerts.length ? alerts.map((a) => gh("div", { key: a.id, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, a.icon + " " + a.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, "Challenges, turns and results will show up here."))) : null;
+  const searchBox = searching ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 25, background: "rgba(3,5,9,.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 } },
+    gh("div", { style: { fontSize: 54, animation: "hubPulse 1.2s infinite" } }, "🔎"), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, "Finding a " + hubName(searching.game) + " opponent…"), hubBtn("Cancel", () => { sock().emit("game:cancel"); setSearching(null); refresh(); }, { ghost: true })) : null;
+  return gh(React.Fragment, null,
+    gh("style", null, "@keyframes hubUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}@keyframes hubPulse{50%{transform:scale(1.18)}}@keyframes hubFloat{to{transform:translateY(-170px);opacity:0}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
+    gh("div", { style: { position: "absolute", inset: 0, display: active ? "flex" : "none", flexDirection: "column", background: "radial-gradient(120% 50% at 50% 0%, #1A1240 0%, #0B0F16 55%)" } }, main, sheet, bellPanel, searchBox),
+    popups);
+}
+
 // ---- search: suggests words that appear in your chats and groups, and lists the messages that match ----
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function Marked({ text, tokens }) {
@@ -3362,7 +3682,7 @@ function App() {
           )}
           {tab === "calls" && <CallsScreen conversations={conversations} onCall={startCall} />}
           {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
-          {tab === "games" && <GamesScreen myId={session.user.id} />}
+          <GamesHub active={tab === "games"} myId={session.user.id} me={session.user} socketRef={socketRef} conversations={conversations} onCall={startCall} goGames={() => setTab("games")} />
           {tab === "status" && <StatusScreen profile={session.user} token={session.token} />}
           {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} onOpen={setToolsView} settings={settings} />}
           {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} onClose={() => setShowNewGroup(false)} onCreated={(conv) => { setShowNewGroup(false); openGroup(conv); }} />}
