@@ -1477,7 +1477,7 @@ io.on("connection", (socket) => {
     }
 
     if (!text || !text.trim()) return fail("Message text required");
-    if (text.length > 4000) return fail("Message is too long (max 4000 characters)");
+    if (text.length > 15000) return fail("Message is too long (max 15000 characters)");
     const db = readDB();
     const convo = db.conversations.find((c) => c.id === conversationId);
     if (!convo || !convo.participantIds.includes(userId)) {
@@ -1529,7 +1529,7 @@ io.on("connection", (socket) => {
     if (EDIT_WINDOW_MS && Date.now() - m.time > EDIT_WINDOW_MS) return fail("Messages can only be edited for 15 minutes after sending");
     const t = String(text || "").trim();
     if (!t) return fail("Message text required");
-    if (t.length > 4000) return fail("Message is too long (max 4000 characters)");
+    if (t.length > 15000) return fail("Message is too long (max 15000 characters)");
     if (t !== m.text) {
       m.text = t; m.edited = true; m.editedAt = Date.now();
       writeDB(db);

@@ -584,7 +584,7 @@
           },
           "text": {
             "type": "string",
-            "maxLength": 4000
+            "maxLength": 15000
           },
           "time": {
             "type": "integer",
