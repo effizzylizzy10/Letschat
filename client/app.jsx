@@ -4047,7 +4047,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const reactTo = (m, emoji) => { setSel(null); setPicked([]); if (!socket) return setError("Not connected yet. Try again in a moment."); socket.emit("message:react", { messageId: m.id, emoji }, (ack) => { if (ack && ack.error) setError(ack.error); }); };
   if (window.LCReactions) window.LCReactions.useLive(socket, conversation.id, setMsgs);
   const openMenu = (m) => { if (m.senderId === myId && !m.deleted) { openedAt.current = Date.now(); setSel(m); } };
-  const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => startPick(m), 450); };
+  const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => { startPick(m); try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {} }, 250); };
   const pressEnd = () => clearTimeout(pressRef.current);
 
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -4236,9 +4236,9 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
               onContextMenu={!m.deleted ? (e) => { e.preventDefault(); startPick(m); } : undefined}
               onClickCapture={picking ? (e) => { e.preventDefault(); e.stopPropagation(); if (!m.deleted) togglePick(m); } : undefined}
               onTouchStart={!m.deleted ? () => pressStart(m) : undefined} onTouchEnd={pressEnd} onTouchMove={pressEnd} onTouchCancel={pressEnd}
-              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", width: "100%", padding: "4px 0", margin: "-4px 0", WebkitTouchCallout: "none", userSelect: picking ? "none" : undefined, WebkitUserSelect: picking ? "none" : undefined }}>
+              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", width: "100%", padding: "4px 0", margin: "-4px 0", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" }}>
             <div style={{
-              WebkitTouchCallout: "none", userSelect: picking ? "none" : undefined, WebkitUserSelect: picking ? "none" : undefined, boxShadow: picking && picked.includes(m.id) && !m.deleted ? "0 0 0 2px #35D0BA, 0 0 0 6px rgba(53,208,186,.18)" : hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
+              WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: picking && picked.includes(m.id) && !m.deleted ? "0 0 0 2px #35D0BA, 0 0 0 6px rgba(53,208,186,.18)" : hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%", position: "relative",
               marginBottom: !mine && window.LCReactions && window.LCReactions.has(m) ? 14 : 0,
               background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
