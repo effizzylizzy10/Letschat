@@ -3964,6 +3964,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             rows={1}
             value={draft}
             maxLength={MAX_MSG_CHARS}
+            className="lc-plain"
             onChange={e => { if (e.target.value.length > draft.length) playSound("typing"); setDraft(e.target.value); notifyTyping(true); }}
             onKeyDown={e => { if (e.key === "Escape" && editing) cancelEdit(); }}
             placeholder={editing ? "Edit message" : "Message"} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "21px", padding: 0, margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
