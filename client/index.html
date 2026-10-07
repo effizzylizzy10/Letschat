@@ -8,11 +8,6 @@
   <meta name="theme-color" content="#0E1116" />
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #05070A; overflow: hidden; }
-    /* No text highlighting anywhere, except inside typing fields */
-    *, *::before, *::after { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-    input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
-    ::selection { background: transparent; }
-    input::selection, textarea::selection { background: rgba(53, 208, 186, .35); }
     #root { height: 100%; }
 
     /* App fills the whole screen; the footer bar sits under it, touching both edges, and carries the host badge */
@@ -136,6 +131,7 @@ window.LETSCHAT_CONFIG = {
 "use strict";
 // ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
 const { useState, useRef, useEffect, useCallback } = React;
+const MAX_MSG_CHARS = 15000; // ~2,000+ words per message (keep in step with the server)
 function makeIcon(nodes) {
     return function Icon({ size = 24, color = "currentColor", strokeWidth = 2, style }) {
         return (React.createElement("svg", { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: strokeWidth, strokeLinecap: "round", strokeLinejoin: "round", style: { display: "inline-block", verticalAlign: "middle", ...style } }, nodes.map((n, i) => {
@@ -3914,7 +3910,6 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             if (m.deleted) {
                 setEditing(e => (e && e.id === m.id ? null : e));
                 setSel(s => (s && s.id === m.id ? null : s));
-                setPicked(p => p.filter(x => x !== m.id));
             }
         };
         socket.on("message:new", onNew);
@@ -3964,31 +3959,16 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         openedAt.current = Date.now();
         setSel(m);
     } };
+    const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => openMenu(m), 450); };
     const pressEnd = () => clearTimeout(pressRef.current);
-
-    // ---- multi-select bubbles: long-press (or right-click) a bubble to start, then tap to add / remove more ----
-    const [picked, setPicked] = useState([]);
-    const longFired = useRef(false), lastPick = useRef(0);
-    const togglePick = (m) => { if (!m || m.deleted) return; lastPick.current = Date.now(); setPicked(p => (p.includes(m.id) ? p.filter(x => x !== m.id) : [...p, m.id])); };
-    const bubbleClick = (m) => { if (longFired.current) { longFired.current = false; return; } if (picked.length) togglePick(m); };
-    const bubbleMenu = (e, m) => { e.preventDefault(); if (Date.now() - lastPick.current > 800) togglePick(m); };
-    const pickedMsgs = msgs.filter(m => picked.includes(m.id));
-    const pickedAllMine = pickedMsgs.length > 0 && pickedMsgs.every(m => m.senderId === myId);
-    const copyPicked = async () => {
-      const t = pickedMsgs.filter(m => !m.deleted && !m.audio && !m.hasAudio && !m.file && m.text).map(m => m.text).join("\n");
-      if (!t) { setError("Nothing to copy from the selected messages"); return; }
-      try { await navigator.clipboard.writeText(t); } catch (e) { window.prompt("Copy", t); }
-      setPicked([]);
-    };
-    const deletePicked = () => {
-      if (!pickedAllMine) return;
-      if (!socket) return setError("Not connected yet. Try again in a moment.");
-      if (!window.confirm("Delete " + pickedMsgs.length + " message" + (pickedMsgs.length > 1 ? "s" : "") + " for everyone?")) return;
-      pickedMsgs.forEach(m => socket.emit("message:delete", { messageId: m.id }, (ack) => { if (ack && ack.error) setError(ack.error); }));
-      setPicked([]);
-    };
-    const editPicked = () => { const m = pickedMsgs[0]; setPicked([]); startEdit(m); };
-    const pressStart = (m) => { clearTimeout(pressRef.current); longFired.current = false; pressRef.current = setTimeout(() => { longFired.current = true; togglePick(m); }, 450); };
+    // Auto-expand the message box as the user types (Enter adds a new line), up to 40% of the screen, then it scrolls.
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el)
+            return;
+        el.style.height = "auto";
+        el.style.height = el.scrollHeight + "px";
+    }, [draft]);
     const send = () => {
         if (!draft.trim() || !socket)
             return;
@@ -4096,14 +4076,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     const online = !!presence[conversation.other.id];
     const isFav = settings.favorites.includes(conversation.id);
     const iBlocked = !isGroup && settings.blocked.some(b => b.id === conversation.other.id);
-    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } },
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B", position: "relative", flexShrink: 0 } },
-            picked.length > 0 && React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 45, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", background: "#10141B" } },
-                React.createElement("button", { "aria-label": "Clear selection", onClick: () => setPicked([]), style: iconBtnStyle }, React.createElement(X, { size: 21, color: "#F5F7FA" })),
-                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" } }, picked.length + " selected"),
-                picked.length === 1 && pickedAllMine && canEdit(pickedMsgs[0]) && React.createElement("button", { "aria-label": "Edit message", onClick: editPicked, style: iconBtnStyle }, React.createElement(Pencil, { size: 19, color: "#35D0BA" })),
-                React.createElement("button", { "aria-label": "Copy selected", onClick: copyPicked, style: { ...smallBtn, color: "#35D0BA" } }, "Copy"),
-                pickedAllMine && React.createElement("button", { "aria-label": "Delete selected for everyone", onClick: deletePicked, style: iconBtnStyle }, React.createElement(Trash2, { size: 19, color: "#FF6B5D" }))),
             menu && (React.createElement(React.Fragment, null,
                 React.createElement("div", { onClick: () => setMenu(false), style: { position: "fixed", inset: 0, zIndex: 40 } }),
                 React.createElement("div", { style: { position: "absolute", top: 50, right: 10, zIndex: 41, minWidth: 210, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" } }, [
@@ -4131,7 +4105,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         fText !== null && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 } },
             React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "8px 11px" } },
                 React.createElement(Search, { size: 16, color: "#8891A0", style: { flexShrink: 0 } }),
-                React.createElement("input", { autoFocus: true, value: fText, onChange: e => { setFText(e.target.value); setFIdx(0); }, placeholder: "Search in this chat", maxLength: 100, style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, userSelect: "text", WebkitUserSelect: "text" } }),
+                React.createElement("input", { autoFocus: true, value: fText, onChange: e => { setFText(e.target.value); setFIdx(0); }, placeholder: "Search in this chat", maxLength: 100, style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
                 fQ && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", whiteSpace: "nowrap" } }, fMatches.length ? (fMatches.length - fPos) + " of " + fMatches.length : "No results")),
             React.createElement("button", { "aria-label": "Older match", disabled: !fMatches.length || fPos >= fMatches.length - 1, onClick: () => setFIdx(fPos + 1), style: { ...iconBtnStyle, opacity: !fMatches.length || fPos >= fMatches.length - 1 ? 0.35 : 1 } }, React.createElement(ChevronDown, { size: 20, color: "#9BA7B4", style: { transform: "rotate(180deg)" } })),
             React.createElement("button", { "aria-label": "Newer match", disabled: fPos <= 0, onClick: () => setFIdx(fPos - 1), style: { ...iconBtnStyle, opacity: fPos <= 0 ? 0.35 : 1 } }, React.createElement(ChevronDown, { size: 20, color: "#9BA7B4" })),
@@ -4148,30 +4122,29 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             msgs.map(m => {
                 const mine = m.senderId === myId;
                 const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
-                return (React.createElement("div", { key: m.id, ref: (el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }, onContextMenu: (e) => bubbleMenu(e, m), onClick: () => bubbleClick(m), onTouchStart: !m.deleted ? () => pressStart(m) : undefined, onTouchEnd: pressEnd, onTouchMove: pressEnd, onTouchCancel: pressEnd, style: {
-                        WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", cursor: picked.length ? "pointer" : "default",
-                        outline: picked.includes(m.id) ? "2px solid #35D0BA" : "none", outlineOffset: 2, boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
+                return (React.createElement("div", { key: m.id, ref: (el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }, onContextMenu: mine && !m.deleted ? (e) => { e.preventDefault(); openMenu(m); } : undefined, onTouchStart: mine && !m.deleted ? () => pressStart(m) : undefined, onTouchEnd: pressEnd, onTouchMove: pressEnd, onTouchCancel: pressEnd, style: {
+                        WebkitTouchCallout: "none", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
                         alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%",
-                        background: picked.includes(m.id) ? (mine ? "#2AA896" : "#2D3A4D") : mine ? "#1E8677" : "#1E2530", borderRadius: 14,
+                        background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
                         borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
                         padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
                     } },
                     isGroup && !mine && React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 } }, sender ? sender.name : "Former member"),
                     m.deleted ? React.createElement("div", { style: { fontStyle: "italic", color: "#B9C2CC" } }, m.text)
                         : m.audio ? React.createElement("audio", { controls: true, preload: "none", src: m.audio, style: { height: 36, width: 210, maxWidth: "100%" } })
-                            : m.file && m.file.data && /^data:image\//.test(m.file.data) ? React.createElement("img", { src: m.file.data, alt: m.file.name, onClick: () => { if (!picked.length) setViewer(m.file.data); }, style: { display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" } })
-                                : m.file && m.file.data ? (React.createElement("a", { href: m.file.data, download: m.file.name, onClick: (e) => { if (picked.length) e.preventDefault(); }, style: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 } },
+                            : m.file && m.file.data && /^data:image\//.test(m.file.data) ? React.createElement("img", { src: m.file.data, alt: m.file.name, onClick: () => setViewer(m.file.data), style: { display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" } })
+                                : m.file && m.file.data ? (React.createElement("a", { href: m.file.data, download: m.file.name, style: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 } },
                                     React.createElement("span", { style: { width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
                                         React.createElement(Paperclip, { size: 17, color: "#35D0BA" })),
                                     React.createElement("span", { style: { minWidth: 0 } },
                                         React.createElement("span", { style: { display: "block", fontWeight: 600, fontSize: 13.5, wordBreak: "break-all" } }, m.file.name),
                                         React.createElement("span", { style: { display: "block", fontSize: 11.5, color: "#B9C2CC" } },
                                             fmtSize(m.file.size),
-                                            " \u00B7 tap to download")))) : React.createElement("div", null, richText(m.text)),
+                                            " \u00B7 tap to download")))) : React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, richText(m.text)),
                     React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
                         m.edited && !m.deleted && React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" } }, "edited"),
                         React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, timeLabel(m.time)),
-                        mine && !m.deleted && React.createElement("button", { "aria-label": "Message options", onClick: (e) => { e.stopPropagation(); if (!picked.length) openMenu(m); }, style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } },
+                        mine && !m.deleted && React.createElement("button", { "aria-label": "Message options", onClick: () => openMenu(m), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } },
                             React.createElement(ChevronDown, { size: 14, color: "#B9C2CC" })),
                         mine && (m.read || (m.readBy && m.readBy.length) ? React.createElement(CheckCheck, { size: 13, color: "#35D0BA" }) : React.createElement(Check, { size: 13, color: "#B9C2CC" })))));
             }),
@@ -4191,16 +4164,14 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                 React.createElement(X, { size: 18, color: "#8891A0" })))),
         iBlocked ? (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" } },
             React.createElement("span", { style: { flex: 1 } }, "You blocked this contact."),
-            React.createElement("button", { onClick: () => onBlock(conversation.other.id, false), style: smallBtn }, "Unblock"))) : (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 } },
+            React.createElement("button", { onClick: () => onBlock(conversation.other.id, false), style: smallBtn }, "Unblock"))) : (React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 } },
             React.createElement("input", { ref: fileRef, type: "file", onChange: pickFile, style: { display: "none" } }),
             React.createElement("input", { ref: camRef, type: "file", accept: "image/*", capture: "environment", onChange: pickFile, style: { display: "none" } }),
-            React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 24, padding: "8px 12px" } },
-                React.createElement(Smile, { size: 19, color: "#8891A0", style: { flexShrink: 0 } }),
-                React.createElement("input", { ref: inputRef, value: draft, onChange: e => { if (e.target.value.length > draft.length)
-                        playSound("typing"); setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => { if (e.key === "Enter")
-                        send();
-                    else if (e.key === "Escape" && editing)
-                        cancelEdit(); }, placeholder: editing ? "Edit message" : "Message", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, userSelect: "text", WebkitUserSelect: "text" } }),
+            React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "flex-end", gap: 8, background: "#1E2530", borderRadius: 24, padding: "10px 12px" } },
+                React.createElement(Smile, { size: 19, color: "#8891A0", style: { flexShrink: 0, marginBottom: 1 } }),
+                React.createElement("textarea", { ref: inputRef, rows: 1, value: draft, maxLength: MAX_MSG_CHARS, onChange: e => { if (e.target.value.length > draft.length)
+                        playSound("typing"); setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => { if (e.key === "Escape" && editing)
+                        cancelEdit(); }, placeholder: editing ? "Edit message" : "Message", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "21px", padding: 0, margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
                 !editing && React.createElement("button", { "aria-label": "Attach file", onClick: () => fileRef.current && fileRef.current.click(), style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 } },
                     React.createElement(Paperclip, { size: 19, color: "#8891A0" })),
                 !editing && React.createElement("button", { "aria-label": "Take photo", onClick: () => camRef.current && camRef.current.click(), style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 } },
