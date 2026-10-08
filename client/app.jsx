@@ -229,6 +229,11 @@ const Gamepad2 = makeIcon([["p", "M6 11h4"], ["p", "M8 9v4"], ["p", "M15 12h.01"
 const RotateCcw = makeIcon([["p", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"], ["p", "M3 3v5h5"]]);
 const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
 const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
+const LinkIcon = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"], ["p", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]]);
+const ReplyIcon = makeIcon([["p", "M9 14 4 9l5-5"], ["p", "M20 20v-7a4 4 0 0 0-4-4H4"]]);
+const InfoIcon = makeIcon([["c", 12, 12, 10], ["p", "M12 16v-4"], ["p", "M12 8h.01"]]);
+const CopyIcon = makeIcon([["r", 9, 9, 13, 13, 2], ["p", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]]);
+const ForwardIcon = makeIcon([["p", "m15 17 5-5-5-5"], ["p", "M4 18v-2a4 4 0 0 1 4-4h12"]]);
 const MusicIcon = makeIcon([["p", "M9 18V5l12-2v13"], ["c", 6, 18, 3], ["c", 18, 16, 3]]);
 const RotateIcon = makeIcon([["p", "M6 2v14a2 2 0 0 0 2 2h14"], ["p", "M18 22V8a2 2 0 0 0-2-2H2"]]);
 const StickerIcon = makeIcon([["p", "M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"], ["p", "M15 3v6h6"], ["p", "M8 13h.01"], ["p", "M16 13h.01"], ["p", "M10 16s.8 1 2 1 2-1 2-1"]]);
@@ -3633,7 +3638,8 @@ const SUPPORT = {
   whatsapp: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_WHATSAPP) || "").replace(/\D/g, ""),
   email: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_EMAIL) || "").trim(),
 };
-const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [] };
+const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [], muted: {} };
+const isMutedChat = (muted, id) => { const v = muted && muted[id]; return v !== undefined && (v === 0 || v > Date.now()); };
 
 function ToolsScreen({ onProfile, onOpen = () => {}, settings = DEFAULT_SETTINGS }) {
   const nFav = settings.favorites.length, nBlocked = settings.blocked.length;
@@ -3935,7 +3941,202 @@ function ContactProfileSheet({ u, online, lastSeen, onVoice, onVideo, onClose })
   );
 }
 
-function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {}, focus = null }) {
+// ---- make web links inside messages tappable ----
+function withLinks(node) {
+  if (Array.isArray(node)) return node.map((n, i) => (typeof n === "string" ? <React.Fragment key={"l" + i}>{withLinks(n)}</React.Fragment> : n));
+  if (typeof node !== "string" || node.indexOf("http") < 0) return node;
+  return node.split(/(https?:\/\/[^\s]+)/g).map((part, i) => (/^https?:\/\//.test(part)
+    ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: "#7FE3D3", textDecoration: "underline", wordBreak: "break-all" }}>{part}</a>
+    : part));
+}
+
+// ---- quick-reply suggestions (the "Suggestions" button in the message box) ----
+function quickReplies(msgs, myId) {
+  let last = null;
+  for (let i = msgs.length - 1; i >= 0; i--) { const x = msgs[i]; if (x.senderId !== myId && !x.deleted && typeof x.text === "string" && !x.audio && !x.hasAudio && !x.file) { last = x.text.toLowerCase(); break; } }
+  if (!last) return ["Hi 👋", "Hello, how are you?", "Good day"];
+  if (/\b(thanks|thank you|thx)\b/.test(last)) return ["You're welcome", "No problem 👍", "Anytime"];
+  if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(last)) return ["Hi 👋", "Hello, how are you?", "I'm good, you?"];
+  if (/\?\s*$/.test(last)) return ["Yes", "No", "Maybe", "Let me check", "I'll get back to you"];
+  if (/\b(when|what time)\b/.test(last)) return ["Today", "Tomorrow", "In a few minutes", "I'll let you know"];
+  return ["Okay 👍", "Thanks!", "Noted", "Call me", "I'll get back to you"];
+}
+
+// ---- chat menu helpers: theme, media/links/docs, mute ----
+const CHAT_THEMES = [
+  { id: "default", name: "Default", bg: "#0B0E13" }, { id: "midnight", name: "Midnight", bg: "#0A1224" }, { id: "forest", name: "Forest", bg: "#0A1711" },
+  { id: "plum", name: "Plum", bg: "#170F1C" }, { id: "ember", name: "Ember", bg: "#1C1009" }, { id: "slate", name: "Slate", bg: "#12171E" }, { id: "black", name: "Pure black", bg: "#000000" },
+];
+function SheetFrame({ title, onClose, children, tall }) {
+  return (
+    <div style={{ ...sheet, zIndex: 65 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, ...(tall ? { height: "80%" } : {}) }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" }}>{title}</div>
+          <button aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><X size={20} color="#8891A0" /></button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+function ChatThemeSheet({ current, onPick, onClose }) {
+  return (
+    <SheetFrame title="Chat theme" onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {CHAT_THEMES.map(t => (
+          <button key={t.id} onClick={() => onPick(t.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "center" }}>
+            <div style={{ height: 64, borderRadius: 14, background: t.bg, border: current === t.id ? "2px solid #35D0BA" : "1px solid #2B3544", display: "flex", alignItems: "center", justifyContent: "center" }}>{current === t.id && <Check size={20} color="#35D0BA" strokeWidth={3} />}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#B9C2CC", marginTop: 6 }}>{t.name}</div>
+          </button>
+        ))}
+      </div>
+    </SheetFrame>
+  );
+}
+function MuteSheet({ onPick, onClose }) {
+  const opts = [["8h", "8 hours"], ["1w", "1 week"], ["always", "Always"]];
+  return (
+    <SheetFrame title="Mute notifications" onClose={onClose}>
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 6 }}>You won't get sounds or pop-ups for new messages in this chat.</div>
+      {opts.map(([k, label]) => <div key={k} onClick={() => onPick(k)} style={{ padding: "15px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" }}>{label}</div>)}
+    </SheetFrame>
+  );
+}
+function MediaDocsSheet({ msgs, conversation, myId, onOpenImage, onClose }) {
+  const [tab, setTab] = useState("media");
+  const live = msgs.filter(m => !m.deleted);
+  const media = live.filter(m => m.file && m.file.data && /^data:image\//.test(m.file.data));
+  const docs = live.filter(m => m.file && !(m.file.data && /^data:image\//.test(m.file.data)));
+  const links = [];
+  live.forEach(m => { if (typeof m.text === "string") (m.text.match(/https?:\/\/[^\s]+/g) || []).forEach(u => links.push({ url: u, m })); });
+  const who = (m) => (m.senderId === myId ? "You" : conversation.isGroup ? ((conversation.members || []).find(u => u.id === m.senderId) || {}).name || "Former member" : conversation.other.name);
+  const tabs = [["media", "Media", media.length], ["docs", "Docs", docs.length], ["links", "Links", links.length]];
+  const empty = <div style={{ padding: "30px 10px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 }}>Nothing here yet</div>;
+  return (
+    <SheetFrame title="Media, links, and docs" onClose={onClose} tall>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {tabs.map(([k, label, n]) => <button key={k} onClick={() => setTab(k)} style={{ flex: 1, padding: "9px 4px", borderRadius: 999, border: "1px solid " + (tab === k ? "#35D0BA" : "#2B3544"), background: tab === k ? "rgba(53,208,186,0.14)" : "none", color: tab === k ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>{label}{n ? " (" + n + ")" : ""}</button>)}
+      </div>
+      {tab === "media" && (media.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>{media.map(m => <img key={m.id} src={m.file.data} alt={m.file.name} onClick={() => { onClose(); onOpenImage(m.file.data); }} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}</div> : empty)}
+      {tab === "docs" && (docs.length ? docs.map(m => (
+        <a key={m.id} href={m.file.data || undefined} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none", color: "#F5F7FA" }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
+          <span style={{ minWidth: 0 }}><span style={{ display: "block", fontFamily: "Inter", fontWeight: 600, fontSize: 14, wordBreak: "break-all" }}>{m.file.name}</span><span style={{ display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0" }}>{fmtSize(m.file.size)} · {who(m)} · {fullTime(m.time)}</span></span>
+        </a>)) : empty)}
+      {tab === "links" && (links.length ? links.map((l, i) => (
+        <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" style={{ display: "block", padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none" }}>
+          <span style={{ display: "block", fontFamily: "Inter", fontSize: 14, color: "#7FE3D3", wordBreak: "break-all" }}>{l.url}</span>
+          <span style={{ display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0", marginTop: 2 }}>{who(l.m)} · {fullTime(l.m.time)}</span>
+        </a>)) : empty)}
+      <div style={{ fontFamily: "Inter", fontSize: 11.5, color: "#5B6673", textAlign: "center", marginTop: 12 }}>Shows what is loaded in this chat on this device.</div>
+    </SheetFrame>
+  );
+}
+
+// ---- message info (sent / read times + reactions) ----
+function fullTime(ts) { return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+function MessageInfoSheet({ m, conversation, myId, onClose }) {
+  const mine = m.senderId === myId;
+  const nameOf = (id) => id === myId ? "You" : id === (conversation.other && conversation.other.id) && !conversation.isGroup ? conversation.other.name : ((conversation.members || []).find(u => u.id === id) || {}).name || "Former member";
+  const preview = m.audio || m.hasAudio ? "🎤 Voice note" : m.file ? (m.file.mime && /^image\//.test(m.file.mime) ? "📷 Photo" : "📎 " + (m.file.name || "File")) : m.text;
+  const row = (label, value, key) => (
+    <div key={key || label} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "11px 0", borderBottom: "1px solid #1B212B", fontFamily: "Inter", fontSize: 14 }}>
+      <span style={{ color: "#9BA7B4" }}>{label}</span><span style={{ color: "#F5F7FA", textAlign: "right" }}>{value}</span>
+    </div>
+  );
+  const reactions = Object.entries(m.reactions || {});
+  const readers = conversation.isGroup ? (m.readBy || []).filter(id => id !== myId) : [];
+  return (
+    <div style={{ ...sheet, zIndex: 65 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" }}>Message info</div>
+          <button aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><X size={20} color="#8891A0" /></button>
+        </div>
+        <div style={{ overflowY: "auto" }}>
+          <div style={{ alignSelf: "flex-end", background: mine ? "#1E8677" : "#1E2530", borderRadius: 12, padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, marginBottom: 8, overflowWrap: "anywhere", maxHeight: 120, overflow: "hidden" }}>{preview}</div>
+          {mine ? row("Sent", fullTime(m.time)) : row("Received", fullTime(m.time))}
+          {mine && !conversation.isGroup && row("Read", m.readAt ? fullTime(m.readAt) : m.read ? "Yes" : "Not yet")}
+          {mine && conversation.isGroup && row("Read by", readers.length ? readers.length + " of " + Math.max(0, (conversation.members || []).length - 1) : "No one yet")}
+          {readers.map(id => row(nameOf(id), m.readTimes && m.readTimes[id] ? fullTime(m.readTimes[id]) : "Read", "r" + id))}
+          {m.edited && row("Edited", m.editedAt ? fullTime(m.editedAt) : "Yes")}
+          {m.forwarded && row("Forwarded", "Yes")}
+          {reactions.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, color: "#8891A0", marginBottom: 4 }}>REACTIONS</div>
+              {reactions.map(([id, e]) => row(nameOf(id), <span style={{ fontSize: 20 }}>{e}</span>, "e" + id))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- forward one or more messages to other chats ----
+function ForwardSheet({ msgs, conversations, socket, onClose }) {
+  const [chosen, setChosen] = useState([]);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const needle = q.trim().toLowerCase();
+  const list = conversations.filter(c => c && c.other && (!needle || String(c.other.name).toLowerCase().includes(needle)));
+  const toggle = (id) => setChosen(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+  const go = async () => {
+    if (!chosen.length || busy) return;
+    if (!socket) return setErr("Not connected yet. Try again in a moment.");
+    setBusy(true); setErr("");
+    const ordered = [...msgs].sort((x, y) => x.time - y.time);
+    let failed = "";
+    for (const cid of chosen) {
+      for (const m of ordered) {
+        const payload = { conversationId: cid, forwarded: true };
+        if (m.audio) { payload.audio = m.audio; payload.duration = m.duration; }
+        else if (m.file && m.file.data) payload.file = { name: m.file.name, mime: m.file.mime, size: m.file.size, data: m.file.data };
+        else if (m.hasAudio || m.file) { failed = "Open the voice note or file once so it loads, then forward it."; continue; }
+        else payload.text = m.text;
+        await new Promise((resolve) => {
+          const t = setTimeout(resolve, 8000);
+          socket.emit("message:send", payload, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); });
+        });
+      }
+    }
+    setBusy(false);
+    if (failed) setErr(failed); else onClose(true);
+  };
+  return (
+    <div style={{ ...sheet, zIndex: 65 }} onClick={() => onClose(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, height: "78%" }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" }}>Forward {msgs.length > 1 ? msgs.length + " messages" : "message"} to…</div>
+          <button aria-label="Close" onClick={() => onClose(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><X size={20} color="#8891A0" /></button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "9px 11px", marginBottom: 8 }}>
+          <Search size={16} color="#8891A0" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search chats" style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {list.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 }}>No chats found</div>}
+          {list.map(c => {
+            const on = chosen.includes(c.id);
+            return (
+              <div key={c.id} onClick={() => toggle(c.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 4px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
+                <Ring size={40} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} />
+                <div style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}</div>
+                <span style={{ width: 22, height: 22, borderRadius: 11, border: on ? "none" : "2px solid #3A4452", background: on ? "#35D0BA" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on && <Check size={14} color="#0E1116" strokeWidth={3} />}</span>
+              </div>
+            );
+          })}
+        </div>
+        {err && <div style={{ color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, marginTop: 8 }}>{err}</div>}
+        <button onClick={go} disabled={!chosen.length || busy} style={{ ...primaryBtn(busy || !chosen.length), marginTop: 10 }}>{busy ? "Sending…" : "Send" + (chosen.length ? " (" + chosen.length + ")" : "")}</button>
+      </div>
+    </div>
+  );
+}
+
+function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {}, onMute = () => {}, onReport = () => {}, onNewGroup = () => {}, focus = null }) {
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -3944,6 +4145,20 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const [zoomed, setZoomed] = useState(false);
   const [info, setInfo] = useState(false);
   const [peerInfo, setPeerInfo] = useState(false); // 1:1 contact profile sheet
+  const [replyTo, setReplyTo] = useState(null);     // message being replied to
+  const [msgInfo, setMsgInfo] = useState(null);     // message whose info sheet is open
+  const [fwd, setFwd] = useState(null);             // messages being forwarded
+  const [pickMenu, setPickMenu] = useState(false);  // the ⋮ menu in the selection bar
+  const [menuPage, setMenuPage] = useState("main"); // "main" | "more" (the ⋮ dropdown)
+  const [sheetName, setSheetName] = useState(null);  // "theme" | "media" | "mute"
+  const [note, setNote] = useState("");
+  const [themeId, setThemeId] = useState(() => loadJSON("chatTheme:" + conversation.id, "default"));
+  const chatBg = (CHAT_THEMES.find(t => t.id === themeId) || CHAT_THEMES[0]).bg;
+  const flashNote = (t) => { setNote(t); setTimeout(() => setNote(""), 2600); };
+  const [callMenu, setCallMenu] = useState(false);  // the call button's dropdown (voice / video / call link)
+  const [sugOpen, setSugOpen] = useState(false);    // quick-reply suggestions strip
+  const [pillBelow, setPillBelow] = useState(false);
+  const listEl = useRef(null);
   const [rec, setRec] = useState(null);
   const [recSec, setRecSec] = useState(0);
   const [sending, setSending] = useState(false);
@@ -3985,6 +4200,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           try { list = (await api(`/api/v1/conversations/${conversation.id}/messages?since=${Math.max(0, focus.time - 60000)}&limit=200`, { token })).messages; } catch (e) {}
         }
         if (focusId && !list.some(x => x.id === focusId)) pendingFocus.current = null; // result no longer exists: just open at the bottom
+        const clearedAt = loadJSON("chatCleared:" + conversation.id, 0);
+        if (clearedAt) list = list.filter(x => x.time > clearedAt);
         if (!cancelled) { setMsgs(list); if (focusId) { setHl(focusId); setTimeout(() => setHl(null), 2800); } }
       })
       .catch(e => setError(e.message))
@@ -4069,7 +4286,60 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
   const picking = pickedMsgs.length > 0;
   const startPick = (m) => { if (!m || m.deleted) return; pickAt.current = Date.now(); setSel(null); setPicked(p => (p.includes(m.id) ? p : [...p, m.id])); };
   const togglePick = (m) => { if (Date.now() - pickAt.current < 500) return; setPicked(p => (p.includes(m.id) ? p.filter(id => id !== m.id) : [...p, m.id])); };
-  const clearPick = () => setPicked([]);
+  const muteUntil = conversation && isMutedChat(settings.muted, conversation.id);
+  const exportChat = () => {
+    const lines = msgs.filter(x => !x.deleted).map(x => {
+      const who = x.senderId === myId ? "You" : isGroup ? ((conversation.members.find(u => u.id === x.senderId) || {}).name || "Former member") : conversation.other.name;
+      const body = x.audio || x.hasAudio ? "<voice note>" : x.file ? "<attached: " + (x.file.name || "file") + ">" : x.text;
+      return "[" + new Date(x.time).toLocaleString() + "] " + who + ": " + body;
+    });
+    if (!lines.length) return flashNote("There are no messages to export");
+    try {
+      const blob = new Blob(["Chat with " + conversation.other.name + "\n\n" + lines.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob), el = document.createElement("a");
+      el.href = url; el.download = "Letschat chat with " + conversation.other.name.replace(/[\\/:*?"<>|]/g, "_") + ".txt";
+      document.body.appendChild(el); el.click(); document.body.removeChild(el);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      flashNote("Chat exported");
+    } catch (e) { flashNote("Could not export this chat"); }
+  };
+  const clearChat = () => {
+    if (!window.confirm("Clear all messages in this chat on this device? Other people keep their copy.")) return;
+    saveJSON("chatCleared:" + conversation.id, Date.now());
+    setMsgs([]); clearPick(); flashNote("Chat cleared");
+  };
+  const addShortcut = async () => {
+    const url = window.location.origin + window.location.pathname + "?open=" + conversation.id;
+    try { if (navigator.share) { await navigator.share({ title: conversation.other.name + " on Letschat Africa", url }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(url); flashNote("Shortcut link copied. Open it in your browser, then choose Add to Home screen."); }
+    catch (e) { window.prompt("Copy this shortcut link, open it in your browser, then choose Add to Home screen", url); }
+  };
+  const reportChat = () => {
+    const name = conversation.other.name;
+    if (!window.confirm("Report " + (isGroup ? "this group" : name) + "? Letschat Africa will review the report. They won't be told.")) return;
+    onReport(isGroup ? null : conversation.other.id, conversation.id);
+  };
+  const sendCallLink = () => {
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    const url = window.location.origin + window.location.pathname + "?call=" + conversation.id + "&v=0";
+    socket.emit("message:send", { conversationId: conversation.id, text: "📞 Call me on Letschat Africa: " + url }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
+  };
+  const pickSuggestion = (t) => {
+    setDraft(d => (d.trim() ? d.replace(/\s*$/, " ") + t : t));
+    setSugOpen(false); notifyTyping(true);
+    setTimeout(() => inputRef.current && inputRef.current.focus(), 0);
+  };
+  const clearPick = () => { setPicked([]); setPickMenu(false); };
+  const replyPicked = () => { const m = pickedMsgs[0]; if (!m) return; setReplyTo(m); setEditing(null); clearPick(); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+  const infoPicked = () => { const m = pickedMsgs[0]; if (!m) return; setMsgInfo(m); clearPick(); };
+  const forwardPicked = () => { if (!pickedMsgs.length) return; setFwd(pickedMsgs); clearPick(); };
+  const jumpTo = (id) => { const el = fEls.current[id]; if (!el) return; el.scrollIntoView({ block: "center", behavior: "smooth" }); setHl(id); setTimeout(() => setHl(null), 1600); };
+  // keep the emoji pill on screen: if the selected message is near the top of the list, show it underneath instead
+  useEffect(() => {
+    if (!(picked.length === 1)) return;
+    const el = fEls.current[picked[0]], box = listEl.current;
+    if (el && box) setPillBelow(el.getBoundingClientRect().top - box.getBoundingClientRect().top < 70);
+  }, [picked.join(",")]);
   const allMinePicked = picking && pickedMsgs.every(x => x.senderId === myId);
   const copyPicked = async () => {
     const text = pickedMsgs.map(x => {
@@ -4112,7 +4382,9 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
     setDraft("");
     notifyTyping(false);
     playSound("send");
-    socket.emit("message:send", { conversationId: conversation.id, text }, (ack) => {
+    const rid = replyTo ? replyTo.id : undefined;
+    setReplyTo(null);
+    socket.emit("message:send", { conversationId: conversation.id, text, replyTo: rid }, (ack) => {
       if (ack?.error) setError(ack.error);
     });
   };
@@ -4127,7 +4399,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
       if (/^image\/(jpeg|png|webp)$/.test(mime)) { data = await compressImage(file); mime = "image/jpeg"; name = name.replace(/\.\w+$/, "") + ".jpg"; }
       else { if (file.size > MAX_FILE) throw new Error("File is too large (max 3 MB)"); data = await readAsDataURL(file); }
       if (data.length > 4000000) throw new Error("File is too large (max 3 MB)");
-      socket.emit("message:send", { conversationId: conversation.id, file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
+      const rid = replyTo ? replyTo.id : undefined; setReplyTo(null);
+      socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
         clearTimeout(done); setSending(false);
         if (ack && ack.error) setError(ack.error); else playSound("send");
       });
@@ -4148,7 +4421,8 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
         stream.getTracks().forEach(t => t.stop());
         if (r.cancel) return;
         const fr = new FileReader();
-        fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
+        const rid = replyTo ? replyTo.id : undefined; setReplyTo(null);
+        fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
         fr.readAsDataURL(new Blob(r.chunks, { type: mr.mimeType || "audio/webm" }));
       };
       mr.start();
@@ -4169,45 +4443,98 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderBottom: "1px solid #1B212B", position: "relative", flexShrink: 0 }}>
-        {picking && (
-          <div style={{ position: "absolute", inset: 0, zIndex: 60, background: "#0E1116", display: "flex", alignItems: "center", gap: 12, padding: "0 14px" }}>
-            <button aria-label="Cancel selection" onClick={clearPick} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><X size={22} color="#F5F7FA" /></button>
-            <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" }}>{pickedMsgs.length} selected</div>
-            <button onClick={copyPicked} style={smallBtn}>Copy</button>
-            {allMinePicked && <button aria-label="Delete selected messages" onClick={deletePicked} style={{ ...smallBtn, color: "#FF6B5D", display: "flex", alignItems: "center", gap: 6 }}><Trash2 size={15} color="#FF6B5D" />Delete</button>}
-          </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 8px 12px 10px", background: "#080B0F", position: "relative", flexShrink: 0 }}>
+        {picking && (() => {
+          const one = pickedMsgs.length === 1 ? pickedMsgs[0] : null;
+          const ib = { background: "none", border: "none", cursor: "pointer", padding: 9, display: "flex", flexShrink: 0 };
+          return (
+            <div style={{ position: "absolute", inset: 0, zIndex: 60, background: "#0E1116", display: "flex", alignItems: "center", gap: 0, padding: "0 4px 0 6px" }}>
+              <button aria-label="Cancel selection" onClick={clearPick} style={{ ...ib, padding: 10 }}><ArrowLeft size={22} color="#F5F7FA" /></button>
+              <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 21, color: "#F5F7FA", paddingLeft: 10 }}>{pickedMsgs.length}</div>
+              {one && <button aria-label="Reply" onClick={replyPicked} style={ib}><ReplyIcon size={22} color="#F5F7FA" /></button>}
+              {one && <button aria-label="Message info" onClick={infoPicked} style={ib}><InfoIcon size={22} color="#F5F7FA" /></button>}
+              {allMinePicked && <button aria-label="Delete selected messages" onClick={deletePicked} style={ib}><Trash2 size={22} color="#F5F7FA" /></button>}
+              <button aria-label="Copy" onClick={copyPicked} style={ib}><CopyIcon size={22} color="#F5F7FA" /></button>
+              <button aria-label="Forward" onClick={forwardPicked} style={ib}><ForwardIcon size={22} color="#F5F7FA" /></button>
+              <button aria-label="More" onClick={() => setPickMenu(v => !v)} style={ib}><MoreVertical size={22} color="#F5F7FA" /></button>
+              {pickMenu && (
+                <>
+                  <div onClick={() => setPickMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 61 }} />
+                  <div style={{ position: "absolute", top: 54, right: 8, zIndex: 62, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" }}>
+                    {[
+                      ...(one && one.senderId === myId && canEdit(one) ? [{ label: "Edit", run: () => { startEdit(one); clearPick(); } }] : []),
+                      { label: "Select all", run: () => { setPicked(msgs.filter(x => !x.deleted).map(x => x.id)); setPickMenu(false); } },
+                    ].map(it => (
+                      <div key={it.label} onClick={it.run} style={{ padding: "11px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: "#F5F7FA" }}>{it.label}</div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
+        {menu && (() => {
+          const close = () => { setMenu(false); setMenuPage("main"); };
+          const first = (name) => String(name || "").split(" ")[0];
+          const main = [
+            { label: isGroup ? "Group info" : "View contact", run: () => { close(); if (isGroup) setInfo(true); else setPeerInfo(true); } },
+            { label: "Search", run: () => { close(); setFText(""); setFIdx(0); } },
+            { label: "Report", run: () => { close(); reportChat(); } },
+            ...(isGroup ? [] : [{ label: iBlocked ? "Unblock" : "Block", run: () => { close(); if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you.")) onBlock(conversation.other.id, !iBlocked); } }]),
+            { label: muteUntil ? "Unmute notifications" : "Mute notifications", run: () => { close(); if (muteUntil) onMute(conversation.id, "off"); else setSheetName("mute"); } },
+            { divider: true },
+            { label: "New group", run: () => { close(); onNewGroup(); } },
+            { label: "More", more: true, run: () => setMenuPage("more") },
+          ];
+          const more = [
+            { label: "Chat theme", run: () => { close(); setSheetName("theme"); } },
+            { label: "Media, links, and docs", run: () => { close(); setSheetName("media"); } },
+            { label: "Clear chat", run: () => { close(); clearChat(); } },
+            { label: "Export chat", run: () => { close(); exportChat(); } },
+            { label: "Add shortcut", run: () => { close(); addShortcut(); } },
+            { label: isFav ? "Remove from favourites" : "Add to favourites", run: () => { close(); onToggleFavorite(conversation.id); } },
+          ];
+          const items = menuPage === "more" ? more : main;
+          return (
+            <>
+              <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div role="menu" style={{ position: "absolute", top: 62, right: 6, zIndex: 41, minWidth: menuPage === "more" ? 236 : 208, maxWidth: "calc(100% - 12px)", background: "#12161B", border: "1px solid #1E252E", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
+                {items.map((it, i) => it.divider
+                  ? <div key={"d" + i} style={{ height: 1, background: "#232B37", margin: "6px 0" }} />
+                  : <div key={it.label} role="menuitem" onClick={it.run} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}>
+                      <span>{it.label}</span>
+                      {it.more && <svg width="7" height="11" viewBox="0 0 6 10" style={{ marginLeft: 16 }}><path d="M0 0v10l6-5z" fill="#9BA7B4" /></svg>}
+                    </div>)}
+              </div>
+            </>
+          );
+        })()}
+        <button aria-label="Back" onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" }}><ArrowLeft size={24} /></button>
+        <Ring size={42} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={undefined} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
+        <div onClick={isGroup ? () => setInfo(true) : () => setPeerInfo(true)} style={{ flex: 1, minWidth: 0, cursor: "pointer", paddingLeft: 2 }}>
+          <div style={{ fontFamily: "Inter", fontWeight: 500, fontSize: 19, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}{conversation.other.verified && <VerifiedBadge />}</div>
+          {peerTyping && <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA" }}>typing…</div>}
+        </div>
+        {!isGroup && (featOn("voiceCalls") || featOn("videoCalls")) && (
+          <button aria-label="Call options" aria-haspopup="menu" aria-expanded={callMenu} onClick={() => { setMenu(false); setCallMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+            <Phone size={24} color="#9BA7B4" />
+            <svg width="11" height="7" viewBox="0 0 10 6" style={{ transform: callMenu ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M0 0h10L5 6z" fill="#9BA7B4" /></svg>
+          </button>
         )}
-        {menu && (
+        <button aria-label="More options" onClick={() => { setCallMenu(false); setMenuPage("main"); setMenu(m => !m); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 4px", display: "flex", flexShrink: 0 }}><MoreVertical size={22} color="#F5F7FA" /></button>
+        {callMenu && !isGroup && (
           <>
-            <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-            <div style={{ position: "absolute", top: 50, right: 10, zIndex: 41, minWidth: 210, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" }}>
-              {[
-                { label: "Search", color: "#F5F7FA", run: () => { setFText(""); setFIdx(0); } },
-                { label: isFav ? "Remove from favourites" : "Add to favourites", color: "#F5F7FA", run: () => onToggleFavorite(conversation.id) },
-                ...(isGroup ? [{ label: "Group info", color: "#F5F7FA", run: () => setInfo(true) }]
-                  : [{ label: iBlocked ? "Unblock " + conversation.other.name.split(" ")[0] : "Block " + conversation.other.name.split(" ")[0], color: iBlocked ? "#35D0BA" : "#FF6B5D",
-                    run: () => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you.")) onBlock(conversation.other.id, !iBlocked); } }]),
-              ].map(it => (
-                <div key={it.label} onClick={() => { setMenu(false); it.run(); }} style={{ padding: "11px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: it.color }}>{it.label}</div>
-              ))}
+            <div onClick={() => setCallMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+            <div role="menu" style={{ position: "absolute", top: 58, right: 40, zIndex: 41, minWidth: 220, background: "#171C24", border: "1px solid #232B37", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
+              {featOn("voiceCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, false); }} style={{ display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Phone size={22} color="#9BA7B4" />Voice call</div>}
+              {featOn("videoCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, true); }} style={{ display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Video size={22} color="#9BA7B4" />Video call</div>}
+              <div style={{ height: 1, background: "#232B37", margin: "6px 0" }} />
+              <div role="menuitem" onClick={() => { setCallMenu(false); sendCallLink(); }} style={{ display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><LinkIcon size={22} color="#9BA7B4" />Send call link</div>
             </div>
           </>
         )}
-        <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}><ArrowLeft size={22} /></button>
-        <Ring size={38} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={isGroup ? undefined : online} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
-        <div onClick={isGroup ? () => setInfo(true) : () => setPeerInfo(true)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
-          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}{conversation.other.verified && <VerifiedBadge />}</div>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: peerTyping || (!isGroup && online) ? "#35D0BA" : isGroup ? "#8891A0" : "#5B6673" }}>
-            {peerTyping ? "typing…" : isGroup ? conversation.members.length + " members · " + conversation.members.filter(m => m.id === myId || presence[m.id]).length + " online" : statusText(online, lastSeen[conversation.other.id])}
-          </div>
-        </div>
-        {!isGroup && featOn("videoCalls") && <button aria-label="Video call" onClick={() => onCall(conversation, true)} style={iconBtnStyle}><Video size={20} color="#9BA7B4" /></button>}
-        {!isGroup && featOn("voiceCalls") && <button aria-label="Voice call" onClick={() => onCall(conversation, false)} style={iconBtnStyle}><Phone size={19} color="#9BA7B4" /></button>}
-        <div onClick={() => setMenu(m => !m)} style={{ display: "flex", cursor: "pointer", padding: 4 }}><MoreVertical size={19} color="#9BA7B4" /></div>
       </div>
 
-      {picking && pickedMsgs.length === 1 && window.LCReactions && window.LCReactions.bar(pickedMsgs[0], myId, reactTo)}
       {fText !== null && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "8px 11px" }}>
@@ -4220,7 +4547,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <button aria-label="Close search" onClick={() => { setFText(null); setFIdx(0); }} style={iconBtnStyle}><X size={20} color="#9BA7B4" /></button>
         </div>
       )}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: "#0B0E13" }}>
+      <div ref={listEl} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: chatBg }}>
         {loading && <div style={{ margin: "auto", color: "#5B6673", fontFamily: "Inter", fontSize: 13 }}>Loading conversation…</div>}
         {error && <Banner text={error} onClose={() => setError("")} />}
         {!loading && msgs.length === 0 && (
@@ -4234,11 +4561,12 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           return (
             <div key={m.id} ref={(el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }}
               onContextMenu={!m.deleted ? (e) => { e.preventDefault(); startPick(m); } : undefined}
-              onClickCapture={picking ? (e) => { e.preventDefault(); e.stopPropagation(); if (!m.deleted) togglePick(m); } : undefined}
+              onClickCapture={picking ? (e) => { if (e.target.closest && e.target.closest("[data-lcpill]")) return; e.preventDefault(); e.stopPropagation(); if (!m.deleted) togglePick(m); } : undefined}
               onTouchStart={!m.deleted ? () => pressStart(m) : undefined} onTouchEnd={pressEnd} onTouchMove={pressEnd} onTouchCancel={pressEnd}
-              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", width: "100%", padding: "4px 0", margin: "-4px 0", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" }}>
+              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignSelf: "stretch", position: "relative", padding: "4px 12px", margin: "-4px -12px", zIndex: picking && picked.includes(m.id) ? 5 : undefined, background: picking && picked.includes(m.id) && !m.deleted ? "rgba(168,160,60,0.30)" : "transparent", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" }}>
+            {picking && pickedMsgs.length === 1 && picked[0] === m.id && window.LCReactions && window.LCReactions.pill(m, myId, reactTo, mine, pillBelow)}
             <div style={{
-              WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: picking && picked.includes(m.id) && !m.deleted ? "0 0 0 2px #35D0BA, 0 0 0 6px rgba(53,208,186,.18)" : hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
+              WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%", position: "relative",
               marginBottom: !mine && window.LCReactions && window.LCReactions.has(m) ? 14 : 0,
               background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
@@ -4246,6 +4574,13 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
             }}>
               {isGroup && !mine && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
+              {m.forwarded && !m.deleted && <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, fontStyle: "italic", color: "#B9C2CC", marginBottom: 3 }}><ForwardIcon size={13} color="#B9C2CC" />Forwarded</div>}
+              {m.replyTo && !m.deleted && (
+                <div onClick={() => jumpTo(m.replyTo.id)} style={{ background: mine ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.06)", borderLeft: "4px solid " + (m.replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), borderRadius: 8, padding: "5px 9px", marginBottom: 6, cursor: "pointer", minWidth: 120 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5, color: m.replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA", marginBottom: 1 }}>{m.replyTo.senderId === myId ? "You" : m.replyTo.name}</div>
+                  <div style={{ fontSize: 13, color: "#D5DBE2", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" }}>{m.replyTo.text}</div>
+                </div>
+              )}
               {m.deleted ? <div style={{ fontStyle: "italic", color: "#B9C2CC" }}>{m.text}</div>
                 : m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} />
                 : m.file && m.file.data && /^data:image\//.test(m.file.data) ? <img src={m.file.data} alt={m.file.name} onClick={() => setViewer(m.file.data)} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" }} />
@@ -4257,7 +4592,7 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
                       <span style={{ display: "block", fontSize: 11.5, color: "#B9C2CC" }}>{fmtSize(m.file.size)} · tap to download</span>
                     </span>
                   </a>
-                ) : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{richText(m.text)}</div>}
+                ) : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{withLinks(richText(m.text))}</div>}
               {window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine)}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
                 {m.edited && !m.deleted && <span style={{ fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" }}>edited</span>}
@@ -4284,6 +4619,15 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           {rec && <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>}
         </div>
       )}
+      {replyTo && !editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, borderLeft: "4px solid " + (replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), background: "#1E2530", borderRadius: 8, padding: "6px 10px" }}>
+            <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 12.5, color: replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA" }}>{replyTo.senderId === myId ? "You" : ((isGroup ? (conversation.members.find(u => u.id === replyTo.senderId) || {}).name : conversation.other.name) || "Former member")}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#B9C2CC", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{replyTo.audio || replyTo.hasAudio ? "🎤 Voice note" : replyTo.text}</div>
+          </div>
+          <button aria-label="Cancel reply" onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}><X size={18} color="#8891A0" /></button>
+        </div>
+      )}
       {editing && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", flexShrink: 0 }}>
           <Pencil size={15} color="#35D0BA" />
@@ -4298,6 +4642,14 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             <button key={o} onMouseDown={e => e.preventDefault()} onClick={() => applyTypo(o)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "5px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{o}</button>
           ))}
           <button aria-label="Ignore this word" onMouseDown={e => e.preventDefault()} onClick={ignoreTypo} style={{ marginLeft: "auto", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={16} color="#8891A0" /></button>
+        </div>
+      )}
+      {sugOpen && !iBlocked && !rec && !editing && (
+        <div role="group" aria-label="Quick replies" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0B0E13", flexShrink: 0, overflowX: "auto" }}>
+          {quickReplies(msgs, myId).map(t => (
+            <button key={t} onMouseDown={e => e.preventDefault()} onClick={() => pickSuggestion(t)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "8px 15px", color: "#F5F7FA", fontFamily: "Inter", fontWeight: 500, fontSize: 14, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{t}</button>
+          ))}
+          <button aria-label="Close suggestions" onClick={() => setSugOpen(false)} style={{ background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={16} color="#8891A0" /></button>
         </div>
       )}
       {emojiOpen && !iBlocked && !rec && (
@@ -4316,11 +4668,10 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <button onClick={() => onBlock(conversation.other.id, false)} style={smallBtn}>Unblock</button>
         </div>
       ) : (
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 10px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0 }}>
+      <div style={{ padding: "6px 10px 10px", background: chatBg, flexShrink: 0 }}>
         <input ref={fileRef} type="file" onChange={pickFile} style={{ display: "none" }} />
         <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={pickFile} style={{ display: "none" }} />
-        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "flex-end", gap: 8, background: "#1E2530", borderRadius: 24, padding: "10px 12px" }}>
-          <button aria-label={emojiOpen ? "Close emoji" : "Open emoji"} onClick={() => setEmojiOpen(o => !o)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexShrink: 0, marginBottom: 1 }}><Smile size={19} color={emojiOpen ? "#35D0BA" : "#8891A0"} /></button>
+        <div style={{ background: "#1E2530", borderRadius: 28, padding: "12px 10px 8px 18px", display: "flex", flexDirection: "column", gap: 4 }}>
           <textarea
             ref={inputRef}
             rows={1}
@@ -4330,18 +4681,27 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
             className="lc-plain"
             onChange={e => { typingChangeSound(e, draft); setDraft(e.target.value); notifyTyping(true); }}
             onKeyDown={e => { typingKeySound(e); if (e.key === "Escape" && editing) cancelEdit(); }}
-            placeholder={editing ? "Edit message" : "Message"} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "21px", padding: 0, margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
-          {!editing && <button aria-label="Attach file" onClick={() => fileRef.current && fileRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Paperclip size={19} color="#8891A0" /></button>}
-          {!editing && <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex", flexShrink: 0 }}><Camera size={19} color="#8891A0" /></button>}
+            placeholder={editing ? "Edit message" : "Message"} style={{ width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "26px", minHeight: 26, padding: "2px 8px 2px 0", margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 }} />
+          {(() => {
+            const hasText = draft.trim().length > 0;
+            const micMode = !editing && !hasText && !rec && featOn("voiceNotes");
+            const ib = { background: "none", border: "none", padding: 9, cursor: "pointer", display: "flex", flexShrink: 0 };
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+                {!editing && <button aria-label="Suggestions" aria-pressed={sugOpen} onClick={() => setSugOpen(v => !v)} style={{ background: sugOpen ? "rgba(53,208,186,0.12)" : "none", border: "1px solid " + (sugOpen ? "#35D0BA" : "#3A4452"), borderRadius: 999, padding: "8px 18px", color: sugOpen ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 500, fontSize: 15.5, cursor: "pointer", flexShrink: 0 }}>Suggestions</button>}
+                <div style={{ flex: 1 }} />
+                <button aria-label={emojiOpen ? "Close emoji" : "Open emoji"} onClick={() => setEmojiOpen(o => !o)} style={ib}><Smile size={25} color={emojiOpen ? "#35D0BA" : "#9BA7B4"} /></button>
+                {!editing && <button aria-label="Attach file" onClick={() => fileRef.current && fileRef.current.click()} style={ib}><Paperclip size={24} color="#9BA7B4" /></button>}
+                {!editing && <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={ib}><Camera size={24} color="#9BA7B4" /></button>}
+                <button aria-label={rec ? "Stop and send voice note" : micMode ? "Record voice note" : "Send"}
+                  onClick={() => { if (rec) stopRec(false); else if (hasText) send(); else if (micMode) startRec(); else if (inputRef.current) inputRef.current.focus(); }}
+                  style={{ width: 50, height: 50, borderRadius: "50%", border: "none", background: rec ? "#FF6B5D" : "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginLeft: 6, boxShadow: "0 4px 14px #35D0BA33" }}>
+                  {micMode ? <Mic size={23} color="#0E1116" /> : <Send size={21} color="#0E1116" />}
+                </button>
+              </div>
+            );
+          })()}
         </div>
-        <button aria-label={rec ? "Stop and send voice note" : "Record voice note"} onClick={rec ? () => stopRec(false) : startRec}
-          style={{ width: 42, height: 42, borderRadius: "50%", border: rec ? "none" : "1px solid #2B3544", background: rec ? "#FF6B5D" : "#1E2530", display: !editing && (rec || featOn("voiceNotes")) ? "flex" : "none", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-          <Mic size={18} color={rec ? "#0E1116" : "#35D0BA"} />
-        </button>
-        <button aria-label="Send" onClick={() => { if (rec) stopRec(false); else if (draft.trim()) send(); else if (inputRef.current) inputRef.current.focus(); }}
-          style={{ width: 42, height: 42, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, boxShadow: "0 4px 14px #35D0BA33" }}>
-          <Send size={17} color="#0E1116" />
-        </button>
       </div>
       )}
       {sel && (
@@ -4364,6 +4724,12 @@ function ChatDetail({ conversation, myId, socket, token, onBack, onLocalUpdate, 
           <div style={{ position: "absolute", top: 14, right: 14, color: "#F5F7FA" }}><X size={26} /></div>
         </div>
       )}
+      {note && <div style={{ position: "absolute", left: 16, right: 16, bottom: 150, zIndex: 70, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>{note}</div>}
+      {sheetName === "theme" && <ChatThemeSheet current={themeId} onPick={(id) => { setThemeId(id); saveJSON("chatTheme:" + conversation.id, id); setSheetName(null); }} onClose={() => setSheetName(null)} />}
+      {sheetName === "media" && <MediaDocsSheet msgs={msgs} conversation={conversation} myId={myId} onOpenImage={setViewer} onClose={() => setSheetName(null)} />}
+      {sheetName === "mute" && <MuteSheet onPick={(d) => { setSheetName(null); onMute(conversation.id, d); }} onClose={() => setSheetName(null)} />}
+      {msgInfo && <MessageInfoSheet m={msgInfo} conversation={conversation} myId={myId} onClose={() => setMsgInfo(null)} />}
+      {fwd && <ForwardSheet msgs={fwd} conversations={conversations} socket={socket} onClose={() => setFwd(null)} />}
       {peerInfo && !isGroup && <ContactProfileSheet u={conversation.other} online={online} lastSeen={lastSeen[conversation.other.id]} onVoice={featOn("voiceCalls") ? () => onCall(conversation, false) : null} onVideo={featOn("videoCalls") ? () => onCall(conversation, true) : null} onClose={() => setPeerInfo(false)} />}
       {info && isGroup && <GroupInfoScreen conversation={conversation} myId={myId} token={token} contacts={contacts} presence={presence} lastSeen={lastSeen} onBack={() => setInfo(false)} onChanged={onGroupChanged} />}
       {zoomed && (
@@ -4946,9 +5312,25 @@ function App() {
     return loadJSON("pendingChat", null);
   });
   const closeChatLink = () => { clearJSON("pendingChat"); setChatCode(null); };
+  // call link: ?call=CONVERSATION_ID opens that chat and starts a call once you are signed in
+  const [callLink, setCallLink] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search), c = p.get("call"), o = p.get("open");
+      if (c) { saveJSON("pendingCall", { id: c, video: p.get("v") === "1" }); window.history.replaceState(null, "", window.location.pathname); }
+      else if (o) { saveJSON("pendingCall", { id: o, open: true }); window.history.replaceState(null, "", window.location.pathname); }
+    } catch (e) {}
+    return loadJSON("pendingCall", null);
+  });
   const socketRef = useRef(null);
   const callApi = useRef(null);
   const startCall = (conversation, video) => { if (callApi.current) callApi.current.start(conversation, video); };
+  useEffect(() => {
+    if (!callLink || !session || !conversations.length) return;
+    const c = conversations.find(x => x.id === callLink.id);
+    clearJSON("pendingCall"); setCallLink(null);
+    if (c) { setActiveConvo(c); if (!callLink.open) setTimeout(() => startCall(c, callLink.video), 500); }
+    else { setToast("That link is not for one of your chats"); setTimeout(() => setToast(""), 2600); }
+  }, [callLink, session, conversations]);
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -4988,7 +5370,7 @@ function App() {
       setPresence(prev => ({ ...prev, [userId]: online }));
       if (ts) setLastSeen(prev => ({ ...prev, [userId]: ts }));
     });
-    socket.on("message:new", (m) => { refreshConversations(); if (m && m.senderId !== session.user.id) alertIncoming(m, convosRef.current.find(c => c.id === m.conversationId), !!(activeRef.current && activeRef.current.id === m.conversationId)); });
+    socket.on("message:new", (m) => { refreshConversations(); if (m && m.senderId !== session.user.id && !isMutedChat(mutedRef.current, m.conversationId)) alertIncoming(m, convosRef.current.find(c => c.id === m.conversationId), !!(activeRef.current && activeRef.current.id === m.conversationId)); });
     socket.on("message:updated", () => refreshConversations()); // edited / deleted message: refresh the chat list preview
     socket.on("conversation:added", () => refreshConversations());
     socket.on("conversation:update", () => refreshConversations());
@@ -5029,6 +5411,7 @@ function App() {
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
   const activeRef = useRef(null), convosRef = useRef([]);
   activeRef.current = activeConvo;
+  const mutedRef = useRef({}); mutedRef.current = settings.muted || {};
   convosRef.current = conversations;
   const settingsCall = async (path, method, body, okMsg) => {
     try { const s = await api("/api/v1/me/" + path, { method, token: session.token, body }); setSettings(s); if (okMsg) flash(okMsg); return true; }
@@ -5036,6 +5419,11 @@ function App() {
   };
   const toggleFavorite = (id) => { const on = !settings.favorites.includes(id); return settingsCall("favorites", "POST", { conversationId: id, favorite: on }, on ? "Added to favourites" : "Removed from favourites"); };
   const savePrivacy = (patch) => settingsCall("settings", "PATCH", { privacy: patch });
+  const setMuted = (id, duration) => settingsCall("muted", "POST", { conversationId: id, duration }, duration === "off" ? "Notifications on" : "Chat muted");
+  const reportChat = async (userId, conversationId) => {
+    try { await api("/api/v1/me/report", { method: "POST", token: session.token, body: { userId, conversationId } }); flash("Report sent. Thank you."); }
+    catch (e) { flash(e.message); }
+  };
   const setBlocked = (userId, blocked) => settingsCall("blocked", "POST", { userId, blocked }, blocked ? "Contact blocked" : "Contact unblocked");
 
   const handleLogin = async (idToken, name) => {
@@ -5091,7 +5479,7 @@ function App() {
     body = <LoginScreen onContinue={handleLogin} />;
   } else if (activeConvo) {
     body = (
-      <ChatDetail
+      <ChatDetail conversations={conversations} onMute={setMuted} onReport={reportChat} onNewGroup={() => { setActiveConvo(null); setShowNewGroup(true); }}
         conversation={conversations.find(c => c.id === activeConvo.id) || activeConvo}
         focus={focusMsg}
         myId={session.user.id}
