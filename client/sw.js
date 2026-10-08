@@ -1,7 +1,7 @@
 // Letschat Africa service worker
 // - Caches the app shell so the app opens instantly and works offline.
 // - Never touches API / socket traffic (other origins, /socket.io, POSTs).
-const CACHE = "letschat-shell-v10"; // bump this (v2, v3...) to force an update
+const CACHE = "letschat-shell-v11"; // bump this (v2, v3...) to force an update
 const SHELL = ["./", "./index.html", "./config.js", "./push.js", "./reactions.js", "./swoosh.mp3", "./typing.wav", "./manifest.json"];
 
 self.addEventListener("install", (e) => {

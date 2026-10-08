@@ -390,6 +390,13 @@ const AtSign = makeIcon([["c", 12, 12, 4], ["p", "M16 8v5a3 3 0 0 0 6 0v-1a10 10
 const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
 const Volume2 = makeIcon([["g", "11 5 6 9 2 9 2 15 6 15 11 19 11 5"], ["p", "M15.54 8.46a5 5 0 0 1 0 7.07"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
 const ShoppingBag = makeIcon([["p", "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"], ["p", "M3 6h18"], ["p", "M16 10a4 4 0 0 1-8 0"]]);
+const ListPlus = makeIcon([["p", "M11 12H3"], ["p", "M16 6H3"], ["p", "M16 18H3"], ["p", "M18 9v6"], ["p", "M21 12h-6"]]);
+const NotesIcon = makeIcon([["p", "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"], ["p", "M10 9H8"]]);
+const FolderIcon = makeIcon([["p", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"]]);
+const Ban = makeIcon([["c", 12, 12, 10], ["p", "m4.9 4.9 14.2 14.2"]]);
+const ThumbsDown = makeIcon([["p", "M17 14V2"], ["p", "M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"]]);
+const MapPin = makeIcon([["p", "M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"], ["c", 12, 10, 3]]);
+const ClockIcon = makeIcon([["c", 12, 12, 10], ["p", "M12 6v6l4 2"]]);
 /* ============================================================
    LETSCHAT AFRICA — realtime chat client
    Talks to the Letschat Africa server (Express + Socket.io) configured in config.js.
@@ -974,9 +981,9 @@ function PersonRow({ u, online, status, right, onClick }) {
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: online ? "#35D0BA" : "#5B6673" } }, status)),
         right));
 }
-function NewGroupModal({ token, contacts, presence, lastSeen, onClose, onCreated }) {
+function NewGroupModal({ token, contacts, presence, lastSeen, onClose, onCreated, initialPicked = [] }) {
     const [name, setName] = useState("");
-    const [picked, setPicked] = useState([]);
+    const [picked, setPicked] = useState(initialPicked);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const toggle = (id) => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
@@ -4999,25 +5006,133 @@ const EMOJI_TABS = [
     { name: "Food & drink", icon: "🍔", list: "🍎 🍌 🍉 🍇 🍓 🍍 🥭 🥑 🌽 🥕 🍅 🥔 🍞 🧀 🍳 🥩 🍗 🍖 🍔 🍟 🍕 🌭 🌮 🍝 🍚 🍲 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 ☕ 🍵 🥤 🍺 🍷 💧".split(" ") },
     { name: "Activities & objects", icon: "⚽", list: "⚽ 🏀 🏈 🎾 🏐 🏏 🥊 🎮 🎲 ♟️ 🎯 🎵 🎶 🎤 🎧 🎸 🥁 📱 💻 📷 📚 ✏️ 💡 🔑 🔒 💰 💵 🚗 🚌 ✈️ 🚀 🏠 ⏰ 📞 ✅ ❌ ❓ ❗ ⚠️ 🚫".split(" ") },
 ];
-// ---- tap the name/photo area in a chat header to see that person's profile ----
-function ContactProfileSheet({ u, online, lastSeen, onVoice, onVideo, onClose }) {
+// ---- tap the name/photo area in a chat header to see that person's profile (full screen, header collapses as you scroll) ----
+const PROFILE_HERO = 190, PROFILE_BAR = 58;
+function ContactProfileSheet({ u, online, lastSeen, conversation, conversations = [], msgs = [], myId, isFav, iBlocked, muted, onVoice, onVideo, onToggleFavorite, onNotifications, onBlock, onReport, onOpenMedia, onOpenImage, onNewGroup, onNote, onClose }) {
     const [zoom, setZoom] = useState(false);
-    return (React.createElement("div", { style: { ...sheet, zIndex: 45 }, onClick: onClose },
-        React.createElement("div", { onClick: e => e.stopPropagation(), style: { ...card, alignItems: "center", textAlign: "center" } },
-            React.createElement(Ring, { size: 110, color: u.color, initials: u.initials, photo: u.avatar, online: online, onClick: u.avatar ? () => setZoom(true) : undefined }),
-            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 12, display: "flex", alignItems: "center", gap: 6 } },
-                u.name,
-                u.verified && React.createElement(VerifiedBadge, null)),
-            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginBottom: 8 } }, statusText(online, lastSeen)),
-            u.about && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 10, overflowWrap: "anywhere" } }, u.about),
-            (onVoice || onVideo) && (React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 6 } },
-                onVoice && React.createElement("button", { onClick: () => { onClose(); onVoice(); }, style: { ...smallBtn, display: "flex", alignItems: "center", gap: 6, padding: "9px 16px" } },
-                    React.createElement(Phone, { size: 16, color: "#35D0BA" }),
-                    "Voice call"),
-                onVideo && React.createElement("button", { onClick: () => { onClose(); onVideo(); }, style: { ...smallBtn, display: "flex", alignItems: "center", gap: 6, padding: "9px 16px" } },
-                    React.createElement(Video, { size: 16, color: "#35D0BA" }),
-                    "Video call"))),
-            zoom && React.createElement(ImageZoomModal, { photo: u.avatar, initials: u.initials, color: u.color, onClose: () => setZoom(false) }))));
+    const [p, setP] = useState(0); // 0 = header fully open, 1 = collapsed into the top bar
+    const [menu, setMenu] = useState(false);
+    const [noteOpen, setNoteOpen] = useState(false);
+    const [noteText, setNoteText] = useState(() => loadJSON("contactNote:" + u.id, ""));
+    const [savedNote, setSavedNote] = useState(noteText);
+    const RANGE = PROFILE_HERO - PROFILE_BAR;
+    const onScroll = (e) => { const np = Math.min(1, Math.max(0, e.currentTarget.scrollTop / RANGE)); setP(prev => (Math.abs(prev - np) > 0.004 ? np : prev)); };
+    const heroH = PROFILE_HERO - p * RANGE;
+    const size = 92 - p * (92 - 38);
+    const top = (heroH - size / 2) * (1 - p) + 10 * p;
+    const left = "calc(" + ((1 - p) * 50) + "% - " + ((1 - p) * size / 2) + "px + " + (p * 56) + "px)";
+    const titleOpacity = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+    const live = msgs.filter(m => !m.deleted);
+    const isImg = (m) => m.file && m.file.data && /^data:image\//.test(m.file.data);
+    const media = live.filter(isImg);
+    const docs = live.filter(m => m.file && !isImg(m));
+    let linkCount = 0;
+    live.forEach(m => { if (typeof m.text === "string")
+        linkCount += (m.text.match(/https?:\/\/[^\s]+/g) || []).length; });
+    const total = media.length + docs.length + linkCount;
+    const bytes = live.reduce((n, m) => n + (m.file && m.file.size ? m.file.size : 0), 0);
+    const tiles = media.slice(-8).reverse();
+    const groups = conversations.filter(c => c.isGroup && (c.members || []).some(m => m.id === u.id));
+    const biz = u.business || null;
+    const subtitle = u.phone ? "+" + String(u.phone).replace(/\D/g, "") : u.email || (u.username ? "@" + u.username : "");
+    const share = async () => {
+        const text = u.name + (u.phone ? " +" + String(u.phone).replace(/\D/g, "") : u.username ? " @" + u.username : "");
+        try {
+            if (navigator.share) {
+                await navigator.share({ title: u.name + " on Letschat Africa", text });
+                return;
+            }
+        }
+        catch (e) {
+            if (e && e.name === "AbortError")
+                return;
+        }
+        try {
+            await navigator.clipboard.writeText(text);
+            onNote("Contact copied");
+        }
+        catch (e) {
+            window.prompt("Copy this contact", text);
+        }
+    };
+    const saveNote = () => { const t = noteText.trim(); saveJSON("contactNote:" + u.id, t); setSavedNote(t); setNoteOpen(false); };
+    const ico = (I) => React.createElement(I, { size: 22, color: "#8891A0" });
+    const row = (key, icon, title, sub, o = {}) => (React.createElement("div", { key: key, onClick: o.onClick, style: { display: "flex", alignItems: "center", gap: 22, padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" } },
+        React.createElement("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" } }, title),
+            sub && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, overflow: o.wrapSub ? "visible" : "hidden", textOverflow: "ellipsis", whiteSpace: o.wrapSub ? "normal" : "nowrap", overflowWrap: "anywhere" } }, sub)),
+        o.right));
+    const line = (k) => React.createElement("div", { key: k, style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+    const round = (label, Icon, fn) => (React.createElement("button", { key: label, onClick: fn, style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 } },
+        React.createElement("span", { style: { width: 52, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement(Icon, { size: 19, color: "#F5F7FA" })),
+        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" } }, label)));
+    const hoursOk = biz && typeof biz.open === "boolean";
+    return (React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 45, background: "#0E1116", display: "flex", flexDirection: "column", overflow: "hidden" } },
+        React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: heroH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" } },
+            React.createElement("div", { style: { position: "absolute", inset: 0, overflow: "hidden", opacity: 1 - p } },
+                u.avatar ? React.createElement("img", { src: photoSrc(u.avatar), alt: "", draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 25%", display: "block" } })
+                    : React.createElement("div", { style: { width: "100%", height: "100%", background: "linear-gradient(135deg, " + u.color + "55, #0E1116)" } }),
+                React.createElement("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 45%, rgba(14,17,22,0.55) 100%)" } }))),
+        React.createElement("button", { "aria-label": "Back", onClick: onClose, style: { position: "absolute", top: 0, left: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement(ArrowLeft, { size: 23, color: "#F5F7FA" })),
+        React.createElement("button", { "aria-label": "More", onClick: () => setMenu(m => !m), style: { position: "absolute", top: 0, right: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement(MoreVertical, { size: 22, color: "#F5F7FA" })),
+        React.createElement("div", { style: { position: "absolute", top: 0, left: 106, right: 56, height: PROFILE_BAR, zIndex: 5, display: "flex", alignItems: "center", opacity: titleOpacity, transform: "translateY(" + ((1 - titleOpacity) * 8) + "px)", pointerEvents: "none" } },
+            React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name),
+            u.verified && React.createElement(VerifiedBadge, { size: 15 })),
+        React.createElement("div", { onClick: u.avatar ? () => setZoom(true) : undefined, style: { position: "absolute", top, left, width: size, height: size, zIndex: 5, borderRadius: "50%", boxSizing: "border-box", border: (3 - 1.5 * p) + "px solid #35D0BA", background: "#0E1116", cursor: u.avatar ? "pointer" : "default" } }, u.avatar ? React.createElement("img", { src: photoSrc(u.avatar), alt: "", draggable: false, onContextMenu: e => e.preventDefault(), style: { width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block" } })
+            : React.createElement("div", { style: { width: "100%", height: "100%", borderRadius: "50%", background: u.color + "26", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 } }, u.initials)),
+        menu && (React.createElement("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 8 } },
+            React.createElement("div", { onClick: e => e.stopPropagation(), style: { position: "absolute", top: PROFILE_BAR - 8, right: 10, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)" } }, [["Share", () => share()], [iBlocked ? "Unblock" : "Block", () => onBlock()], ["Report", () => onReport()]].map(([label, fn]) => (React.createElement("div", { key: label, onClick: () => { setMenu(false); fn(); }, style: { padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: "#F5F7FA", cursor: "pointer" } }, label)))))),
+        React.createElement("div", { onScroll: onScroll, style: { flex: 1, minHeight: 0, overflowY: "auto", paddingTop: PROFILE_HERO + 52, paddingBottom: 30 } },
+            React.createElement("div", { style: { textAlign: "center", padding: "0 24px" } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, overflowWrap: "anywhere" } },
+                    u.name,
+                    u.verified && React.createElement(VerifiedBadge, { size: 20 })),
+                subtitle && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#9BA7B4", marginTop: 4, overflowWrap: "anywhere" } }, subtitle),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginTop: 4 } }, statusText(online, lastSeen)),
+                React.createElement("div", { style: { display: "flex", justifyContent: "center", gap: 18, margin: "18px 0 20px" } },
+                    onVoice && round("Voice", Phone, onVoice),
+                    onVideo && round("Video", Video, onVideo),
+                    round("Share", ForwardIcon, share))),
+            line("l0"),
+            row("lists", ico(ListPlus), "Add to lists", isFav ? "Favourites" : null, { onClick: onToggleFavorite, right: isFav ? React.createElement(Check, { size: 20, color: "#35D0BA", strokeWidth: 3 }) : null }),
+            row("notes", ico(NotesIcon), savedNote ? "Notes" : "Add notes", savedNote || null, { onClick: () => setNoteOpen(true) }),
+            biz && (hoursOk || biz.hours) && row("hours", ico(ClockIcon), hoursOk ? (biz.open ? "Open now" : "Closed now") : "Hours", null, { color: hoursOk ? (biz.open ? "#35D0BA" : "#FF6B5D") : undefined, right: biz.hours ? React.createElement("span", { style: { fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" } }, biz.hours) : null }),
+            biz && biz.category && row("cat", ico(ShoppingBag), biz.category),
+            biz && biz.address && row("addr", ico(MapPin), biz.address, null, { wrapSub: true }),
+            biz && row("biz", ico(InfoIcon), "Business account", "This account is a business on Letschat Africa"),
+            line("l1"),
+            React.createElement("div", { onClick: onOpenMedia, style: { display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" } },
+                React.createElement("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Media, links, and docs"),
+                React.createElement("span", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 } }, total),
+                React.createElement(ChevronRight, { size: 18, color: "#8891A0" })),
+            (tiles.length > 0 || docs.length > 0) && (React.createElement("div", { style: { display: "flex", gap: 4, overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
+                tiles.map(m => React.createElement("img", { key: m.id, src: m.file.data, alt: m.file.name, onClick: () => onOpenImage(m.file.data), style: { width: 84, height: 84, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } })),
+                tiles.length === 0 && docs.slice(-6).reverse().map(m => (React.createElement("div", { key: m.id, onClick: onOpenMedia, style: { width: 84, height: 84, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 6, boxSizing: "border-box", cursor: "pointer" } },
+                    React.createElement(Paperclip, { size: 20, color: "#35D0BA" }),
+                    React.createElement("span", { style: { fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.file.name)))))),
+            row("storage", ico(FolderIcon), "Manage storage", bytes ? fmtSize(bytes) : "0 KB", { onClick: onOpenMedia }),
+            row("notif", ico(Bell), "Notifications", muted ? "Muted" : "On", { onClick: onNotifications }),
+            line("l2"),
+            React.createElement("div", { style: { padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "About"),
+            React.createElement("div", { style: { padding: "4px 22px 12px", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" } }, u.about || "Hey there! I am using Letschat Africa."),
+            line("l3"),
+            groups.length > 0 && React.createElement("div", { style: { padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, groups.length === 1 ? "1 group in common" : groups.length + " groups in common"),
+            row("newgrp", React.createElement("span", { style: { width: 40, height: 40, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" } },
+                React.createElement(Users, { size: 20, color: "#0E1116" })), "Create group with " + u.name, null, { onClick: () => onNewGroup(u.id) }),
+            groups.map(g => row("g" + g.id, React.createElement("span", { style: { margin: "-8px 0", display: "flex" } },
+                React.createElement(Ring, { size: 40, color: "#7B6CF6", initials: (g.name || "G").slice(0, 1).toUpperCase(), photo: g.avatar })), g.name, (g.members || []).filter(m => m.id !== myId).map(m => m.name).join(", "))),
+            line("l4"),
+            row("block", React.createElement(Ban, { size: 22, color: "#FF6B5D" }), (iBlocked ? "Unblock " : "Block ") + u.name, null, { color: "#FF6B5D", onClick: onBlock }),
+            row("report", React.createElement(ThumbsDown, { size: 22, color: "#FF6B5D" }), "Report " + u.name, null, { color: "#FF6B5D", onClick: onReport })),
+        noteOpen && (React.createElement(SheetFrame, { title: "Notes about " + u.name, onClose: () => setNoteOpen(false) },
+            React.createElement("textarea", { value: noteText, onChange: e => setNoteText(e.target.value), maxLength: 500, rows: 5, placeholder: "Only you can see these notes", style: { width: "100%", boxSizing: "border-box", background: "#0E1116", border: "1px solid #2B3544", borderRadius: 12, padding: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", resize: "none" } }),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", margin: "6px 2px 14px" } }, "Saved on this device only."),
+            React.createElement("button", { onClick: saveNote, style: { ...smallBtn, width: "100%", padding: "12px", fontSize: 14 } }, "Save"))),
+        zoom && React.createElement(ImageZoomModal, { photo: u.avatar, initials: u.initials, color: u.color, onClose: () => setZoom(false) })));
 }
 // ---- make web links inside messages tappable ----
 function withLinks(node) {
@@ -5899,7 +6014,11 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         sheetName === "mute" && React.createElement(MuteSheet, { onPick: (d) => { setSheetName(null); onMute(conversation.id, d); }, onClose: () => setSheetName(null) }),
         msgInfo && React.createElement(MessageInfoSheet, { m: msgInfo, conversation: conversation, myId: myId, onClose: () => setMsgInfo(null) }),
         fwd && React.createElement(ForwardSheet, { msgs: fwd, conversations: conversations, socket: socket, onClose: () => setFwd(null) }),
-        peerInfo && !isGroup && React.createElement(ContactProfileSheet, { u: conversation.other, online: online, lastSeen: lastSeen[conversation.other.id], onVoice: featOn("voiceCalls") ? () => onCall(conversation, false) : null, onVideo: featOn("videoCalls") ? () => onCall(conversation, true) : null, onClose: () => setPeerInfo(false) }),
+        peerInfo && !isGroup && React.createElement(ContactProfileSheet, { u: conversation.other, online: online, lastSeen: lastSeen[conversation.other.id], conversation: conversation, conversations: conversations, msgs: msgs, myId: myId, isFav: isFav, iBlocked: iBlocked, muted: !!muteUntil, onVoice: featOn("voiceCalls") ? () => { setPeerInfo(false); onCall(conversation, false); } : null, onVideo: featOn("videoCalls") ? () => { setPeerInfo(false); onCall(conversation, true); } : null, onToggleFavorite: () => onToggleFavorite(conversation.id), onNotifications: () => { if (muteUntil)
+                onMute(conversation.id, "off");
+            else
+                setSheetName("mute"); }, onBlock: () => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you."))
+                onBlock(conversation.other.id, !iBlocked); }, onReport: reportChat, onOpenMedia: () => setSheetName("media"), onOpenImage: setViewer, onNewGroup: (id) => onNewGroup(id), onNote: flashNote, onClose: () => setPeerInfo(false) }),
         info && isGroup && React.createElement(GroupInfoScreen, { conversation: conversation, myId: myId, token: token, contacts: contacts, presence: presence, lastSeen: lastSeen, onBack: () => setInfo(false), onChanged: onGroupChanged }),
         zoomed && (React.createElement(ImageZoomModal, { photo: conversation.other.avatar, initials: conversation.other.initials, color: conversation.other.color, onClose: () => setZoomed(false) }))));
 }
@@ -6435,6 +6554,7 @@ function App() {
     const [showEdit, setShowEdit] = useState(false);
     const [showNewChat, setShowNewChat] = useState(false);
     const [showNewGroup, setShowNewGroup] = useState(false);
+    const [newGroupWith, setNewGroupWith] = useState(null); // contact to pre-select when "Create group with…" is tapped on a profile
     const [lastSeen, setLastSeen] = useState({});
     const [settings, setSettings] = useState(DEFAULT_SETTINGS);
     const [toolsView, setToolsView] = useState(null); // "favs" | "privacy" | "help"
@@ -6686,7 +6806,7 @@ function App() {
         body = React.createElement(LoginScreen, { onContinue: handleLogin });
     }
     else if (activeConvo) {
-        body = (React.createElement(ChatDetail, { conversations: conversations, onMute: setMuted, onReport: reportChat, onNewGroup: () => { setActiveConvo(null); setShowNewGroup(true); }, conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, focus: focusMsg, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked, onCall: startCall }));
+        body = (React.createElement(ChatDetail, { conversations: conversations, onMute: setMuted, onReport: reportChat, onNewGroup: (withId) => { setActiveConvo(null); setNewGroupWith(typeof withId === "string" ? withId : null); setShowNewGroup(true); }, conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, focus: focusMsg, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked, onCall: startCall }));
     }
     else if (toolsView === "favs") {
         body = React.createElement(FavouritesScreen, { conversations: conversations, settings: settings, presence: presence, onBack: () => setToolsView(null), onOpenChat: setActiveConvo, onToggleFavorite: toggleFavorite });
@@ -6721,7 +6841,7 @@ function App() {
                 React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games") }),
                 tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token }),
                 tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowProfile(true), onOpen: setToolsView, settings: settings }),
-                showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, onClose: () => setShowNewGroup(false), onCreated: (conv) => { setShowNewGroup(false); openGroup(conv); } }),
+                showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, initialPicked: newGroupWith ? [newGroupWith] : [], onClose: () => { setShowNewGroup(false); setNewGroupWith(null); }, onCreated: (conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); } }),
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
             React.createElement(TabBar, { active: tab, setActive: setTab })));
     }
