@@ -4169,6 +4169,11 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
         {biz && (hoursOk || biz.hours) && row("hours", ico(ClockIcon), hoursOk ? (biz.open ? "Open now" : "Closed now") : "Hours", null, { color: hoursOk ? (biz.open ? "#35D0BA" : "#FF6B5D") : undefined, right: biz.hours ? <span style={{ fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" }}>{biz.hours}</span> : null })}
         {biz && biz.category && row("cat", ico(ShoppingBag), biz.category)}
         {biz && biz.address && row("addr", ico(MapPin), biz.address, null, { wrapSub: true })}
+        {biz && biz.description && row("bdesc", ico(EpDoc), biz.description, null, { wrapSub: true })}
+        {biz && biz.website && row("bweb", ico(EpGlobe), biz.website, null, { wrapSub: true, onClick: () => window.open(/^https?:\/\//i.test(biz.website) ? biz.website : "https://" + biz.website, "_blank", "noopener") })}
+        {biz && biz.instagram && row("big", ico(EpInstagram), biz.instagram, null, { wrapSub: true })}
+        {biz && biz.facebook && row("bfb", ico(EpFacebook), biz.facebook, null, { wrapSub: true })}
+        {biz && biz.email && row("bmail", ico(EpMail), biz.email, null, { wrapSub: true, onClick: () => { window.location.href = "mailto:" + biz.email; } })}
         {biz && row("biz", ico(InfoIcon), "Business account", "This account is a business on Letschat Africa")}
         {line("l1")}
         <div onClick={onOpenMedia} style={{ display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" }}>
@@ -5249,77 +5254,167 @@ function CropModal({ file, onCancel, onDone }) {
   );
 }
 
-function EditProfileScreen({ onBack, profile, token, onSave }) {
-  const [name, setName] = useState(profile.name);
-  const [about, setAbout] = useState(profile.about);
-  const [username, setUsername] = useState(profile.username || "");
-  const [avatar, setAvatar] = useState(profile.avatar || null);
-  const [avatarChanged, setAvatarChanged] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const galleryRef = useRef(null);
-  const cameraRef = useRef(null);
-  const [menu, setMenu] = useState(false);
-  const [cropFile, setCropFile] = useState(null);
+// ---- Edit profile (business-style layout) ----
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+const EpShare = makeIcon([["c", 18, 5, 3], ["c", 6, 12, 3], ["c", 18, 19, 3], ["p", "m8.59 13.51 6.83 3.98"], ["p", "m15.41 6.51-6.82 3.98"]]);
+const EpUserCircle = makeIcon([["c", 12, 12, 10], ["c", 12, 10, 3], ["p", "M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"]]);
+const EpGlobe = makeIcon([["c", 12, 12, 10], ["p", "M2 12h20"], ["p", "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"]]);
+const EpInstagram = makeIcon([["r", 2, 2, 20, 20, 5], ["p", "M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"], ["p", "M17.5 6.5h.01"]]);
+const EpFacebook = makeIcon([["p", "M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"]]);
+const EpMail = makeIcon([["r", 2, 4, 20, 16, 2], ["p", "m22 7-10 5L2 7"]]);
+const EpDoc = makeIcon([["p", "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"]]);
+const EpShapes = makeIcon([["p", "M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1z"], ["r", 3, 14, 7, 7, 1], ["c", 17.5, 17.5, 3.5]]);
+const EP_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const EP_CATEGORIES = ["Shopping & retail", "Arts & entertainment", "Education", "Food & beverage", "Beauty & personal care", "Health & wellness", "Fashion & clothing", "Automotive", "Professional services", "Technology", "Real estate", "Travel & hospitality", "Finance", "Home & garden", "Agriculture", "Events & weddings", "Other"];
+const epDefaultDays = () => EP_DAYS.map(() => ({ mode: "24h" }));
+const epDayLabel = (d) => (d.mode === "24h" ? "Open 24 hours" : d.mode === "closed" ? "Closed" : d.from + " \u2013 " + d.to);
 
-  const onFileChange = (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = "";
-    if (!file) return;
-    if (!isJpgOrPng(file)) { setError("Please choose a JPG or PNG image."); return; }
-    setError("");
-    setCropFile(file);
-  };
+function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => { } }) {
+    const ce = React.createElement;
+    const b0 = profile.business || {};
+    const init = {
+        name: profile.name || "", about: profile.about || "", username: profile.username || "",
+        cats: b0.category ? String(b0.category).split(",").map((s) => s.trim()).filter(Boolean) : [],
+        description: b0.description || "", address: b0.address || "", website: b0.website || "", instagram: b0.instagram || "", facebook: b0.facebook || "", email: b0.email || "",
+        days: Array.isArray(b0.days) && b0.days.length === 7 ? b0.days : epDefaultDays(),
+    };
+    const [f, setF] = useState(init);
+    const set = (patch) => setF((p) => ({ ...p, ...patch }));
+    const [avatar, setAvatar] = useState(profile.avatar || null);
+    const [avatarChanged, setAvatarChanged] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+    const [note, setNote] = useState("");
+    const [menu, setMenu] = useState(false);
+    const [cropFile, setCropFile] = useState(null);
+    const [sheet, setSheet] = useState(null); // "cats" | "hours" | "preview"
+    const [learn, setLearn] = useState(false);
+    const galleryRef = useRef(null);
+    const cameraRef = useRef(null);
+    const dirty = avatarChanged || JSON.stringify(f) !== JSON.stringify(init);
+    const flashNote = (m) => { setNote(m); setTimeout(() => setNote(""), 2200); };
+    const back = () => { if (dirty && !window.confirm("Discard your changes?")) return; onBack(); };
 
-  const save = async () => {
-    setSaving(true); setError("");
-    try {
-      const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name, about, username: username.trim(), ...(avatarChanged ? { avatar } : {}) } });
-      onSave(user);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
+    const onFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!file) return;
+        if (!isJpgOrPng(file)) { setError("Please choose a JPG or PNG image."); return; }
+        setError("");
+        setCropFile(file);
+    };
+    const shareLink = async () => {
+        try {
+            const d = await api("/api/v1/me/profile-link", { token });
+            const link = profileLinkFor(d.code);
+            if (navigator.share) { try { await navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+            try { await navigator.clipboard.writeText(link); flashNote("Profile link copied"); } catch (e) { window.prompt("Copy your profile link", link); }
+        } catch (e) { setError(e.message); }
+    };
+    const save = async () => {
+        const site = f.website.trim();
+        const business = {
+            category: f.cats.join(", "), description: f.description.trim(), address: f.address.trim(),
+            website: site && !/^https?:\/\//i.test(site) ? "https://" + site : site,
+            instagram: f.instagram.trim(), facebook: f.facebook.trim(), email: f.email.trim(), days: f.days,
+        };
+        setSaving(true); setError("");
+        try {
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name: f.name, about: f.about, username: f.username.trim(), business, ...(avatarChanged ? { avatar } : {}) } });
+            onSave(user);
+        } catch (e) { setError(e.message); }
+        finally { setSaving(false); }
+    };
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <TopBar title="Edit profile" onBack={onBack} />
-      {menu && <PhotoMenu hasPhoto={!!avatar} onClose={() => setMenu(false)} onGallery={() => galleryRef.current && galleryRef.current.click()} onCamera={() => cameraRef.current && cameraRef.current.click()} onRemove={() => { setAvatar(null); setAvatarChanged(true); }} />}
-      {cropFile && <CropModal file={cropFile} onCancel={() => setCropFile(null)} onDone={(d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); }} />}
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 24px" }}>
-          <div style={{ position: "relative" }}>
-            <Ring size={100} color="#35D0BA" initials={profile.initials} photo={avatar} ring onClick={() => setMenu(true)} />
-            <CameraBadge onClick={() => setMenu(true)} />
-            <input ref={galleryRef} type="file" accept={PHOTO_ACCEPT} onChange={onFileChange} style={{ display: "none" }} />
-            <input ref={cameraRef} type="file" accept={PHOTO_ACCEPT} capture="user" onChange={onFileChange} style={{ display: "none" }} />
-          </div>
-        </div>
-        {error && <Banner text={error} />}
-        <div style={{ padding: "0 20px 20px" }}>
-          <label style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 }}>Name</label>
-          <input value={name} onChange={e => setName(e.target.value)} style={{ width: "100%", background: "none", border: "none", borderBottom: "1px solid #262E3A", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 18, padding: "8px 0", outline: "none", marginTop: 4 }} />
-        </div>
-        <div style={{ padding: "0 20px 20px" }}>
-          <label style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 }}>About</label>
-          <input value={about} onChange={e => setAbout(e.target.value)} style={{ width: "100%", background: "none", border: "none", borderBottom: "1px solid #262E3A", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, padding: "8px 0", outline: "none", marginTop: 4 }} />
-        </div>
-        <div style={{ padding: "0 20px 20px" }}>
-          <label style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 }}>Username</label>
-          <div style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #262E3A", marginTop: 4 }}>
-            <span style={{ color: "#5B6673", fontFamily: "Inter", fontSize: 15 }}>@</span>
-            <input value={username} onChange={e => setUsername(e.target.value.replace(/^@/, "").replace(/[^a-zA-Z0-9_.]/g, "").toLowerCase().slice(0, 20))} placeholder="choose a username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={{ flex: 1, background: "none", border: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, padding: "8px 0 8px 2px", outline: "none" }} />
-          </div>
-          <div style={{ fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 6 }}>3 to 20 characters: letters, numbers, _ or . People can add you with it.</div>
-        </div>
-        <button onClick={save} disabled={saving} style={{ margin: "10px 20px", padding: "13px", borderRadius: 12, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: saving ? "default" : "pointer", width: "calc(100% - 40px)", opacity: saving ? 0.7 : 1 }}>
-          {saving ? "Saving…" : "Save changes"}
-        </button>
-      </div>
-    </div>
-  );
+    const icon = (I) => ce(I, { size: 22, color: "#9BA7B4" });
+    const inputStyle = { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16, padding: 0 };
+    const rowBox = (key, ico, content, onClick) => ce("div", { key, onClick, style: { display: "flex", alignItems: "flex-start", gap: 22, padding: "14px 18px", cursor: onClick ? "pointer" : "default" } },
+        ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 1 } }, ico), ce("div", { style: { flex: 1, minWidth: 0 } }, content));
+    const head = (t) => ce("div", { style: { padding: "16px 18px 6px", fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, t);
+    const rule = () => ce("div", { style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+    const field = (key, ico, value, key2, placeholder, extra = {}) => rowBox(key, ico, ce("input", { value, placeholder, onChange: (e) => set({ [key2]: extra.clean ? extra.clean(e.target.value) : e.target.value }), maxLength: extra.max, type: extra.type || "text", inputMode: extra.mode, autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }));
+    const toggleCat = (c) => set({ cats: f.cats.includes(c) ? f.cats.filter((x) => x !== c) : f.cats.length >= 3 ? f.cats : [...f.cats, c] });
+    const setDay = (i, patch) => set({ days: f.days.map((d, k) => (k === i ? { ...d, ...patch } : d)) });
+    const sheetWrap = (title, children, onDone) => ce("div", { onClick: () => setSheet(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+        ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "16px 16px 20px", maxHeight: "82%", display: "flex", flexDirection: "column" } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA", marginBottom: 10 } }, title),
+            ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, children),
+            ce("button", { onClick: onDone || (() => setSheet(null)), style: { marginTop: 14, width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, "Done")));
+    const pill = (c) => { const on = f.cats.includes(c); return ce("button", { key: c, onClick: () => toggleCat(c), style: { margin: "0 8px 8px 0", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontFamily: "Inter", fontSize: 14, border: "1px solid " + (on ? "#35D0BA" : "#2B3544"), background: on ? "rgba(53,208,186,.16)" : "#1E2530", color: on ? "#35D0BA" : "#F5F7FA" } }, c); };
+    const timeIn = (v, onChange) => ce("input", { type: "time", value: v, onChange: (e) => onChange(e.target.value), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 8, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, padding: "6px 8px", colorScheme: "dark" } });
+    const hoursSheet = () => sheetWrap("Opening hours", [
+        ce("button", { key: "all", onClick: () => set({ days: f.days.map(() => ({ ...f.days[0] })) }), style: { ...smallBtn, marginBottom: 10 } }, "Copy Sunday to all days"),
+        ...f.days.map((d, i) => ce("div", { key: i, style: { padding: "10px 0", borderBottom: "1px solid #1B212B" } },
+            ce("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } },
+                ce("span", { style: { fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" } }, EP_DAYS[i]),
+                ce("select", { value: d.mode, onChange: (e) => { const m = e.target.value; setDay(i, m === "custom" ? { mode: m, from: d.from || "09:00", to: d.to || "17:00" } : { mode: m }); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 8, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, padding: "7px 8px" } },
+                    ce("option", { value: "24h" }, "Open 24 hours"), ce("option", { value: "closed" }, "Closed"), ce("option", { value: "custom" }, "Set hours"))),
+            d.mode === "custom" && ce("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, justifyContent: "flex-end" } }, timeIn(d.from, (v) => setDay(i, { from: v })), ce("span", { style: { color: "#8891A0", fontFamily: "Inter" } }, "to"), timeIn(d.to, (v) => setDay(i, { to: v })))))]);
+    const catSheet = () => sheetWrap("Categories (up to 3)", ce("div", null, EP_CATEGORIES.map(pill)));
+    const prevLine = (I, t) => t ? ce("div", { key: t, style: { display: "flex", gap: 12, padding: "7px 0", fontFamily: "Inter", fontSize: 14, color: "#C5CDD8" } }, ce(I, { size: 18, color: "#8891A0" }), ce("span", { style: { overflowWrap: "anywhere" } }, t)) : null;
+    const hoursSummary = (() => { const d = f.days; return d.every((x) => x.mode === "24h") ? "Open 24 hours" : "Hours set"; })();
+    const previewSheet = () => sheetWrap("How customers see your profile", ce("div", null,
+        ce("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "6px 0 12px" } },
+            ce(Ring, { size: 84, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true }),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 10 } }, f.name || "Your name"),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, f.about)),
+        prevLine(ShoppingBag, f.cats.join(", ")), prevLine(ClockIcon, hoursSummary), prevLine(EpDoc, f.description), prevLine(MapPin, f.address),
+        prevLine(EpGlobe, f.website), prevLine(EpInstagram, f.instagram), prevLine(EpFacebook, f.facebook), prevLine(EpMail, f.email)));
+
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 18, padding: "14px 16px", flexShrink: 0, background: "#0E1116" } },
+            ce("button", { onClick: back, "aria-label": "Back", style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } }, ce(ArrowLeft, { size: 22 })),
+            ce("div", { style: { flex: 1, fontFamily: "Inter", fontWeight: 500, fontSize: 20, color: "#F5F7FA" } }, "Edit profile"),
+            ce("button", { onClick: shareLink, "aria-label": "Advertise your profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(ToolMegaphone, { size: 22, color: "#F5F7FA" })),
+            ce("button", { onClick: shareLink, "aria-label": "Share profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpShare, { size: 22, color: "#F5F7FA" })),
+            ce("button", { onClick: () => setSheet("preview"), "aria-label": "Preview your profile", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpUserCircle, { size: 24, color: "#F5F7FA" }))),
+        menu && ce(PhotoMenu, { hasPhoto: !!avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => { setAvatar(null); setAvatarChanged(true); } }),
+        cropFile && ce(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); } }),
+        sheet === "cats" && catSheet(), sheet === "hours" && hoursSheet(), sheet === "preview" && previewSheet(),
+        note && ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 84, zIndex: 40, background: "#1B212B", border: "1px solid #262E3A", color: "#F5F7FA", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center" } }, note),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: dirty ? 84 : 24 } },
+            ce("div", { style: { position: "relative", height: 190, background: "linear-gradient(180deg,#1C2429 0%,#151B20 100%)" } },
+                avatar && ce("div", { style: { position: "absolute", inset: 0, overflow: "hidden" } }, ce("div", { style: { position: "absolute", inset: -20, backgroundImage: "url(" + avatar + ")", backgroundSize: "cover", backgroundPosition: "center", filter: "blur(22px) brightness(.45)" } })),
+                ce("button", { onClick: () => setMenu(true), "aria-label": "Change cover and photo", style: { position: "absolute", right: 14, top: 98, width: 32, height: 32, borderRadius: "50%", background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" })),
+                ce("div", { style: { position: "absolute", left: "50%", bottom: -52, transform: "translateX(-50%)", zIndex: 2 } },
+                    ce("div", { style: { position: "relative" } },
+                        ce(Ring, { size: 136, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true, onClick: () => setMenu(true) }),
+                        ce("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: { position: "absolute", bottom: 4, right: 4, width: 36, height: 36, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" }))),
+                    ce("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
+                    ce("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }))),
+            ce("div", { style: { marginTop: 62, textAlign: "center", fontFamily: "Inter", fontSize: 26, color: "#F5F7FA", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 } },
+                ce("span", { style: { overflowWrap: "anywhere" } }, f.name || "Your name"),
+                profile.verified ? ce(VerifiedBadge, { size: 20 }) : ce("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#8891A0", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", style: { flexShrink: 0 } }, ce("circle", { cx: 12, cy: 12, r: 10, strokeDasharray: "3 3" }), ce("path", { d: "m8.5 12.3 2.4 2.4 4.6-5" }))),
+            ce("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "10px 20px 18px" } }, "Your profile is public. ", ce("span", { onClick: () => setLearn(!learn), style: { color: "#35D0BA", fontWeight: 700, cursor: "pointer" } }, "Learn more")),
+            learn && ce("div", { style: { margin: "0 18px 14px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#9BA7B4", lineHeight: 1.45 } }, "People you chat with can see your name, photo, status and the business details you add here. Leave a field empty to keep it private."),
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            rule(),
+            head("Business information"),
+            field("name", icon(User), f.name, "name", "Name", { max: 60 }),
+            rowBox("user", icon(AtSign), ce("div", null,
+                ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "username", onChange: (e) => set({ username: e.target.value.replace(/^@/, "").replace(/[^a-zA-Z0-9_.]/g, "").toLowerCase().slice(0, 20) }), autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, "Username \u00B7 3 to 20 letters, numbers, _ or ."))),
+            rowBox("cat", icon(EpShapes), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: f.cats.length ? "#F5F7FA" : "#5B6673", lineHeight: 1.35 } }, f.cats.length ? f.cats.join(", ") : "Category"), () => setSheet("cats")),
+            ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") },
+                ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 5 } }, icon(ClockIcon)),
+                ce("div", { style: { flex: 1 } }, f.days.map((d, i) => ce("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "5px 0", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, ce("span", null, EP_DAYS[i]), ce("span", null, epDayLabel(d)))))),
+            rowBox("desc", icon(EpDoc), ce("textarea", { value: f.description, placeholder: "Description", rows: 1, maxLength: 256, onChange: (e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; set({ description: e.target.value }); }, style: { ...inputStyle, resize: "none", overflow: "hidden", lineHeight: 1.4 } })),
+            field("addr", icon(MapPin), f.address, "address", "Address", { max: 200 }),
+            rule(),
+            head("Products and services"),
+            rowBox("catalog", icon(Grid3x3), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), onCatalog),
+            rule(),
+            head("Links"),
+            field("web", icon(EpGlobe), f.website, "website", "Website", { max: 200, mode: "url" }),
+            field("ig", icon(EpInstagram), f.instagram, "instagram", "Instagram", { max: 200 }),
+            field("fb", icon(EpFacebook), f.facebook, "facebook", "Facebook", { max: 200 }),
+            rule(),
+            head("Contact information"),
+            field("mail", icon(EpMail), f.email, "email", "Business email", { max: 120, type: "email", mode: "email" }),
+            profile.phone && rowBox("phone", icon(Phone), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "+" + String(profile.phone).replace(/\D/g, ""))),
+            rowBox("about", icon(ToolInfo), ce("input", { value: f.about, placeholder: "Available", maxLength: 139, onChange: (e) => set({ about: e.target.value }), style: inputStyle }))),
+        dirty && ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 16px 14px", background: "linear-gradient(180deg,rgba(14,17,22,0),#0E1116 40%)", zIndex: 30 } },
+            ce("button", { onClick: save, disabled: saving, style: { width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 26, padding: "13px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: saving ? "default" : "pointer" } }, saving ? "Saving\u2026" : "Save changes")));
 }
 
 // [ISO code, name, dial code]; the first four are shown first
@@ -5809,7 +5904,7 @@ function App() {
   } else if (toolsView === "help") {
     body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
   } else if (showEdit) {
-    body = <EditProfileScreen profile={session.user} token={session.token} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
+    body = <EditProfileScreen profile={session.user} token={session.token} onCatalog={() => { setShowEdit(false); setShowProfile(false); setTab("market"); }} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
   } else if (showProfile) {
     body = <ProfileScreen profile={session.user} token={session.token} onUserUpdate={updateUser} onBack={() => setShowProfile(false)} onEdit={() => setShowEdit(true)} onLogOut={handleLogOut} />;
   } else {
