@@ -457,8 +457,21 @@ function mutedOf(db, u) {
   }
   return out;
 }
+// ---- business-style tools: greeting message, away message, quick replies (kept on the account) ----
+const bizText = (v) => String(v == null ? "" : v).trim().slice(0, 1000);
+function bizOf(u) {
+  const b = (u && u.biz) || {};
+  return {
+    greeting: { on: !!(b.greeting && b.greeting.on), text: bizText(b.greeting && b.greeting.text) },
+    away: { on: !!(b.away && b.away.on), text: bizText(b.away && b.away.text) },
+    quickReplies: (Array.isArray(b.quickReplies) ? b.quickReplies : []).slice(0, 50)
+      .map((q) => ({ id: String((q && q.id) || "").slice(0, 24), shortcut: String((q && q.shortcut) || "").trim().replace(/^\/+/, "").slice(0, 24), text: bizText(q && q.text) }))
+      .filter((q) => q.id && q.shortcut && q.text),
+  };
+}
 function settingsView(db, u) {
   return {
+    biz: bizOf(u),
     favorites: (u.favorites || []).filter((id) => db.conversations.some((c) => c.id === id && c.participantIds.includes(u.id))),
     privacy: privacyOf(u),
     muted: mutedOf(db, u),
@@ -478,6 +491,24 @@ app.patch("/api/me/settings", authMiddleware, (req, res) => {
   if (p.readReceipts !== undefined && typeof p.readReceipts !== "boolean") return res.status(400).json({ error: "readReceipts must be true or false" });
   if (p.lastSeen !== undefined && !["everyone", "nobody"].includes(p.lastSeen)) return res.status(400).json({ error: "lastSeen must be everyone or nobody" });
   user.privacy = { ...privacyOf(user), ...(p.readReceipts !== undefined ? { readReceipts: p.readReceipts } : {}), ...(p.lastSeen !== undefined ? { lastSeen: p.lastSeen } : {}) };
+  const bz = req.body && req.body.biz;
+  if (bz && typeof bz === "object") {
+    const cur = bizOf(user);
+    for (const k of ["greeting", "away"]) {
+      if (bz[k] === undefined) continue;
+      if (!bz[k] || typeof bz[k] !== "object") return res.status(400).json({ error: k + " must be an object" });
+      if (bz[k].on !== undefined && typeof bz[k].on !== "boolean") return res.status(400).json({ error: k + ".on must be true or false" });
+      const text = bz[k].text !== undefined ? bizText(bz[k].text) : cur[k].text;
+      const on = bz[k].on !== undefined ? bz[k].on : cur[k].on;
+      if (on && !text) return res.status(400).json({ error: "Write the message before turning it on" });
+      cur[k] = { on, text };
+    }
+    if (bz.quickReplies !== undefined) {
+      if (!Array.isArray(bz.quickReplies) || bz.quickReplies.length > 50) return res.status(400).json({ error: "quickReplies must be a list of up to 50" });
+      cur.quickReplies = bz.quickReplies.map((q) => ({ id: String((q && q.id) || nanoid(8)).slice(0, 24), shortcut: String((q && q.shortcut) || "").trim().replace(/^\/+/, "").slice(0, 24), text: bizText(q && q.text) })).filter((q) => q.shortcut && q.text);
+    }
+    user.biz = { ...(user.biz || {}), ...cur };
+  }
   writeDB(db);
   if (p.lastSeen !== undefined) sendPresenceFor(user);
   res.json(settingsView(db, user));
@@ -650,6 +681,7 @@ app.get("/api/conversations", authMiddleware, (req, res) => {
         lastMessage: lite(last),
         unread: msgs.filter((m) => m.senderId !== req.user.id && !m.read).length,
         updatedAt: c.updatedAt || c.createdAt,
+        createdAt: c.createdAt || 0,
       };
     })
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -1085,6 +1117,33 @@ const io = new Server(server, {
 });
 
 const userSockets = new Map();
+// Greeting message (first message from someone new) and away message (you are offline; at most once per chat every 12 hours).
+const AWAY_GAP_MS = 12 * 60 * 60 * 1000;
+function autoReply(db, convo, incoming) {
+  if (convo.isGroup || incoming.auto) return;
+  const toId = convo.participantIds.find((id) => id !== incoming.senderId);
+  const owner = db.users.find((u) => u.id === toId);
+  if (!owner) return;
+  if ((owner.blocked || []).includes(incoming.senderId)) return;
+  const biz = bizOf(owner);
+  let text = "";
+  const firstFromThem = db.messages.filter((m) => m.conversationId === convo.id && m.senderId === incoming.senderId && !m.auto).length === 1;
+  if (biz.greeting.on && biz.greeting.text && firstFromThem && !db.messages.some((m) => m.conversationId === convo.id && m.senderId === owner.id)) text = biz.greeting.text;
+  else if (biz.away.on && biz.away.text && !userSockets.has(owner.id)) {
+    const sent = (owner.biz && owner.biz.awaySent) || {};
+    if (!sent[convo.id] || Date.now() - sent[convo.id] > AWAY_GAP_MS) {
+      text = biz.away.text;
+      owner.biz = { ...(owner.biz || {}), awaySent: { ...sent, [convo.id]: Date.now() } };
+    }
+  }
+  if (!text) return;
+  const reply = { id: nanoid(14), conversationId: convo.id, senderId: owner.id, text, auto: true, time: Date.now() + 1, read: false };
+  db.messages.push(reply);
+  convo.updatedAt = Date.now();
+  writeDB(db);
+  io.to(`conv:${convo.id}`).emit("message:new", reply);
+  try { pushMessage(db, convo, reply, owner.id); } catch (e) { console.error("push failed", e.message); }
+}
 const gOnlineAt = new Map(); // userId -> last time we announced them as online in the games section
 
 // ---- voice / video calls: the server only introduces the two phones (signalling); audio and video flow peer to peer (WebRTC) ----
@@ -1628,6 +1687,7 @@ io.on("connection", (socket) => {
     io.to(`conv:${conversationId}`).emit("message:new", message);
     try { pushMessage(db, convo, message, userId); } catch (e) { console.error("push failed", e.message); }
     if (ack) ack({ message });
+    try { autoReply(db, convo, message); } catch (e) { console.error("auto reply failed", e.message); }
   });
 
   // ---- edit / delete your own messages (everyone in the chat sees the change live) ----
