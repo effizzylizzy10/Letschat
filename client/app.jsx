@@ -5032,7 +5032,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
             }}>
               {isGroup && !mine && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
-              {m.forwarded && !m.deleted && <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, fontStyle: "italic", color: "#B9C2CC", marginBottom: 3 }}><ForwardIcon size={13} color="#B9C2CC" />Forwarded</div>}
+              {m.forwarded && !mine && !m.deleted && <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, fontStyle: "italic", color: "#B9C2CC", marginBottom: 3 }}><ForwardIcon size={13} color="#B9C2CC" />Forwarded</div>}
               {m.replyTo && !m.deleted && (
                 <div onClick={() => jumpTo(m.replyTo.id)} style={{ background: mine ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.06)", borderLeft: "4px solid " + (m.replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), borderRadius: 8, padding: "5px 9px", marginBottom: 6, cursor: "pointer", minWidth: 120 }}>
                   <div style={{ fontWeight: 700, fontSize: 12.5, color: m.replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA", marginBottom: 1 }}>{m.replyTo.senderId === myId ? "You" : m.replyTo.name}</div>
