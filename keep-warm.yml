@@ -1,0 +1,15 @@
+# Free keep-warm: pings the server every 10 minutes so the free Render plan does not fall asleep
+# (a sleeping server makes the first load take 30-60 seconds). GitHub Actions is free for this.
+# Works once this repo is on GitHub. Note: GitHub may delay or skip a run now and then; the app also
+# wakes the server the moment it opens, so this is a bonus, not a requirement.
+name: keep-warm
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the Letschat server
+        run: curl -fsS --max-time 60 --retry 2 https://letschat-9tw4.onrender.com/api/v1/health || true
