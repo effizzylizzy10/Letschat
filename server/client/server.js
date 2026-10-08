@@ -386,6 +386,45 @@ function looksLikeImage(dataUrl) {
   return jpg || png;
 }
 
+// ---- business-style profile details (category, hours, description, address, links, business email) ----
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+function cleanBusiness(b) {
+  if (!b || typeof b !== "object" || Array.isArray(b)) return { error: "Business details are not valid" };
+  const text = (v, max, label) => { const t = String(v == null ? "" : v).trim(); if (t.length > max) throw new Error(label + " must be " + max + " characters or fewer"); return t; };
+  try {
+    const out = {};
+    if (b.category !== undefined) out.category = text(b.category, 120, "Category");
+    if (b.description !== undefined) out.description = text(b.description, 256, "Description");
+    if (b.address !== undefined) out.address = text(b.address, 200, "Address");
+    for (const k of ["website", "instagram", "facebook"]) {
+      if (b[k] === undefined) continue;
+      const t = text(b[k], 200, k[0].toUpperCase() + k.slice(1));
+      if (/\s/.test(t)) throw new Error("The " + k + " link can't contain spaces");
+      out[k] = t;
+    }
+    if (b.email !== undefined) {
+      const t = text(b.email, 120, "Business email");
+      if (t && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) throw new Error("That business email doesn't look right");
+      out.email = t;
+    }
+    if (b.days !== undefined) {
+      if (!Array.isArray(b.days) || b.days.length !== 7) throw new Error("Opening hours must list all 7 days");
+      out.days = b.days.map((d, i) => {
+        const mode = d && d.mode;
+        if (!["24h", "closed", "custom"].includes(mode)) throw new Error("Opening hours for " + WEEKDAYS[i] + " are not valid");
+        if (mode !== "custom") return { mode };
+        if (!TIME_RE.test(String(d.from)) || !TIME_RE.test(String(d.to))) throw new Error("Use a valid opening and closing time for " + WEEKDAYS[i]);
+        return { mode, from: d.from, to: d.to };
+      });
+      const label = (d) => (d.mode === "24h" ? "Open 24 hours" : d.mode === "closed" ? "Closed" : d.from + "\u2013" + d.to);
+      const parts = []; let i = 0;
+      while (i < 7) { let j = i; while (j + 1 < 7 && label(out.days[j + 1]) === label(out.days[i])) j++; parts.push((j > i ? WEEKDAYS[i].slice(0, 3) + "\u2013" + WEEKDAYS[j].slice(0, 3) : WEEKDAYS[i].slice(0, 3)) + " " + label(out.days[i])); i = j + 1; }
+      out.hours = parts.length === 1 && out.days[0].mode === "24h" ? "Open 24 hours" : parts.join(", ");
+    }
+    return { value: out };
+  } catch (e) { return { error: e.message }; }
+}
 app.patch("/api/me", authMiddleware, (req, res) => {
   const db = readDB();
   const user = db.users.find((u) => u.id === req.user.id);
@@ -406,6 +445,12 @@ app.patch("/api/me", authMiddleware, (req, res) => {
     if (newUsername && !USERNAME_RE.test(newUsername)) return res.status(400).json({ error: "Username must be 3 to 20 characters: letters, numbers, _ or . (at least one letter)" });
     if (newUsername && db.users.some((u) => u.id !== user.id && u.username === newUsername)) return res.status(409).json({ error: "That username is already taken" });
   }
+  let newBiz;
+  if (req.body.business !== undefined && req.body.business !== null) {
+    const r = cleanBusiness(req.body.business);
+    if (r.error) return res.status(400).json({ error: r.error });
+    newBiz = r.value;
+  }
   const newPhoto = typeof avatar === "string" && avatar.startsWith("data:");
   if (newPhoto) {
     if (!AVATAR_RE.test(avatar) || !looksLikeImage(avatar)) return res.status(400).json({ error: "Profile photo must be a JPG or PNG image" });
@@ -417,6 +462,7 @@ app.patch("/api/me", authMiddleware, (req, res) => {
     user.initials = initials(user.name);
   }
   if (typeof about === "string") user.about = about.trim();
+  if (newBiz) { user.business = { ...(user.business || {}), ...newBiz }; if (newBiz.hours !== undefined) delete user.business.open; }
   if (newUsername !== undefined) { if (newUsername) user.username = newUsername; else delete user.username; }
   if (newPhoto) { user.avatar = avatar; user.avatarVersion = Date.now(); }
   else if (avatar === null) { user.avatar = null; user.avatarVersion = Date.now(); }
