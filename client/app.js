@@ -347,6 +347,22 @@ async function api(path, { method = "GET", token, body } = {}) {
         throw new Error((payload.error && payload.error.message) || `Request failed (${res.status})`);
     return payload.data;
 }
+// ---- chat day dividers + bubble time: every bubble always shows its clock time; each new day starts with Today / Yesterday / full date ----
+const dayKey = (ts) => { const d = new Date(ts); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); };
+function dayLabel(ts) {
+  const d = new Date(ts), now = new Date();
+  const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(now) - start(d)) / 86400000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+}
+const msgTime = (ts) => new Date(ts || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function dayDivider(list, i) {
+  const m = list[i];
+  if (!m || !m.time || (i > 0 && list[i - 1].time && dayKey(list[i - 1].time) === dayKey(m.time))) return null;
+  return React.createElement("div", { key: "day-" + m.id, style: { alignSelf: "center", background: "rgba(20,26,34,.92)", color: "#B9C2CC", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, padding: "5px 12px", borderRadius: 10, margin: "4px 0", flexShrink: 0 } }, dayLabel(m.time));
+}
 function timeLabel(ts) {
     const d = new Date(ts);
     const now = new Date();
@@ -4821,12 +4837,13 @@ async function statusThumb(src, w) { // small JPEG data URL so starred/archived 
     } catch (e) { return null; }
 }
 const statusSnap = async (item, name) => ({ id: item.id, name, text: item.text || "", bg: item.bg, time: item.time, photo: item.photo ? await statusThumb(item.photo) : null });
-function StatusViewer({ groups, start, token, onClose, onChanged }) {
+function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
     const [g, setG] = useState(start);
     const [i, setI] = useState(0);
     const [paused, setPaused] = useState(false);
     const [menu, setMenu] = useState(false);
     const [more, setMore] = useState(false);
+    const [seenOpen, setSeenOpen] = useState(false);
     const [reply, setReply] = useState("");
     const [toast, setToast] = useState("");
     const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
@@ -4839,7 +4856,7 @@ function StatusViewer({ groups, start, token, onClose, onChanged }) {
     const nextRef = useRef(next); nextRef.current = next;
     const dur = item ? Math.max(5500, (item.musicDur || 0) * 1000) : 5500;
     const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
-    useEffect(() => { setPaused(false); setMore(false); setMenu(false); setReply(""); }, [g, i]);
+    useEffect(() => { setPaused(false); setMore(false); setMenu(false); setSeenOpen(false); setReply(""); }, [g, i]);
     useEffect(() => {
         if (!item) return;
         if (!group.mine && !item.seen && statusPrefs().receipts) { api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { }); }
@@ -4848,10 +4865,10 @@ function StatusViewer({ groups, start, token, onClose, onChanged }) {
     useEffect(() => { // run / pause the auto-advance timer (hold, menu, typing a reply or expanded caption pause it)
         const t = timer.current;
         if (!item) return;
-        if (paused || menu || more) { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } return; }
+        if (paused || menu || more || seenOpen) { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } return; }
         t.at = Date.now(); t.t = setTimeout(() => nextRef.current(), t.left);
         return () => { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } };
-    }, [g, i, paused, menu, more]);
+    }, [g, i, paused, menu, more, seenOpen]);
     useEffect(() => { // play the trimmed music while this update is on screen
         if (!item || !item.music) return;
         let audio = null, url = null, dead = false;
@@ -4901,7 +4918,7 @@ function StatusViewer({ groups, start, token, onClose, onChanged }) {
     return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
         ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}@keyframes lcStIn{from{opacity:0;transform:translateX(var(--d,28px))}to{opacity:1;transform:none}}"),
         ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } },
-            ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more ? "paused" : "running" } })))),
+            ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more || seenOpen ? "paused" : "running" } })))),
         ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 3 } },
             ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })),
             ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
@@ -4917,12 +4934,27 @@ function StatusViewer({ groups, start, token, onClose, onChanged }) {
         ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { onClick: () => long && setMore(!more), style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)", maxHeight: more ? "45%" : undefined, overflowY: more ? "auto" : undefined, cursor: long ? "pointer" : "default" } },
             item.photo && item.text ? (long && !more ? ce("span", null, richText(item.text.slice(0, 110).trim() + "… "), ce("b", null, "Read more")) : richText(item.text)) : null, ce(TagPills, { tags: item.tags, light: true })),
         group.mine ? ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
-            ce("span", { style: { flex: 1 } }, "Seen by " + (item.views || 0)),
+            ce("button", { onClick: () => setSeenOpen(true), "aria-label": "See who viewed", style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0, color: "#fff", fontFamily: "Inter", fontSize: 13.5, textAlign: "left" } },
+                ce("span", { style: { display: "flex", alignItems: "center" } }, (item.viewers || []).slice(0, 3).map((v, k) => ce("div", { key: v.id, style: { marginLeft: k ? -8 : 0, border: "2px solid #000", borderRadius: "50%", display: "flex" } }, ce(Ring, { size: 24, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false })))),
+                ce("span", null, (item.views || 0) ? "Seen by " + (item.views || 0) + " · tap to chat" : "No views yet")),
             ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete"))
             : ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 20px", background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
                 ce("input", { value: reply, onChange: (e) => setReply(e.target.value), onFocus: () => setPaused(true), onBlur: () => setPaused(false), onKeyDown: (e) => { if (e.key === "Enter") sendReply(); }, placeholder: "Reply", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,.14)", border: "none", outline: "none", borderRadius: 999, padding: "10px 16px", color: "#fff", fontFamily: "Inter", fontSize: 14.5 } }),
                 reply.trim() ? ce("button", { onClick: sendReply, "aria-label": "Send reply", style: { width: 38, height: 38, borderRadius: 19, border: "none", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ce(Send, { size: 18, color: "#06210F" }))
                     : STATUS_QUICK.slice(0, 5).map((e) => ce("button", { key: e, onClick: () => sendToOwner(e + " reacted to your status"), "aria-label": "React " + e, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 2 } }, e))),
+        seenOpen && group.mine && ce("div", { onClick: () => setSeenOpen(false), style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 6, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "flex-end" } },
+            ce("div", { onClick: (e) => e.stopPropagation(), role: "dialog", "aria-label": "Status viewers", style: { width: "100%", maxHeight: "68%", background: "#161B22", borderRadius: "20px 20px 0 0", display: "flex", flexDirection: "column", boxShadow: "0 -8px 28px rgba(0,0,0,.5)" } },
+                ce("div", { style: { display: "flex", alignItems: "center", padding: "16px 18px 8px" } },
+                    ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, "Viewed by " + (item.views || 0)),
+                    ce("button", { onClick: () => setSeenOpen(false), "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(X, { size: 20, color: "#8891A0" }))),
+                ce("div", { style: { overflowY: "auto", padding: "0 6px 18px" } },
+                    !(item.viewers || []).length && ce("div", { style: { padding: "26px 20px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, "Nobody has viewed this update yet."),
+                    (item.viewers || []).map((v) => ce("div", { key: v.id, onClick: () => { Promise.resolve(onChat && onChat(v)).catch((e) => flash((e && e.message) || "Could not open chat")); }, style: { display: "flex", alignItems: "center", gap: 14, padding: "9px 12px", cursor: "pointer", borderRadius: 12 } },
+                        ce(Ring, { size: 46, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false }),
+                        ce("div", { style: { flex: 1, minWidth: 0 } },
+                            ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, v.name),
+                            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, v.at ? "Viewed " + ago(v.at) : "Viewed")),
+                        ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#21C063", flexShrink: 0 } }, "Chat")))))),
         toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
 }
 // A tiny grid of saved updates (used by Starred and Archive)
@@ -5028,7 +5060,7 @@ function BroadcastScreen({ token, contacts, onBack }) {
             ce("textarea", { value: text, rows: 1, maxLength: MAX_MSG_CHARS, onChange: (e) => setText(e.target.value), placeholder: "Broadcast message", style: { flex: 1, minWidth: 0, resize: "none", maxHeight: 120, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 18, outline: "none", padding: "10px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } }),
             ce("button", { onClick: send, disabled: busy || !text.trim(), "aria-label": "Send broadcast", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#21C063", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, busy ? ce("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : ce(Send, { size: 22, color: "#06210F" }))));
 }
-function StatusScreen({ profile, token, onSettings, contacts }) {
+function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
     const [data, setData] = useState({ mine: [], feed: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -5120,7 +5152,7 @@ function StatusScreen({ profile, token, onSettings, contacts }) {
             ce("button", { onClick: () => addTap("text"), "aria-label": "Text status", style: { width: 46, height: 46, borderRadius: 15, border: "none", background: "#1F2630", boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Pencil, { size: 22, color: "#E6EAF0" })),
             ce("button", { onClick: () => addTap("photo"), "aria-label": "Add status", style: { width: 62, height: 62, borderRadius: 20, border: "none", background: "#21C063", boxShadow: "0 6px 18px rgba(33,192,99,.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce("div", { style: { position: "relative", display: "flex" } }, ce(Camera, { size: 28, color: "#06210F" }), ce("div", { style: { position: "absolute", top: -8, right: -9, display: "flex" } }, ce(Plus, { size: 14, color: "#06210F" }))))),
         composer && ce(StatusComposer, { token, mode, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }),
-        view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load }));
+        view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load, onChat }));
 }
 
 // ---- Tools > Sounds & features ----
@@ -6469,7 +6501,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                 "Say hello to ",
                 isGroup ? "the group" : conversation.other.name.split(" ")[0],
                 " \uD83D\uDC4B")),
-            msgs.map(m => {
+            msgs.flatMap((m, mIdx) => { const sepEl = dayDivider(msgs, mIdx); const bubbleEl = (() => {
                 const mine = m.senderId === myId;
                 const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
                 return (React.createElement("div", { key: m.id, ref: (el) => { fEls.current[m.id] = el; if (m.id === focusId)
@@ -6506,11 +6538,11 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                         window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine),
                         React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
                             m.edited && !m.deleted && React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" } }, "edited"),
-                            React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, timeLabel(m.time)),
+                            React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, msgTime(m.time)),
                             mine && !m.deleted && React.createElement("button", { "aria-label": "Message options", onClick: () => openMenu(m), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } },
                                 React.createElement(ChevronDown, { size: 14, color: "#B9C2CC" })),
                             mine && (m.read || (m.readBy && m.readBy.length) ? React.createElement(CheckCheck, { size: 13, color: "#35D0BA" }) : React.createElement(Check, { size: 13, color: "#B9C2CC" }))))));
-            }),
+            })(); return sepEl ? [sepEl, bubbleEl] : [bubbleEl]; }),
             peerTyping && (React.createElement("div", { style: { alignSelf: "flex-start", background: "#1E2530", borderRadius: 14, borderBottomLeftRadius: 3, padding: "9px 13px", color: "#8891A0", fontFamily: "Inter", fontSize: 13 } }, "typing\u2026")),
             React.createElement("div", { ref: endRef })),
         (rec || sending) && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 } },
@@ -7657,7 +7689,7 @@ function App() {
                 tab === "calls" && React.createElement(CallsScreen, { conversations: conversations, onCall: startCall }),
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
                 React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games") }),
-                tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token, contacts: contacts, onSettings: () => setTab("tools") }),
+                tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token, contacts: contacts, onSettings: () => setTab("tools"), onChat: messageSeller }),
                 tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowEdit(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
                 showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, initialPicked: newGroupWith ? [newGroupWith] : [], onClose: () => { setShowNewGroup(false); setNewGroupWith(null); }, onCreated: (conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); } }),
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
