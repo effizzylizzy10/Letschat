@@ -202,10 +202,11 @@ function lite(m) {
 function receiptView(db, m, viewer, convo) {
   if (!m || m.senderId !== viewer.id) return m;
   const on = (id) => { const u = db.users.find((x) => x.id === id); return !!u && privacyOf(u).readReceipts; };
-  if (!privacyOf(viewer).readReceipts) return { ...m, read: false, readBy: [] };
-  if (convo && convo.isGroup) return { ...m, readBy: (m.readBy || []).filter(on) };
+  if (!privacyOf(viewer).readReceipts) { const { readAt, readTimes, ...rest } = m; return { ...rest, read: false, readBy: [] }; }
+  if (convo && convo.isGroup) { const ok = (m.readBy || []).filter(on); const rt = {}; for (const id of ok) if (m.readTimes && m.readTimes[id]) rt[id] = m.readTimes[id]; return { ...m, readBy: ok, readTimes: rt }; }
   const otherId = convo && convo.participantIds.find((id) => id !== viewer.id);
-  return otherId && !on(otherId) ? { ...m, read: false } : m;
+  if (otherId && !on(otherId)) { const { readAt, ...rest } = m; return { ...rest, read: false }; }
+  return m;
 }
 const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
 function colorFor(id) {
@@ -447,10 +448,19 @@ app.post("/api/me/profile-link/reset", authMiddleware, (req, res) => {
 // ---- favourites, privacy and blocked contacts (stored on the user, so they follow the account to any device) ----
 const privacyOf = (u) => ({ readReceipts: !(u.privacy && u.privacy.readReceipts === false), lastSeen: u.privacy && u.privacy.lastSeen === "nobody" ? "nobody" : "everyone" });
 const hidesPresence = (u) => !!u && privacyOf(u).lastSeen === "nobody";
+// muted chats: { conversationId: untilTimestampMs } where 0 means "always"
+function mutedOf(db, u) {
+  const out = {}, now = Date.now();
+  for (const [id, until] of Object.entries(u.muted || {})) {
+    if ((until === 0 || until > now) && db.conversations.some((c) => c.id === id && c.participantIds.includes(u.id))) out[id] = until;
+  }
+  return out;
+}
 function settingsView(db, u) {
   return {
     favorites: (u.favorites || []).filter((id) => db.conversations.some((c) => c.id === id && c.participantIds.includes(u.id))),
     privacy: privacyOf(u),
+    muted: mutedOf(db, u),
     blocked: (u.blocked || []).map((id) => db.users.find((x) => x.id === id)).filter(Boolean).map(publicUser),
   };
 }
@@ -519,6 +529,7 @@ function pushMessage(db, convo, message, senderId) {
     if (id === senderId || userIsActive(id)) continue;
     const u = db.users.find((x) => x.id === id);
     if (!u || !(u.pushSubs || []).length || (u.blocked || []).includes(senderId)) continue;
+    if (mutedOf(db, u)[convo.id] !== undefined) continue; // this chat is muted for that person
     for (const sub of u.pushSubs) {
       if (convo.isGroup && sub.groups === false) continue;
       const body = sub.preview === false ? "New message" : String(message.text || "New message").slice(0, 140);
@@ -544,6 +555,36 @@ app.post("/api/me/favorites", authMiddleware, (req, res) => {
   user.favorites = [...set];
   writeDB(db);
   res.json(settingsView(db, user));
+});
+app.post("/api/me/muted", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const { conversationId, duration } = req.body || {};
+  const c = db.conversations.find((x) => x.id === conversationId);
+  if (!c || !c.participantIds.includes(user.id)) return res.status(404).json({ error: "Conversation not found" });
+  const map = { ...(user.muted || {}) };
+  if (duration === null || duration === undefined || duration === "off") delete map[c.id];
+  else if (duration === "8h") map[c.id] = Date.now() + 8 * 3600 * 1000;
+  else if (duration === "1w") map[c.id] = Date.now() + 7 * 24 * 3600 * 1000;
+  else if (duration === "always") map[c.id] = 0;
+  else return res.status(400).json({ error: "duration must be 8h, 1w, always or off" });
+  user.muted = map;
+  writeDB(db);
+  res.json(settingsView(db, user));
+});
+// report a contact or group (stored for review)
+app.post("/api/me/report", authMiddleware, (req, res) => {
+  const db = readDB();
+  const { userId, conversationId, reason } = req.body || {};
+  const target = userId ? db.users.find((u) => u.id === userId) : null;
+  const convo = conversationId ? db.conversations.find((c) => c.id === conversationId && c.participantIds.includes(req.user.id)) : null;
+  if (!target && !convo) return res.status(404).json({ error: "Nothing to report" });
+  if (target && target.id === req.user.id) return res.status(400).json({ error: "You can't report yourself" });
+  db.reports = db.reports || [];
+  db.reports.push({ id: nanoid(10), reporterId: req.user.id, userId: target ? target.id : null, conversationId: convo ? convo.id : null, reason: String(reason || "").slice(0, 300), time: Date.now() });
+  if (db.reports.length > 2000) db.reports = db.reports.slice(-2000);
+  writeDB(db);
+  res.json({ ok: true });
 });
 app.post("/api/me/blocked", authMiddleware, (req, res) => {
   const db = readDB();
@@ -653,8 +694,8 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   for (const m of all) {
     if (m.senderId === req.user.id) continue;
     if (convo.isGroup) {
-      if (!(m.readBy || (m.readBy = [])).includes(req.user.id)) { m.readBy.push(req.user.id); changed = true; }
-    } else if (!m.read) { m.read = true; changed = true; }
+      if (!(m.readBy || (m.readBy = [])).includes(req.user.id)) { m.readBy.push(req.user.id); (m.readTimes || (m.readTimes = {}))[req.user.id] = Date.now(); changed = true; }
+    } else if (!m.read) { m.read = true; m.readAt = Date.now(); changed = true; }
   }
   if (changed) writeDB(db);
   // pagination: ?limit=1..500 (default 200) and ?before=<timestamp ms> for older pages
@@ -1520,7 +1561,7 @@ io.on("connection", (socket) => {
     }
   }
 
-  socket.on("message:send", ({ conversationId, text, audio, duration, file }, ack) => {
+  socket.on("message:send", ({ conversationId, text, audio, duration, file, replyTo, forwarded }, ack) => {
     const fail = (error) => { if (ack) ack({ error }); };
     const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
     if (audio && !voice) return fail("Voice note is too long or not supported (max about 1 minute)");
@@ -1555,11 +1596,25 @@ io.on("connection", (socket) => {
       if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
       if (other && (other.blocked || []).includes(userId)) return fail("This message couldn't be delivered.");
     }
+    // reply: keep a small snapshot of the quoted message so the quote still shows if the original is deleted later
+    let reply = null;
+    if (typeof replyTo === "string" && replyTo) {
+      const orig = db.messages.find((x) => x.id === replyTo && x.conversationId === conversationId);
+      if (orig && !orig.deleted) {
+        const au = db.users.find((u) => u.id === orig.senderId);
+        reply = {
+          id: orig.id, senderId: orig.senderId, name: au ? au.name : "Former member",
+          text: orig.audio ? "🎤 Voice note" : orig.file ? (String(orig.file.mime).startsWith("image/") ? "📷 Photo" : "📎 " + orig.file.name) : String(orig.text).slice(0, 140),
+        };
+      }
+    }
     const message = {
       id: nanoid(14),
       conversationId,
       senderId: userId,
       text: text.trim(),
+      ...(reply ? { replyTo: reply } : {}),
+      ...(forwarded === true ? { forwarded: true } : {}),
       ...(voice ? { audio, duration: Math.min(Math.round(Number(duration)) || 0, 120) } : {}),
       ...(att ? { file: att } : {}),
       time: Date.now(),
