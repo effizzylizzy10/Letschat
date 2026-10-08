@@ -4752,32 +4752,186 @@ const SUPPORT = {
     whatsapp: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_WHATSAPP) || "").replace(/\D/g, ""),
     email: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_EMAIL) || "").trim(),
 };
-const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [], muted: {} };
+const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [], muted: {}, biz: { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] } };
 const isMutedChat = (muted, id) => { const v = muted && muted[id]; return v !== undefined && (v === 0 || v > Date.now()); };
-function ToolsScreen({ onProfile, onOpen = () => { }, settings = DEFAULT_SETTINGS }) {
-    const nFav = settings.favorites.length, nBlocked = settings.blocked.length;
-    const items = [
-        { icon: User, label: "Profile", sub: "Edit your details" },
-        { icon: Star, label: "Favourites", sub: nFav ? nFav + (nFav === 1 ? " chat" : " chats") + " pinned for quick access" : "Quick access chats", view: "favs" },
-        { icon: Users, label: "Communities", sub: "Manage your groups", view: "communities" },
-        { icon: Bell, label: "Notifications", sub: "Sound & alerts", view: "notifs" },
-        { icon: Volume2, label: "Sounds & features", sub: "Sounds, calls, status, voice", view: "features" },
-        { icon: Lock, label: "Privacy", sub: nBlocked ? nBlocked + " blocked · read receipts, last seen" : "Blocked, read receipts", view: "privacy" },
-        { icon: HelpCircle, label: "Help", sub: "FAQ, contact us", view: "help" },
+// ---- Tools tab (business-style layout): performance, For you, Grow your business, Organize your chats, Manage your account, How to ----
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+const ToolInfo = makeIcon([["c", 12, 12, 10], ["p", "M12 16v-4"], ["p", "M12 8h.01"]]);
+const ToolZap = makeIcon([["p", "M13 2 3 14h9l-1 8 10-12h-9l1-8z"]]);
+const ToolMegaphone = makeIcon([["p", "m3 11 18-5v12L3 14v-3z"], ["p", "M11.6 16.8a3 3 0 1 1-5.8-1.6"]]);
+const ToolMoon = makeIcon([["p", "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"]]);
+const ToolLink = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"], ["p", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]]);
+const ToolStore = makeIcon([["p", "m2 7 2-4h16l2 4"], ["p", "M3 7v13h18V7"], ["p", "M9 20v-6h6v6"]]);
+const ToolMsg = makeIcon([["p", "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"], ["p", "M8 9h8"], ["p", "M8 13h5"]]);
+const ToolPlay = makeIcon([["p", "m6 3 14 9-14 9z"]]);
+const ToolTrash = makeIcon([["p", "M3 6h18"], ["p", "M8 6V4h8v2"], ["p", "M19 6l-1 14H6L5 6"]]);
+const DEFAULT_BIZ = { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] };
+const bizOfSettings = (s) => ({ ...DEFAULT_BIZ, ...((s && s.biz) || {}) });
+
+function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, settings = DEFAULT_SETTINGS, token, conversations = [] }) {
+    const ce = React.createElement;
+    const [menu, setMenu] = useState(false);
+    const [info, setInfo] = useState(false);
+    const [promoOff, setPromoOff] = useState(() => !!loadJSON("toolsPromoOff", false));
+    const [statusViews, setStatusViews] = useState(null);
+    const [howTo, setHowTo] = useState(null);
+    const biz = bizOfSettings(settings);
+    useEffect(() => {
+        let live = true;
+        if (!token) return;
+        api("/api/v1/status", { token }).then((d) => { if (live) setStatusViews((d.mine || []).reduce((n, s) => n + (Number(s.views) || 0), 0)); }).catch(() => { });
+        return () => { live = false; };
+    }, [token]);
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const started = conversations.filter((c) => !c.isGroup && (c.createdAt || 0) >= weekAgo).length;
+    const nFav = settings.favorites.length;
+    const dismissPromo = () => { setPromoOff(true); saveJSON("toolsPromoOff", true); };
+    const heading = (t) => ce("div", { style: { padding: "20px 16px 6px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, t);
+    const row = (Icon, title, sub, onClick, badge) => ce("div", { key: title, onClick, style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" } },
+        ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(Icon, { size: 21, color: "#9BA7B4" })),
+        ce("div", { style: { flex: 1, minWidth: 0 } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35 } }, sub)),
+        badge && ce("span", { style: { width: 9, height: 9, borderRadius: "50%", background: "#35D0BA", flexShrink: 0 } }));
+    const stat = (Icon, value, label) => ce("div", { key: label, style: { flex: 1, minWidth: 0, border: "1px solid #262E3A", borderRadius: 14, padding: "12px 12px 10px", background: "#10151C" } },
+        ce(Icon, { size: 18, color: "#35D0BA" }),
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA", margin: "6px 0 2px" } }, value),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", lineHeight: 1.25 } }, label));
+    const guides = [
+        { title: "Build trust with your profile", bg: "linear-gradient(135deg,#1F6F66,#35D0BA)", body: "A complete profile helps people trust you.\n\n1. Open Profile and add a clear photo and your name.\n2. Add a short bio so people know what you do.\n3. Share your profile link so anyone can start a chat with you.", go: "Open profile", act: onProfile },
+        { title: "Show off your products", bg: "linear-gradient(135deg,#7A4B16,#F2B84B)", body: "Post what you sell in Market.\n\n1. Open the Market tab.\n2. Add a listing with a photo, price and description.\n3. Mark it as sold when it is gone.", go: "Open Market", act: () => onTab("market") },
+        { title: "Reach out with status", bg: "linear-gradient(135deg,#243B6B,#6E8BFF)", body: "Status updates reach your contacts for 24 hours.\n\n1. Open the Status tab.\n2. Tap the plus button and post a photo or text.\n3. Come back to Tools to see how many people viewed it.", go: "Open Status", act: () => onTab("status") },
     ];
-    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
-        React.createElement(TopBar, { title: "Tools" }),
-        React.createElement("div", { style: { flex: 1, overflowY: "auto" } }, items.map(it => {
-            const Icon = it.icon;
-            return (React.createElement("div", { key: it.label, onClick: it.label === "Profile" ? onProfile : it.view ? () => onOpen(it.view) : undefined, style: { display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
-                React.createElement("div", { style: { width: 40, height: 40, borderRadius: 12, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } },
-                    React.createElement(Icon, { size: 19, color: "#35D0BA" })),
-                React.createElement("div", { style: { flex: 1 } },
-                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.label),
-                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, it.sub)),
-                React.createElement(ChevronRight, { size: 17, color: "#5B6673" })));
-        }))));
+    const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }),
+        menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 20 } },
+            ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } },
+                menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } },
+                "Last 7 days performance",
+                ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))),
+            info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."),
+            ce("div", { style: { display: "flex", gap: 10, padding: "0 16px" } },
+                stat(ToolMsg, String(started), "Conversations started"),
+                stat(Grid3x3, "\u2014 \u2014", "Catalog views"),
+                stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")),
+            !promoOff && heading("For you"),
+            !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } },
+                ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })),
+                ce("div", { style: { display: "flex", gap: 14, paddingRight: 24 } },
+                    ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })),
+                    ce("div", { style: { flex: 1 } },
+                        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"),
+                        ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))),
+                ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")),
+            heading("Grow your business"),
+            row(Grid3x3, "Catalog", "Show products and services", () => onTab("market")),
+            row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile),
+            row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")),
+            heading("Organize your chats"),
+            row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")),
+            row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")),
+            row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")),
+            row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")),
+            heading("Manage your account"),
+            row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile),
+            row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")),
+            row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")),
+            heading("How to"),
+            ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
+                ce("div", { style: { height: 86, background: g.bg, display: "flex", alignItems: "center", justifyContent: "center" } },
+                    ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))),
+                ce("div", { style: { padding: "10px 10px 12px", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5, color: "#F5F7FA", lineHeight: 1.3 } }, g.title))))),
+        howTo && ce("div", { onClick: () => setHowTo(null), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 30, display: "flex", alignItems: "flex-end" } },
+            ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderRadius: "20px 20px 0 0", padding: "20px 18px 22px", maxHeight: "75%", overflowY: "auto" } },
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, howTo.title),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#C5CDD8", lineHeight: 1.55, whiteSpace: "pre-line" } }, howTo.body),
+                ce("div", { style: { display: "flex", gap: 10, marginTop: 18 } },
+                    ce("button", { onClick: () => { const a = howTo.act; setHowTo(null); a(); }, style: { flex: 1, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "11px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, howTo.go),
+                    ce("button", { onClick: () => setHowTo(null), style: { ...smallBtn, borderRadius: 22, padding: "11px 20px" } }, "Close")))));
 }
+
+// Greeting message and Away message share one screen (saved on your account; the server sends them).
+function AutoMessageScreen({ kind, settings, onBack, onSave }) {
+    const ce = React.createElement;
+    const isGreeting = kind === "greeting";
+    const cur = bizOfSettings(settings)[kind];
+    const [on, setOn] = useState(cur.on);
+    const [text, setText] = useState(cur.text);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const dirty = on !== cur.on || text.trim() !== cur.text;
+    const save = async () => {
+        if (on && !text.trim()) { setErr("Write the message before turning it on."); return; }
+        setBusy(true); setErr("");
+        const ok = await onSave({ [kind]: { on, text: text.trim() } }, isGreeting ? "Greeting message saved" : "Away message saved");
+        setBusy(false);
+        if (!ok) setErr("Could not save. Check your connection and try again.");
+    };
+    const title = isGreeting ? "Greeting message" : "Away message";
+    const blurb = isGreeting ? "Sent once when someone messages you for the first time." : "Sent when you are offline. Each chat gets it at most once every 12 hours.";
+    const sample = isGreeting ? "Hello! Thanks for reaching out. How can I help you today?" : "Thanks for your message. I\u2019m away right now and will reply as soon as I\u2019m back.";
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title, onBack }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: settingRow },
+                ce("div", { style: { flex: 1 } },
+                    ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Send " + title.toLowerCase()),
+                    ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, blurb)),
+                ce(Toggle, { on, onChange: setOn })),
+            ce("div", { style: { padding: "16px 16px 0" } },
+                ce("div", { style: { ...sectionTitle, margin: "0 0 8px" } }, "Message"),
+                ce("textarea", { value: text, maxLength: 1000, rows: 5, onChange: (e) => setText(e.target.value), placeholder: sample, style: { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: 12, resize: "none", outline: "none" } }),
+                ce("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 } },
+                    ce("button", { onClick: () => setText(sample), style: smallBtn }, "Use example"),
+                    ce("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673" } }, text.length + "/1000")),
+                err && ce("div", { style: { marginTop: 10, fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+                ce("button", { onClick: save, disabled: busy || !dirty, style: { marginTop: 16, width: "100%", background: dirty ? "#35D0BA" : "#1E2530", color: dirty ? "#0E1116" : "#5B6673", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: dirty ? "pointer" : "default" } }, busy ? "Saving\u2026" : "Save"))));
+}
+
+// Quick replies: saved messages with a shortcut. In any chat, type / and the shortcut to insert one.
+function QuickRepliesScreen({ settings, onBack, onSave }) {
+    const ce = React.createElement;
+    const list = bizOfSettings(settings).quickReplies;
+    const [edit, setEdit] = useState(null); // { id?, shortcut, text }
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const commit = async (next, msg) => { setBusy(true); setErr(""); const ok = await onSave({ quickReplies: next }, msg); setBusy(false); if (!ok) setErr("Could not save. Check your connection and try again."); return ok; };
+    const saveEdit = async () => {
+        const shortcut = edit.shortcut.trim().replace(/^\/+/, "").replace(/\s+/g, "-").toLowerCase(), text = edit.text.trim();
+        if (!shortcut || !text) { setErr("Add a shortcut and a message."); return; }
+        if (list.some((q) => q.shortcut === shortcut && q.id !== edit.id)) { setErr("You already have a quick reply with that shortcut."); return; }
+        const item = { id: edit.id || Math.random().toString(36).slice(2, 10), shortcut, text };
+        const next = edit.id ? list.map((q) => (q.id === edit.id ? item : q)) : [...list, item];
+        if (await commit(next, "Quick reply saved")) setEdit(null);
+    };
+    const field = { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: 12, outline: "none" };
+    if (edit) return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: edit.id ? "Edit quick reply" : "New quick reply", onBack: () => { setEdit(null); setErr(""); } }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: 16 } },
+            ce("div", { style: { ...sectionTitle, margin: "0 0 8px" } }, "Shortcut"),
+            ce("input", { value: edit.shortcut, maxLength: 24, placeholder: "e.g. price", onChange: (e) => setEdit({ ...edit, shortcut: e.target.value }), style: field }),
+            ce("div", { style: { ...sectionTitle, margin: "18px 0 8px" } }, "Message"),
+            ce("textarea", { value: edit.text, maxLength: 1000, rows: 6, placeholder: "The message that will be inserted", onChange: (e) => setEdit({ ...edit, text: e.target.value }), style: { ...field, resize: "none" } }),
+            err && ce("div", { style: { marginTop: 10, fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+            ce("button", { onClick: saveEdit, disabled: busy, style: { marginTop: 16, width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, busy ? "Saving\u2026" : "Save")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Quick replies", onBack, right: ce("button", { onClick: () => { setErr(""); setEdit({ shortcut: "", text: "" }); }, style: smallBtn }, "New") }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            list.length === 0 && ce("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                ce(ToolZap, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No quick replies yet"),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Save messages you send often. In any chat, type / then the shortcut to insert one.")),
+            err && ce("div", { style: { padding: "10px 16px", fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+            list.map((q) => ce("div", { key: q.id, onClick: () => { setErr(""); setEdit({ ...q }); }, style: { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+                ce("div", { style: { flex: 1, minWidth: 0 } },
+                    ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#35D0BA" } }, "/" + q.shortcut),
+                    ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, q.text)),
+                ce("button", { "aria-label": "Delete quick reply", disabled: busy, onClick: (e) => { e.stopPropagation(); commit(list.filter((x) => x.id !== q.id), "Quick reply deleted"); }, style: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" } }, ce(ToolTrash, { size: 19, color: "#8891A0" }))))));
+}
+
 function Toggle({ on, onChange, disabled }) {
     return (React.createElement("button", { role: "switch", "aria-checked": on, disabled: disabled, onClick: () => onChange(!on), style: { width: 46, height: 27, borderRadius: 14, border: "none", padding: 0, position: "relative", cursor: disabled ? "default" : "pointer", background: on ? "#35D0BA" : "#2B3544", transition: "background .15s", flexShrink: 0, opacity: disabled ? 0.6 : 1 } },
         React.createElement("span", { style: { position: "absolute", top: 3, left: on ? 22 : 3, width: 21, height: 21, borderRadius: "50%", background: "#F5F7FA", transition: "left .15s" } })));
@@ -5387,6 +5541,10 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     // Typo suggestions: the last finished word that looks misspelled, with tappable corrections above the input.
     const [typoIgnored, setTypoIgnored] = useState(typoLoadIgnored);
     const typoHit = typoCheck(draft, typoIgnored);
+    const myQuick = bizOfSettings(settings).quickReplies;
+    const qMatch = /^\/([\w-]*)$/.exec(draft);
+    const qHits = qMatch ? myQuick.filter(q => q.shortcut.startsWith(qMatch[1].toLowerCase())).slice(0, 8) : [];
+    const useQuick = (q) => { setDraft(q.text); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
     const applyTypo = (fix) => { if (!typoHit)
         return; setDraft(typoApply(draft, typoHit, fix)); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
     const ignoreTypo = () => { if (!typoHit)
@@ -5945,6 +6103,9 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                 editing.text),
             React.createElement("button", { "aria-label": "Cancel editing", onClick: cancelEdit, style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" } },
                 React.createElement(X, { size: 18, color: "#8891A0" })))),
+        !iBlocked && !rec && !editing && qHits.length > 0 && (React.createElement("div", { role: "group", "aria-label": "Your quick replies", style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" } }, qHits.map(q => React.createElement("button", { key: q.id, onMouseDown: e => e.preventDefault(), onClick: () => useQuick(q), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 12px", textAlign: "left", cursor: "pointer", flexShrink: 0, maxWidth: 240 } },
+            React.createElement("div", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 13 } }, "/" + q.shortcut),
+            React.createElement("div", { style: { color: "#C5CDD8", fontFamily: "Inter", fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, q.text))))),
         !iBlocked && !rec && typoHit && (React.createElement("div", { role: "group", "aria-label": "Spelling suggestions", style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" } },
             React.createElement("span", { style: { color: "#8891A0", flexShrink: 0, whiteSpace: "nowrap" } },
                 React.createElement("s", { style: { color: "#FF6B5D" } }, typoHit.word),
@@ -6743,6 +6904,7 @@ function App() {
     };
     const toggleFavorite = (id) => { const on = !settings.favorites.includes(id); return settingsCall("favorites", "POST", { conversationId: id, favorite: on }, on ? "Added to favourites" : "Removed from favourites"); };
     const savePrivacy = (patch) => settingsCall("settings", "PATCH", { privacy: patch });
+    const saveBiz = (patch, msg) => settingsCall("settings", "PATCH", { biz: patch }, msg);
     const setMuted = (id, duration) => settingsCall("muted", "POST", { conversationId: id, duration }, duration === "off" ? "Notifications on" : "Chat muted");
     const reportChat = async (userId, conversationId) => {
         try {
@@ -6823,6 +6985,12 @@ function App() {
     else if (toolsView === "notifs") {
         body = React.createElement(NotificationsScreen, { onBack: () => setToolsView(null) });
     }
+    else if (toolsView === "greeting" || toolsView === "away") {
+        body = React.createElement(AutoMessageScreen, { key: toolsView, kind: toolsView, settings: settings, onBack: () => setToolsView(null), onSave: saveBiz });
+    }
+    else if (toolsView === "quick") {
+        body = React.createElement(QuickRepliesScreen, { settings: settings, onBack: () => setToolsView(null), onSave: saveBiz });
+    }
     else if (toolsView === "help") {
         body = React.createElement(HelpScreen, { user: session.user, onBack: () => setToolsView(null) });
     }
@@ -6840,7 +7008,7 @@ function App() {
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
                 React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games") }),
                 tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token }),
-                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowProfile(true), onOpen: setToolsView, settings: settings }),
+                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowProfile(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
                 showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, initialPicked: newGroupWith ? [newGroupWith] : [], onClose: () => { setShowNewGroup(false); setNewGroupWith(null); }, onCreated: (conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); } }),
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
             React.createElement(TabBar, { active: tab, setActive: setTab })));
