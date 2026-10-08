@@ -175,6 +175,7 @@ function publicUser(u) {
     initials: u.initials,
     color: u.color,
     avatar: avatarUrl(u),
+    business: u.business || undefined, // optional: { category, address, hours, open } for business accounts
   };
 }
 // Group members only see each other's name/photo/about, never phone numbers or emails.
