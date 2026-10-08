@@ -1,0 +1,52 @@
+# The client is a static site with no bundler. The build step just copies the
+# files the browser needs into dist/ (keeping app.jsx, package.json and
+# node_modules out of the published site).
+[build]
+  command = "rm -rf dist && mkdir -p dist && cp index.html app.js config.js push.js reactions.js sw.js manifest.json *.webp *.mp3 *.wav dist/"
+  publish = "dist"
+
+# Same caching rules as vercel.json
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*.webp"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/*.mp3"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/*.wav"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/app.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/push.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/reactions.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
