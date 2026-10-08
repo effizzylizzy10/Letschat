@@ -5930,7 +5930,7 @@ function App() {
           {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
           <GamesHub active={tab === "games"} myId={session.user.id} me={session.user} socketRef={socketRef} conversations={conversations} onCall={startCall} goGames={() => setTab("games")} />
           {tab === "status" && <StatusScreen profile={session.user} token={session.token} />}
-          {tab === "tools" && <ToolsScreen onProfile={() => setShowProfile(true)} onOpen={setToolsView} onTab={setTab} settings={settings} token={session.token} conversations={conversations} />}
+          {tab === "tools" && <ToolsScreen onProfile={() => setShowEdit(true)} onOpen={setToolsView} onTab={setTab} settings={settings} token={session.token} conversations={conversations} />}
           {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} initialPicked={newGroupWith ? [newGroupWith] : []} onClose={() => { setShowNewGroup(false); setNewGroupWith(null); }} onCreated={(conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); }} />}
           {showNewChat && <NewChatModal token={session.token} onClose={() => setShowNewChat(false)} onStarted={handleNewChatStarted} />}
         </div>

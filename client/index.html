@@ -7111,7 +7111,7 @@ function App() {
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
                 React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games") }),
                 tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token }),
-                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowProfile(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
+                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowEdit(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
                 showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, initialPicked: newGroupWith ? [newGroupWith] : [], onClose: () => { setShowNewGroup(false); setNewGroupWith(null); }, onCreated: (conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); } }),
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
             React.createElement(TabBar, { active: tab, setActive: setTab })));
