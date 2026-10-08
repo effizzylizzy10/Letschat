@@ -3307,6 +3307,14 @@ const loadImg = (url) => new Promise((res, rej) => { const i = new Image(); i.on
 const STATUS_TEXT_COLORS = ["#FFFFFF", "#FFD60A", "#FF6B5D", "#35D0BA", "#A78BFA", "#4FA8E0", "#000000"];
 const STICKERS = ["\u{1F600}", "\u{1F602}", "\u{1F979}", "\u{1F60D}", "\u{1F973}", "\u{1F60E}", "\u{1F929}", "\u{1F62D}", "\u{1F621}", "\u{1F914}", "\u{1F64F}", "\u{1F44D}", "\u{1F44F}", "\u{1F525}", "❤️", "\u{1F4AF}", "\u{1F389}", "\u{1F382}", "\u{1F381}", "✨", "⭐", "\u{1F339}", "\u{1F334}", "☀️", "\u{1F319}", "\u{1F355}", "\u{1F354}", "\u{1F357}", "\u{1F37A}", "⚽", "\u{1F3C0}", "\u{1F3B5}", "\u{1F3B6}", "\u{1F483}", "\u{1F57A}", "\u{1F697}", "✈️", "\u{1F3E0}", "\u{1F4F8}", "\u{1F4B0}", "\u{1F451}", "\u{1F4AA}", "\u{1F64C}", "\u{1F91D}"];
 const clock = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+const SHAPE_DEFS = {
+    rect: { d: "M6 14H94V86H6Z", h: 100 }, round: { d: "M24 14H76A18 18 0 0 1 94 32V68A18 18 0 0 1 76 86H24A18 18 0 0 1 6 68V32A18 18 0 0 1 24 14Z", h: 100 },
+    circle: { d: "M8 50a42 42 0 1 0 84 0a42 42 0 1 0 -84 0Z", h: 100 }, triangle: { d: "M50 10L92 88H8Z", h: 100 }, diamond: { d: "M50 8L92 50L50 92L8 50Z", h: 100 },
+    star: { d: "M50 6L61 38L95 38L67 58L78 92L50 71L22 92L33 58L5 38L39 38Z", h: 100 },
+    heart: { d: "M50 88C10 58 4 30 24 18C38 10 50 22 50 30C50 22 62 10 76 18C96 30 90 58 50 88Z", h: 100 },
+    line: { d: "M6 15H94", h: 30, open: true }, arrow: { d: "M6 15H82", head: "M95 15L76 3V27Z", h: 30, open: true },
+};
+const SHAPE_LIST = ["arrow", "line", "rect", "round", "circle", "triangle", "diamond", "star", "heart"];
 async function bakeStatus(photo, nat, bg, items, strokes) {
     const W = photo ? nat.w : 720, H = photo ? nat.h : 1280;
     const c = document.createElement("canvas"); c.width = W; c.height = H;
@@ -3322,14 +3330,23 @@ async function bakeStatus(photo, nat, bg, items, strokes) {
     }
     for (const it of items) {
         const fs = it.s * W;
+        g.save(); g.translate(it.x * W, it.y * H); g.rotate(((it.r || 0) * Math.PI) / 180);
         g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = it.c || "#fff";
-        if (it.kind === "text") {
+        if (it.kind === "shape") {
+            const df = SHAPE_DEFS[it.v] || SHAPE_DEFS.rect, k = fs / 100;
+            g.scale(k, k); g.translate(-50, -df.h / 2);
+            g.strokeStyle = it.c || "#fff"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round";
+            if (df.head) { g.stroke(new Path2D(df.d)); g.fill(new Path2D(df.head)); }
+            else if (df.open) g.stroke(new Path2D(df.d));
+            else { const p = new Path2D(df.d); if (it.f) g.fill(p); g.stroke(p); }
+        } else if (it.kind === "text") {
             g.font = "700 " + fs + "px Sora, Inter, sans-serif";
             g.shadowColor = "rgba(0,0,0,.6)"; g.shadowBlur = fs * 0.2; g.shadowOffsetY = fs * 0.06;
             const lines = it.v.split("\n");
-            lines.forEach((ln, i) => g.fillText(ln, it.x * W, it.y * H + (i - (lines.length - 1) / 2) * fs * 1.2));
+            lines.forEach((ln, i) => g.fillText(ln, 0, (i - (lines.length - 1) / 2) * fs * 1.2));
             g.shadowColor = "transparent";
-        } else { g.font = fs + "px 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif"; g.fillText(it.v, it.x * W, it.y * H); }
+        } else { g.font = fs + "px 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif"; g.fillText(it.v, 0, 0); }
+        g.restore();
     }
     let q = 0.85, out;
     do { out = c.toDataURL("image/jpeg", q); q -= 0.1; } while (out.length > 1400000 && q > 0.3);
@@ -3377,7 +3394,7 @@ function StatusComposer({ token, onClose, onPosted }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [box, setBox] = useState({ w: 0, h: 0 });
-    const areaRef = useRef(null), fileRef = useRef(null), audioRef = useRef(null), capRef = useRef(null), dragRef = useRef(null), penRef = useRef(null), playRef = useRef(null);
+    const areaRef = useRef(null), fileRef = useRef(null), audioRef = useRef(null), capRef = useRef(null), dragRef = useRef(null), penRef = useRef(null), playRef = useRef(null), hRef = useRef(null);
     useEffect(() => {
         const el = areaRef.current; if (!el) return;
         const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
@@ -3415,7 +3432,7 @@ function StatusComposer({ token, onClose, onPosted }) {
             const img = await loadImg(photo); const c = document.createElement("canvas"); c.width = img.height; c.height = img.width;
             const g = c.getContext("2d"); g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(img, 0, 0);
             const k = nat.w / nat.h;
-            setItems((a) => a.map((it) => ({ ...it, x: 1 - it.y, y: it.x, s: Math.min(1, it.s * k) })));
+            setItems((a) => a.map((it) => ({ ...it, x: 1 - it.y, y: it.x, s: Math.min(1, it.s * k), r: ((it.r || 0) + 90) % 360 })));
             setStrokes((a) => a.map((s) => ({ ...s, w: s.w * k, p: s.p.map((pt) => [1 - pt[1], pt[0]]) })));
             setPhoto(c.toDataURL("image/jpeg", 0.9)); setNat({ w: c.width, h: c.height });
         } catch (e) { }
@@ -3423,14 +3440,55 @@ function StatusComposer({ token, onClose, onPosted }) {
     const upd = (id, patch) => setItems((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)));
     const addItem = (it) => { const id = Math.random().toString(36).slice(2); setItems((a) => [...a, { id, x: 0.5, y: 0.5, ...it }]); setSel(id); };
     const selItem = items.find((x) => x.id === sel);
+    const ptrs = useRef({}), gest = useRef(null);
     const down = (e, it) => {
         e.stopPropagation(); setSel(it.id);
         const r = e.currentTarget.parentNode.getBoundingClientRect();
-        dragRef.current = { id: it.id, r, dx: (e.clientX - r.left) / r.width - it.x, dy: (e.clientY - r.top) / r.height - it.y };
+        ptrs.current[e.pointerId] = [e.clientX, e.clientY];
+        const ids = Object.keys(ptrs.current);
+        if (ids.length >= 2) { // two fingers on the item: pinch to resize, twist to rotate
+            const a = ptrs.current[ids[0]], b = ptrs.current[ids[1]];
+            gest.current = { id: it.id, d0: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, a0: Math.atan2(b[1] - a[1], b[0] - a[0]), s0: it.s, r0: it.r || 0 };
+            dragRef.current = null;
+        } else {
+            dragRef.current = { id: it.id, r, dx: (e.clientX - r.left) / r.width - it.x, dy: (e.clientY - r.top) / r.height - it.y };
+        }
         try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { }
     };
-    const move = (e) => { const d = dragRef.current; if (!d) return; upd(d.id, { x: Math.min(1, Math.max(0, (e.clientX - d.r.left) / d.r.width - d.dx)), y: Math.min(1, Math.max(0, (e.clientY - d.r.top) / d.r.height - d.dy)) }); };
-    const up = () => { dragRef.current = null; };
+    const move = (e) => {
+        if (ptrs.current[e.pointerId]) ptrs.current[e.pointerId] = [e.clientX, e.clientY];
+        const ids = Object.keys(ptrs.current), gs = gest.current;
+        if (gs && ids.length >= 2) {
+            const a = ptrs.current[ids[0]], b = ptrs.current[ids[1]];
+            upd(gs.id, { s: Math.min(1, Math.max(0.03, gs.s0 * (Math.hypot(a[0] - b[0], a[1] - b[1]) / gs.d0))), r: gs.r0 + ((Math.atan2(b[1] - a[1], b[0] - a[0]) - gs.a0) * 180) / Math.PI });
+            return;
+        }
+        const d = dragRef.current; if (!d) return;
+        upd(d.id, { x: Math.min(1, Math.max(0, (e.clientX - d.r.left) / d.r.width - d.dx)), y: Math.min(1, Math.max(0, (e.clientY - d.r.top) / d.r.height - d.dy)) });
+    };
+    const up = (e) => { if (e && e.pointerId !== undefined) delete ptrs.current[e.pointerId]; if (!Object.keys(ptrs.current).length) { dragRef.current = null; gest.current = null; } else if (Object.keys(ptrs.current).length < 2) gest.current = null; };
+    const hDown = (e, it) => { // corner handle: drag to resize and rotate in one go
+        e.stopPropagation();
+        const box = e.currentTarget.parentNode.getBoundingClientRect(), cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+        hRef.current = { id: it.id, cx, cy, d0: Math.hypot(e.clientX - cx, e.clientY - cy) || 1, a0: Math.atan2(e.clientY - cy, e.clientX - cx), s0: it.s, r0: it.r || 0 };
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { }
+    };
+    const hMove = (e) => { const h = hRef.current; if (!h) return; e.stopPropagation(); upd(h.id, { s: Math.min(1, Math.max(0.03, h.s0 * (Math.hypot(e.clientX - h.cx, e.clientY - h.cy) / h.d0))), r: h.r0 + ((Math.atan2(e.clientY - h.cy, e.clientX - h.cx) - h.a0) * 180) / Math.PI }); };
+    const hUp = () => { hRef.current = null; };
+    const handle = (pos, label, glyph, on) => ce("div", Object.assign({ "aria-label": label, style: { position: "absolute", width: 26, height: 26, borderRadius: 13, background: "#fff", color: "#0E1116", fontSize: 14, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 6px rgba(0,0,0,.5)", touchAction: "none", cursor: "pointer", fontFamily: "Inter", ...pos } }, on), glyph);
+    const renderItem = (it) => {
+        const isSel = sel === it.id, w = it.s * sw, df = it.kind === "shape" ? (SHAPE_DEFS[it.v] || SHAPE_DEFS.rect) : null;
+        const inner = df
+            ? ce("svg", { width: w, height: w * df.h / 100, viewBox: "0 0 100 " + df.h, style: { display: "block", overflow: "visible", pointerEvents: "none" } },
+                ce("path", { d: df.d, fill: df.head || df.open ? "none" : it.f ? it.c : "none", stroke: it.c, strokeWidth: 6, strokeLinecap: "round", strokeLinejoin: "round" }),
+                df.head && ce("path", { d: df.head, fill: it.c, stroke: it.c, strokeWidth: 2, strokeLinejoin: "round" }))
+            : it.v;
+        return ce("div", { key: it.id, onPointerDown: (e) => down(e, it), onPointerMove: move, onPointerUp: up, onPointerCancel: up, style: { position: "absolute", left: it.x * sw, top: it.y * sh, transform: "translate(-50%,-50%) rotate(" + (it.r || 0) + "deg)", fontSize: it.s * sw, lineHeight: it.kind === "text" ? 1.2 : 1, color: it.c, fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, textAlign: "center", whiteSpace: "pre", cursor: "grab", touchAction: "none", userSelect: "none", pointerEvents: draw ? "none" : "auto", textShadow: it.kind === "text" ? "0 2px 8px rgba(0,0,0,.6)" : "none", outline: isSel ? "1.5px dashed rgba(255,255,255,.9)" : "1.5px dashed transparent", outlineOffset: 6, borderRadius: 4, background: "transparent" } },
+            inner,
+            isSel && !draw && handle({ top: -20, left: -20 }, "Delete", "×", { onPointerDown: (e) => { e.stopPropagation(); setItems((a) => a.filter((x) => x.id !== it.id)); setSel(null); } }),
+            isSel && !draw && handle({ bottom: -20, right: -20 }, "Resize and rotate", "⤡", { onPointerDown: (e) => hDown(e, it), onPointerMove: hMove, onPointerUp: hUp, onPointerCancel: hUp }));
+    };
+
     const pt = (e, r) => [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
     const dDown = (e) => { const r = e.currentTarget.getBoundingClientRect(); penRef.current = r; const p = pt(e, r); setStrokes((a) => [...a, { c: pen, w: 0.012, p: [p] }]); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { } };
     const dMove = (e) => { const r = penRef.current; if (!r) return; const p = pt(e, r); setStrokes((a) => { const b = a.slice(); const l = b[b.length - 1]; if (l) b[b.length - 1] = { ...l, p: [...l.p, p] }; return b; }); };
@@ -3465,7 +3523,7 @@ function StatusComposer({ token, onClose, onPosted }) {
             onPosted();
         } catch (e) { setError((e && e.message) || "Could not post your status"); setBusy(false); }
     };
-    const round = (on) => ({ width: 44, height: 44, borderRadius: 22, border: "none", background: on ? "#35D0BA" : "rgba(38,42,48,.92)", color: on ? "#0E1116" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, flexShrink: 0 });
+    const round = (on) => ({ width: 44, height: 44, borderRadius: 22, border: "none", background: on ? "#35D0BA" : "transparent", filter: on ? "none" : "drop-shadow(0 1px 3px rgba(0,0,0,.8))", color: on ? "#0E1116" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, flexShrink: 0 });
     const tool = (label, on, onClick, child) => ce("button", { key: label, onClick, "aria-label": label, style: round(on) }, child);
     const top = ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "12px 12px 8px", flexShrink: 0 } },
         tool("Close", false, close, ce(X, { size: 24, color: "#fff" })),
@@ -3480,10 +3538,10 @@ function StatusComposer({ token, onClose, onPosted }) {
         !photo && !items.length && !strokes.length && ce("div", { style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "rgba(255,255,255,.75)", pointerEvents: "none" } }, "Tap Aa to write, or add a photo"),
         ce("svg", { width: sw, height: sh, viewBox: "0 0 " + sw + " " + sh, onPointerDown: draw ? dDown : undefined, onPointerMove: draw ? dMove : undefined, onPointerUp: draw ? dUp : undefined, onPointerCancel: draw ? dUp : undefined, style: { position: "absolute", left: 0, top: 0, touchAction: "none", pointerEvents: draw ? "auto" : "none", cursor: draw ? "crosshair" : "default" } },
             strokes.map((s, i) => ce("polyline", { key: i, fill: "none", stroke: s.c, strokeWidth: s.w * sw, strokeLinecap: "round", strokeLinejoin: "round", points: s.p.map((q) => (q[0] * sw).toFixed(1) + "," + (q[1] * sh).toFixed(1)).join(" ") }))),
-        items.map((it) => ce("div", { key: it.id, onPointerDown: (e) => down(e, it), onPointerMove: move, onPointerUp: up, onPointerCancel: up, style: { position: "absolute", left: it.x * sw, top: it.y * sh, transform: "translate(-50%,-50%)", fontSize: it.s * sw, lineHeight: it.kind === "text" ? 1.2 : 1, color: it.c, fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, textAlign: "center", whiteSpace: "pre", cursor: "grab", touchAction: "none", userSelect: "none", pointerEvents: draw ? "none" : "auto", textShadow: it.kind === "text" ? "0 2px 8px rgba(0,0,0,.6)" : "none", outline: sel === it.id ? "2px dashed rgba(255,255,255,.85)" : "none", outlineOffset: 6, borderRadius: 4, animation: "lcPop .25s ease-out" } }, it.v)));
+        items.map(renderItem));
     const selBar = selItem && !draw && ce("div", { style: { position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 3 } },
-        [["Smaller", "A−", () => resize(0.87)], ["Bigger", "A+", () => resize(1.15)], selItem.kind === "text" ? ["Edit text", "✎", () => openText(selItem)] : null, ["Delete", "\u{1F5D1}", () => { setItems((a) => a.filter((x) => x.id !== selItem.id)); setSel(null); }]].filter(Boolean).map(([l, g, f]) => ce("button", { key: l, onClick: f, "aria-label": l, style: { ...round(false), width: 38, height: 38, fontFamily: "Inter", fontWeight: 700, fontSize: 14, background: "rgba(0,0,0,.72)" } }, g)));
-    const musicChip = music && ce("button", { onClick: () => setPanel("music"), style: { position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", maxWidth: "88%", display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,.72)", border: "1px solid rgba(53,208,186,.5)", borderRadius: 999, padding: "6px 12px", color: "#fff", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", zIndex: 3 } }, ce(MusicIcon, { size: 15, color: "#35D0BA" }), ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, music.name + " · " + clock(music.start) + "–" + clock(music.start + music.len)));
+        [["Smaller", "A−", () => resize(0.87)], ["Bigger", "A+", () => resize(1.15)], selItem.kind !== "sticker" ? ["Colour", ce("span", { style: { color: selItem.c, fontSize: 20, lineHeight: 1 } }, "●"), () => upd(selItem.id, { c: STATUS_TEXT_COLORS[(STATUS_TEXT_COLORS.indexOf(selItem.c) + 1) % STATUS_TEXT_COLORS.length] })] : null, selItem.kind === "shape" && !(SHAPE_DEFS[selItem.v] || {}).open ? ["Fill", selItem.f ? "◼" : "◻", () => upd(selItem.id, { f: !selItem.f })] : null, ["Rotate", "↻", () => upd(selItem.id, { r: ((selItem.r || 0) + 15) % 360 })], selItem.kind === "text" ? ["Edit text", "✎", () => openText(selItem)] : null, ["Delete", "\u{1F5D1}", () => { setItems((a) => a.filter((x) => x.id !== selItem.id)); setSel(null); }]].filter(Boolean).map(([l, g, f]) => ce("button", { key: l, onClick: f, "aria-label": l, style: { ...round(false), width: 38, height: 38, fontFamily: "Inter", fontWeight: 700, fontSize: 14, background: "transparent", textShadow: "0 1px 4px rgba(0,0,0,.9)" } }, g)));
+    const musicChip = music && ce("button", { onClick: () => setPanel("music"), style: { position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", maxWidth: "88%", display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid rgba(53,208,186,.6)", borderRadius: 999, padding: "6px 12px", color: "#fff", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", zIndex: 3 } }, ce(MusicIcon, { size: 15, color: "#35D0BA" }), ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, music.name + " · " + clock(music.start) + "–" + clock(music.start + music.len)));
     const dot = (c, on, f) => ce("button", { key: c, onClick: f, "aria-label": "Colour " + c, style: { width: 28, height: 28, borderRadius: 14, background: c, border: on ? "3px solid #fff" : "3px solid rgba(255,255,255,.25)", cursor: "pointer", padding: 0, flexShrink: 0 } });
     const bottom = draw
         ? ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 18px", flexShrink: 0 } },
@@ -3492,16 +3550,16 @@ function StatusComposer({ token, onClose, onPosted }) {
             ce("button", { onClick: () => setDraw(false), style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done"))
         : ce("div", { style: { flexShrink: 0 } },
             !photo && ce("div", { style: { display: "flex", gap: 10, justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))),
-            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "0 12px", padding: "4px 12px", background: "#12161C", border: "1px solid #1F2733", borderRadius: 999 } },
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } },
                 ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
                 ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })),
                 ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }),
                 ce("button", { onClick: insertAt, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))),
             ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } },
-                ce("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "#12161C", border: "1px solid #1F2733", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"),
+                ce("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"),
                 ce("div", { style: { flex: 1 } }),
                 ce("button", { onClick: post, disabled: !canPost, "aria-label": "Post status", style: { width: 56, height: 56, borderRadius: 28, border: "none", background: "#21C063", cursor: canPost ? "pointer" : "default", opacity: canPost ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: canPost ? "0 0 18px rgba(33,192,99,.55)" : "none" } }, busy ? ce("span", { style: { color: "#06210F", fontFamily: "Inter", fontWeight: 700, fontSize: 12 } }, "…") : ce(Send, { size: 26, color: "#06210F" }))));
-    const sheetBox = { position: "absolute", left: 0, right: 0, bottom: 0, background: "#0F141C", borderRadius: "22px 22px 0 0", borderTop: "1px solid rgba(53,208,186,.5)", padding: "14px 16px 22px", maxHeight: "70%", overflowY: "auto", animation: "hubUp .22s ease-out", zIndex: 10 };
+    const sheetBox = { position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(15,20,28,.4)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: "22px 22px 0 0", borderTop: "1px solid rgba(53,208,186,.5)", padding: "14px 16px 22px", maxHeight: "70%", overflowY: "auto", animation: "hubUp .22s ease-out", zIndex: 10 };
     const musicPanel = panel === "music" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => { stopPlay(); setPanel(null); } },
         ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
             ce("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, "Add music"), ce("button", { onClick: () => { stopPlay(); setPanel(null); }, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
@@ -3520,8 +3578,10 @@ function StatusComposer({ token, onClose, onPosted }) {
                     ce("button", { onClick: () => { stopPlay(); setMusic(null); }, style: { ...smallBtn, flex: 1, padding: "10px 12px", color: "#FF6B5D" } }, "Remove music")))));
     const stickerPanel = panel === "sticker" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => setPanel(null) },
         ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
-            ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Stickers"),
-            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "rgba(255,255,255,.05)", border: "none", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s)))));
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Stickers and emojis"),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s))),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", margin: "18px 0 10px" } }, "Shapes and arrows"),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 } }, SHAPE_LIST.map((k) => { const df = SHAPE_DEFS[k]; return ce("button", { key: k, onClick: () => { addItem({ kind: "shape", v: k, c: "#FFFFFF", f: false, s: df.open ? 0.4 : 0.3 }); setPanel(null); }, "aria-label": "Shape " + k, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "10px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("svg", { width: 34, height: 34 * df.h / 100 + 6, viewBox: "0 0 100 " + df.h, style: { overflow: "visible" } }, ce("path", { d: df.d, fill: "none", stroke: "#fff", strokeWidth: 7, strokeLinecap: "round", strokeLinejoin: "round" }), df.head && ce("path", { d: df.head, fill: "#fff", stroke: "#fff", strokeWidth: 2 }))); }))));
     const textPanel = panel === "text" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } },
         ce("div", { style: { display: "flex", alignItems: "center", padding: "12px" } }, ce("button", { onClick: () => setPanel(null), style: { ...smallBtn, color: "#9BA7B4" } }, "Cancel"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: saveText, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
         ce("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" } },
@@ -3802,6 +3862,8 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
     const [info, setInfo] = useState(false);
     const [promoOff, setPromoOff] = useState(() => !!loadJSON("toolsPromoOff", false));
     const [statusViews, setStatusViews] = useState(null);
+    const [catViews, setCatViews] = useState(null);
+    useEffect(() => { let live = true; api("/api/v1/catalog/me", { token }).then((d) => { if (live) setCatViews(Number(d.views) || 0); }).catch(() => { }); return () => { live = false; }; }, []);
     const [howTo, setHowTo] = useState(null);
     const biz = bizOfSettings(settings);
     useEffect(() => {
@@ -3843,7 +3905,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
             info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."),
             ce("div", { style: { display: "flex", gap: 10, padding: "0 16px" } },
                 stat(ToolMsg, String(started), "Conversations started"),
-                stat(Grid3x3, "\u2014 \u2014", "Catalog views"),
+                stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"),
                 stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")),
             !promoOff && heading("For you"),
             !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } },
@@ -3855,7 +3917,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
                         ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))),
                 ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")),
             heading("Grow your business"),
-            row(Grid3x3, "Catalog", "Show products and services", () => onTab("market")),
+            row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")),
             row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile),
             row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")),
             heading("Organize your chats"),
@@ -4207,7 +4269,7 @@ const EMOJI_TABS = [
 ];
 // ---- tap the name/photo area in a chat header to see that person's profile (full screen, header collapses as you scroll) ----
 const PROFILE_HERO = 190, PROFILE_BAR = 58;
-function ContactProfileSheet({ u, online, lastSeen, conversation, conversations = [], msgs = [], myId, isFav, iBlocked, muted, onVoice, onVideo, onToggleFavorite, onNotifications, onBlock, onReport, onOpenMedia, onOpenImage, onNewGroup, onNote, onClose }) {
+function ContactProfileSheet({ u, online, lastSeen, conversation, conversations = [], msgs = [], myId, isFav, iBlocked, muted, onVoice, onVideo, onToggleFavorite, onNotifications, onBlock, onReport, onOpenMedia, onOpenImage, onNewGroup, onNote, token, onClose }) {
   const [zoom, setZoom] = useState(false);
   const [p, setP] = useState(0);                 // 0 = header fully open, 1 = collapsed into the top bar
   const [menu, setMenu] = useState(false);
@@ -4309,6 +4371,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
         {biz && biz.facebook && row("bfb", ico(EpFacebook), biz.facebook, null, { wrapSub: true })}
         {biz && biz.email && row("bmail", ico(EpMail), biz.email, null, { wrapSub: true, onClick: () => { window.location.href = "mailto:" + biz.email; } })}
         {biz && row("biz", ico(InfoIcon), "Business account", "This account is a business on Letschat Africa")}
+        <ProfileCatalogRow uid={u.id} name={u.name} token={token} />
         {line("l1")}
         <div onClick={onOpenMedia} style={{ display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" }}>
           <span style={{ flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" }}>Media, links, and docs</span>
@@ -5198,7 +5261,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       {sheetName === "mute" && <MuteSheet onPick={(d) => { setSheetName(null); onMute(conversation.id, d); }} onClose={() => setSheetName(null)} />}
       {msgInfo && <MessageInfoSheet m={msgInfo} conversation={conversation} myId={myId} onClose={() => setMsgInfo(null)} />}
       {fwd && <ForwardSheet msgs={fwd} conversations={conversations} socket={socket} token={token} onClose={() => setFwd(null)} />}
-      {peerInfo && !isGroup && <ContactProfileSheet u={conversation.other} online={online} lastSeen={lastSeen[conversation.other.id]} conversation={conversation} conversations={conversations} msgs={msgs} myId={myId} isFav={isFav} iBlocked={iBlocked} muted={!!muteUntil} onVoice={featOn("voiceCalls") ? () => { setPeerInfo(false); onCall(conversation, false); } : null} onVideo={featOn("videoCalls") ? () => { setPeerInfo(false); onCall(conversation, true); } : null} onToggleFavorite={() => onToggleFavorite(conversation.id)} onNotifications={() => { if (muteUntil) onMute(conversation.id, "off"); else setSheetName("mute"); }} onBlock={() => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you.")) onBlock(conversation.other.id, !iBlocked); }} onReport={reportChat} onOpenMedia={() => setSheetName("media")} onOpenImage={setViewer} onNewGroup={(id) => onNewGroup(id)} onNote={flashNote} onClose={() => setPeerInfo(false)} />}
+      {peerInfo && !isGroup && <ContactProfileSheet u={conversation.other} token={token} online={online} lastSeen={lastSeen[conversation.other.id]} conversation={conversation} conversations={conversations} msgs={msgs} myId={myId} isFav={isFav} iBlocked={iBlocked} muted={!!muteUntil} onVoice={featOn("voiceCalls") ? () => { setPeerInfo(false); onCall(conversation, false); } : null} onVideo={featOn("videoCalls") ? () => { setPeerInfo(false); onCall(conversation, true); } : null} onToggleFavorite={() => onToggleFavorite(conversation.id)} onNotifications={() => { if (muteUntil) onMute(conversation.id, "off"); else setSheetName("mute"); }} onBlock={() => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you.")) onBlock(conversation.other.id, !iBlocked); }} onReport={reportChat} onOpenMedia={() => setSheetName("media")} onOpenImage={setViewer} onNewGroup={(id) => onNewGroup(id)} onNote={flashNote} onClose={() => setPeerInfo(false)} />}
       {info && isGroup && <GroupInfoScreen conversation={conversation} myId={myId} token={token} contacts={contacts} presence={presence} lastSeen={lastSeen} onBack={() => setInfo(false)} onChanged={onGroupChanged} />}
       {zoomed && (
         <ImageZoomModal photo={conversation.other.avatar} initials={conversation.other.initials} color={conversation.other.color} onClose={() => setZoomed(false)} />
@@ -5438,6 +5501,120 @@ const EP_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday
 const EP_CATEGORIES = ["Shopping & retail", "Arts & entertainment", "Education", "Food & beverage", "Beauty & personal care", "Health & wellness", "Fashion & clothing", "Automotive", "Professional services", "Technology", "Real estate", "Travel & hospitality", "Finance", "Home & garden", "Agriculture", "Events & weddings", "Other"];
 const epDefaultDays = () => EP_DAYS.map(() => ({ mode: "24h" }));
 const epDayLabel = (d) => (d.mode === "24h" ? "Open 24 hours" : d.mode === "closed" ? "Closed" : d.from + " \u2013 " + d.to);
+
+// ---- Catalogue: products and services shown on a profile (separate from Market) ----
+function catResize(file, max) { // photo -> small JPEG data URL
+    return new Promise((ok, no) => {
+        const fr = new FileReader();
+        fr.onerror = () => no(new Error("Could not read that photo"));
+        fr.onload = () => {
+            const im = new Image();
+            im.onerror = () => no(new Error("That file is not a photo"));
+            im.onload = () => { const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.8)); };
+            im.src = fr.result;
+        };
+        fr.readAsDataURL(file);
+    });
+}
+function CatalogGrid({ items, onTap }) {
+    const ce = React.createElement;
+    return ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, padding: "4px 14px 24px" } }, items.map((it) =>
+        ce("div", { key: it.id, onClick: () => onTap(it), style: { background: "#161B22", border: "1px solid #1F2733", borderRadius: 14, overflow: "hidden", cursor: "pointer" } },
+            it.photo ? ce("img", { src: photoSrc(it.photo), alt: it.name, style: { width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" } })
+                : ce("div", { style: { width: "100%", aspectRatio: "1 / 1", background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Grid3x3, { size: 30, color: "#5B6673" })),
+            ce("div", { style: { padding: "8px 10px 10px" } },
+                ce("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, it.name),
+                it.price ? ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#35D0BA", marginTop: 2 } }, it.price) : null))));
+}
+// Owner: add, edit and delete catalogue items (opened from Edit profile or Tools)
+function CatalogScreen({ token, onBack }) {
+    const ce = React.createElement;
+    const [items, setItems] = useState([]);
+    const [views, setViews] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [form, setForm] = useState(null); // { id?, name, price, description, photo, newPhoto }
+    const [busy, setBusy] = useState(false);
+    const fileRef = useRef(null);
+    const load = () => api("/api/v1/catalog/me", { token }).then((d) => { setItems(d.items || []); setViews(d.views || 0); setError(""); }).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    useEffect(() => { load(); }, []);
+    const pick = async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; try { const p = await catResize(f, 900); setForm((s) => ({ ...s, photo: p, newPhoto: p })); } catch (er) { setError(er.message); } };
+    const save = async () => {
+        if (!form.name.trim()) return setError("Give the item a name");
+        setBusy(true); setError("");
+        try {
+            const body = { name: form.name.trim(), price: form.price.trim(), description: form.description.trim() };
+            if (form.newPhoto) body.photo = form.newPhoto;
+            if (form.id) await api("/api/v1/catalog/" + form.id, { method: "PATCH", token, body });
+            else await api("/api/v1/catalog", { method: "POST", token, body });
+            setForm(null); await load();
+        } catch (e) { setError(e.message || "Could not save"); }
+        setBusy(false);
+    };
+    const del = async () => {
+        if (!window.confirm("Delete this item from your catalogue?")) return;
+        setBusy(true);
+        try { await api("/api/v1/catalog/" + form.id, { method: "DELETE", token }); setForm(null); await load(); } catch (e) { setError(e.message); }
+        setBusy(false);
+    };
+    const input = { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 12 };
+    if (form) return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: form.id ? "Edit item" : "New item", onBack: () => setForm(null) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 16px 24px" } },
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
+            ce("div", { onClick: () => fileRef.current && fileRef.current.click(), style: { width: "100%", aspectRatio: "16 / 10", borderRadius: 14, background: "#1B232C", border: "1px dashed #3A4452", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", marginBottom: 14 } },
+                form.photo ? ce("img", { src: photoSrc(form.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } })
+                    : ce("div", { style: { textAlign: "center", color: "#8891A0", fontFamily: "Inter", fontSize: 13.5 } }, ce(ImagePlus, { size: 30, color: "#8891A0" }), ce("div", { style: { marginTop: 6 } }, "Add a photo"))),
+            ce("input", { value: form.name, maxLength: 60, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "Item name", style: input }),
+            ce("input", { value: form.price, maxLength: 30, onChange: (e) => setForm({ ...form, price: e.target.value }), placeholder: "Price (optional), e.g. ₦5,000", style: input }),
+            ce("textarea", { value: form.description, maxLength: 500, rows: 4, onChange: (e) => setForm({ ...form, description: e.target.value }), placeholder: "Description (optional)", style: { ...input, resize: "none" } }),
+            ce("button", { onClick: save, disabled: busy, style: { ...primaryBtn(busy) } }, busy ? "Saving…" : "Save"),
+            form.id && ce("button", { onClick: del, disabled: busy, style: { width: "100%", marginTop: 12, padding: 13, borderRadius: 12, border: "1px solid #3A2B2B", background: "none", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, "Delete item")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Catalog", onBack, right: ce("button", { onClick: () => setForm({ name: "", price: "", description: "", photo: null, newPhoto: null }), "aria-label": "Add item", style: { background: "#35D0BA", border: "none", borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Plus, { size: 20, color: "#0E1116" })) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            ce("div", { style: { padding: "0 16px 10px", fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, "Shown on your profile so people can see what you offer. " + views + (views === 1 ? " person" : " people") + " viewed it in the last 7 days."),
+            loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+            !loading && !items.length && ce("div", { style: { padding: "40px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 14 } }, "Your catalogue is empty. Tap + to add your first product or service."),
+            ce(CatalogGrid, { items, onTap: (it) => setForm({ id: it.id, name: it.name, price: it.price || "", description: it.description || "", photo: it.photo, newPhoto: null }) })));
+}
+// Visitor: browse someone's catalogue (opened from their profile)
+function CatalogViewer({ uid, name, token, onClose }) {
+    const ce = React.createElement;
+    const [items, setItems] = useState(null);
+    const [open, setOpen] = useState(null);
+    useEffect(() => {
+        api("/api/v1/catalog/" + uid, { token }).then((d) => setItems(d.items || [])).catch(() => setItems([]));
+        api("/api/v1/catalog/" + uid + "/view", { method: "POST", token }).catch(() => { });
+    }, [uid]);
+    return ce("div", { style: { position: "absolute", inset: 0, zIndex: 66, background: "#0E1116", display: "flex", flexDirection: "column" } },
+        ce(TopBar, { title: (name ? name.split(" ")[0] + "’s catalog" : "Catalog"), onBack: open ? () => setOpen(null) : onClose }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            items === null && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+            items && !items.length && ce("div", { style: { padding: "40px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 14 } }, "Nothing here yet."),
+            items && !open && ce(CatalogGrid, { items, onTap: setOpen }),
+            open && ce("div", { style: { padding: "0 16px 24px" } },
+                open.photo && ce("img", { src: photoSrc(open.photo), alt: open.name, style: { width: "100%", borderRadius: 14, display: "block", marginBottom: 14 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" } }, open.name),
+                open.price ? ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#35D0BA", marginTop: 4 } }, open.price) : null,
+                open.description ? ce("div", { style: { fontFamily: "Inter", fontSize: 15, color: "#D5DBE2", marginTop: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.45 } }, open.description) : null)));
+}
+// A row for someone's profile: shows only when they have catalogue items
+function ProfileCatalogRow({ uid, name, token }) {
+    const ce = React.createElement;
+    const [count, setCount] = useState(0);
+    const [open, setOpen] = useState(false);
+    useEffect(() => { let live = true; api("/api/v1/catalog/" + uid, { token }).then((d) => { if (live) setCount((d.items || []).length); }).catch(() => { }); return () => { live = false; }; }, [uid]);
+    if (!count) return null;
+    return ce("div", null,
+        ce("div", { onClick: () => setOpen(true), style: { display: "flex", alignItems: "center", gap: 18, padding: "12px 22px", cursor: "pointer" } },
+            ce(Grid3x3, { size: 22, color: "#8891A0" }),
+            ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, count + (count === 1 ? " item" : " items"))),
+            ce(ChevronRight, { size: 18, color: "#8891A0" })),
+        open && ce(CatalogViewer, { uid, name, token, onClose: () => setOpen(false) }));
+}
 
 function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => { } }) {
     const ce = React.createElement;
@@ -5852,7 +6029,7 @@ function App() {
   const [newGroupWith, setNewGroupWith] = useState(null); // contact to pre-select when "Create group with…" is tapped on a profile
   const [lastSeen, setLastSeen] = useState({});
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [toolsView, setToolsView] = useState(null); // "favs" | "privacy" | "help"
+  const [toolsView, setToolsView] = useState(null); const [showCatalog, setShowCatalog] = useState(false); // "favs" | "privacy" | "help"
   const [toast, setToast] = useState("");
   // group invite link: ?join=CODE is kept until the user is signed in and confirms
   const [joinCode, setJoinCode] = useState(() => {
@@ -6058,6 +6235,10 @@ function App() {
         onCall={startCall}
       />
     );
+  } else if (toolsView === "catalog") {
+    body = <CatalogScreen token={session.token} onBack={() => setToolsView(null)} />;
+  } else if (showCatalog) {
+    body = <CatalogScreen token={session.token} onBack={() => setShowCatalog(false)} />;
   } else if (toolsView === "favs") {
     body = <FavouritesScreen conversations={conversations} settings={settings} presence={presence} onBack={() => setToolsView(null)} onOpenChat={setActiveConvo} onToggleFavorite={toggleFavorite} />;
   } else if (toolsView === "privacy") {
@@ -6075,7 +6256,7 @@ function App() {
   } else if (toolsView === "help") {
     body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
   } else if (showEdit) {
-    body = <EditProfileScreen profile={session.user} token={session.token} onCatalog={() => { setShowEdit(false); setShowProfile(false); setTab("market"); }} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
+    body = <EditProfileScreen profile={session.user} token={session.token} onCatalog={() => setShowCatalog(true)} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
   } else if (showProfile) {
     body = <ProfileScreen profile={session.user} token={session.token} onUserUpdate={updateUser} onBack={() => setShowProfile(false)} onEdit={() => setShowEdit(true)} onLogOut={handleLogOut} />;
   } else {
