@@ -1067,6 +1067,78 @@ function canSeeStatus(db, viewerId, ownerId) { // people with a private chat in 
   if (!db.conversations.some((c) => !c.isGroup && c.participantIds.includes(viewerId) && c.participantIds.includes(ownerId))) return false;
   return !isBlockedEither(db.users.find((u) => u.id === viewerId), db.users.find((u) => u.id === ownerId));
 }
+// ---- business catalogue: items live on the owner's profile (separate from Market) ----
+const CAT_MAX = 30;
+const catView = (uid, c) => ({ id: c.id, name: c.name, price: c.price || "", description: c.description || "", photo: c.photo ? `/api/v1/catalog/${uid}/${c.id}/photo?v=${c.time}` : null, time: c.time });
+function catClean(body, partial) {
+  const b = body || {}, out = {};
+  if (!partial || b.name !== undefined) { const n = String(b.name || "").trim(); if (!n || [...n].length > 60) return { error: "Item name must be 1 to 60 characters" }; out.name = n; }
+  if (b.price !== undefined) { const p = String(b.price || "").trim(); if ([...p].length > 30) return { error: "Price can be up to 30 characters" }; out.price = p; }
+  if (b.description !== undefined) { const d = String(b.description || "").trim(); if ([...d].length > 500) return { error: "Description can be up to 500 characters" }; out.description = d; }
+  if (b.photo !== undefined && b.photo !== null) {
+    if (typeof b.photo !== "string" || !AVATAR_RE.test(b.photo) || !looksLikeImage(b.photo) || b.photo.length > 900000) return { error: "Photo must be a JPG or PNG under about 600 KB" };
+    out.photo = b.photo;
+  }
+  return { out };
+}
+app.get("/api/catalog/me", authMiddleware, (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.user.id);
+  if (!u) return res.status(404).json({ error: "User not found" });
+  const since = Date.now() - 7 * 86400000;
+  res.json({ items: (u.catalog || []).map((c) => catView(u.id, c)), views: new Set((u.catalogViews || []).filter((v) => v.t >= since).map((v) => v.by)).size });
+});
+app.get("/api/catalog/:uid/:id/photo", (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.params.uid);
+  sendImage(res, ((u && u.catalog) || []).find((c) => c.id === req.params.id)?.photo);
+});
+app.get("/api/catalog/:uid", authMiddleware, (req, res) => {
+  const db = readDB();
+  const owner = db.users.find((x) => x.id === req.params.uid), viewer = db.users.find((x) => x.id === req.user.id);
+  if (!owner || isBlockedEither(owner, viewer)) return res.status(404).json({ error: "Catalog not found" });
+  res.json({ items: (owner.catalog || []).map((c) => catView(owner.id, c)) });
+});
+app.post("/api/catalog/:uid/view", authMiddleware, (req, res) => {
+  const db = readDB();
+  const owner = db.users.find((x) => x.id === req.params.uid);
+  if (!owner || owner.id === req.user.id) return res.json({ ok: true });
+  const now = Date.now(), views = (owner.catalogViews || []).filter((v) => v.t >= now - 7 * 86400000);
+  if (!views.some((v) => v.by === req.user.id && v.t >= now - 86400000)) views.push({ by: req.user.id, t: now });
+  owner.catalogViews = views.slice(-500);
+  writeDB(db);
+  res.json({ ok: true });
+});
+app.post("/api/catalog", authMiddleware, (req, res) => {
+  const db = readDB();
+  const u = db.users.find((x) => x.id === req.user.id);
+  if (!u) return res.status(404).json({ error: "User not found" });
+  if ((u.catalog || []).length >= CAT_MAX) return res.status(400).json({ error: `Your catalogue can hold up to ${CAT_MAX} items` });
+  const r = catClean(req.body, false);
+  if (r.error) return res.status(400).json({ error: r.error });
+  const item = { id: nanoid(12), name: r.out.name, price: r.out.price || "", description: r.out.description || "", photo: r.out.photo || null, time: Date.now() };
+  u.catalog = [item, ...(u.catalog || [])];
+  writeDB(db);
+  res.json({ item: catView(u.id, item) });
+});
+app.patch("/api/catalog/:id", authMiddleware, (req, res) => {
+  const db = readDB();
+  const u = db.users.find((x) => x.id === req.user.id);
+  const item = u && (u.catalog || []).find((c) => c.id === req.params.id);
+  if (!item) return res.status(404).json({ error: "Item not found" });
+  const r = catClean(req.body, true);
+  if (r.error) return res.status(400).json({ error: r.error });
+  Object.assign(item, r.out, { time: Date.now() });
+  writeDB(db);
+  res.json({ item: catView(u.id, item) });
+});
+app.delete("/api/catalog/:id", authMiddleware, (req, res) => {
+  const db = readDB();
+  const u = db.users.find((x) => x.id === req.user.id);
+  if (!u || !(u.catalog || []).some((c) => c.id === req.params.id)) return res.status(404).json({ error: "Item not found" });
+  u.catalog = u.catalog.filter((c) => c.id !== req.params.id);
+  writeDB(db);
+  res.json({ ok: true });
+});
+
 function canSeeStatusItem(db, viewerId, s) { // contacts, plus anyone (or any group member) the post tags
   if (canSeeStatus(db, viewerId, s.userId)) return true;
   const owner = db.users.find((u) => u.id === s.userId), viewer = db.users.find((u) => u.id === viewerId);
