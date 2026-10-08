@@ -1146,9 +1146,12 @@ function canSeeStatusItem(db, viewerId, s) { // contacts, plus anyone (or any gr
   if (!owner || !viewer || isBlockedEither(viewer, owner)) return false;
   return (s.tags || []).some((t) => (t.type === "user" ? t.id === viewerId : db.conversations.some((c) => c.id === t.id && c.isGroup && c.participantIds.includes(viewerId))));
 }
+// who has viewed one of my updates (newest first), with the face/name the app shows and when they looked
+const statusViewers = (db, s) => (s.viewedBy || []).map((id) => { const v = memberView(db.users.find((u) => u.id === id)); return v ? { ...v, at: (s.viewedAt || {})[id] || null } : null; })
+  .filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0));
 const statusItem = (s, me, db) => ({ id: s.id, text: s.text || "", bg: s.bg || "#1E8677", photo: s.photo ? `/api/v1/status/${s.id}/photo?v=${s.time}` : null, time: s.time,
   music: s.music ? `/api/v1/status/${s.id}/music?v=${s.time}` : null, musicName: s.musicName || null, musicDur: s.musicDur || 0, tags: tagViews(db, s.tags),
-  seen: (s.viewedBy || []).includes(me), ...(s.userId === me ? { views: (s.viewedBy || []).length } : {}) });
+  seen: (s.viewedBy || []).includes(me), ...(s.userId === me ? { views: (s.viewedBy || []).length, viewers: statusViewers(db, s) } : {}) });
 app.get("/api/status", authMiddleware, (req, res) => {
   const db = readDB();
   const me = req.user.id;
@@ -1189,7 +1192,7 @@ app.post("/api/status/:id/view", authMiddleware, (req, res) => {
   const db = readDB();
   const s = statusesOf(db).find((x) => x.id === req.params.id);
   if (!s || !canSeeStatusItem(db, req.user.id, s)) return res.status(404).json({ error: "Status not found. It may have expired." });
-  if (s.userId !== req.user.id && !(s.viewedBy || (s.viewedBy = [])).includes(req.user.id)) { s.viewedBy.push(req.user.id); writeDB(db); }
+  if (s.userId !== req.user.id && !(s.viewedBy || (s.viewedBy = [])).includes(req.user.id)) { s.viewedBy.push(req.user.id); (s.viewedAt || (s.viewedAt = {}))[req.user.id] = Date.now(); writeDB(db); }
   res.json({ ok: true });
 });
 app.delete("/api/status/:id", authMiddleware, (req, res) => {
