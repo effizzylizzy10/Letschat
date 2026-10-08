@@ -218,6 +218,7 @@ function colorFor(id) {
 
 
 const app = express();
+app.use(require("./compress")()); // Brotli/gzip for JSON replies (no extra package needed)
 app.use(cors({ origin: CLIENT_ORIGIN === "*" ? "*" : CLIENT_ORIGIN.split(",") }));
 app.use(express.json({ limit: "10mb" })); // Increased for larger avatar images
 
