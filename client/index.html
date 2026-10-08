@@ -381,7 +381,7 @@ const LinkIcon = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.
 const ReplyIcon = makeIcon([["p", "M9 14 4 9l5-5"], ["p", "M20 20v-7a4 4 0 0 0-4-4H4"]]);
 const InfoIcon = makeIcon([["c", 12, 12, 10], ["p", "M12 16v-4"], ["p", "M12 8h.01"]]);
 const CopyIcon = makeIcon([["r", 9, 9, 13, 13, 2], ["p", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]]);
-const ForwardIcon = makeIcon([["p", "m15 17 5-5-5-5"], ["p", "M4 18v-2a4 4 0 0 1 4-4h12"]]);
+const ForwardIcon = makeIcon([["p", "M3 19v-2a5 5 0 0 1 5-5h9"], ["p", "m13 7 5 5-5 5"], ["p", "m17 7 5 5-5 5"]]);
 const MusicIcon = makeIcon([["p", "M9 18V5l12-2v13"], ["c", 6, 18, 3], ["c", 18, 16, 3]]);
 const RotateIcon = makeIcon([["p", "M6 2v14a2 2 0 0 0 2 2h14"], ["p", "M18 22V8a2 2 0 0 0-2-2H2"]]);
 const StickerIcon = makeIcon([["p", "M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"], ["p", "M15 3v6h6"], ["p", "M8 13h.01"], ["p", "M16 13h.01"], ["p", "M10 16s.8 1 2 1 2-1 2-1"]]);
@@ -4653,86 +4653,216 @@ function StatusComposer({ token, onClose, onPosted }) {
     const textPanel = panel === "text" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } }, ce("div", { style: { display: "flex", alignItems: "center", padding: "12px" } }, ce("button", { onClick: () => setPanel(null), style: { ...smallBtn, color: "#9BA7B4" } }, "Cancel"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: saveText, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")), ce("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" } }, ce("textarea", { autoFocus: true, value: txt.v, rows: 3, maxLength: 80, onChange: (e) => setTxt({ ...txt, v: e.target.value.split("\n").slice(0, 3).join("\n") }), placeholder: "Type something…", className: "lc-plain", style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: txt.c, fontFamily: "Sora", fontWeight: 700, fontSize: 30, textShadow: "0 2px 8px rgba(0,0,0,.6)" } })), ce("div", { style: { display: "flex", justifyContent: "center", gap: 12, padding: "10px 12px 24px" } }, STATUS_TEXT_COLORS.map((c) => dot(c, txt.c === c, () => setTxt({ ...txt, c })))));
     return ce("div", { role: "dialog", "aria-label": "New status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 65, background: "#000", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, top, error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })), ce("div", { ref: areaRef, style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, stage, selBar, musicChip), bottom, musicPanel, stickerPanel, textPanel);
 }
+// ---- status v2: story rail, search, starred, archive, privacy/mute, reactions + replies ----
+const STATUS_QUICK = ["😍", "😂", "😮", "😢", "🙏", "👍"];
+const statusPrefs = () => ({ receipts: true, archive: true, muted: [], ...(loadJSON("statusPrefs", {}) || {}) });
+async function statusThumb(src, w) { // small JPEG data URL so starred/archived updates survive the 24h clear
+    try {
+        const blob = await (await fetch(photoSrc(src))).blob();
+        const url = URL.createObjectURL(blob);
+        const img = await new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = url; });
+        const k = Math.min(1, (w || 420) / img.width), c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        return c.toDataURL("image/jpeg", 0.7);
+    } catch (e) { return null; }
+}
+const statusSnap = async (item, name) => ({ id: item.id, name, text: item.text || "", bg: item.bg, time: item.time, photo: item.photo ? await statusThumb(item.photo) : null });
 function StatusViewer({ groups, start, token, onClose, onChanged }) {
     const [g, setG] = useState(start);
     const [i, setI] = useState(0);
+    const [paused, setPaused] = useState(false);
+    const [menu, setMenu] = useState(false);
+    const [more, setMore] = useState(false);
+    const [reply, setReply] = useState("");
+    const [toast, setToast] = useState("");
+    const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
     const group = groups[g], item = group && group.items[i];
-    const next = () => { if (i + 1 < group.items.length)
-        setI(i + 1);
-    else if (g + 1 < groups.length) {
-        setG(g + 1);
-        setI(0);
-    }
-    else
-        onClose(); };
-    const prev = () => { if (i > 0)
-        setI(i - 1);
-    else if (g > 0) {
-        setG(g - 1);
-        setI(groups[g - 1].items.length - 1);
-    } };
+    const timer = useRef({ t: null, left: 0, at: 0 });
+    const next = () => { if (i + 1 < group.items.length) setI(i + 1); else if (g + 1 < groups.length) { setG(g + 1); setI(0); } else onClose(); };
+    const prev = () => { if (i > 0) setI(i - 1); else if (g > 0) { setG(g - 1); setI(groups[g - 1].items.length - 1); } };
+    const nextRef = useRef(next); nextRef.current = next;
+    const dur = item ? Math.max(5500, (item.musicDur || 0) * 1000) : 5500;
+    const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
+    useEffect(() => { setPaused(false); setMore(false); setMenu(false); setReply(""); }, [g, i]);
     useEffect(() => {
-        if (!item)
-            return;
-        if (!group.mine && !item.seen) {
-            api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { });
-        }
-        const t = setTimeout(next, Math.max(5500, (item.musicDur || 0) * 1000));
-        return () => clearTimeout(t);
+        if (!item) return;
+        if (!group.mine && !item.seen && statusPrefs().receipts) { api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { }); }
+        timer.current.left = dur;
     }, [g, i]);
-    useEffect(() => {
-        if (!item || !item.music)
-            return;
+    useEffect(() => { // run / pause the auto-advance timer (hold, menu, typing a reply or expanded caption pause it)
+        const t = timer.current;
+        if (!item) return;
+        if (paused || menu || more) { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } return; }
+        t.at = Date.now(); t.t = setTimeout(() => nextRef.current(), t.left);
+        return () => { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } };
+    }, [g, i, paused, menu, more]);
+    useEffect(() => { // play the trimmed music while this update is on screen
+        if (!item || !item.music) return;
         let audio = null, url = null, dead = false;
         fetch(photoSrc(item.music)).then((r) => r.blob()).then((b) => {
-            if (dead)
-                return;
-            url = URL.createObjectURL(b);
-            audio = new Audio(url);
-            audio.loop = true;
-            const p = audio.play();
-            if (p && p.catch)
-                p.catch(() => { });
+            if (dead) return;
+            url = URL.createObjectURL(b); audio = new Audio(url); audio.loop = true;
+            const p = audio.play(); if (p && p.catch) p.catch(() => { });
         }).catch(() => { });
-        return () => { dead = true; if (audio)
-            audio.pause(); if (url)
-            URL.revokeObjectURL(url); };
+        return () => { dead = true; if (audio) audio.pause(); if (url) URL.revokeObjectURL(url); };
     }, [g, i]);
-    if (!item)
-        return null;
+    if (!item) return null;
     const remove = async () => {
-        if (!window.confirm("Delete this status update?"))
-            return;
-        try {
-            await api("/api/v1/status/" + item.id, { method: "DELETE", token });
-            onChanged();
-            if (group.items.length === 1)
-                onClose();
-            else {
-                group.items.splice(i, 1);
-                setI(Math.max(0, i - 1));
-            }
-        }
+        if (!window.confirm("Delete this status update?")) return;
+        try { await api("/api/v1/status/" + item.id, { method: "DELETE", token }); onChanged(); if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } }
         catch { }
     };
-    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: k <= i ? "#fff" : "rgba(255,255,255,.35)" } }))), ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 2 } }, ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))), ce("button", { onClick: onClose, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 26, color: "#fff" }))), ce("div", { style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, item.photo && ce("img", { src: photoSrc(item.photo), alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }), !item.photo && ce("div", { style: { padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(item.text)), ce("div", { onClick: prev, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }), ce("div", { onClick: next, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })), ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)" } }, item.photo && item.text ? richText(item.text) : null, ce(TagPills, { tags: item.tags, light: true })), group.mine && ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } }, ce("span", { style: { flex: 1 } }, "Seen by " + (item.views || 0)), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")));
+    const isStar = starred.some((s) => s.id === item.id);
+    const toggleStar = async () => {
+        setMenu(false);
+        if (isStar) { const n = starred.filter((s) => s.id !== item.id); setStarred(n); saveJSON("statusStarred", n); return flash("Removed from Starred"); }
+        const snap = await statusSnap(item, group.mine ? "My status" : group.user.name);
+        const n = [snap, ...starred].slice(0, 30); setStarred(n); saveJSON("statusStarred", n); flash("Starred ⭐");
+    };
+    const muteUser = () => {
+        setMenu(false);
+        const p = statusPrefs(); if (!p.muted.includes(group.user.id)) saveJSON("statusPrefs", { ...p, muted: [...p.muted, group.user.id] });
+        flash("Muted " + group.user.name); onChanged(); setTimeout(onClose, 600);
+    };
+    const sendToOwner = async (text) => { // replies and reactions arrive as a private message from the viewer
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: group.user.id } });
+            const s = window.__lcSocket && window.__lcSocket();
+            if (!s) throw new Error("Not connected. Try again in a moment.");
+            const about = item.text ? ": “" + item.text.slice(0, 60) + (item.text.length > 60 ? "…" : "") + "”" : (item.photo ? " (photo)" : "");
+            s.emit("message:send", { conversationId: conversation.id, text: "↩ Status" + about + "\n" + text }, (ack) => { if (ack && ack.error) flash(ack.error); else flash("Sent to " + group.user.name); });
+        } catch (e) { flash((e && e.message) || "Could not send"); }
+    };
+    const sendReply = () => { const t = reply.trim(); if (!t) return; setReply(""); sendToOwner(t); };
+    const long = !!(item.photo && item.text && item.text.length > 110);
+    const hold = { onMouseDown: () => setPaused(true), onMouseUp: () => setPaused(false), onTouchStart: () => setPaused(true), onTouchEnd: () => setPaused(false) };
+    const mi = (label, fn, color) => ce("button", { key: label, onClick: fn, style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 18px", fontFamily: "Inter", fontSize: 14.5, color: color || "#E6EAF0", cursor: "pointer" } }, label);
+    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}"),
+        ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } },
+            ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more ? "paused" : "running" } })))),
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 3 } },
+            ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })),
+            ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
+            ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))),
+            ce("button", { onClick: () => setMenu(!menu), "aria-label": "More", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(MoreVertical, { size: 22, color: "#fff" })),
+            menu && ce("div", { style: { position: "absolute", top: 54, right: 12, background: "#1B212B", borderRadius: 12, minWidth: 190, boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden" } },
+                mi(isStar ? "Remove star" : "Star", toggleStar), !group.mine && mi("Mute " + group.user.name, muteUser), group.mine && mi("Delete", () => { setMenu(false); remove(); }, "#FF6B5D"))),
+        ce("div", Object.assign({ style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, hold),
+            item.photo && ce("img", { src: photoSrc(item.photo), alt: "", draggable: false, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }),
+            !item.photo && ce("div", { style: { padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(item.text)),
+            ce("div", { onClick: prev, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }),
+            ce("div", { onClick: next, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })),
+        ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { onClick: () => long && setMore(!more), style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)", maxHeight: more ? "45%" : undefined, overflowY: more ? "auto" : undefined, cursor: long ? "pointer" : "default" } },
+            item.photo && item.text ? (long && !more ? ce("span", null, richText(item.text.slice(0, 110).trim() + "… "), ce("b", null, "Read more")) : richText(item.text)) : null, ce(TagPills, { tags: item.tags, light: true })),
+        group.mine ? ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+            ce("span", { style: { flex: 1 } }, "Seen by " + (item.views || 0)),
+            ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete"))
+            : ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 20px", background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+                ce("input", { value: reply, onChange: (e) => setReply(e.target.value), onFocus: () => setPaused(true), onBlur: () => setPaused(false), onKeyDown: (e) => { if (e.key === "Enter") sendReply(); }, placeholder: "Reply", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,.14)", border: "none", outline: "none", borderRadius: 999, padding: "10px 16px", color: "#fff", fontFamily: "Inter", fontSize: 14.5 } }),
+                reply.trim() ? ce("button", { onClick: sendReply, "aria-label": "Send reply", style: { width: 38, height: 38, borderRadius: 19, border: "none", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ce(Send, { size: 18, color: "#06210F" }))
+                    : STATUS_QUICK.slice(0, 5).map((e) => ce("button", { key: e, onClick: () => sendToOwner(e + " reacted to your status"), "aria-label": "React " + e, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 2 } }, e))),
+        toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
 }
-function StatusScreen({ profile, token }) {
+// A tiny grid of saved updates (used by Starred and Archive)
+function StatusSaved({ title, list, empty, onBack, onRemove, top }) {
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title, onBack }),
+        top,
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 12px 24px" } },
+            !list.length && ce("div", { style: { padding: "40px 24px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, empty),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } }, list.map((s) =>
+                ce("div", { key: s.id, style: { position: "relative", aspectRatio: "9 / 16", borderRadius: 12, overflow: "hidden", background: s.bg || "#1E8677", display: "flex", alignItems: "center", justifyContent: "center" } },
+                    s.photo ? ce("img", { src: s.photo, alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { padding: 8, color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 12, textAlign: "center", wordBreak: "break-word" } }, (s.text || "").slice(0, 70)),
+                    ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "14px 6px 5px", background: "linear-gradient(transparent, rgba(0,0,0,.7))", color: "#fff", fontFamily: "Inter", fontSize: 10.5 } }, (s.name ? s.name + " · " : "") + new Date(s.time).toLocaleDateString()),
+                    ce("button", { onClick: () => onRemove(s.id), "aria-label": "Remove", style: { position: "absolute", top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" } }, ce(X, { size: 13, color: "#fff" })))))));
+}
+function StatusScreen({ profile, token, onSettings }) {
     const [data, setData] = useState({ mine: [], feed: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [composer, setComposer] = useState(false);
     const [view, setView] = useState(null); // { groups, start }
+    const [menu, setMenu] = useState(false);
+    const [searching, setSearching] = useState(false);
+    const [q, setQ] = useState("");
+    const [recents, setRecents] = useState(() => loadJSON("statusRecents", []));
+    const [sub, setSub] = useState(null); // "starred" | "privacy" | "archive"
+    const [prefs, setPrefs] = useState(statusPrefs);
+    const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
+    const [archive, setArchive] = useState(() => loadJSON("statusArchive", []));
     const F = getFeatures();
-    const load = useCallback(() => api("/api/v1/status", { token }).then((d) => { setData(d); setError(""); }).catch((e) => setError(e.message)).finally(() => setLoading(false)), [token]);
+    const setPref = (patch) => { const n = { ...prefs, ...patch }; setPrefs(n); saveJSON("statusPrefs", n); };
+    const load = useCallback(() => api("/api/v1/status", { token }).then((d) => { setData(d); setError(""); setPrefs(statusPrefs()); setStarred(loadJSON("statusStarred", [])); }).catch((e) => setError(e.message)).finally(() => setLoading(false)), [token]);
     useEffect(() => { load(); }, [load]);
+    useEffect(() => { // archive my own updates before the server clears them after 24h
+        if (!prefs.archive || !data.mine.length) return;
+        const have = new Set(loadJSON("statusArchive", []).map((s) => s.id)), fresh = data.mine.filter((s) => !have.has(s.id));
+        if (!fresh.length) return;
+        let dead = false;
+        Promise.all(fresh.map((s) => statusSnap(s, "My status"))).then((snaps) => { if (dead) return; const n = [...snaps, ...loadJSON("statusArchive", [])].slice(0, 60); saveJSON("statusArchive", n); setArchive(n); });
+        return () => { dead = true; };
+    }, [data.mine.map((s) => s.id).join(","), prefs.archive]);
     const mineGroup = { mine: true, user: profile, items: data.mine };
     const open = (groups, start) => setView({ groups, start });
-    const addTap = () => { if (!F.status)
-        return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setComposer(true); };
-    const row = (key, ring, title, sub, onClick, right) => ce("div", { key, onClick, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", cursor: "pointer" } }, ring, ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, sub)), right);
-    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "Status" }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, error && ce(Banner, { text: error, onClose: () => setError("") }), row("mine", ce("div", { style: { position: "relative" } }, ce(Ring, { size: 52, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: data.mine.length > 0 }), ce("div", { onClick: (e) => { e.stopPropagation(); addTap(); }, style: { position: "absolute", bottom: -1, right: -1, width: 19, height: 19, borderRadius: "50%", background: F.status ? "#35D0BA" : "#5B6673", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #0E1116" } }, ce(Plus, { size: 12, color: "#0E1116" }))), "My status", data.mine.length ? data.mine.length + (data.mine.length === 1 ? " update" : " updates") + " · " + ago(data.mine[data.mine.length - 1].time) : F.status ? "Tap to add a status update" : "Status upload is turned off", () => (data.mine.length ? open([mineGroup], 0) : addTap())), loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"), !loading && data.feed.length > 0 && ce("div", { style: { padding: "14px 16px 4px", fontFamily: "Inter", fontSize: 12, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.5 } }, "Recent updates"), data.feed.map((g, k) => row(g.user.id, ce(Ring, { size: 52, color: g.allSeen ? "#5B6673" : g.user.color, initials: g.user.initials, photo: g.user.avatar, ring: true }), g.user.name, g.items.length + (g.items.length === 1 ? " update" : " updates") + " · " + ago(g.latest), () => open(data.feed, k))), !loading && !data.feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")), composer && ce(StatusComposer, { token, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }), view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load }));
+    const addTap = () => { if (!F.status) return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setComposer(true); };
+    const feed = data.feed.filter((gr) => !prefs.muted.includes(gr.user.id)).slice().sort((a, b) => (a.allSeen === b.allSeen ? b.latest - a.latest : a.allSeen ? 1 : -1));
+    const mutedFeed = data.feed.filter((gr) => prefs.muted.includes(gr.user.id));
+    const needle = q.trim().toLowerCase();
+    const hits = needle ? feed.filter((gr) => gr.user.name.toLowerCase().includes(needle) || gr.items.some((it) => (it.text || "").toLowerCase().includes(needle))) : [];
+    const remember = (t) => { const n = [t, ...recents.filter((x) => x !== t)].slice(0, 8); setRecents(n); saveJSON("statusRecents", n); };
+    const openFrom = (gr) => { remember(gr.user.name); open(feed, feed.indexOf(gr)); };
+    const iconBtn = (label, child, fn) => ce("button", { key: label, onClick: fn, "aria-label": label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, child);
+    const head = (t) => ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, t);
+    const row = (key, ring, title, sub2, onClick, right) => ce("div", { key, onClick, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", cursor: "pointer" } }, ring, ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, sub2)), right);
+    if (sub === "starred") return ce(StatusSaved, { title: "Starred", list: starred, empty: "Star a status update from its ⋮ menu to keep a copy here.", onBack: () => setSub(null), onRemove: (id) => { const n = starred.filter((s) => s.id !== id); setStarred(n); saveJSON("statusStarred", n); } });
+    if (sub === "archive") return ce(StatusSaved, { title: "Status archive", list: archive, empty: "Nothing archived yet. New updates you post are saved here.", onBack: () => setSub(null), onRemove: (id) => { const n = archive.filter((s) => s.id !== id); setArchive(n); saveJSON("statusArchive", n); },
+        top: ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Archive my status updates"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Keep a copy on this device after your update disappears.")), ce(Toggle, { on: prefs.archive, onChange: (v) => setPref({ archive: v }) })) });
+    if (sub === "privacy") return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Status privacy", onBack: () => setSub(null) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "View receipts"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Let people know when you have seen their status. Turn off to view privately.")), ce(Toggle, { on: prefs.receipts, onChange: (v) => setPref({ receipts: v }) })),
+            head("Muted updates"),
+            !mutedFeed.length && ce("div", { style: { padding: "6px 16px 16px", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No muted contacts. Mute someone from the ⋮ menu while viewing their status."),
+            mutedFeed.map((gr) => row(gr.user.id, ce(Ring, { size: 44, color: "#5B6673", initials: gr.user.initials, photo: gr.user.avatar, ring: false }), gr.user.name, "Muted", null, ce("button", { onClick: () => setPref({ muted: prefs.muted.filter((x) => x !== gr.user.id) }), style: smallBtn }, "Unmute")))));
+    const card = (key, onClick, bgNode, label, ringColor, avatar) => ce("div", { key, onClick, style: { flex: "0 0 auto", width: 96, height: 156, borderRadius: 14, overflow: "hidden", position: "relative", cursor: "pointer", background: "#161C25", border: "1px solid #1F2733" } },
+        bgNode, avatar,
+        ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 6px 6px", background: "linear-gradient(transparent, rgba(0,0,0,.75))", color: "#fff", fontFamily: "Inter", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "center" } }, label));
+    const thumb = (gr) => { const it = gr.items[gr.items.length - 1]; return it.photo ? ce("img", { src: photoSrc(it.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { width: "100%", height: "100%", background: it.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, boxSizing: "border-box", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 11, textAlign: "center", wordBreak: "break-word", overflow: "hidden" } }, (it.text || "").slice(0, 50)); };
+    const topRight = ce("div", { style: { display: "flex", alignItems: "center", gap: 6, position: "relative" } },
+        iconBtn("Search status", ce(Search, { size: 22, color: "#F5F7FA" }), () => { setSearching(true); setQ(""); }),
+        iconBtn("Menu", ce(MoreVertical, { size: 22, color: "#F5F7FA" }), () => setMenu(!menu)),
+        menu && ce("div", { style: { position: "absolute", top: 40, right: 0, background: "#1B212B", borderRadius: 12, minWidth: 210, boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden", zIndex: 30 } },
+            [["Status privacy", () => setSub("privacy")], ["Starred", () => setSub("starred")], ["Status archive settings", () => setSub("archive")], ["Settings", () => onSettings && onSettings()]].map(([l, fn]) =>
+                ce("button", { key: l, onClick: () => { setMenu(false); fn(); }, style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", cursor: "pointer" } }, l))));
+    const searchBar = ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "#0E1116", flexShrink: 0 } },
+        iconBtn("Back", ce(ArrowLeft, { size: 22, color: "#F5F7FA" }), () => { setSearching(false); setQ(""); }),
+        ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search status", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }),
+        q && iconBtn("Clear", ce(X, { size: 18, color: "#8891A0" }), () => setQ("")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        searching ? searchBar : ce(TopBar, { title: "Status", right: topRight }),
+        searching ? ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            !needle && recents.length > 0 && ce("div", { style: { display: "flex", alignItems: "center", padding: "6px 16px" } }, ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Recent searches"), ce("button", { onClick: () => { setRecents([]); saveJSON("statusRecents", []); }, style: smallBtn }, "Clear all")),
+            !needle && recents.map((t) => row("r" + t, ce(Search, { size: 20, color: "#5B6673" }), t, "", () => setQ(t), ce("button", { onClick: (e) => { e.stopPropagation(); const n = recents.filter((x) => x !== t); setRecents(n); saveJSON("statusRecents", n); }, "aria-label": "Remove", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 16, color: "#5B6673" })))),
+            needle && hits.map((gr) => row(gr.user.id, ce(Ring, { size: 48, color: gr.allSeen ? "#5B6673" : gr.user.color, initials: gr.user.initials, photo: gr.user.avatar, ring: true }), gr.user.name, gr.items.length + (gr.items.length === 1 ? " new status" : " new statuses") + " · " + ago(gr.latest), () => openFrom(gr))),
+            needle && !hits.length && ce("div", { style: { padding: "30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, "No status updates match “" + q.trim() + "”."))
+            : ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" }, onClick: () => menu && setMenu(false) },
+                error && ce(Banner, { text: error, onClose: () => setError("") }),
+                ce("div", { style: { display: "flex", gap: 10, overflowX: "auto", padding: "4px 16px 14px" } },
+                    card("add", () => (data.mine.length ? open([mineGroup], 0) : addTap()),
+                        data.mine.length ? thumb(mineGroup) : ce("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: 18 } }, ce(Ring, { size: 52, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: false })),
+                        data.mine.length ? "My status" : "Add status", null,
+                        ce("div", { onClick: (e) => { e.stopPropagation(); addTap(); }, "aria-label": "Add status", style: { position: "absolute", top: 8, left: 8, width: 26, height: 26, borderRadius: 13, background: F.status ? "#35D0BA" : "#5B6673", border: "2px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Plus, { size: 15, color: "#0E1116" }))),
+                    feed.map((gr, k) => card(gr.user.id, () => { remember(gr.user.name); open(feed, k); }, thumb(gr), gr.user.name, null,
+                        ce("div", { style: { position: "absolute", top: 8, left: 8 } }, ce(Ring, { size: 34, color: gr.allSeen ? "#5B6673" : gr.user.color, initials: gr.user.initials, photo: gr.user.avatar, ring: true }))))),
+                data.mine.length > 0 && row("mine", ce(Ring, { size: 48, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true }), "My status", data.mine.length + (data.mine.length === 1 ? " update" : " updates") + " · " + ago(data.mine[data.mine.length - 1].time) + " · " + data.mine.reduce((n, s) => n + (Number(s.views) || 0), 0) + " views", () => open([mineGroup], 0)),
+                loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+                !loading && !feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")),
+        composer && ce(StatusComposer, { token, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }),
+        view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load }));
 }
+
 // ---- Tools > Sounds & features ----
 function FeaturesScreen({ onBack }) {
     const [f, setF] = useState(getFeatures);
@@ -5422,75 +5552,103 @@ function MessageInfoSheet({ m, conversation, myId, onClose }) {
                     reactions.map(([id, e]) => row(nameOf(id), React.createElement("span", { style: { fontSize: 20 } }, e), "e" + id))))))));
 }
 // ---- forward one or more messages to other chats ----
-function ForwardSheet({ msgs, conversations, socket, onClose }) {
-    const [chosen, setChosen] = useState([]);
-    const [q, setQ] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [err, setErr] = useState("");
-    const needle = q.trim().toLowerCase();
-    const list = conversations.filter(c => c && c.other && (!needle || String(c.other.name).toLowerCase().includes(needle)));
-    const toggle = (id) => setChosen(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
-    const go = async () => {
-        if (!chosen.length || busy)
-            return;
-        if (!socket)
-            return setErr("Not connected yet. Try again in a moment.");
-        setBusy(true);
-        setErr("");
-        const ordered = [...msgs].sort((x, y) => x.time - y.time);
-        let failed = "";
-        for (const cid of chosen) {
-            for (const m of ordered) {
-                const payload = { conversationId: cid, forwarded: true };
-                if (m.audio) {
-                    payload.audio = m.audio;
-                    payload.duration = m.duration;
-                }
-                else if (m.file && m.file.data)
-                    payload.file = { name: m.file.name, mime: m.file.mime, size: m.file.size, data: m.file.data };
-                else if (m.hasAudio || m.file) {
-                    failed = "Open the voice note or file once so it loads, then forward it.";
-                    continue;
-                }
-                else
-                    payload.text = m.text;
-                await new Promise((resolve) => {
-                    const t = setTimeout(resolve, 8000);
-                    socket.emit("message:send", payload, (ack) => { clearTimeout(t); if (ack && ack.error)
-                        failed = ack.error; resolve(); });
-                });
-            }
-        }
-        setBusy(false);
-        if (failed)
-            setErr(failed);
-        else
-            onClose(true);
-    };
-    return (React.createElement("div", { style: { ...sheet, zIndex: 65 }, onClick: () => onClose(false) },
-        React.createElement("div", { onClick: e => e.stopPropagation(), style: { ...card, height: "78%" } },
-            React.createElement("div", { style: { display: "flex", alignItems: "center", marginBottom: 10 } },
-                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } },
-                    "Forward ",
-                    msgs.length > 1 ? msgs.length + " messages" : "message",
-                    " to\u2026"),
-                React.createElement("button", { "aria-label": "Close", onClick: () => onClose(false), style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } },
-                    React.createElement(X, { size: 20, color: "#8891A0" }))),
-            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "9px 11px", marginBottom: 8 } },
-                React.createElement(Search, { size: 16, color: "#8891A0" }),
-                React.createElement("input", { value: q, onChange: e => setQ(e.target.value), placeholder: "Search chats", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } })),
-            React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
-                list.length === 0 && React.createElement("div", { style: { padding: 20, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No chats found"),
-                list.map(c => {
-                    const on = chosen.includes(c.id);
-                    return (React.createElement("div", { key: c.id, onClick: () => toggle(c.id), style: { display: "flex", alignItems: "center", gap: 12, padding: "9px 4px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
-                        React.createElement(Ring, { size: 40, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }),
-                        React.createElement("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
-                        React.createElement("span", { style: { width: 22, height: 22, borderRadius: 11, border: on ? "none" : "2px solid #3A4452", background: on ? "#35D0BA" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && React.createElement(Check, { size: 14, color: "#0E1116", strokeWidth: 3 }))));
-                })),
-            err && React.createElement("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, marginTop: 8 } }, err),
-            React.createElement("button", { onClick: go, disabled: !chosen.length || busy, style: { ...primaryBtn(busy || !chosen.length), marginTop: 10 } }, busy ? "Sending…" : "Send" + (chosen.length ? " (" + chosen.length + ")" : "")))));
+function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
+  const h = React.createElement;
+  const [chosen, setChosen] = useState([]);       // chat ids
+  const [toStatus, setToStatus] = useState(false); // also post to my status
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const needle = q.trim().toLowerCase();
+  const all = conversations.filter(c => c && c.other);
+  const byRecent = all.slice().sort((a, b) => ((b.lastMessage && b.lastMessage.time) || 0) - ((a.lastMessage && a.lastMessage.time) || 0));
+  const match = (c) => !needle || String(c.other.name).toLowerCase().includes(needle);
+  const frequent = needle ? [] : byRecent.filter(c => !c.isGroup).slice(0, 3);
+  const recent = byRecent.filter(c => match(c) && !frequent.includes(c));
+  const total = chosen.length + (toStatus ? 1 : 0);
+  const toggle = (id) => setChosen(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+  const chosenNames = [...(toStatus ? ["My status"] : []), ...chosen.map(id => { const c = all.find(x => x.id === id); return c ? c.other.name : ""; })].filter(Boolean).join(", ");
+  const sub = (c) => (c.isGroup && c.members ? c.members.map(m => m.name).filter(Boolean).slice(0, 6).join(", ") : "");
+  const toJpeg = (dataUrl) => new Promise((ok) => { // statuses accept JPG/PNG up to ~1 MB: re-encode chat photos
+    const im = new Image();
+    im.onload = () => { const k = Math.min(1, 1280 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.8)); };
+    im.onerror = () => ok(null); im.src = dataUrl;
+  });
+  const postStatus = async (ordered) => {
+    let skipped = 0;
+    for (const m of ordered) {
+      if (m.file && m.file.data && /^data:image\//.test(m.file.data)) {
+        const photo = await toJpeg(m.file.data); if (!photo) { skipped++; continue; }
+        await api("/api/v1/status", { method: "POST", token, body: { photo } });
+      } else if (!m.audio && !m.file && !m.hasAudio && m.text) {
+        const chars = [...String(m.text)];
+        for (let i = 0; i < chars.length; i += 300) await api("/api/v1/status", { method: "POST", token, body: { text: chars.slice(i, i + 300).join("") } });
+      } else skipped++;
+    }
+    return skipped;
+  };
+  const go = async () => {
+    if (!total || busy) return;
+    if (chosen.length && !socket) return setErr("Not connected yet. Try again in a moment.");
+    setBusy(true); setErr("");
+    const ordered = [...msgs].sort((x, y) => x.time - y.time);
+    let failed = "";
+    for (const cid of chosen) {
+      for (const m of ordered) {
+        const payload = { conversationId: cid, forwarded: true };
+        if (m.audio) { payload.audio = m.audio; payload.duration = m.duration; }
+        else if (m.file && m.file.data) payload.file = { name: m.file.name, mime: m.file.mime, size: m.file.size, data: m.file.data };
+        else if (m.hasAudio || m.file) { failed = "Open the voice note or file once so it loads, then forward it."; continue; }
+        else payload.text = m.text;
+        await new Promise((resolve) => {
+          const t = setTimeout(resolve, 8000);
+          socket.emit("message:send", payload, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); });
+        });
+      }
+      if (note.trim()) await new Promise((resolve) => { const t = setTimeout(resolve, 8000); socket.emit("message:send", { conversationId: cid, text: note.trim() }, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); }); });
+    }
+    if (toStatus) {
+      try { const skipped = await postStatus(ordered); if (skipped) failed = failed || (skipped + (skipped === 1 ? " message" : " messages") + " could not go to your status (only text and photos can).") ; }
+      catch (e) { failed = failed || (e && e.message) || "Could not post to your status"; }
+    }
+    setBusy(false);
+    if (failed) setErr(failed); else onClose(true);
+  };
+  const iconBtn = (label, child, fn) => h("button", { key: label, "aria-label": label, onClick: fn, style: { background: "none", border: "none", cursor: "pointer", padding: 8, display: "flex" } }, child);
+  const circle = (on) => h("span", { style: { width: 24, height: 24, borderRadius: 12, border: on ? "none" : "2px solid #5B6673", background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && h(Check, { size: 15, color: "#06210F", strokeWidth: 3 }));
+  const label = (t) => h("div", { key: "l" + t, style: { padding: "14px 16px 6px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, t);
+  const row = (key, avatar, name, subtitle, on, fn) => h("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 14, padding: "9px 16px", cursor: "pointer" } },
+    avatar,
+    h("div", { style: { flex: 1, minWidth: 0 } },
+      h("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, name),
+      subtitle ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, subtitle) : null),
+    circle(on));
+  const chatRow = (c, pre) => row(pre + c.id, h(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }), c.other.name, sub(c), chosen.includes(c.id), () => toggle(c.id));
+  const showStatusRow = !needle || "my status".includes(needle);
+  return h("div", { style: { position: "absolute", inset: 0, zIndex: 65, background: "#0B1014", display: "flex", flexDirection: "column" } },
+    h("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "10px 8px 10px 6px", flexShrink: 0 } },
+      iconBtn("Back", h(ArrowLeft, { size: 24, color: "#F5F7FA" }), () => (searching ? (setSearching(false), setQ("")) : onClose(false))),
+      searching
+        ? h("input", { autoFocus: true, value: q, onChange: e => setQ(e.target.value), placeholder: "Search…", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } })
+        : h("div", { style: { flex: 1, minWidth: 0 } },
+          h("div", { style: { fontFamily: "Sora", fontWeight: 500, fontSize: total ? 17 : 21, color: "#F5F7FA" } }, "Forward to…"),
+          total ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, total + " selected") : null),
+      !searching && iconBtn("Search", h(Search, { size: 22, color: "#F5F7FA" }), () => setSearching(true))),
+    h("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+      showStatusRow && row("status", h("div", { style: { width: 46, height: 46, borderRadius: 23, background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Radio, { size: 22, color: "#06210F" })), "My status", "My contacts", toStatus, () => setToStatus(v => !v)),
+      frequent.length > 0 && label("Frequently contacted"), frequent.map(c => chatRow(c, "f")),
+      recent.length > 0 && label("Recent chats"), recent.map(c => chatRow(c, "r")),
+      !showStatusRow && !frequent.length && !recent.length && h("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 14 } }, "No chats found")),
+    err && h("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, padding: "6px 16px" } }, err),
+    total > 0 && h("div", { style: { flexShrink: 0, padding: "8px 12px 12px", background: "#0B1014", borderTop: "1px solid #1B212B" } },
+      h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+        h("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "#1B232C", borderRadius: 999, padding: "11px 16px" } }, chosenNames),
+        h("button", { "aria-label": "Send", onClick: go, disabled: busy, style: { width: 52, height: 52, borderRadius: 26, border: "none", background: "#21C063", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, busy ? h("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : h(Send, { size: 24, color: "#06210F" })))));
 }
+
 function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, onMute = () => { }, onReport = () => { }, onNewGroup = () => { }, focus = null }) {
     const [msgs, setMsgs] = useState([]);
     const [draft, setDraft] = useState("");
@@ -6063,7 +6221,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                             padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
                         } },
                         isGroup && !mine && React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 } }, sender ? sender.name : "Former member"),
-                        m.forwarded && !mine && !m.deleted && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, fontStyle: "italic", color: "#B9C2CC", marginBottom: 3 } },
+                        m.forwarded && !m.deleted && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, fontStyle: "italic", color: "#B9C2CC", marginBottom: 3 } },
                             React.createElement(ForwardIcon, { size: 13, color: "#B9C2CC" }),
                             "Forwarded"),
                         m.replyTo && !m.deleted && (React.createElement("div", { onClick: () => jumpTo(m.replyTo.id), style: { background: mine ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.06)", borderLeft: "4px solid " + (m.replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), borderRadius: 8, padding: "5px 9px", marginBottom: 6, cursor: "pointer", minWidth: 120 } },
@@ -6179,7 +6337,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         sheetName === "media" && React.createElement(MediaDocsSheet, { msgs: msgs, conversation: conversation, myId: myId, onOpenImage: setViewer, onClose: () => setSheetName(null) }),
         sheetName === "mute" && React.createElement(MuteSheet, { onPick: (d) => { setSheetName(null); onMute(conversation.id, d); }, onClose: () => setSheetName(null) }),
         msgInfo && React.createElement(MessageInfoSheet, { m: msgInfo, conversation: conversation, myId: myId, onClose: () => setMsgInfo(null) }),
-        fwd && React.createElement(ForwardSheet, { msgs: fwd, conversations: conversations, socket: socket, onClose: () => setFwd(null) }),
+        fwd && React.createElement(ForwardSheet, { msgs: fwd, token: token, conversations: conversations, socket: socket, onClose: () => setFwd(null) }),
         peerInfo && !isGroup && React.createElement(ContactProfileSheet, { u: conversation.other, online: online, lastSeen: lastSeen[conversation.other.id], conversation: conversation, conversations: conversations, msgs: msgs, myId: myId, isFav: isFav, iBlocked: iBlocked, muted: !!muteUntil, onVoice: featOn("voiceCalls") ? () => { setPeerInfo(false); onCall(conversation, false); } : null, onVideo: featOn("videoCalls") ? () => { setPeerInfo(false); onCall(conversation, true); } : null, onToggleFavorite: () => onToggleFavorite(conversation.id), onNotifications: () => { if (muteUntil)
                 onMute(conversation.id, "off");
             else
@@ -6865,6 +7023,7 @@ function App() {
         return loadJSON("pendingCall", null);
     });
     const socketRef = useRef(null);
+  window.__lcSocket = () => socketRef.current;
     const callApi = useRef(null);
     const startCall = (conversation, video) => { if (callApi.current)
         callApi.current.start(conversation, video); };
@@ -7110,7 +7269,7 @@ function App() {
                 tab === "calls" && React.createElement(CallsScreen, { conversations: conversations, onCall: startCall }),
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
                 React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games") }),
-                tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token }),
+                tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token, onSettings: () => setTab("tools") }),
                 tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowEdit(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
                 showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, initialPicked: newGroupWith ? [newGroupWith] : [], onClose: () => { setShowNewGroup(false); setNewGroupWith(null); }, onCreated: (conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); } }),
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),

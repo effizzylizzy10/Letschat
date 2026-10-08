@@ -1,0 +1,1870 @@
+// Letschat Africa server -- realtime chat backend
+//
+// Storage: a single JSON file (data/db.json). Fine for a small demo / two
+// people testing on real phones. Swap `readDB`/`writeDB` for a real database
+// (Postgres, Mongo, etc.) later without touching the routes or socket logic.
+//
+// Auth: Firebase Authentication (phone SMS code + Google). The browser signs in
+// with Firebase, sends us the Firebase ID token, we verify it and issue our own
+// session JWT. Needs env vars: FIREBASE_PROJECT_ID and JWT_SECRET.
+
+require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
+const http = require("http");
+const express = require("express");
+const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const { nanoid } = require("nanoid");
+const { Server } = require("socket.io");
+const admin = require("firebase-admin");
+const { createClient } = require("@supabase/supabase-js");
+
+if (!process.env.FIREBASE_PROJECT_ID) console.warn("WARNING: set FIREBASE_PROJECT_ID, sign-in will fail without it.");
+admin.initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID }); // used only to verify sign-in tokens
+
+// Storage is Supabase (Postgres) when SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set,
+// otherwise a local JSON file (testing only, lost on every restart on Render).
+const USE_DB = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabase = USE_DB
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
+  : null;
+if (!USE_DB) console.warn("WARNING: Supabase not configured, using a local file. Data is lost whenever the host restarts.");
+
+const PORT = process.env.PORT || 4000;
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+if (JWT_SECRET === "dev-secret-change-me") console.warn("WARNING: set JWT_SECRET in your environment variables!");
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
+
+const DB_PATH = path.join(__dirname, "data", "db.json");
+
+// ---- storage ----
+// Supabase mode: everything is loaded into memory at startup (routes stay fast and
+// synchronous) and every change is saved to Postgres right after (write-through).
+// Each row is { id, data jsonb }. Correct for a single server instance (Render).
+const COLLECTIONS = ["users", "conversations", "messages", "listings", "statuses"];
+const EPHEMERAL = ["listings", "statuses"]; // cleared after 24h; their tables are optional until created
+const ready = { listings: true, statuses: true }; // false if lc_listings / lc_statuses has not been created yet
+let marketReady = true; // (kept for the market code below; mirrors ready.listings)
+const table = (c) => "lc_" + c;
+let cache = null;
+const saved = new Map(); // "collection/id" -> JSON last written
+let flushChain = Promise.resolve();
+
+function emptyDB() { return { users: [], conversations: [], messages: [], listings: [], statuses: [] }; }
+function fileRead() {
+  if (!fs.existsSync(DB_PATH)) return emptyDB();
+  try { return JSON.parse(fs.readFileSync(DB_PATH, "utf-8")); } catch { return emptyDB(); }
+}
+function fileWrite(db) {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+}
+
+async function persist() {
+  for (const c of COLLECTIONS) {
+    if (ready[c] === false) continue;
+    const changed = [];
+    for (const item of cache[c] || []) {
+      const key = c + "/" + item.id;
+      const json = JSON.stringify(item);
+      if (saved.get(key) !== json) changed.push({ key, json, row: { id: item.id, data: item } });
+    }
+    for (let i = 0; i < changed.length; i += 100) {
+      const chunk = changed.slice(i, i + 100);
+      const { error } = await supabase.from(table(c)).upsert(chunk.map((o) => o.row));
+      if (error) throw new Error(error.message);
+      for (const o of chunk) saved.set(o.key, o.json);
+    }
+  }
+  // listings and statuses are cleared every 24h: delete their rows too, otherwise they would come back on restart
+  for (const c of EPHEMERAL) {
+    if (ready[c] === false) continue;
+    const live = new Set((cache[c] || []).map((l) => l.id));
+    const prefix = c + "/";
+    const gone = [...saved.keys()].filter((k) => k.startsWith(prefix) && !live.has(k.slice(prefix.length)));
+    for (let i = 0; i < gone.length; i += 100) {
+      const chunk = gone.slice(i, i + 100);
+      const { error } = await supabase.from(table(c)).delete().in("id", chunk.map((k) => k.slice(prefix.length)));
+      if (error) throw new Error(error.message);
+      for (const k of chunk) saved.delete(k);
+    }
+  }
+}
+
+async function initDB() {
+  if (!USE_DB) return;
+  cache = emptyDB();
+  for (const c of COLLECTIONS) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from(table(c)).select("id,data").order("id").range(from, from + 999);
+      if (error && EPHEMERAL.includes(c)) { ready[c] = false; if (c === "listings") marketReady = false; console.warn(`Table ${table(c)} not found: ${c === "listings" ? "Market" : "Status"} is off until you create it.`); break; }
+      if (error) throw new Error(`Could not read ${table(c)}: ${error.message} (did you run schema.sql?)`);
+      for (const r of data) { cache[c].push(r.data); saved.set(c + "/" + r.id, JSON.stringify(r.data)); }
+      if (data.length < 1000) break;
+    }
+  }
+  cache.messages.sort((a, b) => a.time - b.time);
+  if (COLLECTIONS.every((c) => cache[c].length === 0) && fs.existsSync(DB_PATH)) {
+    cache = fileRead();
+    await persist();
+    console.log("Imported data/db.json into Supabase");
+  }
+  console.log(`Supabase ready: ${cache.users.length} users, ${cache.conversations.length} conversations, ${cache.messages.length} messages`);
+}
+
+function readDB() { return USE_DB ? cache : fileRead(); }
+function writeDB(db) {
+  if (!USE_DB) return fileWrite(db);
+  cache = db;
+  flushChain = flushChain.then(persist).catch((e) => console.error("Supabase save failed:", e.message));
+}
+
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+function findByPhone(db, phone) {
+  return phone ? db.users.find((u) => u.phone && normalizePhone(u.phone) === phone) : null;
+}
+// Usernames: 3-20 characters, a-z 0-9 _ . and at least one letter (so they can never be mistaken for a phone number).
+const USERNAME_RE = /^(?=.*[a-z])[a-z0-9_.]{3,20}$/;
+const normalizeUsername = (s) => String(s || "").trim().replace(/^@/, "").toLowerCase();
+function findByUsername(db, name) {
+  const n = normalizeUsername(name);
+  return n ? db.users.find((u) => u.username === n) : null;
+}
+// "@john" or "john_k" -> username, "a@b.com" -> email, digits -> phone number
+function findByContact(db, query) {
+  const q = String(query || "").trim();
+  if (q.startsWith("@")) return findByUsername(db, q);
+  if (q.includes("@")) return db.users.find((u) => u.email === q.toLowerCase());
+  if (/[a-z]/i.test(q)) return findByUsername(db, q);
+  return findByPhone(db, normalizePhone(q));
+}
+const NOT_FOUND_MSG = "No Letschat Africa user with that username, phone number or email";
+function initials(name) {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?"
+  );
+}
+// Uploaded photos are stored as data URLs but sent to clients as a small cacheable
+// URL (served by /api/users/:id/avatar). The ?v= part changes whenever the photo does.
+function avatarUrl(u) {
+  if (!u.avatar) return null;
+  if (u.avatar.startsWith("data:image/")) return `/api/v1/users/${u.id}/avatar?v=${u.avatarVersion || 1}`;
+  return u.avatar; // e.g. a Google profile photo link
+}
+// Blue verification badge: set VERIFIED_USERS on the server to a comma-separated list of emails,
+// phone numbers (with country code) or user ids, e.g. VERIFIED_USERS=you@gmail.com,2348012345678
+const VERIFIED_LIST = (process.env.VERIFIED_USERS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+const isVerified = (u) => !!u && VERIFIED_LIST.some((v) => v === String(u.id).toLowerCase() || (u.email && v === String(u.email).toLowerCase()) || (!v.includes("@") && u.phone && v.replace(/\D/g, "") && v.replace(/\D/g, "") === normalizePhone(u.phone)));
+function publicUser(u) {
+  return {
+    id: u.id,
+    verified: isVerified(u),
+    name: u.name,
+    phone: u.phone || null, email: u.email || null,
+    username: u.username || null,
+    about: u.about,
+    initials: u.initials,
+    color: u.color,
+    avatar: avatarUrl(u),
+    business: u.business || undefined, // optional: { category, address, hours, open } for business accounts
+  };
+}
+// Group members only see each other's name/photo/about, never phone numbers or emails.
+const memberView = (u, withContact) => (u ? { id: u.id, verified: isVerified(u), name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
+function groupView(db, c, uid) {
+  const msgs = db.messages.filter((m) => m.conversationId === c.id);
+  return {
+    id: c.id, isGroup: true, name: c.name, adminId: c.adminId, description: c.description || "",
+    avatar: c.avatar ? `/api/v1/groups/${c.id}/avatar?v=${c.avatarVersion || 1}` : null,
+    dmRequests: (c.dmRequests || []).filter((r) => (c.adminId === uid ? r.status === "pending" : r.from === uid)),
+    members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
+    inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
+    lastMessage: lite(msgs[msgs.length - 1]) || null,
+    unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
+    updatedAt: c.updatedAt || c.createdAt,
+  };
+}
+// Chat lists only need a preview, never the audio/file bytes.
+function lite(m) {
+  if (!m || (!m.audio && !m.file)) return m;
+  const { audio, file, ...rest } = m;
+  return { ...rest, ...(audio ? { hasAudio: true } : {}), ...(file ? { file: { name: file.name, mime: file.mime, size: file.size } } : {}) };
+}
+// A sender only sees "read" ticks if both sides keep read receipts on.
+function receiptView(db, m, viewer, convo) {
+  if (!m || m.senderId !== viewer.id) return m;
+  const on = (id) => { const u = db.users.find((x) => x.id === id); return !!u && privacyOf(u).readReceipts; };
+  if (!privacyOf(viewer).readReceipts) { const { readAt, readTimes, ...rest } = m; return { ...rest, read: false, readBy: [] }; }
+  if (convo && convo.isGroup) { const ok = (m.readBy || []).filter(on); const rt = {}; for (const id of ok) if (m.readTimes && m.readTimes[id]) rt[id] = m.readTimes[id]; return { ...m, readBy: ok, readTimes: rt }; }
+  const otherId = convo && convo.participantIds.find((id) => id !== viewer.id);
+  if (otherId && !on(otherId)) { const { readAt, ...rest } = m; return { ...rest, read: false }; }
+  return m;
+}
+const PALETTE = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#5B6673", "#4FA8E0"];
+function colorFor(id) {
+  let sum = 0;
+  for (const ch of id) sum += ch.charCodeAt(0);
+  return PALETTE[sum % PALETTE.length];
+}
+
+
+const app = express();
+app.use(cors({ origin: CLIENT_ORIGIN === "*" ? "*" : CLIENT_ORIGIN.split(",") }));
+app.use(express.json({ limit: "10mb" })); // Increased for larger avatar images
+
+
+// =====================================================================
+// Standard API layer
+//  - Canonical base path: /api/v1  (the old /api/... paths still work)
+//  - Every response: { success: true, data } or { success: false, error: { code, message } }
+//  - Every response carries an X-Request-Id header; rate limits send X-RateLimit-* headers
+// =====================================================================
+app.set("trust proxy", 1);
+const API_VERSION = "1.0.0";
+const ERROR_CODES = { 400: "BAD_REQUEST", 401: "UNAUTHORIZED", 403: "FORBIDDEN", 404: "NOT_FOUND", 409: "CONFLICT", 413: "PAYLOAD_TOO_LARGE", 429: "RATE_LIMITED" };
+
+app.use((req, res, next) => {
+  if (req.url.startsWith("/api/v1")) req.url = "/api" + req.url.slice("/api/v1".length);
+  next();
+});
+// Profile photos: plain image response, registered before the JSON wrapper and rate
+// limiter so a chat list full of avatars never trips the limit. Browsers cache it.
+app.get("/api/users/:id/avatar", (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.params.id);
+  const m = u && u.avatar && /^data:(image\/(?:jpeg|png));base64,(.+)$/s.exec(u.avatar);
+  if (!m) return res.status(404).type("text/plain").send("No photo");
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.type(m[1]).send(Buffer.from(m[2], "base64"));
+});
+
+function sendImage(res, dataUrl) {
+  const m = dataUrl && /^data:(image\/(?:jpeg|png));base64,(.+)$/s.exec(dataUrl);
+  if (!m) return res.status(404).type("text/plain").send("No photo");
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.type(m[1]).send(Buffer.from(m[2], "base64"));
+}
+app.get("/api/groups/:id/avatar", (req, res) => sendImage(res, (readDB().conversations.find((x) => x.id === req.params.id) || {}).avatar));
+app.get("/api/status/:id/photo", (req, res) => sendImage(res, (statusesOf(readDB()).find((x) => x.id === req.params.id) || {}).photo));
+app.get("/api/status/:id/music", (req, res) => {
+  const s = statusesOf(readDB()).find((x) => x.id === req.params.id);
+  const m = s && s.music && /^data:audio\/wav;base64,(.+)$/s.exec(s.music);
+  if (!m) return res.status(404).type("text/plain").send("No music");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.type("audio/wav").send(Buffer.from(m[1], "base64"));
+});
+app.get("/api/market/:id/photo", (req, res) => sendImage(res, (listingsOf(readDB()).find((x) => x.id === req.params.id && !x.removed) || {}).photo));
+
+app.use("/api", (req, res, next) => {
+  res.setHeader("X-Request-Id", nanoid(10));
+  const send = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode < 400) return send({ success: true, data: body });
+    const b = body || {};
+    const code = b.newUser ? "NAME_REQUIRED" : ERROR_CODES[res.statusCode] || "INTERNAL_ERROR";
+    return send({ success: false, error: { code, message: b.error || "Request failed" } });
+  };
+  next();
+});
+
+function rateLimit({ windowMs, max }) {
+  const hits = new Map();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of hits) if (now - v.start > windowMs) hits.delete(k);
+  }, windowMs).unref();
+  return (req, res, next) => {
+    const now = Date.now();
+    let h = hits.get(req.ip);
+    if (!h || now - h.start > windowMs) { h = { start: now, count: 0 }; hits.set(req.ip, h); }
+    h.count++;
+    res.setHeader("X-RateLimit-Limit", max);
+    res.setHeader("X-RateLimit-Remaining", Math.max(0, max - h.count));
+    if (h.count > max) {
+      res.setHeader("Retry-After", Math.ceil((h.start + windowMs - now) / 1000));
+      return res.status(429).json({ error: "Too many requests. Slow down and try again shortly." });
+    }
+    next();
+  };
+}
+app.use("/api", rateLimit({ windowMs: 60000, max: 300 }));
+app.use("/api/auth", rateLimit({ windowMs: 60000, max: 20 }));
+
+app.get("/api", (req, res) => res.json({ name: "Letschat Africa API", version: API_VERSION, base: "/api/v1", docs: "/api/v1/openapi.json" }));
+app.get("/api/openapi.json", (req, res) => {
+  try { res.type("json").send(fs.readFileSync(path.join(__dirname, "openapi.json"), "utf-8")); }
+  catch { res.status(404).json({ error: "openapi.json not found" }); }
+});
+
+function signToken(user) {
+  return jwt.sign({ sub: user.id }, JWT_SECRET, { expiresIn: "90d" });
+}
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: "Missing token" });
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const db = readDB();
+    const user = db.users.find((u) => u.id === payload.sub);
+    if (!user) return res.status(401).json({ error: "Unknown user" });
+    req.user = user;
+    next();
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+app.get("/api/health", (req, res) => res.json({ ok: true, storage: USE_DB ? "supabase" : "file", version: API_VERSION, uptime: Math.round(process.uptime()) }));
+
+app.post("/api/auth/firebase", async (req, res) => {
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(String(req.body.idToken || ""));
+  } catch (e) {
+    console.error("Firebase token check failed:", e.message);
+    return res.status(401).json({ error: "Sign-in could not be verified. Please try again." });
+  }
+  const phone = decoded.phone_number ? normalizePhone(decoded.phone_number) : null;
+  const email = decoded.email && decoded.email_verified ? decoded.email.toLowerCase() : null;
+
+  const db = readDB();
+  let user =
+    db.users.find((u) => u.firebaseUid === decoded.uid) ||
+    findByPhone(db, phone) ||
+    (email && db.users.find((u) => u.email === email)) ||
+    null;
+
+  if (!user) {
+    const name = String(decoded.name || req.body.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Name required for new accounts", newUser: true });
+    user = {
+      id: nanoid(10),
+      firebaseUid: decoded.uid,
+      phone,
+      email,
+      name,
+      about: "Hey there! I'm using Letschat Africa.",
+      initials: initials(name),
+      color: colorFor(decoded.uid),
+      avatar: decoded.picture || null,
+      createdAt: Date.now(),
+    };
+    db.users.push(user);
+    writeDB(db);
+  } else {
+    let changed = false;
+    if (!user.firebaseUid) { user.firebaseUid = decoded.uid; changed = true; }
+    if (phone && !user.phone) { user.phone = phone; changed = true; }
+    if (email && !user.email) { user.email = email; changed = true; }
+    if (changed) writeDB(db);
+  }
+  res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+app.get("/api/me", authMiddleware, (req, res) => {
+  res.json({ user: publicUser(req.user) });
+});
+
+const AVATAR_RE = /^data:image\/(jpeg|png);base64,/;
+function looksLikeImage(dataUrl) {
+  // check the real file signature, not just the label the browser gave it
+  const head = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1, dataUrl.indexOf(",") + 17), "base64");
+  const jpg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  const png = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+  return jpg || png;
+}
+
+// ---- business-style profile details (category, hours, description, address, links, business email) ----
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+function cleanBusiness(b) {
+  if (!b || typeof b !== "object" || Array.isArray(b)) return { error: "Business details are not valid" };
+  const text = (v, max, label) => { const t = String(v == null ? "" : v).trim(); if (t.length > max) throw new Error(label + " must be " + max + " characters or fewer"); return t; };
+  try {
+    const out = {};
+    if (b.category !== undefined) out.category = text(b.category, 120, "Category");
+    if (b.description !== undefined) out.description = text(b.description, 256, "Description");
+    if (b.address !== undefined) out.address = text(b.address, 200, "Address");
+    for (const k of ["website", "instagram", "facebook"]) {
+      if (b[k] === undefined) continue;
+      const t = text(b[k], 200, k[0].toUpperCase() + k.slice(1));
+      if (/\s/.test(t)) throw new Error("The " + k + " link can't contain spaces");
+      out[k] = t;
+    }
+    if (b.email !== undefined) {
+      const t = text(b.email, 120, "Business email");
+      if (t && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) throw new Error("That business email doesn't look right");
+      out.email = t;
+    }
+    if (b.days !== undefined) {
+      if (!Array.isArray(b.days) || b.days.length !== 7) throw new Error("Opening hours must list all 7 days");
+      out.days = b.days.map((d, i) => {
+        const mode = d && d.mode;
+        if (!["24h", "closed", "custom"].includes(mode)) throw new Error("Opening hours for " + WEEKDAYS[i] + " are not valid");
+        if (mode !== "custom") return { mode };
+        if (!TIME_RE.test(String(d.from)) || !TIME_RE.test(String(d.to))) throw new Error("Use a valid opening and closing time for " + WEEKDAYS[i]);
+        return { mode, from: d.from, to: d.to };
+      });
+      const label = (d) => (d.mode === "24h" ? "Open 24 hours" : d.mode === "closed" ? "Closed" : d.from + "\u2013" + d.to);
+      const parts = []; let i = 0;
+      while (i < 7) { let j = i; while (j + 1 < 7 && label(out.days[j + 1]) === label(out.days[i])) j++; parts.push((j > i ? WEEKDAYS[i].slice(0, 3) + "\u2013" + WEEKDAYS[j].slice(0, 3) : WEEKDAYS[i].slice(0, 3)) + " " + label(out.days[i])); i = j + 1; }
+      out.hours = parts.length === 1 && out.days[0].mode === "24h" ? "Open 24 hours" : parts.join(", ");
+    }
+    return { value: out };
+  } catch (e) { return { error: e.message }; }
+}
+app.patch("/api/me", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  const { name, about, avatar, username } = req.body;
+
+  // validate everything first so a bad request changes nothing
+  if (name !== undefined) {
+    const n = String(name).trim();
+    if (!n || n.length > 60) return res.status(400).json({ error: "Name must be 1 to 60 characters" });
+  }
+  if (typeof about === "string" && about.length > 139) {
+    return res.status(400).json({ error: "About must be 139 characters or fewer" });
+  }
+  let newUsername; // undefined = unchanged, "" = remove
+  if (username !== undefined && username !== null) {
+    newUsername = normalizeUsername(username);
+    if (newUsername && !USERNAME_RE.test(newUsername)) return res.status(400).json({ error: "Username must be 3 to 20 characters: letters, numbers, _ or . (at least one letter)" });
+    if (newUsername && db.users.some((u) => u.id !== user.id && u.username === newUsername)) return res.status(409).json({ error: "That username is already taken" });
+  }
+  let newBiz;
+  if (req.body.business !== undefined && req.body.business !== null) {
+    const r = cleanBusiness(req.body.business);
+    if (r.error) return res.status(400).json({ error: r.error });
+    newBiz = r.value;
+  }
+  const newPhoto = typeof avatar === "string" && avatar.startsWith("data:");
+  if (newPhoto) {
+    if (!AVATAR_RE.test(avatar) || !looksLikeImage(avatar)) return res.status(400).json({ error: "Profile photo must be a JPG or PNG image" });
+    if (avatar.length > 1500000) return res.status(400).json({ error: "Profile photo is too large (max about 1 MB)" });
+  }
+
+  if (name) {
+    user.name = String(name).trim();
+    user.initials = initials(user.name);
+  }
+  if (typeof about === "string") user.about = about.trim();
+  if (newBiz) { user.business = { ...(user.business || {}), ...newBiz }; if (newBiz.hours !== undefined) delete user.business.open; }
+  if (newUsername !== undefined) { if (newUsername) user.username = newUsername; else delete user.username; }
+  if (newPhoto) { user.avatar = avatar; user.avatarVersion = Date.now(); }
+  else if (avatar === null) { user.avatar = null; user.avatarVersion = Date.now(); }
+  // any other avatar value (e.g. the unchanged photo link) is ignored
+  writeDB(db);
+
+  const pub = publicUser(user);
+  io.emit("user:update", pub); // lets the people you chat with see the new photo right away
+  res.json({ user: pub });
+});
+
+// ---- shareable profile link: ?chat=CODE opens a direct message with the owner ----
+// The code is separate from the user id, so the id is never exposed and the owner can reset the link.
+function ensureProfileCode(db, user) {
+  if (!user.profileCode) { user.profileCode = nanoid(16); writeDB(db); }
+  return user.profileCode;
+}
+app.get("/api/me/profile-link", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  res.json({ code: ensureProfileCode(db, user) });
+});
+app.post("/api/me/profile-link/reset", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  user.profileCode = nanoid(16); // old link stops working immediately
+  writeDB(db);
+  res.json({ code: user.profileCode });
+});
+// ---- favourites, privacy and blocked contacts (stored on the user, so they follow the account to any device) ----
+const privacyOf = (u) => ({ readReceipts: !(u.privacy && u.privacy.readReceipts === false), lastSeen: u.privacy && u.privacy.lastSeen === "nobody" ? "nobody" : "everyone" });
+const hidesPresence = (u) => !!u && privacyOf(u).lastSeen === "nobody";
+// muted chats: { conversationId: untilTimestampMs } where 0 means "always"
+function mutedOf(db, u) {
+  const out = {}, now = Date.now();
+  for (const [id, until] of Object.entries(u.muted || {})) {
+    if ((until === 0 || until > now) && db.conversations.some((c) => c.id === id && c.participantIds.includes(u.id))) out[id] = until;
+  }
+  return out;
+}
+// ---- business-style tools: greeting message, away message, quick replies (kept on the account) ----
+const bizText = (v) => String(v == null ? "" : v).trim().slice(0, 1000);
+function bizOf(u) {
+  const b = (u && u.biz) || {};
+  return {
+    greeting: { on: !!(b.greeting && b.greeting.on), text: bizText(b.greeting && b.greeting.text) },
+    away: { on: !!(b.away && b.away.on), text: bizText(b.away && b.away.text) },
+    quickReplies: (Array.isArray(b.quickReplies) ? b.quickReplies : []).slice(0, 50)
+      .map((q) => ({ id: String((q && q.id) || "").slice(0, 24), shortcut: String((q && q.shortcut) || "").trim().replace(/^\/+/, "").slice(0, 24), text: bizText(q && q.text) }))
+      .filter((q) => q.id && q.shortcut && q.text),
+  };
+}
+function settingsView(db, u) {
+  return {
+    biz: bizOf(u),
+    favorites: (u.favorites || []).filter((id) => db.conversations.some((c) => c.id === id && c.participantIds.includes(u.id))),
+    privacy: privacyOf(u),
+    muted: mutedOf(db, u),
+    blocked: (u.blocked || []).map((id) => db.users.find((x) => x.id === id)).filter(Boolean).map(publicUser),
+  };
+}
+function sendPresenceFor(user) { // tell everyone the user's new visibility right away
+  if (hidesPresence(user)) io.emit("presence:update", { userId: user.id, online: false });
+  else if (userSockets.has(user.id)) io.emit("presence:update", { userId: user.id, online: true });
+  else if (lastSeen.has(user.id)) io.emit("presence:update", { userId: user.id, online: false, lastSeen: lastSeen.get(user.id) });
+}
+app.get("/api/me/settings", authMiddleware, (req, res) => res.json(settingsView(readDB(), req.user)));
+app.patch("/api/me/settings", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const p = (req.body && req.body.privacy) || {};
+  if (p.readReceipts !== undefined && typeof p.readReceipts !== "boolean") return res.status(400).json({ error: "readReceipts must be true or false" });
+  if (p.lastSeen !== undefined && !["everyone", "nobody"].includes(p.lastSeen)) return res.status(400).json({ error: "lastSeen must be everyone or nobody" });
+  user.privacy = { ...privacyOf(user), ...(p.readReceipts !== undefined ? { readReceipts: p.readReceipts } : {}), ...(p.lastSeen !== undefined ? { lastSeen: p.lastSeen } : {}) };
+  const bz = req.body && req.body.biz;
+  if (bz && typeof bz === "object") {
+    const cur = bizOf(user);
+    for (const k of ["greeting", "away"]) {
+      if (bz[k] === undefined) continue;
+      if (!bz[k] || typeof bz[k] !== "object") return res.status(400).json({ error: k + " must be an object" });
+      if (bz[k].on !== undefined && typeof bz[k].on !== "boolean") return res.status(400).json({ error: k + ".on must be true or false" });
+      const text = bz[k].text !== undefined ? bizText(bz[k].text) : cur[k].text;
+      const on = bz[k].on !== undefined ? bz[k].on : cur[k].on;
+      if (on && !text) return res.status(400).json({ error: "Write the message before turning it on" });
+      cur[k] = { on, text };
+    }
+    if (bz.quickReplies !== undefined) {
+      if (!Array.isArray(bz.quickReplies) || bz.quickReplies.length > 50) return res.status(400).json({ error: "quickReplies must be a list of up to 50" });
+      cur.quickReplies = bz.quickReplies.map((q) => ({ id: String((q && q.id) || nanoid(8)).slice(0, 24), shortcut: String((q && q.shortcut) || "").trim().replace(/^\/+/, "").slice(0, 24), text: bizText(q && q.text) })).filter((q) => q.shortcut && q.text);
+    }
+    user.biz = { ...(user.biz || {}), ...cur };
+  }
+  writeDB(db);
+  if (p.lastSeen !== undefined) sendPresenceFor(user);
+  res.json(settingsView(db, user));
+});
+// ===================== WEB PUSH (alerts when the app is closed) =====================
+// Needs env vars VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (and optionally VAPID_SUBJECT) on the host.
+// Without them push is simply switched off and everything else works as before.
+let webpush = null;
+try { webpush = require("web-push"); } catch { console.warn("web-push is not installed: run `npm install` to enable push notifications."); }
+const PUSH_ON = !!(webpush && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+if (PUSH_ON) webpush.setVapidDetails(process.env.VAPID_SUBJECT || "https://letschat-taupe.vercel.app", process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+else console.warn("Push notifications are OFF: set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.");
+
+app.get("/api/push/key", (req, res) => {
+  if (!PUSH_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
+  res.json({ key: process.env.VAPID_PUBLIC_KEY });
+});
+app.post("/api/push/subscribe", authMiddleware, (req, res) => {
+  if (!PUSH_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
+  const s = (req.body && req.body.subscription) || {};
+  const k = s.keys || {};
+  if (typeof s.endpoint !== "string" || !/^https:\/\//.test(s.endpoint) || s.endpoint.length > 1000 || typeof k.p256dh !== "string" || typeof k.auth !== "string" || k.p256dh.length > 200 || k.auth.length > 100)
+    return res.status(400).json({ error: "Invalid push subscription" });
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const subs = (user.pushSubs || []).filter((x) => x.endpoint !== s.endpoint);
+  subs.push({ endpoint: s.endpoint, keys: { p256dh: k.p256dh, auth: k.auth }, preview: req.body.preview !== false, groups: req.body.groups !== false, time: Date.now() });
+  user.pushSubs = subs.slice(-5); // at most 5 devices per person
+  writeDB(db);
+  res.json({ ok: true });
+});
+app.post("/api/push/unsubscribe", authMiddleware, (req, res) => {
+  const endpoint = req.body && req.body.endpoint;
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (user && user.pushSubs && typeof endpoint === "string") { user.pushSubs = user.pushSubs.filter((x) => x.endpoint !== endpoint); writeDB(db); }
+  res.json({ ok: true });
+});
+
+// true when the person has the app open on screen right now (no push needed, they see it live)
+function userIsActive(id) {
+  for (const sid of userSockets.get(id) || []) { const s = io.sockets.sockets.get(sid); if (s && s.data.visible !== false) return true; }
+  return false;
+}
+function pushMessage(db, convo, message, senderId) {
+  if (!PUSH_ON) return;
+  const sender = db.users.find((u) => u.id === senderId);
+  const title = convo.isGroup ? ((sender && sender.name) || "Someone") + " \u00B7 " + (convo.name || "Group") : (sender && sender.name) || "Letschat Africa";
+  for (const id of convo.participantIds) {
+    if (id === senderId || userIsActive(id)) continue;
+    const u = db.users.find((x) => x.id === id);
+    if (!u || !(u.pushSubs || []).length || (u.blocked || []).includes(senderId)) continue;
+    if (mutedOf(db, u)[convo.id] !== undefined) continue; // this chat is muted for that person
+    for (const sub of u.pushSubs) {
+      if (convo.isGroup && sub.groups === false) continue;
+      const body = sub.preview === false ? "New message" : String(message.text || "New message").slice(0, 140);
+      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "conv-" + convo.id, url: "./" }), { TTL: 86400, urgency: "high" })
+        .catch((err) => {
+          if (err && (err.statusCode === 404 || err.statusCode === 410)) { // device unsubscribed: forget it
+            const d2 = readDB(), u2 = d2.users.find((x) => x.id === id);
+            if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
+          }
+        });
+    }
+  }
+}
+
+app.post("/api/me/favorites", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const { conversationId, favorite } = req.body || {};
+  const c = db.conversations.find((x) => x.id === conversationId);
+  if (!c || !c.participantIds.includes(user.id)) return res.status(404).json({ error: "Conversation not found" });
+  const set = new Set(user.favorites || []);
+  if (favorite === false) set.delete(c.id); else set.add(c.id);
+  user.favorites = [...set];
+  writeDB(db);
+  res.json(settingsView(db, user));
+});
+app.post("/api/me/muted", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const { conversationId, duration } = req.body || {};
+  const c = db.conversations.find((x) => x.id === conversationId);
+  if (!c || !c.participantIds.includes(user.id)) return res.status(404).json({ error: "Conversation not found" });
+  const map = { ...(user.muted || {}) };
+  if (duration === null || duration === undefined || duration === "off") delete map[c.id];
+  else if (duration === "8h") map[c.id] = Date.now() + 8 * 3600 * 1000;
+  else if (duration === "1w") map[c.id] = Date.now() + 7 * 24 * 3600 * 1000;
+  else if (duration === "always") map[c.id] = 0;
+  else return res.status(400).json({ error: "duration must be 8h, 1w, always or off" });
+  user.muted = map;
+  writeDB(db);
+  res.json(settingsView(db, user));
+});
+// report a contact or group (stored for review)
+app.post("/api/me/report", authMiddleware, (req, res) => {
+  const db = readDB();
+  const { userId, conversationId, reason } = req.body || {};
+  const target = userId ? db.users.find((u) => u.id === userId) : null;
+  const convo = conversationId ? db.conversations.find((c) => c.id === conversationId && c.participantIds.includes(req.user.id)) : null;
+  if (!target && !convo) return res.status(404).json({ error: "Nothing to report" });
+  if (target && target.id === req.user.id) return res.status(400).json({ error: "You can't report yourself" });
+  db.reports = db.reports || [];
+  db.reports.push({ id: nanoid(10), reporterId: req.user.id, userId: target ? target.id : null, conversationId: convo ? convo.id : null, reason: String(reason || "").slice(0, 300), time: Date.now() });
+  if (db.reports.length > 2000) db.reports = db.reports.slice(-2000);
+  writeDB(db);
+  res.json({ ok: true });
+});
+app.post("/api/me/blocked", authMiddleware, (req, res) => {
+  const db = readDB();
+  const user = db.users.find((u) => u.id === req.user.id);
+  const { userId, blocked } = req.body || {};
+  if (!userId || userId === user.id || !db.users.some((u) => u.id === userId)) return res.status(400).json({ error: "Choose a valid contact" });
+  const set = new Set(user.blocked || []);
+  if (blocked === false) set.delete(userId); else set.add(userId);
+  user.blocked = [...set];
+  writeDB(db);
+  res.json(settingsView(db, user));
+});
+
+app.get("/api/users/profile/:code", authMiddleware, (req, res) => {
+  const user = readDB().users.find((u) => u.profileCode && u.profileCode === req.params.code);
+  if (!user) return res.status(404).json({ error: "This profile link is invalid or has been reset" });
+  res.json({ user: memberView(user, false), self: user.id === req.user.id });
+});
+
+// Phonebook discovery: the client sends the numbers the person chose to share, we answer with the ones that are registered.
+app.post("/api/users/match", authMiddleware, (req, res) => {
+  const list = Array.isArray(req.body && req.body.phones) ? req.body.phones.slice(0, 1000) : [];
+  const db = readDB();
+  const byDigits = new Map();
+  for (const u of db.users) { const d = normalizePhone(u.phone); if (d && u.id !== req.user.id) byDigits.set(d, u); }
+  const matches = {};
+  for (const raw of list) {
+    const d = normalizePhone(raw).replace(/^00/, "");
+    if (d.length < 7 || d.length > 15) continue;
+    let u = byDigits.get(d);
+    if (!u && d.startsWith("0")) { // local format (0813...) -> compare with the end of the international number
+      const tail = d.slice(1);
+      for (const [k, v] of byDigits) if (k.length > tail.length && k.endsWith(tail)) { u = v; break; }
+    }
+    if (u) matches[String(raw)] = publicUser(u);
+  }
+  res.json({ matches });
+});
+app.get("/api/users/lookup", authMiddleware, (req, res) => {
+  const q = req.query.q || req.query.phone;
+  if (!q) return res.status(400).json({ error: "q query param required (username, phone number or email)" });
+  const db = readDB();
+  const user = findByContact(db, q);
+  if (!user) return res.status(404).json({ error: NOT_FOUND_MSG });
+  if (user.id === req.user.id) return res.status(400).json({ error: "That's you" });
+  res.json({ user: publicUser(user) });
+});
+
+app.get("/api/conversations", authMiddleware, (req, res) => {
+  const db = readDB();
+  const mine = db.conversations.filter((c) => c.participantIds.includes(req.user.id));
+  const enriched = mine
+    .map((c) => {
+      if (c.isGroup) return groupView(db, c, req.user.id);
+      const otherId = c.participantIds.find((id) => id !== req.user.id);
+      const other = db.users.find((u) => u.id === otherId);
+      const msgs = db.messages.filter((m) => m.conversationId === c.id);
+      const last = msgs[msgs.length - 1] || null;
+      return {
+        id: c.id,
+        other: other ? publicUser(other) : { id: otherId, name: "Unknown", initials: "?", color: "#5B6673" },
+        lastMessage: lite(last),
+        unread: msgs.filter((m) => m.senderId !== req.user.id && !m.read).length,
+        updatedAt: c.updatedAt || c.createdAt,
+        createdAt: c.createdAt || 0,
+      };
+    })
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  res.json({ conversations: enriched });
+});
+
+app.post("/api/conversations", authMiddleware, (req, res) => {
+  const db = readDB();
+  const byCode = !!req.body.profileCode; // the owner shared this link, so no group/listing check is needed
+  const byId = !byCode && !!req.body.userId;
+  const other = byCode
+    ? db.users.find((u) => u.profileCode && u.profileCode === String(req.body.profileCode))
+    : byId ? db.users.find((u) => u.id === req.body.userId) : findByContact(db, req.body.phone || req.body.q || req.body.username);
+  if (!other) return res.status(404).json({ error: NOT_FOUND_MSG });
+  if (other.id === req.user.id) return res.status(400).json({ error: "That's you" });
+
+  let convo = db.conversations.find(
+    (c) => !c.isGroup && c.participantIds.includes(req.user.id) && c.participantIds.includes(other.id)
+  );
+  if (!convo && byId && !canDM(db, req.user.id, other.id)) return res.status(403).json({ error: "Ask the group admin to approve a private chat first" });
+  if (!convo) {
+    convo = {
+      id: nanoid(12),
+      participantIds: [req.user.id, other.id],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    db.conversations.push(convo);
+    writeDB(db);
+    joinUserToRoom(other.id, `conv:${convo.id}`);
+  }
+  res.json({ conversation: { id: convo.id, other: publicUser(other) } });
+});
+
+app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
+  const db = readDB();
+  const convo = db.conversations.find((c) => c.id === req.params.id);
+  if (!convo || !convo.participantIds.includes(req.user.id)) {
+    return res.status(404).json({ error: "Conversation not found" });
+  }
+  const all = db.messages.filter((m) => m.conversationId === req.params.id);
+  let changed = false;
+  for (const m of all) {
+    if (m.senderId === req.user.id) continue;
+    if (convo.isGroup) {
+      if (!(m.readBy || (m.readBy = [])).includes(req.user.id)) { m.readBy.push(req.user.id); (m.readTimes || (m.readTimes = {}))[req.user.id] = Date.now(); changed = true; }
+    } else if (!m.read) { m.read = true; m.readAt = Date.now(); changed = true; }
+  }
+  if (changed) writeDB(db);
+  // pagination: ?limit=1..500 (default 200) and ?before=<timestamp ms> for older pages
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
+  const before = Number(req.query.before) || Infinity;
+  const since = Number(req.query.since) || 0; // ?since=<ms>: the first `limit` messages from that moment on (jump to an old search result)
+  const older = all.filter((m) => m.time < before);
+  const page = since ? all.filter((m) => m.time >= since).slice(0, limit) : older.slice(-limit);
+  res.json({ messages: page.map((m) => receiptView(db, m, req.user, convo)), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
+});
+
+// ---- search: keyword suggestions + matching messages from your chats and groups ----
+// Only text messages in conversations you are in are searched (voice notes, photos, files and deleted messages are skipped).
+const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'\u2019_-]*/gu;
+function searchMessages(db, userId, rawQuery) {
+  const raw = String(rawQuery || "").trim().toLowerCase().slice(0, 100);
+  const tokens = raw.split(/\s+/).filter(Boolean).slice(0, 6);
+  if (!tokens.length) return { query: "", suggestions: [], results: [] };
+  const mine = new Set(db.conversations.filter((c) => c.participantIds.includes(userId)).map((c) => c.id));
+  const last = tokens[tokens.length - 1], head = tokens.slice(0, -1);
+  const prefix = new Map(), inside = new Map(); // word -> how many messages use it
+  const hits = [];
+  for (const m of db.messages) {
+    if (!mine.has(m.conversationId) || m.deleted || m.audio || m.file || typeof m.text !== "string") continue;
+    const low = m.text.toLowerCase();
+    if (tokens.every((t) => low.includes(t))) hits.push(m);
+    if (head.length && !head.every((t) => low.includes(t))) continue;
+    const seen = new Set();
+    for (const w of low.match(WORD_RE) || []) {
+      const word = w.replace(/['\u2019_-]+$/, "");
+      if (word.length < 2 || word === last || seen.has(word) || !word.includes(last)) continue;
+      seen.add(word);
+      const bucket = word.startsWith(last) ? prefix : last.length >= 3 ? inside : null;
+      if (bucket) bucket.set(word, (bucket.get(word) || 0) + 1);
+    }
+  }
+  const rank = (map) => [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length || (a[0] < b[0] ? -1 : 1));
+  const suggestions = [...rank(prefix), ...rank(inside)].slice(0, 8).map(([word, count]) => ({ text: [...head, word].join(" "), count }));
+  const results = hits.sort((a, b) => b.time - a.time).slice(0, 50)
+    .map((m) => ({ id: m.id, conversationId: m.conversationId, senderId: m.senderId, mine: m.senderId === userId, time: m.time, text: m.text.slice(0, 500) }));
+  return { query: raw, suggestions, results };
+}
+app.get("/api/search", authMiddleware, (req, res) => res.json(searchMessages(readDB(), req.user.id, req.query.q)));
+
+// ---- group chats: creator is admin; admin adds registered users or shares an invite link ----
+const MAX_GROUP = 256;
+function groupEvent(c, event) { // put every member's sockets in the room and tell them to refresh
+  for (const id of c.participantIds) { joinUserToRoom(id, `conv:${c.id}`); io.to(`user:${id}`).emit(event, { id: c.id }); }
+}
+function adminGroup(req, res) { // returns the group if the caller is its admin, else sends the error
+  const db = readDB();
+  const c = db.conversations.find((x) => x.id === req.params.id);
+  if (!c || !c.isGroup || !c.participantIds.includes(req.user.id)) { res.status(404).json({ error: "Group not found" }); return null; }
+  if (c.adminId !== req.user.id) { res.status(403).json({ error: "Only the group admin can do that" }); return null; }
+  return { db, c };
+}
+app.post("/api/conversations/group", authMiddleware, (req, res) => {
+  const db = readDB();
+  const name = String(req.body.name || "").trim();
+  if (!name || name.length > 60) return res.status(400).json({ error: "Group name must be 1 to 60 characters" });
+  const ids = [...new Set(Array.isArray(req.body.memberIds) ? req.body.memberIds : [])]
+    .filter((id) => id !== req.user.id && db.users.some((u) => u.id === id)).slice(0, MAX_GROUP - 1);
+  const c = { id: nanoid(12), isGroup: true, name, adminId: req.user.id, inviteCode: nanoid(16),
+    participantIds: [req.user.id, ...ids], createdAt: Date.now(), updatedAt: Date.now() };
+  db.conversations.push(c);
+  writeDB(db);
+  groupEvent(c, "conversation:added");
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+app.post("/api/conversations/:id/members", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g;
+  const want = (Array.isArray(req.body.userIds) ? req.body.userIds : []).filter((id) => db.users.some((u) => u.id === id));
+  const ident = req.body.phone || req.body.q || req.body.username;
+  if (ident) {
+    const u = findByContact(db, ident);
+    if (!u) return res.status(404).json({ error: NOT_FOUND_MSG });
+    want.push(u.id);
+  }
+  const fresh = [...new Set(want)].filter((id) => !c.participantIds.includes(id));
+  if (!fresh.length) return res.status(400).json({ error: "Already in the group" });
+  if (c.participantIds.length + fresh.length > MAX_GROUP) return res.status(400).json({ error: `A group can have up to ${MAX_GROUP} people` });
+  c.participantIds.push(...fresh);
+  c.updatedAt = Date.now();
+  writeDB(db);
+  groupEvent(c, "conversation:update");
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+app.post("/api/conversations/:id/invite/reset", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  g.c.inviteCode = nanoid(16); // old link stops working immediately
+  writeDB(g.db);
+  res.json({ conversation: groupView(g.db, g.c, req.user.id) });
+});
+app.patch("/api/conversations/:id", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g;
+  const { name, description, avatar } = req.body;
+  if (name !== undefined && (!String(name).trim() || String(name).trim().length > 60)) return res.status(400).json({ error: "Group name must be 1 to 60 characters" });
+  if (description !== undefined && String(description).length > 300) return res.status(400).json({ error: "Description must be 300 characters or fewer" });
+  const photo = typeof avatar === "string" && avatar.startsWith("data:");
+  if (photo && (!AVATAR_RE.test(avatar) || !looksLikeImage(avatar) || avatar.length > 1500000)) return res.status(400).json({ error: "Group photo must be a JPG or PNG under about 1 MB" });
+  if (name !== undefined) c.name = String(name).trim();
+  if (description !== undefined) c.description = String(description).trim();
+  if (photo) { c.avatar = avatar; c.avatarVersion = Date.now(); } else if (avatar === null) { c.avatar = null; c.avatarVersion = Date.now(); }
+  writeDB(db);
+  groupEvent(c, "conversation:update");
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+function ensureDM(db, a, b) {
+  let convo = db.conversations.find((x) => !x.isGroup && x.participantIds.includes(a) && x.participantIds.includes(b));
+  if (!convo) { convo = { id: nanoid(12), participantIds: [a, b], createdAt: Date.now(), updatedAt: Date.now() }; db.conversations.push(convo); }
+  for (const id of [a, b]) { joinUserToRoom(id, `conv:${convo.id}`); io.to(`user:${id}`).emit("conversation:added", { id: convo.id }); }
+  return convo;
+}
+// Members need the admin's approval to start a private chat; the admin (or anyone messaging the admin) does not.
+app.post("/api/conversations/:id/dm-requests", authMiddleware, (req, res) => {
+  const db = readDB();
+  const c = db.conversations.find((x) => x.id === req.params.id);
+  const to = String(req.body.toId || "");
+  if (!c || !c.isGroup || !c.participantIds.includes(req.user.id) || !c.participantIds.includes(to) || to === req.user.id) return res.status(404).json({ error: "Member not found in this group" });
+  const reqs = c.dmRequests || (c.dmRequests = []);
+  if (c.adminId === req.user.id || c.adminId === to) { ensureDM(db, req.user.id, to); writeDB(db); return res.json({ conversation: groupView(db, c, req.user.id) }); }
+  if (reqs.some((r) => r.status === "pending" && r.from === req.user.id && r.to === to)) return res.status(400).json({ error: "Request already sent" });
+  reqs.push({ id: nanoid(8), from: req.user.id, to, status: "pending", time: Date.now() });
+  writeDB(db);
+  io.to(`user:${c.adminId}`).emit("conversation:update", { id: c.id });
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+app.post("/api/conversations/:id/dm-requests/:rid", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g;
+  const r = (c.dmRequests || []).find((x) => x.id === req.params.rid && x.status === "pending");
+  if (!r) return res.status(404).json({ error: "Request not found" });
+  r.status = req.body.approve ? "approved" : "declined";
+  if (req.body.approve) ensureDM(db, r.from, r.to);
+  writeDB(db);
+  io.to(`user:${r.from}`).emit("conversation:update", { id: c.id });
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+
+// ---- market: anyone can post products; buyers message the seller in-app ----
+// Market posts are cleared 24 hours after they were posted.
+const LISTING_TTL_MS = 24 * 60 * 60 * 1000;
+function purgeExpiredListings(db) {
+  const list = db.listings || (db.listings = []);
+  const cutoff = Date.now() - LISTING_TTL_MS;
+  let n = 0;
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].time < cutoff) { list.splice(i, 1); n++; }
+  return n;
+}
+function listingsOf(db) { purgeExpiredListings(db); return db.listings; }
+// hourly sweep so expired posts are also removed from storage (and Supabase), not just hidden
+setInterval(() => {
+  try { const db = readDB(); if (purgeExpiredListings(db)) writeDB(db); } catch (e) { console.error("Market cleanup failed:", e.message); }
+}, 60 * 60 * 1000).unref();
+setTimeout(() => { try { const db = readDB(); const a = purgeExpiredListings(db), b = purgeExpiredStatuses(db); if (a || b) writeDB(db); } catch (e) {} }, 10000).unref();
+function canDM(db, me, other) { // messaging by user id: sellers with a live listing, or a group admin
+  if (listingsOf(db).some((l) => !l.removed && l.sellerId === other)) return true;
+  return db.conversations.some((c) => c.isGroup && c.participantIds.includes(me) && c.participantIds.includes(other) && (c.adminId === me || c.adminId === other));
+}
+// ---- @tags on market posts and statuses: contacts (people you chat with) and groups you are in ----
+function cleanTags(db, meId, raw) {
+  const out = [];
+  if (!Array.isArray(raw)) return out;
+  for (const t of raw.slice(0, 10)) {
+    if (!t || typeof t.id !== "string" || out.some((x) => x.id === t.id)) continue;
+    if (t.type === "group") { const c = db.conversations.find((x) => x.id === t.id && x.isGroup && x.participantIds.includes(meId)); if (c) out.push({ type: "group", id: c.id }); }
+    else if (t.type === "user" && t.id !== meId) { const u = db.users.find((x) => x.id === t.id); if (u && canSeeStatus(db, meId, u.id)) out.push({ type: "user", id: u.id }); }
+  }
+  return out;
+}
+function tagViews(db, tags) {
+  return (tags || []).map((t) => ({ type: t.type, id: t.id, name: t.type === "group" ? (db.conversations.find((c) => c.id === t.id) || {}).name : (db.users.find((u) => u.id === t.id) || {}).name })).filter((t) => t.name);
+}
+function notifyTags(db, meId, tags, kind) {
+  if (!tags || !tags.length) return;
+  const by = (db.users.find((u) => u.id === meId) || {}).name || "Someone";
+  for (const t of tags) {
+    if (t.type === "user") io.to(`user:${t.id}`).emit("tagged", { kind, by });
+    else { const c = db.conversations.find((x) => x.id === t.id); if (c) io.to(`conv:${c.id}`).except(`user:${meId}`).emit("tagged", { kind, by, group: c.name }); }
+  }
+}
+const listingView = (l, db) => ({ id: l.id, title: l.title, description: l.description, price: l.price, sold: !!l.sold, time: l.time, tags: tagViews(db, l.tags),
+  photo: l.photo ? `/api/v1/market/${l.id}/photo?v=${l.time}` : null, seller: sellerView(db, l.sellerId), commentCount: (l.comments || []).length });
+// seller star ratings live on the seller's user record: { raterId: { stars, time } }
+const ratingOf = (u) => { const r = Object.values((u && u.ratings) || {}); const n = r.length; return { avg: n ? Math.round((r.reduce((a, x) => a + x.stars, 0) / n) * 10) / 10 : 0, count: n }; };
+// Better-rated sellers float to the top. Bayesian average: a seller with no ratings starts at a neutral 3.0,
+// so a few good ratings lift them up and a few bad ones push them down. Ties go to the newest post.
+function sellerScore(db, id) { const r = ratingOf(db.users.find((x) => x.id === id)); return (r.avg * r.count + 3 * 3) / (r.count + 3); }
+function sellerView(db, id) { const u = db.users.find((x) => x.id === id); const v = memberView(u); return v && { ...v, rating: ratingOf(u) }; }
+app.get("/api/market", authMiddleware, (req, res) => {
+  const db = readDB();
+  const q = String(req.query.q || "").trim().toLowerCase();
+  const items = listingsOf(db).filter((l) => !l.removed && (!q || (l.title + " " + l.description).toLowerCase().includes(q))).sort((a, b) => (sellerScore(db, b.sellerId) - sellerScore(db, a.sellerId)) || b.time - a.time).slice(0, 100);
+  res.json({ listings: items.map((l) => listingView(l, db)) });
+});
+app.post("/api/market", authMiddleware, (req, res) => {
+  if (USE_DB && !marketReady) return res.status(503).json({ error: "Market storage is not set up on the server yet" });
+  const db = readDB();
+  const title = String(req.body.title || "").trim(), description = String(req.body.description || "").trim(), price = String(req.body.price || "").trim(), photo = req.body.photo;
+  if (!title || title.length > 80) return res.status(400).json({ error: "Title must be 1 to 80 characters" });
+  if (!price || price.length > 30) return res.status(400).json({ error: "Add a price (up to 30 characters, e.g. N5,000)" });
+  if (description.length > 1000) return res.status(400).json({ error: "Description must be 1000 characters or fewer" });
+  if (photo && (typeof photo !== "string" || !AVATAR_RE.test(photo) || !looksLikeImage(photo) || photo.length > 1500000)) return res.status(400).json({ error: "Photo must be a JPG or PNG under about 1 MB" });
+  const tags = cleanTags(db, req.user.id, req.body.tags);
+  const l = { id: nanoid(10), sellerId: req.user.id, title, description, price, photo: photo || null, time: Date.now(), tags };
+  listingsOf(db).push(l);
+  writeDB(db);
+  notifyTags(db, req.user.id, tags, "market");
+  res.json({ listing: listingView(l, db) });
+});
+function ownListing(req, res) {
+  const db = readDB();
+  const l = listingsOf(db).find((x) => x.id === req.params.id && !x.removed);
+  if (!l || l.sellerId !== req.user.id) { res.status(404).json({ error: "Listing not found" }); return null; }
+  return { db, l };
+}
+app.post("/api/market/:id/sold", authMiddleware, (req, res) => { const o = ownListing(req, res); if (!o) return; o.l.sold = !o.l.sold; writeDB(o.db); res.json({ listing: listingView(o.l, o.db) }); });
+app.delete("/api/market/:id", authMiddleware, (req, res) => { const o = ownListing(req, res); if (!o) return; o.l.removed = true; writeDB(o.db); res.json({ ok: true }); });
+
+// ---- seller ratings and product comments (comments live on the listing, so they go when the post expires) ----
+function liveListing(req, res) {
+  const db = readDB();
+  const l = listingsOf(db).find((x) => x.id === req.params.id && !x.removed);
+  if (!l) { res.status(404).json({ error: "Product not found. It may have expired." }); return null; }
+  return { db, l };
+}
+const commentViews = (db, l, uid) => (l.comments || []).map((c) => ({ id: c.id, text: c.text, time: c.time, mine: c.userId === uid, canDelete: c.userId === uid || l.sellerId === uid, author: memberView(db.users.find((u) => u.id === c.userId)), tags: tagViews(db, c.tags) }));
+app.get("/api/market/:id/comments", authMiddleware, (req, res) => {
+  const o = liveListing(req, res); if (!o) return;
+  res.json({ comments: commentViews(o.db, o.l, req.user.id) });
+});
+app.post("/api/market/:id/comments", authMiddleware, (req, res) => {
+  const o = liveListing(req, res); if (!o) return;
+  const text = String(req.body.text || "").trim();
+  if (!text) return res.status(400).json({ error: "Write a comment first" });
+  if ([...text].length > 500) return res.status(400).json({ error: "Comments can be up to 500 characters" });
+  o.l.comments = o.l.comments || [];
+  if (o.l.comments.length >= 200) return res.status(400).json({ error: "This product has reached its comment limit" });
+  const tags = cleanTags(o.db, req.user.id, req.body.tags);
+  o.l.comments.push({ id: nanoid(8), userId: req.user.id, text, time: Date.now(), tags });
+  writeDB(o.db);
+  notifyTags(o.db, req.user.id, tags, "comment");
+  res.json({ comments: commentViews(o.db, o.l, req.user.id) });
+});
+app.delete("/api/market/:id/comments/:cid", authMiddleware, (req, res) => {
+  const o = liveListing(req, res); if (!o) return;
+  const c = (o.l.comments || []).find((x) => x.id === req.params.cid);
+  if (!c) return res.status(404).json({ error: "Comment not found" });
+  if (c.userId !== req.user.id && o.l.sellerId !== req.user.id) return res.status(403).json({ error: "You can only delete your own comments" });
+  o.l.comments = o.l.comments.filter((x) => x.id !== c.id);
+  writeDB(o.db);
+  res.json({ comments: commentViews(o.db, o.l, req.user.id) });
+});
+app.get("/api/market/seller/:sid/rating", authMiddleware, (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.params.sid);
+  if (!u) return res.status(404).json({ error: "Seller not found" });
+  const mine = u.ratings && u.ratings[req.user.id];
+  res.json({ ...ratingOf(u), mine: mine ? mine.stars : 0 });
+});
+app.post("/api/market/seller/:sid/rate", authMiddleware, (req, res) => {
+  const db = readDB();
+  const u = db.users.find((x) => x.id === req.params.sid);
+  if (!u) return res.status(404).json({ error: "Seller not found" });
+  if (u.id === req.user.id) return res.status(400).json({ error: "You can't rate yourself" });
+  const stars = Number(req.body.stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) return res.status(400).json({ error: "Choose 1 to 5 stars" });
+  u.ratings = { ...(u.ratings || {}), [req.user.id]: { stars, time: Date.now() } };
+  writeDB(db);
+  res.json({ ...ratingOf(u), mine: stars });
+});
+
+// ---- status: photo or text updates that disappear after 24 hours, visible to the people you chat with ----
+const STATUS_TTL_MS = 24 * 60 * 60 * 1000;
+function purgeExpiredStatuses(db) {
+  const list = db.statuses || (db.statuses = []);
+  const cutoff = Date.now() - STATUS_TTL_MS;
+  let n = 0;
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].time < cutoff) { list.splice(i, 1); n++; }
+  return n;
+}
+function statusesOf(db) { purgeExpiredStatuses(db); return db.statuses; }
+setInterval(() => {
+  try { const db = readDB(); if (purgeExpiredStatuses(db)) writeDB(db); } catch (e) { console.error("Status cleanup failed:", e.message); }
+}, 60 * 60 * 1000).unref();
+const isBlockedEither = (a, b) => !!a && !!b && ((a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id));
+function canSeeStatus(db, viewerId, ownerId) { // people with a private chat in common, and nobody who is blocked either way
+  if (viewerId === ownerId) return true;
+  if (!db.conversations.some((c) => !c.isGroup && c.participantIds.includes(viewerId) && c.participantIds.includes(ownerId))) return false;
+  return !isBlockedEither(db.users.find((u) => u.id === viewerId), db.users.find((u) => u.id === ownerId));
+}
+function canSeeStatusItem(db, viewerId, s) { // contacts, plus anyone (or any group member) the post tags
+  if (canSeeStatus(db, viewerId, s.userId)) return true;
+  const owner = db.users.find((u) => u.id === s.userId), viewer = db.users.find((u) => u.id === viewerId);
+  if (!owner || !viewer || isBlockedEither(viewer, owner)) return false;
+  return (s.tags || []).some((t) => (t.type === "user" ? t.id === viewerId : db.conversations.some((c) => c.id === t.id && c.isGroup && c.participantIds.includes(viewerId))));
+}
+const statusItem = (s, me, db) => ({ id: s.id, text: s.text || "", bg: s.bg || "#1E8677", photo: s.photo ? `/api/v1/status/${s.id}/photo?v=${s.time}` : null, time: s.time,
+  music: s.music ? `/api/v1/status/${s.id}/music?v=${s.time}` : null, musicName: s.musicName || null, musicDur: s.musicDur || 0, tags: tagViews(db, s.tags),
+  seen: (s.viewedBy || []).includes(me), ...(s.userId === me ? { views: (s.viewedBy || []).length } : {}) });
+app.get("/api/status", authMiddleware, (req, res) => {
+  const db = readDB();
+  const me = req.user.id;
+  const live = statusesOf(db).slice().sort((a, b) => a.time - b.time);
+  const mine = live.filter((s) => s.userId === me).map((s) => statusItem(s, me, db));
+  const byUser = new Map();
+  for (const s of live) if (s.userId !== me && canSeeStatusItem(db, me, s)) { if (!byUser.has(s.userId)) byUser.set(s.userId, []); byUser.get(s.userId).push(s); }
+  const feed = [...byUser.entries()].map(([uid, list]) => ({ user: memberView(db.users.find((u) => u.id === uid)), items: list.map((s) => statusItem(s, me, db)), latest: list[list.length - 1].time }))
+    .filter((g) => g.user)
+    .map((g) => ({ ...g, allSeen: g.items.every((i) => i.seen) }))
+    .sort((a, b) => (a.allSeen - b.allSeen) || (b.latest - a.latest));
+  res.json({ mine, feed });
+});
+app.post("/api/status", authMiddleware, (req, res) => {
+  if (USE_DB && ready.statuses === false) return res.status(503).json({ error: "Status storage is not set up on the server yet" });
+  const db = readDB();
+  const text = String((req.body && req.body.text) || "").trim();
+  const photo = req.body && req.body.photo;
+  const bg = /^#[0-9a-f]{6}$/i.test(String((req.body && req.body.bg) || "")) ? req.body.bg : "#1E8677";
+  if (!text && !photo) return res.status(400).json({ error: "Add some text or a photo" });
+  if ([...text].length > 300) return res.status(400).json({ error: "Status text can be up to 300 characters" });
+  if (photo && (typeof photo !== "string" || !AVATAR_RE.test(photo) || !looksLikeImage(photo) || photo.length > 1500000)) return res.status(400).json({ error: "Photo must be a JPG or PNG under about 1 MB" });
+  const list = statusesOf(db);
+  if (list.filter((s) => s.userId === req.user.id).length >= 30) return res.status(400).json({ error: "You can have up to 30 status updates at a time" });
+  const s = { id: nanoid(14), userId: req.user.id, text, bg, photo: photo || null, time: Date.now(), viewedBy: [], tags: cleanTags(db, req.user.id, req.body && req.body.tags) };
+  const mu = req.body && req.body.music;
+  if (mu) { // a short trimmed clip, sent as a small mono WAV
+    const okMusic = typeof mu.data === "string" && mu.data.startsWith("data:audio/wav;base64,") && mu.data.length <= 1300000 && Buffer.from(mu.data.slice(22, 38), "base64").slice(0, 4).toString("latin1") === "RIFF";
+    if (!okMusic) return res.status(400).json({ error: "Music must be a short clip of up to about 15 seconds" });
+    s.music = mu.data; s.musicName = String(mu.name || "Music").slice(0, 60); s.musicDur = Math.min(20, Math.max(1, Number(mu.dur) || 15));
+  }
+  list.push(s);
+  writeDB(db);
+  notifyTags(db, req.user.id, s.tags, "status");
+  res.json({ status: statusItem(s, req.user.id, db) });
+});
+app.post("/api/status/:id/view", authMiddleware, (req, res) => {
+  const db = readDB();
+  const s = statusesOf(db).find((x) => x.id === req.params.id);
+  if (!s || !canSeeStatusItem(db, req.user.id, s)) return res.status(404).json({ error: "Status not found. It may have expired." });
+  if (s.userId !== req.user.id && !(s.viewedBy || (s.viewedBy = [])).includes(req.user.id)) { s.viewedBy.push(req.user.id); writeDB(db); }
+  res.json({ ok: true });
+});
+app.delete("/api/status/:id", authMiddleware, (req, res) => {
+  const db = readDB();
+  const list = statusesOf(db);
+  const i = list.findIndex((x) => x.id === req.params.id && x.userId === req.user.id);
+  if (i < 0) return res.status(404).json({ error: "Status not found" });
+  list.splice(i, 1);
+  writeDB(db);
+  res.json({ ok: true });
+});
+
+app.get("/api/groups/invite/:code", authMiddleware, (req, res) => {
+  const c = readDB().conversations.find((x) => x.isGroup && x.inviteCode === req.params.code);
+  if (!c) return res.status(404).json({ error: "This invite link is invalid or has been reset" });
+  res.json({ name: c.name, memberCount: c.participantIds.length, joined: c.participantIds.includes(req.user.id) });
+});
+app.post("/api/groups/join", authMiddleware, (req, res) => {
+  const db = readDB();
+  const c = db.conversations.find((x) => x.isGroup && x.inviteCode === String(req.body.code || ""));
+  if (!c) return res.status(404).json({ error: "This invite link is invalid or has been reset" });
+  if (!c.participantIds.includes(req.user.id)) {
+    if (c.participantIds.length >= MAX_GROUP) return res.status(400).json({ error: "This group is full" });
+    c.participantIds.push(req.user.id);
+    c.updatedAt = Date.now();
+    writeDB(db);
+    groupEvent(c, "conversation:update");
+  }
+  res.json({ conversation: groupView(db, c, req.user.id) });
+});
+
+app.use("/api", (req, res) => res.status(404).json({ error: `No such endpoint: ${req.method} ${req.originalUrl}` }));
+app.use((err, req, res, next) => {
+  if (err && err.type === "entity.parse.failed") return res.status(400).json({ error: "Request body is not valid JSON" });
+  if (err && err.type === "entity.too.large") return res.status(413).json({ error: "Request body is too large" });
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Something went wrong on our side" });
+});
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  maxHttpBufferSize: 6e6, // photos and files up to ~3 MB are sent as base64 over the socket
+  cors: { origin: CLIENT_ORIGIN === "*" ? "*" : CLIENT_ORIGIN.split(",") },
+});
+
+const userSockets = new Map();
+// Greeting message (first message from someone new) and away message (you are offline; at most once per chat every 12 hours).
+const AWAY_GAP_MS = 12 * 60 * 60 * 1000;
+function autoReply(db, convo, incoming) {
+  if (convo.isGroup || incoming.auto) return;
+  const toId = convo.participantIds.find((id) => id !== incoming.senderId);
+  const owner = db.users.find((u) => u.id === toId);
+  if (!owner) return;
+  if ((owner.blocked || []).includes(incoming.senderId)) return;
+  const biz = bizOf(owner);
+  let text = "";
+  const firstFromThem = db.messages.filter((m) => m.conversationId === convo.id && m.senderId === incoming.senderId && !m.auto).length === 1;
+  if (biz.greeting.on && biz.greeting.text && firstFromThem && !db.messages.some((m) => m.conversationId === convo.id && m.senderId === owner.id)) text = biz.greeting.text;
+  else if (biz.away.on && biz.away.text && !userSockets.has(owner.id)) {
+    const sent = (owner.biz && owner.biz.awaySent) || {};
+    if (!sent[convo.id] || Date.now() - sent[convo.id] > AWAY_GAP_MS) {
+      text = biz.away.text;
+      owner.biz = { ...(owner.biz || {}), awaySent: { ...sent, [convo.id]: Date.now() } };
+    }
+  }
+  if (!text) return;
+  const reply = { id: nanoid(14), conversationId: convo.id, senderId: owner.id, text, auto: true, time: Date.now() + 1, read: false };
+  db.messages.push(reply);
+  convo.updatedAt = Date.now();
+  writeDB(db);
+  io.to(`conv:${convo.id}`).emit("message:new", reply);
+  try { pushMessage(db, convo, reply, owner.id); } catch (e) { console.error("push failed", e.message); }
+}
+const gOnlineAt = new Map(); // userId -> last time we announced them as online in the games section
+
+// ---- voice / video calls: the server only introduces the two phones (signalling); audio and video flow peer to peer (WebRTC) ----
+const activeCalls = new Map(); // callId -> { id, from, to, conversationId, video, state, timer }
+const userCall = new Map();    // userId -> callId they are in
+const RING_MS = 45000;
+function endCall(callId, reason) {
+  const c = activeCalls.get(callId);
+  if (!c) return;
+  clearTimeout(c.timer);
+  activeCalls.delete(callId);
+  if (userCall.get(c.from) === callId) userCall.delete(c.from);
+  if (userCall.get(c.to) === callId) userCall.delete(c.to);
+  for (const id of [c.from, c.to]) io.to(`user:${id}`).emit("call:ended", { callId, reason });
+}
+const lastSeen = new Map(); // userId -> when they last went offline (in memory)
+
+// Online/offline for everyone who shares a chat or group with this user.
+function presenceSnapshot(userId) {
+  const peers = new Set();
+  for (const c of readDB().conversations) {
+    if (c.participantIds.includes(userId)) c.participantIds.forEach((id) => id !== userId && peers.add(id));
+  }
+  const online = [];
+  const seen = {};
+  for (const id of peers) {
+    if (hidesPresence(readDB().users.find((u) => u.id === id))) continue;
+    if (userSockets.has(id)) online.push(id);
+    else if (lastSeen.has(id)) seen[id] = lastSeen.get(id);
+  }
+  return { online, lastSeen: seen };
+}
+
+function joinUserToRoom(userId, room) {
+  const sockets = userSockets.get(userId);
+  if (!sockets) return;
+  for (const socketId of sockets) {
+    const s = io.sockets.sockets.get(socketId);
+    if (s) s.join(room);
+  }
+}
+
+// ===================== GAMES HUB (matchmaking, invites, rooms, rankings) =====================
+// Rules are shared word-for-word with the client (GAME_RULES in app.jsx) so both sides agree.
+const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
+const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
+// ---- chess engine (shared with the server) ----
+const CH_N = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]], CH_K = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]], CH_B = [[-1,-1],[-1,1],[1,-1],[1,1]], CH_R = [[-1,0],[1,0],[0,-1],[0,1]];
+function chKing(b, p) { return b.indexOf(6 + 8 * p); }
+function chAtt(b, sq, by) {
+  const r = sq >> 3, c = sq & 7, pr = by === 0 ? r + 1 : r - 1;
+  for (const dc of [-1, 1]) { const cc = c + dc; if (pr >= 0 && pr < 8 && cc >= 0 && cc < 8 && b[pr * 8 + cc] === 1 + 8 * by) return true; }
+  for (const [dr, dc] of CH_N) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 2 + 8 * by) return true; }
+  for (const [dr, dc] of CH_K) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 6 + 8 * by) return true; }
+  for (const [dirs, a, q] of [[CH_B, 3, 5], [CH_R, 4, 5]]) for (const [dr, dc] of dirs) {
+    let rr = r + dr, cc = c + dc;
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const v = b[rr * 8 + cc]; if (v != null) { if (v === a + 8 * by || v === q + 8 * by) return true; break; } rr += dr; cc += dc; }
+  }
+  return false;
+}
+function chPseudo(s, p) {
+  const b = s.b, out = [], fwd = p === 0 ? -1 : 1, start = p === 0 ? 6 : 1, last = p === 0 ? 0 : 7;
+  for (let i = 0; i < 64; i++) {
+    const v = b[i]; if (v == null || (v >> 3) !== p) continue; const t = v & 7, r = i >> 3, c = i & 7;
+    if (t === 1) {
+      const r1 = r + fwd; if (r1 < 0 || r1 > 7) continue;
+      const add = (to) => { if (r1 === last) for (let pt = 2; pt <= 5; pt++) out.push(i * 64 + to + 4096 * pt); else out.push(i * 64 + to); };
+      if (b[r1 * 8 + c] == null) { add(r1 * 8 + c); if (r === start && b[(r + 2 * fwd) * 8 + c] == null) out.push(i * 64 + (r + 2 * fwd) * 8 + c); }
+      for (const dc of [-1, 1]) { const cc = c + dc; if (cc < 0 || cc > 7) continue; const to = r1 * 8 + cc, o = b[to]; if ((o != null && (o >> 3) !== p) || (o == null && to === s.ep)) add(to); }
+    } else if (t === 2 || t === 6) {
+      for (const [dr, dc] of t === 2 ? CH_N : CH_K) { const rr = r + dr, cc = c + dc; if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue; const o = b[rr * 8 + cc]; if (o == null || (o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); }
+    } else {
+      for (const [dr, dc] of t === 3 ? CH_B : t === 4 ? CH_R : CH_B.concat(CH_R)) {
+        let rr = r + dr, cc = c + dc;
+        while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const o = b[rr * 8 + cc]; if (o == null) out.push(i * 64 + rr * 8 + cc); else { if ((o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); break; } rr += dr; cc += dc; }
+      }
+    }
+  }
+  const base = p === 0 ? 56 : 0, ks = base + 4;
+  if (b[ks] === 6 + 8 * p && !chAtt(b, ks, 1 - p)) {
+    if (s.c[p * 2] && b[base + 5] == null && b[base + 6] == null && b[base + 7] === 4 + 8 * p && !chAtt(b, base + 5, 1 - p) && !chAtt(b, base + 6, 1 - p)) out.push(ks * 64 + base + 6);
+    if (s.c[p * 2 + 1] && b[base + 3] == null && b[base + 2] == null && b[base + 1] == null && b[base] === 4 + 8 * p && !chAtt(b, base + 3, 1 - p) && !chAtt(b, base + 2, 1 - p)) out.push(ks * 64 + base + 2);
+  }
+  return out;
+}
+function chApply(s, m) {
+  const pt = Math.floor(m / 4096), mm = m % 4096, from = mm >> 6, to = mm & 63, b = s.b.slice(), v = b[from], p = v >> 3, t = v & 7, cap = b[to], c = s.c.slice();
+  let ep = -1, reset = t === 1 || cap != null; b[from] = null; b[to] = v;
+  if (t === 1) {
+    if (cap == null && (from & 7) !== (to & 7)) { b[to + (p === 0 ? 8 : -8)] = null; reset = true; }
+    if (Math.abs((to >> 3) - (from >> 3)) === 2) ep = (from + to) / 2;
+    if (pt) b[to] = pt + 8 * p;
+  }
+  if (t === 6) {
+    c[p * 2] = false; c[p * 2 + 1] = false;
+    if (Math.abs((to & 7) - (from & 7)) === 2) { const base = from - (from & 7); if ((to & 7) === 6) { b[base + 5] = b[base + 7]; b[base + 7] = null; } else { b[base + 3] = b[base]; b[base] = null; } }
+  }
+  for (const sq of [from, to]) { if (sq === 63) c[0] = false; if (sq === 56) c[1] = false; if (sq === 7) c[2] = false; if (sq === 0) c[3] = false; }
+  return { b, nx: 1 - p, c, ep, hm: reset ? 0 : s.hm + 1, lm: mm };
+}
+function chLegal(s, p) { return chPseudo(s, p).filter((m) => { const ns = chApply(s, m); return !chAtt(ns.b, chKing(ns.b, p), 1 - p); }); }
+// ---- end chess engine ----
+
+const GAME_RULES = {
+  ttt: {
+    init: () => Array(9).fill(null),
+    moves: (s) => s.map((v, i) => (v == null ? i : -1)).filter((i) => i >= 0),
+    play: (s, m, p) => { const n = s.slice(); n[m] = p; return n; },
+    win: (s) => {
+      for (const l of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]])
+        if (s[l[0]] != null && s[l[0]] === s[l[1]] && s[l[1]] === s[l[2]]) return { p: s[l[0]], line: l };
+      return null;
+    },
+  },
+  c4: {
+    init: () => Array(42).fill(null),
+    moves: (s) => [0,1,2,3,4,5,6].filter((c) => s[c] == null),
+    play: (s, c, p) => { const n = s.slice(); for (let r = 5; r >= 0; r--) if (n[r * 7 + c] == null) { n[r * 7 + c] = p; break; } return n; },
+    win: (s) => {
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) {
+        const p = s[r * 7 + c]; if (p == null) continue;
+        for (const [dr, dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+          const line = [];
+          for (let k = 0; k < 4; k++) { const rr = r + dr * k, cc = c + dc * k; if (rr < 0 || rr > 5 || cc < 0 || cc > 6 || s[rr * 7 + cc] !== p) break; line.push(rr * 7 + cc); }
+          if (line.length === 4) return { p, line };
+        }
+      }
+      return null;
+    },
+  },
+  ludo: {
+    // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
+    init: () => ({ t: [[-1,-1,-1,-1],[-1,-1,-1,-1]], d: null, last: 0, nx: 0 }),
+    can: (s, p, i) => { const r = s.t[p][i], d = s.d; if (r === 56 || d == null) return false; if (r === -1) return d === 6; return r + d <= 56; },
+    moves: (s, p) => (s.nx !== p ? [] : s.d == null ? [-1] : [0,1,2,3].filter((i) => GAME_RULES.ludo.can(s, p, i))),
+    play: (s, m, p, rnd) => {
+      const t = s.t.map((a) => a.slice());
+      if (m === -1) {
+        const d = 1 + Math.floor(rnd() * 6), ns = { t, d, last: d, nx: p };
+        if (![0,1,2,3].some((i) => GAME_RULES.ludo.can(ns, p, i))) { ns.d = null; ns.nx = 1 - p; }
+        return ns;
+      }
+      const d = s.d, r = t[p][m], nr = r === -1 ? 0 : r + d; let extra = d === 6; t[p][m] = nr;
+      if (nr <= 50) { const a = (p * 26 + nr) % 52; if (!LUDO_SAFE.includes(a)) { const q = 1 - p; t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) { t[q][j] = -1; extra = true; } }); } }
+      if (nr === 56) extra = true;
+      return { t, d: null, last: d, nx: extra ? p : 1 - p };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.t[p].every((r) => r === 56)) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
+  },
+  snl: {
+    // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
+    init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
+    moves: (s, p) => (s.nx === p ? [-1] : []),
+    play: (s, m, p, rnd) => {
+      const d = 1 + Math.floor(rnd() * 6), pos = s.p.slice(); let np = pos[p] + d; if (np > 100) np = pos[p];
+      const jump = SNL_JUMPS[np], ev = jump ? (jump > np ? 1 : -1) : 0; if (jump) np = jump; pos[p] = np;
+      return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.p[p] === 100) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
+  },
+  checkers: {
+    // Nigerian draughts on 8x8. Men step forward but capture forward AND backward, kings fly any distance, capturing is compulsory and you must take the route that captures the most pieces.
+    // Captured pieces stay on the board until your move ends (and can't be jumped twice). A man is crowned only if its move ends on the far row.
+    // 0/1 = player men, 2/3 = kings (owner = v % 2). Move = from * 64 + to. A multi-capture is a chain of jumps by one piece: mj = that piece, cp = pieces jumped so far this turn.
+    D: [[-1, -1], [-1, 1], [1, -1], [1, 1]],
+    init: () => { const b = Array(64).fill(null); for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if ((r + c) % 2 === 1) { if (r < 3) b[r * 8 + c] = 1; else if (r > 4) b[r * 8 + c] = 0; } return { b, nx: 0, mj: -1, q: 0, cp: [] }; },
+    jumps: (b, cp, i) => { // every jump the piece on square i could make now: [landing square, captured square]
+      const v = b[i], p = v % 2, r0 = Math.floor(i / 8), c0 = i % 8, out = [];
+      for (const [dr, dc] of GAME_RULES.checkers.D) {
+        let r = r0 + dr, c = c0 + dc;
+        if (v >= 2) while (r >= 0 && r < 8 && c >= 0 && c < 8 && b[r * 8 + c] == null) { r += dr; c += dc; }
+        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+        const j = r * 8 + c, t = b[j]; if (t == null || t % 2 === p || cp.includes(j)) continue;
+        let r2 = r + dr, c2 = c + dc;
+        while (r2 >= 0 && r2 < 8 && c2 >= 0 && c2 < 8 && b[r2 * 8 + c2] == null) { out.push([r2 * 8 + c2, j]); if (v < 2) break; r2 += dr; c2 += dc; }
+      }
+      return out;
+    },
+    dep: (b, cp, i) => { // most further pieces this piece can still capture from square i
+      const R = GAME_RULES.checkers, v = b[i]; let best = 0;
+      for (const [to, x] of R.jumps(b, cp, i)) { const b2 = b.slice(); b2[to] = v; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to); if (d > best) best = d; }
+      return best;
+    },
+    cap: (b, m) => { // the square jumped by move m, or -1 for a plain move
+      const from = Math.floor(m / 64), to = m % 64, dr = Math.sign(Math.floor(to / 8) - Math.floor(from / 8)), dc = Math.sign((to % 8) - (from % 8)); let x = -1;
+      for (let r = Math.floor(from / 8) + dr, c = (from % 8) + dc; r * 8 + c !== to; r += dr, c += dc) if (b[r * 8 + c] != null) x = r * 8 + c;
+      return x;
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return [];
+      const R = GAME_RULES.checkers, cp = s.cp || [], own = s.mj >= 0 ? [s.mj] : s.b.map((v, i) => (v != null && v % 2 === p ? i : -1)).filter((i) => i >= 0);
+      let best = 0, caps = [];
+      for (const i of own) for (const [to, x] of R.jumps(s.b, cp, i)) {
+        const b2 = s.b.slice(); b2[to] = b2[i]; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to);
+        if (d > best) { best = d; caps = []; } if (d === best) caps.push(i * 64 + to);
+      }
+      if (caps.length || s.mj >= 0) return caps;
+      const out = [];
+      for (const i of own) {
+        const v = s.b[i], r0 = Math.floor(i / 8), c0 = i % 8, dirs = v >= 2 ? R.D : p === 0 ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+        for (const [dr, dc] of dirs) { let r = r0 + dr, c = c0 + dc; while (r >= 0 && r < 8 && c >= 0 && c < 8 && s.b[r * 8 + c] == null) { out.push(i * 64 + r * 8 + c); if (v < 2) break; r += dr; c += dc; } }
+      }
+      return out;
+    },
+    play: (s, m, p) => {
+      const R = GAME_RULES.checkers, b = s.b.slice(), from = Math.floor(m / 64), to = m % 64, v = b[from], cp = (s.cp || []).slice(), x = R.cap(s.b, m);
+      b[from] = null; b[to] = v;
+      if (x >= 0) { cp.push(x); if (R.jumps(b, cp, to).length) return { b, nx: p, mj: to, q: 0, cp }; }
+      cp.forEach((i) => { b[i] = null; });
+      if (v < 2 && (p === 0 ? to < 8 : to >= 56)) b[to] = v + 2;
+      return { b, nx: 1 - p, mj: -1, q: x >= 0 || v < 2 ? 0 : s.q + 1, cp: [] };
+    },
+    win: (s) => (GAME_RULES.checkers.moves(s, s.nx).length ? null : { p: 1 - s.nx, line: null }),
+    next: (s) => s.nx,
+    draw: (s) => s.q >= 80,
+  },
+  whot: {
+    // Whot, Nigerian rules, 2 players, 54 cards. Card id = shape*100 + number (shapes 0-4; Whot = 520). Move: -1 draw, id plays a card, 520 + 1000*(shape+1) plays Whot calling a shape. Add 100000 to call "Last card".
+    // 1 Hold on / 8 Suspension: play again. 2 Pick two / 5 Pick three: stack the same number or draw. 14 General market: opponent picks one, you play again.
+    // Last card: when you play down to ONE card you must have called it (the +100000 flag, only offered with 2 cards in hand), otherwise you pick 2 as a penalty.
+    sh: (c) => Math.floor(c / 100), nm: (c) => c % 100,
+    shuf: (a, rnd) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; },
+    init: () => {
+      const R = GAME_RULES.whot, set = { 0: [1,2,3,4,5,7,8,10,11,12,13,14], 1: [1,2,3,4,5,7,8,10,11,12,13,14], 2: [1,2,3,5,7,10,11,13,14], 3: [1,2,3,5,7,10,11,13,14], 4: [1,2,3,4,5,7,8] };
+      let deck = []; for (const k in set) set[k].forEach((n) => deck.push(k * 100 + n)); for (let i = 0; i < 5; i++) deck.push(520);
+      deck = R.shuf(deck, Math.random); const h = [deck.splice(0, 6), deck.splice(0, 6)]; let disc = [];
+      for (;;) { const c = deck.shift(); if (R.sh(c) < 5 && ![1,2,5,8,14].includes(R.nm(c))) { disc = [c]; break; } deck.push(c); }
+      return { h, deck, disc, want: -1, pend: 0, pk: 0, nx: 0, last: null, t: 0 };
+    },
+    ok: (s, c) => {
+      const R = GAME_RULES.whot; if (s.pend > 0) return R.nm(c) === s.pk; if (R.sh(c) === 5) return true;
+      const top = s.disc[s.disc.length - 1]; return s.want >= 0 ? R.sh(c) === s.want : R.sh(c) === R.sh(top) || R.nm(c) === R.nm(top);
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return []; const R = GAME_RULES.whot, out = [-1];
+      const calls = s.h[p].length === 2 ? [0, 100000] : [0];
+      new Set(s.h[p]).forEach((c) => { if (!R.ok(s, c)) return; for (const f of calls) { if (R.sh(c) === 5) for (let k = 0; k < 5; k++) out.push(c + 1000 * (k + 1) + f); else out.push(c + f); } });
+      return out;
+    },
+    take: (s, p, n, rnd) => {
+      const R = GAME_RULES.whot;
+      for (let i = 0; i < n; i++) { if (!s.deck.length) { const top = s.disc.pop(); s.deck = R.shuf(s.disc, rnd); s.disc = [top]; if (!s.deck.length) break; } s.h[p].push(s.deck.shift()); }
+    },
+    play: (s, m, p, rnd) => {
+      const R = GAME_RULES.whot, ns = { ...s, h: s.h.map((a) => a.slice()), deck: s.deck.slice(), disc: s.disc.slice(), t: s.t + 1 };
+      if (m === -1) { const n = s.pend > 0 ? s.pend : 1; R.take(ns, p, n, rnd); ns.pend = 0; ns.pk = 0; ns.nx = 1 - p; ns.last = { by: p, draw: n }; return ns; }
+      const call = m >= 100000; if (call) m -= 100000;
+      const c = m % 1000, k = Math.floor(m / 1000) - 1, n = R.nm(c); ns.h[p].splice(ns.h[p].indexOf(c), 1); ns.disc.push(c);
+      ns.want = R.sh(c) === 5 ? k : -1; ns.last = { by: p, card: c, want: ns.want }; ns.nx = 1 - p;
+      if (n === 2) { ns.pend = s.pend + 2; ns.pk = 2; } else if (n === 5) { ns.pend = s.pend + 3; ns.pk = 5; }
+      else if (n === 1 || n === 8) ns.nx = p;
+      else if (n === 14) { R.take(ns, 1 - p, 1, rnd); ns.nx = p; }
+      if (ns.h[p].length === 1) { if (call) ns.last.lc = true; else { R.take(ns, p, 2, rnd); ns.last.pen = true; } }
+      return ns;
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.h[p].length === 0) return { p, line: null }; return null; },
+    view: (s, i) => ({ ...s, h: s.h.map((a, j) => (j === i ? a : a.map(() => null))), deck: s.deck.map(() => 0), disc: s.disc.slice(-1) }),
+    next: (s) => s.nx,
+    draw: (s) => s.t > 400,
+  },
+  race: {
+    // Turbo Racer is real-time, so it has no turns or moves. The room only carries the track seed; positions go through race:pos / race:finish.
+    init: () => ({ seed: Math.floor(Math.random() * 2147483647), len: 1800 }),
+    moves: () => [],
+    play: (s) => s,
+    win: () => null,
+    next: () => 0,
+    draw: () => false,
+  },
+  chess: {
+    // Chess. Player 0 = white (starts at the bottom), player 1 = black. Piece = type + 8*owner (1 P, 2 N, 3 B, 4 R, 5 Q, 6 K). Move = from*64 + to (+ 4096 * promotion type).
+    init: () => { const b = Array(64).fill(null), back = [4, 2, 3, 5, 6, 3, 2, 4]; for (let c = 0; c < 8; c++) { b[c] = back[c] + 8; b[8 + c] = 9; b[48 + c] = 1; b[56 + c] = back[c]; } return { b, nx: 0, c: [true, true, true, true], ep: -1, hm: 0, lm: null }; },
+    moves: (s, p) => (s.nx === p ? chLegal(s, p) : []),
+    play: (s, m) => chApply(s, m),
+    win: (s) => (chLegal(s, s.nx).length === 0 && chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx) ? { p: 1 - s.nx, line: null } : null),
+    draw: (s) => {
+      if (s.hm >= 100) return true;
+      const o = []; s.b.forEach((v) => { if (v != null && (v & 7) !== 6) o.push(v & 7); });
+      if (o.length === 0 || (o.length === 1 && (o[0] === 2 || o[0] === 3))) return true;
+      return chLegal(s, s.nx).length === 0 && !chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx);
+    },
+    next: (s) => s.nx,
+  },
+};
+const GAME_IDS = Object.keys(GAME_RULES);
+const COUNTRY_PREFIX = [["234","NG"],["233","GH"],["254","KE"],["255","TZ"],["256","UG"],["27","ZA"],["20","EG"],["44","GB"],["1","US"]];
+const countryOf = (u) => { const d = String(u.phone || "").replace(/\D/g, ""); const hit = COUNTRY_PREFIX.find(([p]) => d.startsWith(p)); return hit ? hit[1] : ""; };
+
+const gQueue = new Map();   // userId -> { game, since }   (looking for an opponent)
+const gPlaying = new Map(); // userId -> roomId
+const gRooms = new Map();   // roomId -> room
+const gInvites = new Map(); // inviteId -> { from, to, game, at }
+const gRecent = [];         // recent finished games for the lobby
+
+const gStatsOf = (db, id) => { db.gameStats = db.gameStats || {}; return (db.gameStats[id] = db.gameStats[id] || { xp: 0, w: 0, l: 0, d: 0, streak: 0, best: 0, fav: {} }); };
+const gLevel = (xp) => Math.floor(xp / 100) + 1;
+function gCard(db, id) {
+  const u = db.users.find((x) => x.id === id); if (!u) return null;
+  const s = gStatsOf(db, id);
+  const fav = Object.entries(s.fav).sort((a, b) => b[1] - a[1])[0];
+  const status = gPlaying.has(id) ? "playing" : gQueue.has(id) ? "looking" : userSockets.has(id) ? "online" : "offline";
+  return { ...publicUser(u), phone: null, email: null, country: countryOf(u), level: gLevel(s.xp), xp: s.xp, w: s.w, l: s.l, d: s.d, streak: s.streak, best: s.best, fav: fav ? fav[0] : null, status, looking: gQueue.has(id) ? gQueue.get(id).game : null };
+}
+function gRecord(userId, game, result, pvp, level) {
+  const db = readDB(); const s = gStatsOf(db, userId);
+  const gain = pvp ? { w: 30, d: 10, l: 5 }[result] : { w: 8 + 4 * (level || 0), d: 3, l: 1 }[result];
+  s.xp += gain; s[result] += 1; s.fav[game] = (s.fav[game] || 0) + 1;
+  if (result === "w") { s.streak += 1; s.best = Math.max(s.best, s.streak); } else if (result === "l") s.streak = 0;
+  db.gameLog = db.gameLog || []; db.gameLog.push({ u: userId, t: Date.now(), r: result, p: pvp ? 1 : 0, x: gain });
+  if (db.gameLog.length > 6000) db.gameLog.splice(0, db.gameLog.length - 6000);
+  writeDB(db); return { gain, xp: s.xp, level: gLevel(s.xp), streak: s.streak };
+}
+const gView = (room, i) => { const R = GAME_RULES[room.game]; return R.view ? R.view(room.state, i) : room.state; };
+function gStart(game, a, b) {
+  const db = readDB(); const id = nanoid(10);
+  const players = Math.random() < 0.5 ? [a, b] : [b, a];
+  const room = { id, game, players, turn: 0, state: GAME_RULES[game].init(), over: false, rematch: new Set(), score: [0, 0], chat: [] };
+  gRooms.set(id, room); for (const p of players) { gPlaying.set(p, id); gQueue.delete(p); }
+  const cards = players.map((p) => gCard(db, p));
+  players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: id, game, you: i, players: cards, turn: 0, state: gView(room, i), score: room.score }));
+  if (game === "race") raceKick(room);
+  return room;
+}
+function gFinish(room, winnerIdx) {
+  room.over = true;
+  const [a, b] = room.players; const out = {};
+  if (winnerIdx < 0) { out[a] = gRecord(a, room.game, "d", true); out[b] = gRecord(b, room.game, "d", true); }
+  else { room.score[winnerIdx] += 1; const w = room.players[winnerIdx], l = room.players[1 - winnerIdx]; out[w] = gRecord(w, room.game, "w", true); out[l] = gRecord(l, room.game, "l", true); }
+  gRecent.unshift({ game: room.game, a, b, w: winnerIdx < 0 ? null : room.players[winnerIdx], t: Date.now() }); gRecent.length = Math.min(gRecent.length, 20);
+  return out;
+}
+function gLeave(userId) {
+  const rid = gPlaying.get(userId); gQueue.delete(userId); if (!rid) return;
+  const room = gRooms.get(rid); gPlaying.delete(userId); if (!room) return; clearTimeout(room.rt);
+  const idx = room.players.indexOf(userId), other = room.players[1 - idx];
+  if (!room.over) { const rec = gFinish(room, 1 - idx); io.to(`user:${other}`).emit("game:over", { room: rid, winner: 1 - idx, line: null, forfeit: true, score: room.score, reward: rec[other], result: "w" }); }
+  io.to(`user:${other}`).emit("game:left", { room: rid });
+  gPlaying.delete(other); gRooms.delete(rid);
+}
+const RACE_VMAX = 110; // fastest legal speed (m/s): boost + nitro + slipstream together top out near 95
+function raceKick(room) {
+  clearTimeout(room.rt); room.pos = [{ d: 0, x: 0, v: 0 }, { d: 0, x: 0, v: 0 }]; room.fin = [null, null]; room.t0 = 0;
+  room.rt = setTimeout(() => {
+    if (room.over || !gRooms.has(room.id)) return;
+    room.t0 = Date.now(); room.players.forEach((p) => io.to(`user:${p}`).emit("race:go", { room: room.id }));
+    room.rt = setTimeout(() => raceEnd(room, null), 150000); // nobody finished in 2.5 minutes: furthest car wins
+  }, 3500);
+}
+function raceEnd(room, w) {
+  if (room.over) return; clearTimeout(room.rt);
+  if (w == null) { const a = room.pos[0].d, b = room.pos[1].d; w = Math.abs(a - b) < 1 ? -1 : a > b ? 0 : 1; }
+  const rec = gFinish(room, w);
+  room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:over", { room: room.id, winner: w, line: null, score: room.score, reward: rec[p], result: w < 0 ? "d" : w === i ? "w" : "l", times: room.fin }));
+}
+function registerGames(socket) {
+  const me = socket.userId; const ack = (f, v) => { if (typeof f === "function") f(v); };
+  socket.on("game:lobby", (f) => {
+    const db = readDB(); const ids = db.users.map((u) => u.id).filter((id) => id !== me && (userSockets.has(id) || gPlaying.has(id)));
+    ack(f, { players: ids.map((id) => gCard(db, id)).filter(Boolean), recent: gRecent.slice(0, 8).map((r) => ({ ...r, aName: (db.users.find((u) => u.id === r.a) || {}).name, bName: (db.users.find((u) => u.id === r.b) || {}).name })), me: gCard(db, me) });
+  });
+  socket.on("game:find", ({ game } = {}, f) => {
+    if (!GAME_RULES[game] || gPlaying.has(me)) return ack(f, { ok: false });
+    for (const [id, q] of gQueue) if (id !== me && q.game === game) { gStart(game, id, me); return ack(f, { ok: true, matched: true }); }
+    gQueue.set(me, { game, since: Date.now() }); ack(f, { ok: true, matched: false });
+  });
+  socket.on("game:cancel", () => gQueue.delete(me));
+  socket.on("game:invite", ({ to, game, kind } = {}, f) => {
+    if (!GAME_RULES[game] || !to || to === me || !userSockets.has(to) || gPlaying.has(to) || gPlaying.has(me)) return ack(f, { ok: false, reason: gPlaying.has(to) ? "busy" : "offline" });
+    const id = nanoid(8); gInvites.set(id, { from: me, to, game, at: Date.now() });
+    setTimeout(() => { const iv = gInvites.get(id); if (iv) { gInvites.delete(id); io.to(`user:${iv.from}`).emit("game:invite-expired", { id }); } }, 120000);
+    const db = readDB(); io.to(`user:${to}`).emit("game:invite", { id, game, kind: kind === "challenge" ? "challenge" : "invite", from: gCard(db, me) }); ack(f, { ok: true, id });
+  });
+  socket.on("game:respond", ({ id, accept } = {}) => {
+    const iv = gInvites.get(id); if (!iv || iv.to !== me) return; gInvites.delete(id);
+    if (!accept) return void io.to(`user:${iv.from}`).emit("game:declined", { id, by: gCard(readDB(), me) });
+    if (gPlaying.has(iv.from) || gPlaying.has(me)) return;
+    io.to(`user:${iv.from}`).emit("game:accepted", { id, by: gCard(readDB(), me) }); gStart(iv.game, iv.from, me);
+  });
+  socket.on("game:move", ({ room: rid, move } = {}) => {
+    const room = gRooms.get(rid); if (!room || room.over) return;
+    const idx = room.players.indexOf(me); if (idx !== room.turn) return;
+    const R = GAME_RULES[room.game]; if (!R.moves(room.state, idx).includes(move)) return;
+    room.state = R.play(room.state, move, idx, Math.random);
+    const w = R.win(room.state); const full = R.draw ? R.draw(room.state) : R.moves(room.state).length === 0;
+    if (w || full) {
+      const rec = gFinish(room, w ? w.p : -1);
+      room.players.forEach((p, i) => { io.to(`user:${p}`).emit("game:move", { room: rid, state: gView(room, i), turn: -1, last: move, by: idx }); io.to(`user:${p}`).emit("game:over", { room: rid, winner: w ? w.p : -1, line: w ? w.line : null, score: room.score, reward: rec[p], result: w ? (w.p === i ? "w" : "l") : "d" }); });
+    } else { room.turn = R.next ? R.next(room.state) : 1 - idx; room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:move", { room: rid, state: gView(room, i), turn: room.turn, last: move, by: idx, next: room.players[room.turn] })); }
+  });
+  const relay = (ev) => socket.on(ev, ({ room: rid, text, emoji } = {}) => {
+    const room = gRooms.get(rid); if (!room || !room.players.includes(me)) return;
+    const body = ev === "game:chat" ? String(text || "").slice(0, 300) : String(emoji || "").slice(0, 8); if (!body) return;
+    room.players.forEach((p) => io.to(`user:${p}`).emit(ev, { room: rid, from: me, text: body, emoji: body, at: Date.now() }));
+  });
+  relay("game:chat"); relay("game:react");
+  socket.on("game:rematch", ({ room: rid } = {}) => {
+    const room = gRooms.get(rid); if (!room || !room.over || !room.players.includes(me)) return;
+    room.rematch.add(me); const other = room.players.find((p) => p !== me);
+    if (room.rematch.size < 2) return void io.to(`user:${other}`).emit("game:rematch-request", { room: rid, from: gCard(readDB(), me) });
+    room.state = GAME_RULES[room.game].init(); room.players.reverse(); room.score.reverse(); room.turn = 0; room.over = false; room.rematch.clear();
+    const cards = room.players.map((p) => gCard(readDB(), p));
+    room.players.forEach((p, i) => io.to(`user:${p}`).emit("game:start", { room: rid, game: room.game, you: i, players: cards, turn: 0, state: gView(room, i), score: room.score, rematch: true }));
+    if (room.game === "race") raceKick(room);
+  });
+  socket.on("race:pos", ({ room: rid, d, x, v, c, n } = {}) => {
+    const room = gRooms.get(rid); if (!room || room.game !== "race" || room.over || !room.t0) return;
+    const idx = room.players.indexOf(me); if (idx < 0) return;
+    d = Number(d); x = Number(x); v = Number(v);
+    if (!(d >= 0) || !(x >= 0) || !(v >= 0)) return;
+    const el = (Date.now() - room.t0) / 1000; if (d > el * RACE_VMAX + 30) return; // faster than any car can go: ignore
+    room.pos[idx] = { d, x: Math.min(3, x), v: Math.min(RACE_VMAX, v) };
+    io.to(`user:${room.players[1 - idx]}`).emit("race:pos", { room: rid, d, x: Math.min(3, x), v: Math.min(RACE_VMAX, v), c: c ? 1 : 0, n: n ? 1 : 0 });
+  });
+  socket.on("race:finish", ({ room: rid } = {}) => {
+    const room = gRooms.get(rid); if (!room || room.game !== "race" || room.over || !room.t0) return;
+    const idx = room.players.indexOf(me); if (idx < 0 || room.fin[idx] != null) return;
+    const el = Date.now() - room.t0;
+    if (room.pos[idx].d < room.state.len - 25 || el < (room.state.len / RACE_VMAX) * 1000 - 500) return; // has not really driven the whole track
+    room.fin[idx] = el; raceEnd(room, idx);
+  });
+  socket.on("game:leave", () => gLeave(me));
+  socket.on("game:solo", ({ game, level, result } = {}, f) => {
+    if (!GAME_RULES[game] || !["w", "l", "d"].includes(result)) return;
+    ack(f, gRecord(me, game, result, false, Math.max(0, Math.min(3, Number(level) || 0))));
+  });
+  socket.on("game:board", ({ period } = {}, f) => {
+    const db = readDB(); const span = { day: 864e5, week: 6048e5, month: 2592e6 }[period] || 864e5; const since = Date.now() - span; const tally = {};
+    for (const e of db.gameLog || []) if (e.t >= since && e.p) { const t = (tally[e.u] = tally[e.u] || { w: 0, l: 0, d: 0, xp: 0 }); t[e.r] += 1; t.xp += e.x; }
+    const rows = Object.entries(tally).sort((a, b) => b[1].w - a[1].w || b[1].xp - a[1].xp).slice(0, 20).map(([id, t], i) => ({ rank: i + 1, ...t, user: gCard(db, id) })).filter((r) => r.user);
+    ack(f, { rows, me: gCard(db, me) });
+  });
+  socket.on("disconnect", () => { if (!userSockets.has(me)) gLeave(me); });
+}
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    const payload = jwt.verify(token, JWT_SECRET);
+    const db = readDB();
+    const user = db.users.find((u) => u.id === payload.sub);
+    if (!user) return next(new Error("Unknown user"));
+    socket.userId = user.id;
+    next();
+  } catch {
+    next(new Error("Unauthorized"));
+  }
+});
+
+io.on("connection", (socket) => {
+  const userId = socket.userId;
+
+  if (!userSockets.has(userId)) userSockets.set(userId, new Set());
+  userSockets.get(userId).add(socket.id);
+  socket.join(`user:${userId}`);
+  socket.on("presence:get", (ack) => { if (typeof ack === "function") ack(presenceSnapshot(userId)); });
+  socket.data.visible = true;
+  socket.on("app:visible", (v) => { socket.data.visible = !!v; }); // lets the server know when the app is in the background, so it sends a push instead
+
+  const db = readDB();
+  const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
+  for (const c of myConvos) socket.join(`conv:${c.id}`);
+
+  if (!hidesPresence(db.users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: true });
+  // Games: tell everyone else a player just came online (first device only, and at most once a minute per player so reconnects don't spam)
+  if (userSockets.get(userId).size === 1) {
+    const meU = db.users.find((u) => u.id === userId);
+    const now = Date.now();
+    if (meU && !hidesPresence(meU) && now - (gOnlineAt.get(userId) || 0) > 60000) {
+      gOnlineAt.set(userId, now);
+      socket.broadcast.emit("game:player-online", { player: { id: meU.id, name: meU.name, initials: publicUser(meU).initials, color: publicUser(meU).color, avatar: publicUser(meU).avatar } });
+    }
+  }
+
+  socket.on("message:send", ({ conversationId, text, audio, duration, file, replyTo, forwarded }, ack) => {
+    const fail = (error) => { if (ack) ack({ error }); };
+    const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
+    if (audio && !voice) return fail("Voice note is too long or not supported (max about 1 minute)");
+    if (voice) text = "🎤 Voice note";
+
+    // photo / file attachment (max ~3 MB). Active content types are refused so a shared file can never run in someone's browser.
+    let att = null;
+    if (file) {
+      const okShape = typeof file === "object" && typeof file.data === "string";
+      const m = okShape && /^data:([\w.+-]+\/[\w.+-]+)?(?:;[\w=.+-]+)*;base64,/.exec(file.data);
+      if (!m) return fail("That file could not be read");
+      if (file.data.length > 4200000) return fail("File is too large (max 3 MB)");
+      const mime = (m[1] || "application/octet-stream").toLowerCase();
+      if (/^(text\/html|image\/svg|application\/xhtml|text\/javascript|application\/javascript|application\/x-msdownload)/.test(mime)) return fail("That file type is not allowed");
+      const name = String(file.name || "file").replace(/[\\/<>:"|?*\x00-\x1f]/g, "_").slice(0, 120) || "file";
+      att = { name, mime, size: Math.max(0, Math.round(Number(file.size)) || 0), data: file.data };
+      if (!text || !String(text).trim()) text = mime.startsWith("image/") ? "📷 Photo" : "📎 " + name;
+    }
+
+    if (!text || !text.trim()) return fail("Message text required");
+    if (text.length > 15000) return fail("Message is too long (max 15000 characters)");
+    const db = readDB();
+    const convo = db.conversations.find((c) => c.id === conversationId);
+    if (!convo || !convo.participantIds.includes(userId)) {
+      if (ack) ack({ error: "Not a participant of this conversation" });
+      return;
+    }
+    if (!convo.isGroup) {
+      const otherId = convo.participantIds.find((id) => id !== userId);
+      const me = db.users.find((u) => u.id === userId);
+      const other = db.users.find((u) => u.id === otherId);
+      if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
+      if (other && (other.blocked || []).includes(userId)) return fail("This message couldn't be delivered.");
+    }
+    // reply: keep a small snapshot of the quoted message so the quote still shows if the original is deleted later
+    let reply = null;
+    if (typeof replyTo === "string" && replyTo) {
+      const orig = db.messages.find((x) => x.id === replyTo && x.conversationId === conversationId);
+      if (orig && !orig.deleted) {
+        const au = db.users.find((u) => u.id === orig.senderId);
+        reply = {
+          id: orig.id, senderId: orig.senderId, name: au ? au.name : "Former member",
+          text: orig.audio ? "🎤 Voice note" : orig.file ? (String(orig.file.mime).startsWith("image/") ? "📷 Photo" : "📎 " + orig.file.name) : String(orig.text).slice(0, 140),
+        };
+      }
+    }
+    const message = {
+      id: nanoid(14),
+      conversationId,
+      senderId: userId,
+      text: text.trim(),
+      ...(reply ? { replyTo: reply } : {}),
+      ...(forwarded === true ? { forwarded: true } : {}),
+      ...(voice ? { audio, duration: Math.min(Math.round(Number(duration)) || 0, 120) } : {}),
+      ...(att ? { file: att } : {}),
+      time: Date.now(),
+      read: false,
+    };
+    db.messages.push(message);
+    convo.updatedAt = Date.now();
+    writeDB(db);
+
+    io.to(`conv:${conversationId}`).emit("message:new", message);
+    try { pushMessage(db, convo, message, userId); } catch (e) { console.error("push failed", e.message); }
+    if (ack) ack({ message });
+    try { autoReply(db, convo, message); } catch (e) { console.error("auto reply failed", e.message); }
+  });
+
+  // ---- edit / delete your own messages (everyone in the chat sees the change live) ----
+  // Delete works any time. Text edits are allowed for EDIT_WINDOW_MS after sending (0 = no limit).
+  const EDIT_WINDOW_MS = 15 * 60 * 1000;
+  const ownMessage = (messageId, fail) => {
+    const db = readDB();
+    const m = db.messages.find((x) => x.id === messageId);
+    const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+    if (!m || !convo || !convo.participantIds.includes(userId)) { fail("Message not found"); return null; }
+    if (m.senderId !== userId) { fail("You can only change your own messages"); return null; }
+    return { db, m };
+  };
+  // ---- emoji reactions: one per person per message; sending the same emoji again (or an empty one) removes it ----
+  const REACTION_RE = /^[\p{Extended_Pictographic}\p{Regional_Indicator}\u200d\ufe0f\u20e3\u{1F3FB}-\u{1F3FF}]+$/u;
+  socket.on("message:react", ({ messageId, emoji } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const db = readDB();
+    const m = db.messages.find((x) => x.id === messageId);
+    const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+    if (!m || !convo || !convo.participantIds.includes(userId)) return fail("Message not found");
+    if (m.deleted) return fail("This message was deleted");
+    if (!convo.isGroup) {
+      const otherId = convo.participantIds.find((id) => id !== userId);
+      const me = db.users.find((u) => u.id === userId), other = db.users.find((u) => u.id === otherId);
+      if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to react.");
+      if (other && (other.blocked || []).includes(userId)) return fail("This reaction couldn't be delivered.");
+    }
+    const map = { ...(m.reactions || {}) };
+    if (emoji === null || emoji === undefined || emoji === "" || map[userId] === emoji) delete map[userId];
+    else {
+      if (typeof emoji !== "string" || [...emoji].length > 10 || !REACTION_RE.test(emoji)) return fail("That emoji can't be used");
+      map[userId] = emoji;
+    }
+    if (Object.keys(map).length) m.reactions = map; else delete m.reactions;
+    writeDB(db);
+    const reactions = m.reactions || {};
+    io.to(`conv:${convo.id}`).emit("message:reaction", { conversationId: convo.id, messageId: m.id, reactions });
+    if (typeof ack === "function") ack({ reactions });
+  });
+
+  socket.on("message:edit", ({ messageId, text } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const o = ownMessage(messageId, fail); if (!o) return;
+    const { db, m } = o;
+    if (m.deleted) return fail("This message was deleted");
+    if (m.audio || m.file) return fail("Only text messages can be edited");
+    if (EDIT_WINDOW_MS && Date.now() - m.time > EDIT_WINDOW_MS) return fail("Messages can only be edited for 15 minutes after sending");
+    const t = String(text || "").trim();
+    if (!t) return fail("Message text required");
+    if (t.length > 15000) return fail("Message is too long (max 15000 characters)");
+    if (t !== m.text) {
+      m.text = t; m.edited = true; m.editedAt = Date.now();
+      writeDB(db);
+      io.to(`conv:${m.conversationId}`).emit("message:updated", m);
+    }
+    if (typeof ack === "function") ack({ message: m });
+  });
+  socket.on("message:delete", ({ messageId } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const o = ownMessage(messageId, fail); if (!o) return;
+    const { db, m } = o;
+    if (!m.deleted) {
+      // keep the row (so the chat shows "This message was deleted") but drop the content, audio and file bytes for good
+      delete m.audio; delete m.duration; delete m.file; delete m.edited; delete m.editedAt;
+      m.text = "🚫 This message was deleted"; m.deleted = true; m.deletedAt = Date.now();
+      writeDB(db);
+      io.to(`conv:${m.conversationId}`).emit("message:updated", m);
+    }
+    if (typeof ack === "function") ack({ message: m });
+  });
+
+  socket.on("call:invite", ({ to, conversationId, video } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const db = readDB();
+    const convo = db.conversations.find((c) => c.id === conversationId && !c.isGroup && c.participantIds.includes(userId) && c.participantIds.includes(to));
+    const me = db.users.find((u) => u.id === userId), other = db.users.find((u) => u.id === to);
+    if (!convo || !other || to === userId) return fail("You can only call people you chat with");
+    if ((me.blocked || []).includes(to)) return fail("You blocked this contact. Unblock them to call.");
+    if ((other.blocked || []).includes(userId)) return fail("This call couldn't be connected.");
+    if (userCall.has(userId)) return fail("You are already in a call");
+    const first = String(other.name || "They").split(" ")[0];
+    if (!userSockets.has(to)) return fail(first + " is offline right now");
+    if (userCall.has(to)) return fail(first + " is on another call");
+    const id = nanoid(12);
+    const call = { id, from: userId, to, conversationId, video: !!video, state: "ringing", timer: setTimeout(() => endCall(id, "missed"), RING_MS) };
+    activeCalls.set(id, call);
+    userCall.set(userId, id);
+    userCall.set(to, id);
+    io.to(`user:${to}`).emit("call:incoming", { callId: id, conversationId, video: !!video, from: memberView(me) });
+    if (typeof ack === "function") ack({ callId: id });
+  });
+  socket.on("call:answer", ({ callId, accept, reason } = {}) => {
+    const c = activeCalls.get(callId);
+    if (!c || c.to !== userId || c.state !== "ringing") return;
+    if (!accept) return endCall(callId, reason === "unavailable" ? "unavailable" : "declined");
+    c.state = "active";
+    clearTimeout(c.timer);
+    io.to(`user:${c.from}`).emit("call:accepted", { callId });
+  });
+  socket.on("call:signal", ({ callId, data } = {}) => {
+    const c = activeCalls.get(callId);
+    if (!c || (c.from !== userId && c.to !== userId) || !data || typeof data !== "object") return;
+    if (JSON.stringify(data).length > 20000) return;
+    io.to(`user:${c.from === userId ? c.to : c.from}`).emit("call:signal", { callId, data });
+  });
+  socket.on("call:end", ({ callId } = {}) => {
+    const c = activeCalls.get(callId);
+    if (c && (c.from === userId || c.to === userId)) endCall(callId, "ended");
+  });
+
+  registerGames(socket);
+
+  socket.on("typing", ({ conversationId, typing }) => {
+    socket.to(`conv:${conversationId}`).emit("typing", { conversationId, userId, typing: !!typing });
+  });
+
+  socket.on("disconnect", () => {
+    const set = userSockets.get(userId);
+    if (set) {
+      set.delete(socket.id);
+      if (set.size === 0) {
+        userSockets.delete(userId);
+        lastSeen.set(userId, Date.now());
+        if (userCall.has(userId)) endCall(userCall.get(userId), "failed");
+        if (!hidesPresence(readDB().users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: false, lastSeen: lastSeen.get(userId) });
+      }
+    }
+  });
+});
+
+initDB()
+  .then(() => server.listen(PORT, () => console.log(`Letschat Africa server listening on port ${PORT}`)))
+  .catch((e) => { console.error("Could not start (database error):", e); process.exit(1); });
