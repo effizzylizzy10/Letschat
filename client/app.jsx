@@ -375,7 +375,7 @@ function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
         <div style={{ position: "absolute", inset: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` }} />
       )}
       {photo ? (
-        <img
+        <img loading="lazy" decoding="async"
           src={photo}
           alt=""
           onContextMenu={e => e.preventDefault()}
@@ -473,7 +473,7 @@ function ImageZoomModal({ photo, initials, color, onClose }) {
             onWheel={(e) => setT((c) => clamp({ ...c, s: c.s - e.deltaY * 0.003 }))}
             style={{ width: "100%", aspectRatio: "1 / 1", overflow: "hidden", touchAction: "none", cursor: t.s > 1 ? "grab" : "zoom-in" }}
           >
-            <img
+            <img loading="lazy" decoding="async"
               src={photo}
               alt=""
               onContextMenu={(e) => e.preventDefault()}
@@ -2832,7 +2832,7 @@ function PostProductModal({ token, onClose, onPosted }) {
         {error && <Banner text={error} />}
         <div style={{ overflowY: "auto", flex: 1 }}>
           <label style={{ ...inputBox, cursor: "pointer", justifyContent: "center", color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>
-            {photo ? <img src={photo} alt="" style={{ width: 90, height: 90, borderRadius: 10, objectFit: "cover" }} /> : <><Camera size={18} /> Add a photo</>}
+            {photo ? <img loading="lazy" decoding="async" src={photo} alt="" style={{ width: 90, height: 90, borderRadius: 10, objectFit: "cover" }} /> : <><Camera size={18} /> Add a photo</>}
             <input type="file" accept={PHOTO_ACCEPT} style={{ display: "none" }} onChange={pick} />
           </label>
           <div style={inputBox}><input value={f.title} maxLength={80} onChange={set("title")} placeholder="Product name" style={inputEl} /></div>
@@ -2978,7 +2978,7 @@ function MarketScreen({ token, myId, onMessageSeller }) {
           const mine = l.seller && l.seller.id === myId;
           return (
             <div key={l.id} style={{ background: "#161B22", border: "1px solid #262E3A", borderRadius: 16, marginBottom: 12, overflow: "hidden", opacity: l.sold ? 0.6 : 1 }}>
-              {l.photo && <img src={photoSrc(l.photo)} alt="" onClick={() => setZoom(l)} style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block", cursor: "pointer" }} />}
+              {l.photo && <img loading="lazy" decoding="async" src={photoSrc(l.photo)} alt="" onClick={() => setZoom(l)} style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block", cursor: "pointer" }} />}
               <div style={{ padding: "12px 14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                   <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" }}>{l.title}</span>
@@ -4549,7 +4549,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
       {/* collapsing header: cover photo -> solid top bar */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: heroH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" }}>
         <div style={{ position: "absolute", inset: 0, overflow: "hidden", opacity: 1 - p }}>
-          {u.avatar ? <img src={photoSrc(u.avatar)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 25%", display: "block" }} />
+          {u.avatar ? <img loading="lazy" decoding="async" src={photoSrc(u.avatar)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 25%", display: "block" }} />
             : <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg, " + u.color + "55, #0E1116)" }} />}
           <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 45%, rgba(14,17,22,0.55) 100%)" }} />
         </div>
@@ -4561,7 +4561,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
         {u.verified && <VerifiedBadge size={15} />}
       </div>
       <div onClick={u.avatar ? () => setZoom(true) : undefined} style={{ position: "absolute", top, left, width: size, height: size, zIndex: 5, borderRadius: "50%", boxSizing: "border-box", border: (3 - 1.5 * p) + "px solid #35D0BA", background: "#0E1116", cursor: u.avatar ? "pointer" : "default" }}>
-        {u.avatar ? <img src={photoSrc(u.avatar)} alt="" draggable={false} onContextMenu={e => e.preventDefault()} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block" }} />
+        {u.avatar ? <img loading="lazy" decoding="async" src={photoSrc(u.avatar)} alt="" draggable={false} onContextMenu={e => e.preventDefault()} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block" }} />
           : <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: u.color + "26", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 }}>{u.initials}</div>}
       </div>
       {menu && (
@@ -4605,7 +4605,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
         </div>
         {(tiles.length > 0 || docs.length > 0) && (
           <div style={{ display: "flex", gap: 4, overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" }}>
-            {tiles.map(m => <img key={m.id} src={m.file.data} alt={m.file.name} onClick={() => onOpenImage(m.file.data)} style={{ width: 84, height: 84, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}
+            {tiles.map(m => <img loading="lazy" decoding="async" key={m.id} src={m.file.data} alt={m.file.name} onClick={() => onOpenImage(m.file.data)} style={{ width: 84, height: 84, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}
             {tiles.length === 0 && docs.slice(-6).reverse().map(m => (
               <div key={m.id} onClick={onOpenMedia} style={{ width: 84, height: 84, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 6, boxSizing: "border-box", cursor: "pointer" }}>
                 <Paperclip size={20} color="#35D0BA" /><span style={{ fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.file.name}</span>
@@ -4722,7 +4722,7 @@ function MediaDocsSheet({ msgs, conversation, myId, onOpenImage, onClose }) {
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
         {tabs.map(([k, label, n]) => <button key={k} onClick={() => setTab(k)} style={{ flex: 1, padding: "9px 4px", borderRadius: 999, border: "1px solid " + (tab === k ? "#35D0BA" : "#2B3544"), background: tab === k ? "rgba(53,208,186,0.14)" : "none", color: tab === k ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>{label}{n ? " (" + n + ")" : ""}</button>)}
       </div>
-      {tab === "media" && (media.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>{media.map(m => <img key={m.id} src={m.file.data} alt={m.file.name} onClick={() => { onClose(); onOpenImage(m.file.data); }} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}</div> : empty)}
+      {tab === "media" && (media.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>{media.map(m => <img loading="lazy" decoding="async" key={m.id} src={m.file.data} alt={m.file.name} onClick={() => { onClose(); onOpenImage(m.file.data); }} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}</div> : empty)}
       {tab === "docs" && (docs.length ? docs.map(m => (
         <a key={m.id} href={m.file.data || undefined} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none", color: "#F5F7FA" }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
@@ -5329,7 +5329,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
               )}
               {m.deleted ? <div style={{ fontStyle: "italic", color: "#B9C2CC" }}>{m.text}</div>
                 : m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} />
-                : m.file && m.file.data && /^data:image\//.test(m.file.data) ? <img src={m.file.data} alt={m.file.name} onClick={() => setViewer(m.file.data)} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" }} />
+                : m.file && m.file.data && /^data:image\//.test(m.file.data) ? <img loading="lazy" decoding="async" src={m.file.data} alt={m.file.name} onClick={() => setViewer(m.file.data)} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" }} />
                 : m.file && m.file.data ? (
                   <a href={m.file.data} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 }}>
                     <span style={{ width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
@@ -5476,7 +5476,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       )}
       {viewer && (
         <div onClick={() => setViewer(null)} style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <img src={viewer} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          <img loading="lazy" decoding="async" src={viewer} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
           <div style={{ position: "absolute", top: 14, right: 14, color: "#F5F7FA" }}><X size={26} /></div>
         </div>
       )}
@@ -5695,7 +5695,7 @@ function CropModal({ file, onCancel, onDone }) {
         style={{ position: "relative", width: VIEW, height: VIEW, overflow: "hidden", background: "#161B22", touchAction: "none", cursor: "grab", borderRadius: 4 }}
       >
         {img && (
-          <img src={img.src} alt="" draggable={false} style={{ position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" }} />
+          <img loading="lazy" decoding="async" src={img.src} alt="" draggable={false} style={{ position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" }} />
         )}
         <div style={{ position: "absolute", inset: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" }} />
       </div>
@@ -6325,7 +6325,7 @@ function App() {
   // connect socket once logged in
   useEffect(() => {
     if (!session) return;
-    const socket = io(SOCKET_URL, { auth: { token: session.token } });
+    const socket = io(SOCKET_URL, { auth: { token: session.token }, transports: ["websocket", "polling"] });
     socketRef.current = socket; if (window.LetschatPush) window.LetschatPush.watch(socket);
     socket.on("connect", () => { socket.emit("presence:get", applyPresence); refreshConversations(); }); // who is online right now + fresh chat list (also after reconnects)
     socket.on("presence:update", ({ userId, online, lastSeen: ts }) => {

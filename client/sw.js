@@ -1,36 +1,72 @@
 // Letschat Africa service worker
-// - Caches the app shell so the app opens instantly and works offline.
-// - Never touches API / socket traffic (other origins, /socket.io, POSTs).
-const CACHE = "letschat-shell-v12"; // bump this (v2, v3...) to force an update
-const SHELL = ["./", "./index.html", "./config.js", "./push.js", "./reactions.js", "./swoosh.mp3", "./typing.wav", "./manifest.json"];
+// - Opens the app instantly from the device (stale-while-revalidate): you see the saved version at once and
+//   the newest version is fetched quietly in the background, so a deploy shows up the next time you open the app.
+// - Keeps the pinned library files (React, Firebase, Socket.IO) on the device so they never hit the network again.
+// - Never touches API / socket traffic (other origins, /socket.io, POSTs, audio/video range requests).
+const CACHE = "letschat-shell-v13"; // bump this (v14, v15...) to force every device to drop the old copy
+const LIBS = "letschat-libs-v1";    // pinned versions never change, so this cache is kept across updates
+const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./push.js", "./reactions.js", "./manifest.json"];
+const EXTRAS = ["./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]; // best effort, never blocks install
+// Third-party files whose URL contains an exact version number: safe to cache forever.
+const PINNED = [
+  /^https:\/\/unpkg\.com\/react(-dom)?@\d+\.\d+\.\d+\//,
+  /^https:\/\/www\.gstatic\.com\/firebasejs\/\d+\.\d+\.\d+\//,
+  /^https:\/\/cdn\.socket\.io\/\d+\.\d+\.\d+\//,
+];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE).then((c) =>
+      c.addAll(SHELL).then(() => Promise.all(EXTRAS.map((u) => c.add(u).catch(() => {}))))
+    ).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== LIBS).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
+// only keep complete, successful responses (a 206 partial or an error page must never be stored)
+const storable = (res) => res && res.status === 200 && (res.type === "basic" || res.type === "cors");
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
-  const url = new URL(req.url);
   if (req.method !== "GET") return;                    // sends, uploads, etc.
-  if (url.origin !== self.location.origin) return;     // Render API, Firebase, CDNs
+  if (req.headers.has("range")) return;                // audio/video seeking goes straight to the network
+  const url = new URL(req.url);
+
+  // pinned libraries: cache first, forever
+  if (url.origin !== self.location.origin) {
+    if (!PINNED.some((re) => re.test(req.url))) return; // Render API, fonts, Firebase calls: leave alone
+    e.respondWith(
+      caches.open(LIBS).then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => {
+        if (storable(res)) c.put(req, res.clone());
+        return res;
+      })))
+    );
+    return;
+  }
+
   if (url.pathname.startsWith("/socket.io")) return;   // realtime
 
-  // Network first (so new deploys show up), fall back to cache when offline.
+  // our own files: show the saved copy now, refresh it in the background
   e.respondWith(
-    fetch(req)
-      .then((res) => {
-        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
-        return res;
-      })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match("./index.html")))
+    caches.open(CACHE).then((c) => {
+      const isPage = req.mode === "navigate";
+      // ?chat=... / ?join=... links must still open the app, so match the page without its query string
+      return c.match(isPage ? "./index.html" : req, { ignoreSearch: true }).then((hit) => {
+        const refresh = fetch(req).then((res) => {
+          if (storable(res)) c.put(isPage ? "./index.html" : req, res.clone());
+          return res;
+        });
+        if (hit) { refresh.catch(() => {}); return hit; }  // saved copy now; the update lands for next time
+        return refresh.catch(() => c.match("./index.html"));
+      });
+    })
   );
 });
 

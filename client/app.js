@@ -1,0 +1,7574 @@
+// AUTO-GENERATED from app.jsx
+"use strict";
+// ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
+const { useState, useRef, useEffect, useCallback } = React;
+const MAX_MSG_CHARS = 15000; // ~2,000+ words per message (keep in step with the server)
+// ---- Typo suggestions while typing (plain JS on purpose: the same block is used in app.jsx and the compiled index.html) ----
+// Never changes text by itself: it only offers tappable corrections for the last finished word that looks misspelled.
+const TYPO_WORDS = ("the be to of and a in that have it for not on with he as you do at this but his by from they we say her she or an will my one all would there their what so up out if about who get which go me when make can like time no just him know take people into year your good some could them see other than then now look only come its over think also back after use two how our work first well way even new want because any these give day most us " +
+    "is are was were been being has had does did done am said says made makes got gets went goes gone came comes took takes saw seen knew known thought told tell asked ask need needs needed feel felt feels try tried keep kept let put seem leave left call called find found show shown move live believe hold bring brought happen write wrote written provide sit stand lose pay meet include continue set learn change lead understand watch follow stop create speak read allow add spend grow open walk win offer remember love consider appear buy wait serve die send expect build stay fall cut reach kill remain " +
+    "again always never often sometimes usually really very quite maybe perhaps probably actually already almost enough especially exactly finally generally honestly instead simply suddenly together tonight tomorrow today yesterday morning afternoon evening night week weekend month year years later early soon still while until since before during between through without within against across around among another every each either neither both many much more most less least several something anything everything nothing someone anyone everyone somebody anybody everybody nobody somewhere anywhere everywhere nowhere " +
+    "hello hi hey thanks thank please sorry welcome goodbye bye okay yes yeah yep nope sure fine great awesome amazing nice cool beautiful wonderful lovely perfect lovely happy sad angry tired hungry sleepy busy free ready late early sorry glad proud excited worried scared afraid surprised confused bored lonely sick healthy strong weak hard easy difficult simple important special different same similar possible impossible necessary available interested interesting serious funny crazy silly lucky " +
+    "mother father mom dad mummy daddy brother sister son daughter wife husband friend friends family cousin uncle aunt grandma grandpa child children baby boy girl man woman men women person people guy guys neighbour neighbor boss colleague teacher student pastor doctor nurse driver customer client manager partner team group community church mosque school college university class lesson exam test homework assignment project report result results " +
+    "house home room kitchen bathroom bedroom door window floor wall roof gate compound street road market shop store mall office building city town village state country world place area location address airport station park beach hotel restaurant hospital bank church bus car bike truck train plane flight ticket journey travel trip drive ride traffic fuel petrol phone mobile call message text chat photo picture video voice audio network data airtime internet wifi online offline app application website link email password username account profile settings notification " +
+    "food water rice beans bread egg eggs meat chicken fish fruit orange banana apple mango yam plantain pepper onion tomato salt sugar oil milk tea coffee juice drink eat drank ate breakfast lunch dinner cook cooking hungry thirsty snack " +
+    "money cash price cost cheap expensive pay payment paid transfer balance salary rent bill budget save saving spend sell sold buy bought order delivery deliver deliveries shipping package parcel receipt invoice discount offer deal business company job work working worked career interview meeting appointment schedule deadline plan plans idea ideas problem problems solution question questions answer answers reason reasons issue issues matter matters mistake mistakes " +
+    "time hour hours minute minutes second seconds moment monday tuesday wednesday thursday friday saturday sunday january february march april june july august september october november december spring summer winter weather rain sunny cloudy hot cold warm cool wind " +
+    "head face eye eyes ear ears nose mouth teeth hand hands arm arms leg legs foot feet finger heart body hair skin back stomach chest shoulder health medicine tablet hospital pain headache fever " +
+    "big small large little long short tall high low heavy light dark bright loud quiet fast slow quick early late full empty open closed clean dirty wet dry old young new best better worst worse more less right wrong true false real fake clear sure careful safe dangerous ready wonderful terrible horrible lovely fantastic excellent brilliant " +
+    "black white red blue green yellow brown pink purple grey gray gold silver color colour number numbers first second third last next previous final only whole half double single double couple few lot lots plenty enough " +
+    "going coming doing making taking having getting being saying looking thinking working playing talking walking running sitting standing waiting trying calling asking helping hoping wishing planning learning teaching reading writing listening watching sleeping eating drinking cooking driving travelling traveling shopping " +
+    "game games play played player music song songs dance movie movies film show series episode news story stories book books page pages word words language english yoruba igbo hausa pidgin french spanish sport football match goal score winner lost won win lose champion league cup " +
+    "help support service services free offer special welcome verify verified confirm confirmed cancel cancelled delete deleted edit edited send sent receive received forward reply replied block blocked report share shared save saved download upload update updated install login logout register signup sign join joined invite invited accept accepted decline declined search find found contact contacts status story stories group groups member members admin " +
+    "about above across after against along already among around because before behind below beside besides beyond despite except inside outside instead near onto outside toward towards under unlike until upon within without " +
+    "birthday wedding party celebration celebrate congratulations congrats blessing blessed bless prayer pray god lord amen christmas easter ramadan eid holiday vacation festival gift present surprise invitation welcome " +
+    "love like hate enjoy prefer miss care worry hope wish wonder doubt agree disagree decide choose forgive forget remember promise trust lie truth secret joke laugh smile cry shout scream whisper listen hear heard sound speak spoke talk argue fight quarrel apologise apologize explain describe discuss suggest recommend advise warn complain " +
+    "should would could might must shall cannot cant dont doesnt didnt isnt wasnt arent werent wont wouldnt couldnt shouldnt havent hasnt hadnt " +
+    "abeg wahala wetin oga abi sha naija jare biko sef dey omo haba wallahi inshallah mashallah alhamdulillah jollof suya danfo okada kolo shey sabi pikin chop gist gbam ehen oya sebi nawa mumu oyinbo ankara owambe amala egusi garri akara lagos abuja nigeria nigerian africa african ghana kenya yoruba igbo hausa " +
+    "whatsapp facebook instagram twitter tiktok youtube google gmail zoom telegram snapchat letschat loop " +
+    "yourself myself himself herself itself ourselves themselves anyway anyhow somehow however whatever whenever wherever whoever whichever although though unless whether either nor yet rather quite fairly pretty really truly deeply highly nearly merely barely hardly mostly partly fully " +
+    "school class semester course degree certificate graduate graduation scholarship library lecture lecturer professor principal headmaster uniform " +
+    "answer attention beginning business certain chance condition decision difference direction education effect effort energy evening experience foreign future government history information interest knowledge level library material member minute moment mountain nature opinion position president pressure process quality reality relationship report research response responsibility science sentence situation society subject success suggestion system technology thousand tonight understanding usually variety village weight whether wonder yesterday").split(/\s+/).filter(Boolean);
+const TYPO_SET = new Set(TYPO_WORDS);
+// Common misspellings -> correction (checked before anything else, so these are the most reliable suggestions)
+const TYPO_FIX = {
+    teh: "the", hte: "the", taht: "that", adn: "and", nad: "and", waht: "what", wnat: "want", jsut: "just", yuo: "you", yoru: "your", youre: "you're", theyre: "they're", thier: "their", theri: "their",
+    recieve: "receive", recieved: "received", reciept: "receipt", beleive: "believe", belive: "believe", beleived: "believed", acheive: "achieve", wierd: "weird", freind: "friend", freinds: "friends", cheif: "chief",
+    definately: "definitely", definatly: "definitely", defintely: "definitely", seperate: "separate", seperately: "separately", occured: "occurred", occurence: "occurrence", untill: "until", wich: "which", whcih: "which",
+    becuase: "because", beacuse: "because", becasue: "because", becuz: "because", alot: "a lot", tommorow: "tomorrow", tomorow: "tomorrow", tommorrow: "tomorrow", tomorrw: "tomorrow", tonite: "tonight", tonigth: "tonight",
+    writting: "writing", begining: "beginning", comming: "coming", runing: "running", geting: "getting", puting: "putting", stoping: "stopping", planing: "planning",
+    goverment: "government", enviroment: "environment", accomodate: "accommodate", embarass: "embarrass", embarassed: "embarrassed", commited: "committed", comitted: "committed", conscious: "conscious", concious: "conscious",
+    dissapoint: "disappoint", dissapointed: "disappointed", disapointed: "disappointed", existance: "existence", foriegn: "foreign", grammer: "grammar", happend: "happened", humourous: "humorous",
+    immediatly: "immediately", immediatley: "immediately", independant: "independent", knowlege: "knowledge", millenium: "millennium", neccessary: "necessary", necesary: "necessary", necessery: "necessary",
+    noticable: "noticeable", occassion: "occasion", occassionally: "occasionally", persistant: "persistent", posession: "possession", prefered: "preferred", probly: "probably", probaly: "probably", publically: "publicly",
+    realy: "really", reallly: "really", reccomend: "recommend", recomend: "recommend", refered: "referred", relevent: "relevant", resturant: "restaurant", restaurent: "restaurant", rythm: "rhythm", sence: "sense",
+    succesful: "successful", successfull: "successful", sucess: "success", succes: "success", suprise: "surprise", suprised: "surprised", tendancy: "tendency", truely: "truly", unfortunatly: "unfortunately",
+    vaccum: "vacuum", wensday: "Wednesday", wednesay: "Wednesday", thurday: "Thursday", febuary: "February", saturaday: "Saturday", wether: "whether", wheather: "weather", wierdly: "weirdly",
+    adress: "address", addres: "address", agian: "again", aganist: "against", alright: "all right", amature: "amateur", arguement: "argument", athiest: "atheist", basicly: "basically", buisness: "business",
+    bussiness: "business", busines: "business", calender: "calendar", catagory: "category", collegue: "colleague", commitee: "committee", completly: "completely", concensus: "consensus", curiousity: "curiosity",
+    decison: "decision", desparate: "desperate", dilema: "dilemma", dissappear: "disappear", doesnt: "doesn't", dont: "don't", didnt: "didn't", isnt: "isn't", wasnt: "wasn't", arent: "aren't", werent: "weren't",
+    wouldnt: "wouldn't", couldnt: "couldn't", shouldnt: "shouldn't", havent: "haven't", hasnt: "hasn't", hadnt: "hadn't", wont: "won't", cant: "can't", thats: "that's", whats: "what's", heres: "here's", theres: "there's",
+    im: "I'm", ive: "I've", ill: "I'll", id: "I'd", i: "I", embarassing: "embarrassing", excercise: "exercise", exagerate: "exaggerate", experiance: "experience", explaination: "explanation",
+    familar: "familiar", finaly: "finally", fourty: "forty", gaurd: "guard", gaurantee: "guarantee", guidence: "guidance", harrass: "harass", heighth: "height", hieght: "height", hygene: "hygiene",
+    ignorence: "ignorance", intresting: "interesting", interesing: "interesting", inteligent: "intelligent", jewelery: "jewellery", lenght: "length", libary: "library", lisence: "licence", lollypop: "lollipop",
+    maintainance: "maintenance", managment: "management", mispell: "misspell", neighbour: "neighbour", nieghbor: "neighbor", ocasion: "occasion", oppurtunity: "opportunity", oportunity: "opportunity",
+    paralell: "parallel", parliment: "parliament", pasttime: "pastime", percieve: "perceive", perhasp: "perhaps", personel: "personnel", pheonix: "phoenix", plesant: "pleasant", pursue: "pursue",
+    questionaire: "questionnaire", rediculous: "ridiculous", refering: "referring", relize: "realize", religous: "religious", remeber: "remember", rember: "remember", repitition: "repetition", responsability: "responsibility",
+    sargent: "sergeant", scedule: "schedule", shedule: "schedule", sieze: "seize", similiar: "similar", sincerly: "sincerely", speach: "speech", strenght: "strength", sucessful: "successful",
+    temperture: "temperature", threshhold: "threshold", tounge: "tongue", tranfer: "transfer", transfered: "transferred", tyrany: "tyranny", underate: "underrate", usefull: "useful", vegatable: "vegetable",
+    vehical: "vehicle", visable: "visible", wellcome: "welcome", whereever: "wherever", wich: "which", wiht: "with", wrok: "work", wokr: "work", woudl: "would", wuold: "would", shoud: "should", coudl: "could",
+    poeple: "people", peopel: "people", pepole: "people", pleae: "please", pleas: "please", plese: "please", thnks: "thanks", thanx: "thanks", thankyou: "thank you", thankss: "thanks", gud: "good", goodd: "good",
+    helo: "hello", hellow: "hello", helllo: "hello", moring: "morning", mornig: "morning", evenig: "evening", afternon: "afternoon", sory: "sorry", sorrry: "sorry", sorery: "sorry", wellcom: "welcome",
+    mesage: "message", messge: "message", mesaage: "message", massage: "message", numbr: "number", nubmer: "number", accont: "account", acount: "account", pasword: "password", passwrod: "password",
+    tranfers: "transfers", paymnt: "payment", pyament: "payment", moeny: "money", mony: "money", monye: "money", delivary: "delivery", delievery: "delivery", deliverd: "delivered", recive: "receive", recived: "received",
+    beutiful: "beautiful", beatiful: "beautiful", beautifull: "beautiful", baeutiful: "beautiful", amzing: "amazing", amazin: "amazing", awsome: "awesome", awesom: "awesome", exicted: "excited", excitd: "excited",
+    tired: "tired", tirred: "tired", hapy: "happy", hapyy: "happy", angy: "angry", angrey: "angry", sleeep: "sleep", sleping: "sleeping", wating: "waiting", waitng: "waiting", wanna: "want to", gonna: "going to"
+};
+function typoEdit(a, b, max) {
+    const la = a.length, lb = b.length;
+    if (Math.abs(la - lb) > max)
+        return max + 1;
+    let prev2 = null, prev = [], cur = [];
+    for (let j = 0; j <= lb; j++)
+        prev[j] = j;
+    for (let i = 1; i <= la; i++) {
+        cur = [i];
+        let rowMin = i;
+        for (let j = 1; j <= lb; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+            if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+                v = Math.min(v, prev2[j - 2] + 1);
+            cur[j] = v;
+            if (v < rowMin)
+                rowMin = v;
+        }
+        if (rowMin > max)
+            return max + 1;
+        prev2 = prev;
+        prev = cur;
+    }
+    return prev[lb];
+}
+// True when the word (or its plain base form: plural, -ed, -ing, -ly, -er, -est, 's) is a known word.
+function typoKnown(w) {
+    if (TYPO_SET.has(w))
+        return true;
+    const n = w.length;
+    const t = (s) => s.length >= 2 && TYPO_SET.has(s);
+    const dbl = (s) => s.length >= 3 && s[s.length - 1] === s[s.length - 2] ? s.slice(0, -1) : null;
+    if (/['’]s$/.test(w))
+        return typoKnown(w.slice(0, -2));
+    if (/s$/.test(w) && (t(w.slice(0, -1)) || (/es$/.test(w) && t(w.slice(0, -2))) || (/ies$/.test(w) && t(w.slice(0, -3) + "y"))))
+        return true;
+    if (/ed$/.test(w) && (t(w.slice(0, -2)) || t(w.slice(0, -1)) || (dbl(w.slice(0, -2)) && t(dbl(w.slice(0, -2)))) || (/ied$/.test(w) && t(w.slice(0, -3) + "y"))))
+        return true;
+    if (/ing$/.test(w) && (t(w.slice(0, -3)) || t(w.slice(0, -3) + "e") || (dbl(w.slice(0, -3)) && t(dbl(w.slice(0, -3))))))
+        return true;
+    if (/ly$/.test(w) && (t(w.slice(0, -2)) || (/ily$/.test(w) && t(w.slice(0, -3) + "y")) || (/ally$/.test(w) && t(w.slice(0, -4)))))
+        return true;
+    if (/(er|est)$/.test(w)) {
+        const s = w.replace(/(er|est)$/, "");
+        if (t(s) || t(s + "e") || (dbl(s) && t(dbl(s))) || (/i$/.test(s) && t(s.slice(0, -1) + "y")))
+            return true;
+    }
+    if (/(ness|ment|ful|less)$/.test(w) && t(w.replace(/(ness|ment|ful|less)$/, "")))
+        return true;
+    return n < 3;
+}
+function typoMatchCase(src, fix) {
+    if (src.length > 1 && src === src.toUpperCase())
+        return fix.toUpperCase();
+    if (src[0] !== src[0].toLowerCase())
+        return fix[0].toUpperCase() + fix.slice(1);
+    return fix;
+}
+// Closest dictionary words to a lowercase word, best first. To keep false alarms rare (the built-in word list is small),
+// only three kinds of slip are accepted: two neighbouring letters swapped (teh, wlaking), a doubled letter added or missing
+// (comming, tomorow), and - for long words only - one wrong, missing or extra letter.
+function typoCollapse(w) { return w.replace(/(.)\1+/g, "$1"); }
+function typoNear(w) {
+    const n = w.length;
+    const hits = [];
+    for (let i = 0; i < TYPO_WORDS.length; i++) {
+        const d = TYPO_WORDS[i];
+        if (d.length < 4 || Math.abs(d.length - n) > 1 || d === w)
+            continue;
+        let dist = 0;
+        if (d.length === n && typoSwap(w, d))
+            dist = 1;
+        else if (n >= 5 && typoCollapse(w) === typoCollapse(d))
+            dist = 1;
+        else if (n >= 8 && d[0] === w[0] && typoEdit(w, d, 1) <= 1)
+            dist = 2;
+        if (dist)
+            hits.push({ d, dist, i });
+    }
+    hits.sort((a, b) => a.dist - b.dist || a.i - b.i);
+    const seen = {};
+    return hits.map(h => h.d).filter(d => (seen[d] ? false : (seen[d] = true)));
+}
+function typoSwap(a, b) {
+    let i = 0;
+    while (i < a.length && a[i] === b[i])
+        i++;
+    return i < a.length - 1 && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+}
+function typoOptions(lower) {
+    if (TYPO_FIX[lower])
+        return [TYPO_FIX[lower]];
+    if (typoKnown(lower))
+        return [];
+    if (lower.length < 4)
+        return [];
+    let out = typoNear(lower);
+    if (!out.length) { // a misspelled inflection: fix the stem, then put the ending back
+        const m = lower.match(/^(.{4,})(ing|ed|es|s|ly|er)$/);
+        if (m)
+            out = typoNear(m[1]).concat(typoNear(m[1] + "e")).map(s => (/^[aeiouy]/.test(m[2]) && /e$/.test(s) ? s.slice(0, -1) : s) + m[2]);
+    }
+    return out.slice(0, 3);
+}
+// Looks at the finished words in `text` and returns { start, end, word, options } for the LAST one that looks misspelled, else null.
+// A word still being typed (no space or punctuation after it yet) is never judged.
+function typoCheck(text, ignored) {
+    if (!text || text.length > 4000)
+        return null;
+    const skip = ignored || [];
+    const re = /\S+/g;
+    let m, found = null, prevEnd = "";
+    while ((m = re.exec(text))) {
+        const chunk = m[0], at = m.index;
+        const lead = prevEnd;
+        prevEnd = chunk.slice(-1);
+        const p = chunk.match(/^([^A-Za-z]*)([A-Za-z]+(?:['’][A-Za-z]+)*)([^A-Za-z]*)$/);
+        if (!p)
+            continue; // digits, links, emoji, accents, @tags inside the chunk
+        if (/[@#\/]/.test(p[1]))
+            continue; // @mention or #tag
+        const word = p[2], trail = p[3];
+        if (!trail && at + chunk.length === text.length)
+            continue; // still typing this word
+        const wordStart = at + p[1].length;
+        if (/[.][A-Za-z]/.test(text.slice(wordStart + word.length, wordStart + word.length + 2)))
+            continue;
+        const lower = word.toLowerCase().replace(/’/g, "'");
+        if (skip.indexOf(lower) !== -1)
+            continue;
+        const isCap = word[0] !== word[0].toLowerCase();
+        const sentenceStart = at === 0 || /[.!?]\s*$/.test(text.slice(0, at)) || /\n\s*$/.test(text.slice(0, at));
+        if (word.length > 1 && word === word.toUpperCase())
+            continue; // SHOUTING, abbreviations
+        if (isCap && !sentenceStart && lower !== "i")
+            continue; // probably a name
+        const options = typoOptions(lower).filter(o => o !== word);
+        if (options.length)
+            found = { start: wordStart, end: wordStart + word.length, word, options: options.map(o => typoMatchCase(word, o)) };
+    }
+    return found;
+}
+function typoApply(text, hit, fix) { return text.slice(0, hit.start) + fix + text.slice(hit.end); }
+function typoLoadIgnored() { try {
+    return JSON.parse(localStorage.getItem("lc_typo_ignore") || "[]");
+}
+catch (e) {
+    return [];
+} }
+function typoSaveIgnored(list) { try {
+    localStorage.setItem("lc_typo_ignore", JSON.stringify(list.slice(-200)));
+}
+catch (e) { } }
+function makeIcon(nodes) {
+    return function Icon({ size = 24, color = "currentColor", strokeWidth = 2, style }) {
+        return (React.createElement("svg", { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: strokeWidth, strokeLinecap: "round", strokeLinejoin: "round", style: { display: "inline-block", verticalAlign: "middle", ...style } }, nodes.map((n, i) => {
+            if (n[0] === "p")
+                return React.createElement("path", { key: i, d: n[1] });
+            if (n[0] === "c")
+                return React.createElement("circle", { key: i, cx: n[1], cy: n[2], r: n[3] });
+            if (n[0] === "r")
+                return React.createElement("rect", { key: i, x: n[1], y: n[2], width: n[3], height: n[4], rx: n[5] });
+            if (n[0] === "g")
+                return React.createElement("polygon", { key: i, points: n[1] });
+            return null;
+        })));
+    };
+}
+const PHONE = "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z";
+const Search = makeIcon([["c", 11, 11, 8], ["p", "m21 21-4.3-4.3"]]);
+const Phone = makeIcon([["p", PHONE]]);
+const Video = makeIcon([["g", "23 7 16 12 23 17 23 7"], ["r", 1, 5, 15, 14, 2]]);
+const MoreVertical = makeIcon([["c", 12, 12, 1], ["c", 12, 5, 1], ["c", 12, 19, 1]]);
+const ArrowLeft = makeIcon([["p", "m12 19-7-7 7-7"], ["p", "M19 12H5"]]);
+const Camera = makeIcon([["p", "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"], ["c", 12, 13, 3]]);
+const Send = makeIcon([["p", "m22 2-7 20-4-9-9-4Z"], ["p", "M22 2 11 13"]]);
+const Smile = makeIcon([["c", 12, 12, 10], ["p", "M8 14s1.5 2 4 2 4-2 4-2"], ["p", "M9 9h.01"], ["p", "M15 9h.01"]]);
+const Paperclip = makeIcon([["p", "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"]]);
+const Mic = makeIcon([["p", "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"], ["p", "M19 10v2a7 7 0 0 1-14 0v-2"], ["p", "M12 19v3"]]);
+const MessageCircle = makeIcon([["p", "M7.9 20A9 9 0 1 0 4 16.1L2 22Z"]]);
+const PhoneCall = makeIcon([["p", PHONE], ["p", "M14.05 2a9 9 0 0 1 8 7.94"], ["p", "M14.05 6A5 5 0 0 1 18 10"]]);
+const Radio = makeIcon([["c", 12, 12, 2], ["p", "M4.93 19.07a10 10 0 0 1 0-14.14"], ["p", "M7.76 16.24a6 6 0 0 1 0-8.48"], ["p", "M16.24 7.76a6 6 0 0 1 0 8.48"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
+const Grid3x3 = makeIcon([["r", 3, 3, 18, 18, 2], ["p", "M3 9h18"], ["p", "M3 15h18"], ["p", "M9 3v18"], ["p", "M15 3v18"]]);
+const Check = makeIcon([["p", "M20 6 9 17l-5-5"]]);
+const CheckCheck = makeIcon([["p", "M18 6 7 17l-5-5"], ["p", "m22 10-7.5 7.5L13 16"]]);
+const Plus = makeIcon([["p", "M5 12h14"], ["p", "M12 5v14"]]);
+const Edit3 = makeIcon([["p", "M12 20h9"], ["p", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"]]);
+const ChevronRight = makeIcon([["p", "m9 18 6-6-6-6"]]);
+const Bell = makeIcon([["p", "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"], ["p", "M10.3 21a1.94 1.94 0 0 0 3.4 0"]]);
+const Lock = makeIcon([["r", 3, 11, 18, 11, 2], ["p", "M7 11V7a5 5 0 0 1 10 0v4"]]);
+const HelpCircle = makeIcon([["c", 12, 12, 10], ["p", "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"], ["p", "M12 17h.01"]]);
+const Users = makeIcon([["p", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"], ["c", 9, 7, 4], ["p", "M22 21v-2a4 4 0 0 0-3-3.87"], ["p", "M16 3.13a4 4 0 0 1 0 7.75"]]);
+const Star = makeIcon([["g", "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"]]);
+const LogOut = makeIcon([["p", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"], ["p", "m16 17 5-5-5-5"], ["p", "M21 12H9"]]);
+const User = makeIcon([["p", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"], ["c", 12, 7, 4]]);
+const Trash2 = makeIcon([["p", "M3 6h18"], ["p", "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"], ["p", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"], ["p", "M10 11v6"], ["p", "M14 11v6"]]);
+const ChevronDown = makeIcon([["p", "m6 9 6 6 6-6"]]);
+const Gamepad2 = makeIcon([["p", "M6 11h4"], ["p", "M8 9v4"], ["p", "M15 12h.01"], ["p", "M18 10h.01"], ["p", "M17.32 5H6.68a4 4 0 0 0-3.978 3.59C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258A4 4 0 0 0 17.32 5z"]]);
+const RotateCcw = makeIcon([["p", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"], ["p", "M3 3v5h5"]]);
+const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
+const Megaphone = makeIcon([["p", "m3 11 18-5v12L3 14v-3z"], ["p", "M11.6 16.8a3 3 0 1 1-5.8-1.6"]]);
+const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
+const LinkIcon = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"], ["p", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]]);
+const ReplyIcon = makeIcon([["p", "M9 14 4 9l5-5"], ["p", "M20 20v-7a4 4 0 0 0-4-4H4"]]);
+const InfoIcon = makeIcon([["c", 12, 12, 10], ["p", "M12 16v-4"], ["p", "M12 8h.01"]]);
+const CopyIcon = makeIcon([["r", 9, 9, 13, 13, 2], ["p", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]]);
+const ForwardIcon = makeIcon([["p", "M3 19v-2a5 5 0 0 1 5-5h9"], ["p", "m13 7 5 5-5 5"], ["p", "m17 7 5 5-5 5"]]);
+const MusicIcon = makeIcon([["p", "M9 18V5l12-2v13"], ["c", 6, 18, 3], ["c", 18, 16, 3]]);
+const RotateIcon = makeIcon([["p", "M6 2v14a2 2 0 0 0 2 2h14"], ["p", "M18 22V8a2 2 0 0 0-2-2H2"]]);
+const StickerIcon = makeIcon([["p", "M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"], ["p", "M15 3v6h6"], ["p", "M8 13h.01"], ["p", "M16 13h.01"], ["p", "M10 16s.8 1 2 1 2-1 2-1"]]);
+const ImagePlus = makeIcon([["p", "M16 5h6"], ["p", "M19 2v6"], ["p", "M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"], ["p", "m3 16 5-5c.9-.9 2.1-.9 3 0l5 5"], ["c", 9, 9, 2]]);
+const AtSign = makeIcon([["c", 12, 12, 4], ["p", "M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"]]);
+const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
+const Volume2 = makeIcon([["g", "11 5 6 9 2 9 2 15 6 15 11 19 11 5"], ["p", "M15.54 8.46a5 5 0 0 1 0 7.07"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
+const ShoppingBag = makeIcon([["p", "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"], ["p", "M3 6h18"], ["p", "M16 10a4 4 0 0 1-8 0"]]);
+const ListPlus = makeIcon([["p", "M11 12H3"], ["p", "M16 6H3"], ["p", "M16 18H3"], ["p", "M18 9v6"], ["p", "M21 12h-6"]]);
+const NotesIcon = makeIcon([["p", "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"], ["p", "M10 9H8"]]);
+const FolderIcon = makeIcon([["p", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"]]);
+const Ban = makeIcon([["c", 12, 12, 10], ["p", "m4.9 4.9 14.2 14.2"]]);
+const ThumbsDown = makeIcon([["p", "M17 14V2"], ["p", "M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"]]);
+const MapPin = makeIcon([["p", "M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"], ["c", 12, 10, 3]]);
+const ClockIcon = makeIcon([["c", 12, 12, 10], ["p", "M12 6v6l4 2"]]);
+/* ============================================================
+   LETSCHAT AFRICA — realtime chat client
+   Talks to the Letschat Africa server (Express + Socket.io) configured in config.js.
+   Color: --ink #0E1116 --panel #161B22 --accent #35D0BA --amber #F2B84B
+          --coral #FF6B5D  --ink-0 #F5F7FA --ink-1 #9BA7B4 --ink-2 #5B6673
+   Type: Display 'Sora' / Body 'Inter'
+   ============================================================ */
+const { API_URL, SOCKET_URL, FIREBASE } = window.LETSCHAT_CONFIG;
+const FIREBASE_READY = !!(FIREBASE && FIREBASE.apiKey && !String(FIREBASE.apiKey).startsWith("PASTE"));
+if (FIREBASE_READY)
+    firebase.initializeApp(FIREBASE);
+const FONT_LINK = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
+// ---- local persistence (device-only: session token, cached profile) ----
+function loadJSON(key, fallback) {
+    try {
+        const raw = window.localStorage.getItem("letschat-africa:" + key);
+        return raw === null ? fallback : JSON.parse(raw);
+    }
+    catch {
+        return fallback;
+    }
+}
+function saveJSON(key, value) {
+    try {
+        window.localStorage.setItem("letschat-africa:" + key, JSON.stringify(value));
+    }
+    catch (e) {
+        console.error("Storage save failed", e);
+    }
+}
+function clearJSON(key) {
+    try {
+        window.localStorage.removeItem("letschat-africa:" + key);
+    }
+    catch { }
+}
+// ---- API helper ----
+async function api(path, { method = "GET", token, body } = {}) {
+    const res = await fetch(`${API_URL}${path}`, {
+        method,
+        headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    const payload = await res.json().catch(() => ({}));
+    // expired / rejected login: sign out so the person lands on the login screen instead of seeing errors
+    if (res.status === 401 && token && /invalid token|unknown user|missing token/i.test((payload.error && payload.error.message) || "")) {
+        clearJSON("session");
+        window.location.reload();
+        return new Promise(() => { });
+    }
+    if (!res.ok || payload.success === false)
+        throw new Error((payload.error && payload.error.message) || `Request failed (${res.status})`);
+    return payload.data;
+}
+function timeLabel(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    if (sameDay)
+        return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+// ---- attachments: read a file, shrink photos, format sizes ----
+const MAX_FILE = 3 * 1024 * 1024;
+const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round((n || 0) / 1024)) + " KB");
+function readAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).replace(/^data:;base64,/, "data:application/octet-stream;base64,"));
+        fr.onerror = () => reject(new Error("Could not read that file"));
+        fr.readAsDataURL(file);
+    });
+}
+function compressImage(file, max = 1280) {
+    return new Promise((resolve, reject) => {
+        readAsDataURL(file).then((url) => {
+            const img = new Image();
+            img.onload = () => {
+                const k = Math.min(1, max / Math.max(img.width, img.height));
+                const c = document.createElement("canvas");
+                c.width = Math.round(img.width * k);
+                c.height = Math.round(img.height * k);
+                const ctx = c.getContext("2d");
+                ctx.fillStyle = "#fff";
+                ctx.fillRect(0, 0, c.width, c.height);
+                ctx.drawImage(img, 0, 0, c.width, c.height);
+                resolve(c.toDataURL("image/jpeg", 0.8));
+            };
+            img.onerror = () => reject(new Error("Could not read that image"));
+            img.src = url;
+        }, reject);
+    });
+}
+// ---- crop an image file to a centered square and shrink it, returns a base64 data URL ----
+function resizeImageToDataURL(file, maxSize = 512) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const side = Math.min(img.width, img.height);
+                const sx = (img.width - side) / 2;
+                const sy = (img.height - side) / 2;
+                const canvas = document.createElement("canvas");
+                canvas.width = maxSize;
+                canvas.height = maxSize;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, sx, sy, side, side, 0, 0, maxSize, maxSize);
+                resolve(canvas.toDataURL("image/jpeg", 0.85));
+            };
+            img.onerror = () => reject(new Error("Could not read that image"));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error("Could not read that file"));
+        reader.readAsDataURL(file);
+    });
+}
+// photos from our own server come back as a path ("/api/v1/users/ID/avatar?v=..."): add the server address
+const photoSrc = (p) => (p && p.startsWith("/") ? API_URL + p : p);
+function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
+    photo = photoSrc(photo);
+    return (React.createElement("div", { onClick: onClick, style: { position: "relative", width: size, height: size, flexShrink: 0, cursor: onClick ? "pointer" : "default" } },
+        ring && (React.createElement("div", { style: { position: "absolute", inset: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` } })),
+        photo ? (React.createElement("img", { loading: "lazy", decoding: "async", src: photo, alt: "", onContextMenu: e => e.preventDefault(), draggable: false, style: {
+                position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+                width: `calc(100% - ${ring ? 6 : 0}px)`, height: `calc(100% - ${ring ? 6 : 0}px)`,
+                objectFit: "cover", border: `1px solid ${color}55`,
+                userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+            } })) : (React.createElement("div", { style: {
+                position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+                background: color + "26", color, display: "flex", alignItems: "center",
+                justifyContent: "center", fontFamily: "Sora", fontWeight: 700,
+                fontSize: size * 0.34, border: `1px solid ${color}55`,
+            } }, initials)),
+        online !== undefined && (React.createElement("div", { style: { position: "absolute", bottom: -1, right: -1, width: 13, height: 13, borderRadius: "50%", background: online ? "#35D0BA" : "#5B6673", border: "3px solid #0E1116" } }))));
+}
+// ---- fullscreen photo viewer: pinch, double-tap or scroll to zoom, drag to move ----
+function ImageZoomModal({ photo, initials, color, onClose }) {
+    photo = photoSrc(photo);
+    const [t, setT] = useState({ s: 1, x: 0, y: 0 });
+    const box = useRef(null);
+    const ptrs = useRef(new Map());
+    const base = useRef(null);
+    const moved = useRef(false);
+    const lastTap = useRef(0);
+    const clamp = (n) => {
+        const s = Math.min(5, Math.max(1, n.s));
+        const W = box.current ? box.current.offsetWidth : 340;
+        const m = ((s - 1) * W) / 2;
+        return { s, x: s === 1 ? 0 : Math.min(m, Math.max(-m, n.x)), y: s === 1 ? 0 : Math.min(m, Math.max(-m, n.y)) };
+    };
+    const snap = () => { base.current = { t, p: [...ptrs.current.values()].map((q) => ({ ...q })) }; };
+    const down = (e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (ptrs.current.size === 1)
+            moved.current = false;
+        snap();
+    };
+    const move = (e) => {
+        if (!ptrs.current.has(e.pointerId) || !base.current)
+            return;
+        ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const p = [...ptrs.current.values()];
+        const b = base.current;
+        if (p.length >= 2 && b.p.length >= 2) {
+            moved.current = true;
+            const d0 = Math.hypot(b.p[0].x - b.p[1].x, b.p[0].y - b.p[1].y) || 1;
+            const d1 = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+            setT(clamp({
+                s: (b.t.s * d1) / d0,
+                x: b.t.x + (p[0].x + p[1].x) / 2 - (b.p[0].x + b.p[1].x) / 2,
+                y: b.t.y + (p[0].y + p[1].y) / 2 - (b.p[0].y + b.p[1].y) / 2,
+            }));
+        }
+        else if (p.length === 1 && b.p.length === 1) {
+            const dx = p[0].x - b.p[0].x, dy = p[0].y - b.p[0].y;
+            if (Math.abs(dx) + Math.abs(dy) > 6)
+                moved.current = true;
+            if (b.t.s > 1)
+                setT(clamp({ s: b.t.s, x: b.t.x + dx, y: b.t.y + dy }));
+        }
+    };
+    const up = (e) => {
+        ptrs.current.delete(e.pointerId);
+        if (ptrs.current.size === 0 && !moved.current) {
+            const now = Date.now();
+            if (now - lastTap.current < 300) {
+                setT((c) => clamp(c.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.5, x: 0, y: 0 }));
+                lastTap.current = 0;
+            }
+            else
+                lastTap.current = now;
+        }
+        snap();
+    };
+    return (React.createElement("div", { onClick: onClose, style: {
+            position: "absolute", inset: 0, background: "#000000F2", zIndex: 30,
+            display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column",
+        } },
+        React.createElement("button", { onClick: onClose, "aria-label": "Close", style: { position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", zIndex: 2 } },
+            React.createElement(X, { size: 26 })),
+        photo ? (React.createElement(React.Fragment, null,
+            React.createElement("div", { ref: box, onClick: (e) => e.stopPropagation(), onPointerDown: down, onPointerMove: move, onPointerUp: up, onPointerCancel: up, onWheel: (e) => setT((c) => clamp({ ...c, s: c.s - e.deltaY * 0.003 })), style: { width: "100%", aspectRatio: "1 / 1", overflow: "hidden", touchAction: "none", cursor: t.s > 1 ? "grab" : "zoom-in" } },
+                React.createElement("img", { loading: "lazy", decoding: "async", src: photo, alt: "", onContextMenu: (e) => e.preventDefault(), draggable: false, style: {
+                        width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none",
+                        transform: `translate(${t.x}px, ${t.y}px) scale(${t.s})`, transformOrigin: "center",
+                        userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+                    } })),
+            React.createElement("div", { style: { marginTop: 14, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, "Pinch or double-tap to zoom"))) : (React.createElement("div", { style: { width: 220, height: 220, borderRadius: "50%", background: color + "26", color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 70, border: `1px solid ${color}55` } }, initials))));
+}
+// ---- shared: photo type check, bottom sheet menu, camera badge ----
+const PHOTO_ACCEPT = "image/jpeg,image/png";
+const isJpgOrPng = (file) => /^image\/(jpe?g|png)$/i.test(file.type);
+function PhotoMenu({ hasPhoto, onGallery, onCamera, onRemove, onClose }) {
+    const items = [["Choose from gallery", onGallery, false], ["Take a photo", onCamera, false], hasPhoto ? ["Remove photo", onRemove, true] : null].filter(Boolean);
+    return (React.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+        React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 2 } }, "Profile photo"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginBottom: 12 } }, "JPG or PNG"),
+            items.map(([label, fn, danger]) => (React.createElement("button", { key: label, onClick: () => { onClose(); fn(); }, style: { display: "block", width: "100%", padding: "14px", marginBottom: 8, borderRadius: 12, border: "none", background: "#1E2530", color: danger ? "#FF6B5D" : "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, label))),
+            React.createElement("button", { onClick: onClose, style: { display: "block", width: "100%", padding: "12px", border: "none", background: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 14, cursor: "pointer" } }, "Cancel"))));
+}
+function CameraBadge({ onClick, busy }) {
+    return (React.createElement("button", { onClick: onClick, disabled: busy, "aria-label": "Change profile photo", style: {
+            position: "absolute", bottom: 2, right: 2, width: 34, height: 34, borderRadius: "50%",
+            background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
+            justifyContent: "center", cursor: busy ? "default" : "pointer", padding: 0, opacity: busy ? 0.6 : 1,
+        } },
+        React.createElement(Camera, { size: 16, color: "#0E1116" })));
+}
+// ---- chat text styling: *bold*  _italic_  ~strike~  -underline-  !glow!  (also **bold**, __italic__, ~~strike~~, --underline--, !!glow!!; can be nested) ----
+const RICH_SRC = "(^|\\W)(\\*\\*|__|~~|!!|--|\\*|~|!|_|-)(?=\\S)(?!\\2)([^\\n]*?\\S)\\2(?!\\w)";
+const RICH_RE = new RegExp(RICH_SRC, "g");
+function richText(text) {
+    if (typeof text !== "string" || !/[*_~!-]/.test(text))
+        return text;
+    const re = new RegExp(RICH_SRC, "g"), out = [];
+    let last = 0, k = 0, m;
+    while ((m = re.exec(text))) {
+        const start = m.index + m[1].length;
+        if (start > last)
+            out.push(text.slice(last, start));
+        const mk = m[2], props = { key: k++ };
+        if (mk === "**" || mk === "*")
+            props.style = { fontWeight: 700 };
+        else if (mk === "__" || mk === "_")
+            props.style = { fontStyle: "italic" };
+        else if (mk === "~~" || mk === "~")
+            props.style = { textDecoration: "line-through" };
+        else if (mk === "--" || mk === "-")
+            props.style = { textDecoration: "underline" };
+        else {
+            props.className = "lc-glow";
+            props.style = { color: "#B8FFF3", textShadow: "0 0 6px #35D0BA, 0 0 14px #35D0BA, 0 0 24px rgba(53,208,186,.7)" };
+        }
+        out.push(React.createElement("span", props, richText(m[3])));
+        last = re.lastIndex;
+    }
+    if (last < text.length)
+        out.push(text.slice(last));
+    return out;
+}
+const stripRich = (t) => (typeof t === "string" ? t.replace(new RegExp(RICH_SRC, "g"), "$1$3") : t);
+function TabBar({ active, setActive }) {
+    const tabs = [
+        { id: "chats", icon: MessageCircle, label: "Chats" },
+        { id: "calls", icon: PhoneCall, label: "Calls" },
+        { id: "status", icon: Radio, label: "Updates" },
+        { id: "market", icon: ShoppingBag, label: "Market" },
+        { id: "games", icon: Gamepad2, label: "Games" },
+        { id: "tools", icon: Grid3x3, label: "Tools" },
+    ];
+    return (React.createElement("div", { style: { display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 } }, tabs.map(t => {
+        const Icon = t.icon;
+        const isActive = active === t.id;
+        return (React.createElement("button", { key: t.id, className: isActive ? "lc-tab on" : "lc-tab", onClick: () => setActive(t.id), style: {
+                flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
+                alignItems: "center", gap: 4, cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
+            } },
+            React.createElement(Icon, { size: 22, strokeWidth: isActive ? 2.4 : 1.8 }),
+            React.createElement("span", { style: { fontSize: 11, fontFamily: "Inter", fontWeight: isActive ? 600 : 500 } }, t.label)));
+    })));
+}
+function TopBar({ title, onBack, right }) {
+    return (React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 14, flexShrink: 0, background: "#0E1116" } },
+        onBack && (React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
+            React.createElement(ArrowLeft, { size: 22 }))),
+        React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA" } }, title),
+        right));
+}
+function Banner({ text, tone = "error", onClose }) {
+    const colors = tone === "error" ? { bg: "#FF6B5D18", border: "#FF6B5D55", fg: "#FF6B5D" } : { bg: "#35D0BA18", border: "#35D0BA55", fg: "#35D0BA" };
+    return (React.createElement("div", { style: {
+            margin: "0 16px 10px", padding: "10px 12px", borderRadius: 10, background: colors.bg,
+            border: `1px solid ${colors.border}`, color: colors.fg, fontFamily: "Inter", fontSize: 13,
+            display: "flex", alignItems: "center", gap: 8,
+        } },
+        React.createElement(AlertCircle, { size: 15, style: { flexShrink: 0 } }),
+        React.createElement("span", { style: { flex: 1 } }, text),
+        onClose && React.createElement("button", { onClick: onClose, style: { background: "none", border: "none", color: colors.fg, cursor: "pointer", padding: 0 } },
+            React.createElement(X, { size: 15 }))));
+}
+// ---- New chat modal: look up a phone number and start / open a conversation ----
+// ---- phonebook: find which of the person's contacts are on Letschat Africa ----
+function toIntl(raw) {
+    const t = String(raw || "").trim();
+    const d = t.replace(/\D/g, "");
+    if (t.startsWith("+"))
+        return d;
+    if (d.startsWith("00"))
+        return d.slice(2);
+    let dial = "234";
+    try {
+        const c = COUNTRIES.find((x) => x[0] === (localStorage.getItem("lc-country") || "NG"));
+        if (c)
+            dial = c[2];
+    }
+    catch (e) { }
+    if (d.startsWith("0"))
+        return dial + d.slice(1);
+    if (d.startsWith(dial) && d.length >= dial.length + 8)
+        return d;
+    return dial + d;
+}
+function parseVcf(text) {
+    const out = [];
+    for (const card of String(text).split(/BEGIN:VCARD/i).slice(1)) {
+        const fn = /^FN[^:\r\n]*:(.+)$/im.exec(card);
+        const name = fn ? fn[1].trim() : "";
+        const re = /^TEL[^:\r\n]*:(.+)$/gim;
+        let m;
+        while ((m = re.exec(card)))
+            out.push({ name, tel: m[1].trim() });
+    }
+    return out;
+}
+const canPickContacts = () => typeof navigator !== "undefined" && !!(navigator.contacts && navigator.contacts.select);
+const initialsOf = (n) => (String(n).trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?");
+function PhonebookView({ token, onBack, onStarted }) {
+    const [book, setBook] = useState(() => loadJSON("phonebook", [])); // [{ name, phone }] kept on this device only
+    const [matches, setMatches] = useState(() => loadJSON("phonebookMatches", {})); // last known result, so registered contacts show on top instantly
+    const [q, setQ] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const vcfRef = useRef(null);
+    // silent: no "Checking…" banner or errors (background refresh). partial: only update the numbers that were sent.
+    const sync = async (entries, opts = {}) => {
+        if (!entries.length) {
+            if (!opts.partial)
+                setMatches({});
+            return;
+        }
+        if (!opts.silent) {
+            setBusy(true);
+            setError("");
+        }
+        try {
+            const d = await api("/api/v1/users/match", { method: "POST", token, body: { phones: entries.map((e) => e.phone) } });
+            const found = d.matches || {};
+            setMatches((prev) => {
+                if (!opts.partial)
+                    return found;
+                const next = { ...prev };
+                for (const e of entries) {
+                    if (found[e.phone])
+                        next[e.phone] = found[e.phone];
+                    else
+                        delete next[e.phone];
+                }
+                return next;
+            });
+        }
+        catch (e) {
+            if (!opts.silent)
+                setError(e.message);
+        }
+        finally {
+            if (!opts.silent)
+                setBusy(false);
+        }
+    };
+    useEffect(() => { try {
+        saveJSON("phonebookMatches", matches);
+    }
+    catch (e) { } }, [matches]);
+    const bookRef = useRef(book);
+    bookRef.current = book;
+    // refresh right when the screen opens (silently if we already have a saved result), then keep refreshing while it is open
+    useEffect(() => {
+        sync(book, { silent: Object.keys(matches).length > 0 });
+        const t = setInterval(() => { if (!document.hidden && bookRef.current.length)
+            sync(bookRef.current, { silent: true }); }, 15000);
+        return () => clearInterval(t);
+    }, []);
+    const addEntries = (raw) => {
+        const seen = new Set();
+        const next = [];
+        for (const r of raw.concat(book.map((b) => ({ name: b.name, tel: "+" + b.phone })))) {
+            const phone = toIntl(r.tel);
+            if (phone.length < 8 || phone.length > 15 || seen.has(phone))
+                continue;
+            seen.add(phone);
+            next.push({ name: r.name || "+" + phone, phone });
+        }
+        setBook(next);
+        saveJSON("phonebook", next);
+        sync(next);
+    };
+    const pick = async () => {
+        try {
+            const picked = await navigator.contacts.select(["name", "tel"], { multiple: true });
+            const raw = [];
+            for (const c of picked)
+                for (const t of c.tel || [])
+                    raw.push({ name: (c.name && c.name[0]) || "", tel: t });
+            if (!raw.length)
+                return;
+            addEntries(raw);
+        }
+        catch (e) {
+            setError("Could not open your contacts. Allow contacts access and try again.");
+        }
+    };
+    const onVcf = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!f)
+            return;
+        const raw = parseVcf(await f.text());
+        if (!raw.length)
+            return setError("No phone numbers found in that file");
+        addEntries(raw);
+    };
+    const clearBook = () => { setBook([]); setMatches({}); clearJSON("phonebook"); clearJSON("phonebookMatches"); };
+    const start = async (u) => {
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone: u.phone } });
+            onStarted(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+            setBusy(false);
+        }
+    };
+    const invite = (e) => {
+        const link = window.location.origin + window.location.pathname;
+        const msg = link + "\n\nHey " + (e.name.split(" ")[0] || "there") + ", I'm on Letschat Africa. Join me here!";
+        window.open("https://wa.me/" + e.phone + "?text=" + encodeURIComponent(msg), "_blank");
+    };
+    const needle = q.trim().toLowerCase();
+    const needleDigits = q.replace(/\D/g, "");
+    const shown = book.filter((e) => !needle || e.name.toLowerCase().includes(needle) || (needleDigits && e.phone.includes(needleDigits)));
+    const byName = (x, y) => String(x.name).localeCompare(String(y.name));
+    const onApp = shown.filter((e) => matches[e.phone]).sort(byName); // registered contacts always come first
+    const notOn = shown.filter((e) => !matches[e.phone]).sort(byName);
+    // while searching, re-check the numbers on screen a moment after each keystroke
+    useEffect(() => {
+        if (!needle)
+            return;
+        const t = setTimeout(() => { const list = shown.slice(0, 100); if (list.length)
+            sync(list, { silent: true, partial: true }); }, 300);
+        return () => clearTimeout(t);
+    }, [q]);
+    return (React.createElement("div", { style: { ...card, height: "88%" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 12 } },
+            React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } },
+                React.createElement(ArrowLeft, { size: 22 })),
+            React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" } }, "From your phonebook"),
+            book.length > 0 && React.createElement("button", { onClick: clearBook, style: { ...smallBtn, color: "#FF6B5D" } }, "Remove")),
+        error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
+            canPickContacts() && React.createElement("button", { onClick: pick, style: { ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 } }, book.length ? "Add more contacts" : "Choose contacts"),
+            React.createElement("button", { onClick: () => vcfRef.current && vcfRef.current.click(), style: { ...(canPickContacts() ? smallBtn : { ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }) } }, "Import .vcf"),
+            React.createElement("input", { ref: vcfRef, type: "file", accept: ".vcf,text/vcard,text/x-vcard", onChange: onVcf, style: { display: "none" } })),
+        !canPickContacts() && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 } }, "This browser cannot open your phonebook directly. Export your contacts as a .vcf file from your Contacts app and import it here."),
+        book.length > 0 && (React.createElement("div", { style: { ...inputBox, marginBottom: 6 } },
+            React.createElement(Search, { size: 17, color: "#8891A0" }),
+            React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search name or number", style: inputEl }))),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            busy && React.createElement("div", { style: { color: "#5B6673", fontFamily: "Inter", fontSize: 13, padding: "10px 0" } }, "Checking who is on Letschat Africa\u2026"),
+            !book.length && !busy && React.createElement("div", { style: { color: "#5B6673", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "30px 10px" } }, "Pick the contacts you want to check. Only the numbers you choose are sent, and your list stays on this device."),
+            onApp.length > 0 && React.createElement("div", { style: sectionTitle },
+                "On Letschat Africa \u00B7 ",
+                onApp.length),
+            onApp.map((e) => {
+                const u = matches[e.phone];
+                return React.createElement(PersonRow, { key: e.phone, u: { ...u, name: e.name }, status: u.name && u.name !== e.name ? u.name : "+" + e.phone, onClick: () => start(u), right: React.createElement("span", { style: { ...smallBtn, padding: "5px 10px" } }, "Chat") });
+            }),
+            notOn.length > 0 && React.createElement("div", { style: sectionTitle },
+                "Invite \u00B7 ",
+                notOn.length),
+            notOn.slice(0, 200).map((e) => (React.createElement(PersonRow, { key: e.phone, u: { name: e.name, initials: initialsOf(e.name), color: "#5B6673", avatar: null }, status: "+" + e.phone, right: React.createElement("button", { onClick: () => invite(e), style: { ...smallBtn, color: "#F2B84B" } }, "Invite") }))),
+            book.length > 0 && !shown.length && React.createElement("div", { style: { color: "#5B6673", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "24px 0" } }, "No contacts match your search"))));
+}
+function NewChatModal({ token, onClose, onStarted }) {
+    const [view, setView] = useState("main");
+    const [phone, setPhone] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const start = async () => {
+        if (!phone.trim())
+            return;
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone } });
+            onStarted(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    if (view === "book")
+        return (React.createElement("div", { style: sheet, onClick: onClose },
+            React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", display: "flex", alignItems: "flex-end", height: "100%" } },
+                React.createElement(PhonebookView, { token: token, onBack: () => setView("main"), onStarted: onStarted }))));
+    return (React.createElement("div", { style: {
+            position: "absolute", inset: 0, background: "#000000B0", display: "flex",
+            alignItems: "flex-end", zIndex: 20,
+        }, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: {
+                width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22,
+                padding: "20px 20px 28px", borderTop: "1px solid #262E3A",
+            } },
+            React.createElement("div", { style: { width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 18px" } }),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, "Start a new chat"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 } }, "Enter the username, email or phone number (with country code) of the person you want to message. They need to have signed in to Letschat Africa at least once."),
+            error && React.createElement(Banner, { text: error }),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 } },
+                React.createElement("input", { value: phone, onChange: e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@username, email or phone", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 } })),
+            React.createElement("button", { onClick: start, disabled: busy || !phone.trim(), style: {
+                    width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
+                    background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1,
+                } }, busy ? "Looking up…" : "Start chat"),
+            React.createElement("button", { onClick: () => setView("book"), style: {
+                    width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: "1px solid #2B3544", cursor: "pointer",
+                    background: "#1E2530", color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 14,
+                } }, "Find friends from my phonebook"))));
+}
+// ---- group chats ----
+const GROUP_COLOR = "#8B7CF6";
+const normalizeConvo = (c, myId) => ({
+    ...c, myId,
+    ...(c.isGroup ? { other: { id: c.id, name: c.name, initials: c.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "G", color: GROUP_COLOR, avatar: c.avatar || null } } : {}),
+});
+const statusText = (online, ts) => (online ? "online" : ts ? "last seen " + timeLabel(ts) : "offline");
+const senderPrefix = (c) => {
+    const m = c.lastMessage;
+    if (!m)
+        return "";
+    if (m.senderId === c.myId)
+        return "You: ";
+    const who = c.isGroup && c.members.find(x => x.id === m.senderId);
+    return who ? who.name.split(" ")[0] + ": " : "";
+};
+const sheet = { position: "absolute", inset: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 20 };
+const card = { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "88%", display: "flex", flexDirection: "column" };
+const inputBox = { display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 };
+const inputEl = { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 };
+const primaryBtn = (busy) => ({ width: "100%", padding: 13, borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1 });
+const smallBtn = { background: "#1E2530", border: "1px solid #262E3A", color: "#35D0BA", borderRadius: 10, padding: "7px 12px", fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, cursor: "pointer", flexShrink: 0 };
+const sectionTitle = { fontFamily: "Inter", fontSize: 12, fontWeight: 600, color: "#8891A0", textTransform: "uppercase", letterSpacing: 0.6, margin: "18px 0 6px" };
+function VerifiedBadge({ size = 15 }) {
+    return (React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", role: "img", "aria-label": "Verified", style: { flexShrink: 0, marginLeft: 4, verticalAlign: "middle", display: "inline-block" } }, React.createElement("circle", { cx: 12, cy: 12, r: 11, fill: "#1D9BF0" }), React.createElement("path", { d: "M7.5 12.4l3 3 6-6.4", fill: "none", stroke: "#fff", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" })));
+}
+function PersonRow({ u, online, status, right, onClick }) {
+    return (React.createElement("div", { onClick: onClick, style: { display: "flex", alignItems: "center", gap: 12, padding: "8px 0", cursor: onClick ? "pointer" : "default" } },
+        React.createElement(Ring, { size: 40, color: u.color, initials: u.initials, photo: u.avatar, online: online }),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                u.name,
+                u.verified && React.createElement(VerifiedBadge, null)),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: online ? "#35D0BA" : "#5B6673" } }, status)),
+        right));
+}
+function NewGroupModal({ token, contacts, presence, lastSeen, onClose, onCreated, initialPicked = [] }) {
+    const [name, setName] = useState("");
+    const [picked, setPicked] = useState(initialPicked);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const toggle = (id) => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+    const create = async () => {
+        if (!name.trim())
+            return setError("Give the group a name");
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/v1/conversations/group", { method: "POST", token, body: { name: name.trim(), memberIds: picked } });
+            onCreated(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+            setBusy(false);
+        }
+    };
+    const sorted = [...contacts].sort((a, b) => !!presence[b.id] - !!presence[a.id]);
+    return (React.createElement("div", { style: sheet, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: card },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 } }, "New group"),
+            error && React.createElement(Banner, { text: error }),
+            React.createElement("div", { style: inputBox },
+                React.createElement("input", { value: name, maxLength: 60, onChange: e => setName(e.target.value), placeholder: "Group name", style: inputEl })),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 4 } }, "Add people from your contacts, or skip and share the group link after."),
+            React.createElement("div", { style: { overflowY: "auto", flex: 1, marginBottom: 14, minHeight: 60 } },
+                sorted.length === 0 && React.createElement("div", { style: { padding: "16px 0", fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "No contacts yet. You can still create the group and invite people with its link."),
+                sorted.map(u => {
+                    const on = picked.includes(u.id);
+                    return (React.createElement(PersonRow, { key: u.id, u: u, online: !!presence[u.id], status: statusText(!!presence[u.id], lastSeen[u.id]), onClick: () => toggle(u.id), right: React.createElement("div", { style: { width: 22, height: 22, borderRadius: 6, border: "2px solid " + (on ? "#35D0BA" : "#262E3A"), background: on ? "#35D0BA" : "none", display: "flex", alignItems: "center", justifyContent: "center" } }, on && React.createElement(Check, { size: 14, color: "#0E1116", strokeWidth: 3 })) }));
+                })),
+            React.createElement("button", { onClick: create, disabled: busy, style: primaryBtn(busy) }, busy ? "Creating…" : "Create group" + (picked.length ? " (" + (picked.length + 1) + ")" : "")))));
+}
+const GI_HERO = 156, GI_BAR = 58, GI_AV = 128;
+const GiHeart = makeIcon([["p", "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"]]);
+const GiUserPlus = makeIcon([["p", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"], ["c", 9, 7, 4], ["p", "M19 8v6"], ["p", "M22 11h-6"]]);
+const GiQr = makeIcon([["r", 3, 3, 7, 7, 1], ["r", 14, 3, 7, 7, 1], ["r", 3, 14, 7, 7, 1], ["p", "M14 14h3v3h-3z"], ["p", "M20 14v3"], ["p", "M14 20h3"], ["p", "M20 20v1"]]);
+const GiCopy = makeIcon([["r", 9, 9, 13, 13, 2], ["p", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]]);
+const GiRefresh = makeIcon([["p", "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"], ["p", "M21 3v5h-5"], ["p", "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"], ["p", "M8 16H3v5"]]);
+const GiUpload = makeIcon([["p", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"], ["p", "m17 8-5-5-5 5"], ["p", "M12 3v12"]]);
+const GI_SUGGEST = [["New customer", "#2F7BFF"], ["New order", "#F5B83D"], ["Pending payment", "#FF6B3D"], ["Paid", "#B24FD8"], ["Order complete", "#B8D04A"], ["Important", "#FF8FB8"], ["Follow up", "#5FE0B5"], ["Lead", "#B9A8FF"]];
+// Group profile: big photo that shrinks into the top bar as you scroll, action pills, shared media, members, group actions
+function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, lastSeen, msgs = [], isFav, muted, onToggleFavorite, onNotifications, onOpenMedia, onOpenImage, onExport, onReport, onBack, onChanged }) {
+  const isAdmin = c.adminId === myId;
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [zoom, setZoom] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [desc, setDesc] = useState(c.description || "");
+  const [nameDraft, setNameDraft] = useState(c.name);
+  const [p, setP] = useState(0); // 0 = photo fully open, 1 = collapsed into the top bar
+  const [menu, setMenu] = useState(false);
+  const [sheet, setSheet] = useState(null); // "lists" | "link" | "add" | "name" | "desc"
+  const [showAll, setShowAll] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [q, setQ] = useState("");
+  const [lists, setLists] = useState(() => { const l = loadJSON("chatLists", []); return Array.isArray(l) ? l : []; });
+  const fileRef = useRef(null), scrollRef = useRef(null), memRef = useRef(null);
+  const RANGE = GI_HERO - GI_BAR;
+  const onScroll = (e) => { const np = Math.min(1, Math.max(0, e.currentTarget.scrollTop / RANGE)); setP((prev) => (Math.abs(prev - np) > 0.004 ? np : prev)); };
+  const hH = GI_HERO - p * RANGE;
+  const size = GI_AV - p * (GI_AV - 38);
+  const top = 14 * (1 - p) + 10 * p;
+  const left = "calc(" + ((1 - p) * 50) + "% - " + ((1 - p) * size / 2) + "px + " + (p * 56) + "px)";
+  const titleOpacity = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+  const link = c.inviteCode ? window.location.origin + window.location.pathname + "?join=" + c.inviteCode : "";
+  const memberIds = c.members.map((m) => m.id);
+  const addable = contacts.filter((u) => !memberIds.includes(u.id));
+  const call = async (key, path, body, method = "POST") => {
+    setBusy(key); setError("");
+    try {
+      const { conversation } = await api("/api/v1/conversations/" + c.id + "/" + path, { method, token, body });
+      onChanged(conversation);
+      return true;
+    } catch (e) { setError(e.message); return false; } finally { setBusy(""); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch (e) { window.prompt("Copy this group link", link); }
+  };
+  const share = () => (navigator.share ? navigator.share({ title: c.name, text: "Join \"" + c.name + "\" on Letschat Africa", url: link }).catch(() => { }) : copy());
+  const pickPhoto = async (e) => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    if (!isJpgOrPng(f)) return setError("Group photo must be a JPG or PNG image");
+    try { call("photo", "", { avatar: await resizeImageToDataURL(f, 512) }, "PATCH"); } catch (err) { setError(err.message); }
+  };
+  const saveDesc = async () => { if (await call("desc", "", { description: desc }, "PATCH")) setSheet(null); };
+  const saveName = async () => { if (!nameDraft.trim()) return setError("Group name can't be empty"); if (await call("name", "", { name: nameDraft.trim() }, "PATCH")) setSheet(null); };
+  const addByPhone = async () => { if (phone.trim() && await call("phone", "members", { phone: phone.trim() })) setPhone(""); };
+  const needAdmin = () => setError("Only the group admin can do that.");
+
+  // saved lists (kept on this device); Favorites is the real favourites list
+  const saveLists = (n) => { setLists(n); saveJSON("chatLists", n); };
+  const inList = (l) => l.ids.includes(c.id);
+  const toggleList = (l) => saveLists(lists.map((x) => (x.id === l.id ? { ...x, ids: inList(x) ? x.ids.filter((i) => i !== c.id) : [...x.ids, c.id] } : x)));
+  const addSuggest = (name, color) => saveLists([...lists, { id: "l" + Date.now().toString(36), name, color, ids: [c.id] }]);
+  const newList = () => { const n = (window.prompt("List name") || "").trim().slice(0, 30); if (n) saveLists([...lists, { id: "l" + Date.now().toString(36), name: n, color: "#35D0BA", ids: [c.id] }]); };
+  const inAny = isFav || lists.some(inList);
+
+  // shared media
+  const live = msgs.filter((m) => !m.deleted);
+  const isImg = (m) => m.file && m.file.data && /^data:image\//.test(m.file.data);
+  const media = live.filter(isImg), docs = live.filter((m) => m.file && !isImg(m));
+  let linkCount = 0; live.forEach((m) => { if (typeof m.text === "string") linkCount += (m.text.match(/https?:\/\/[^\s]+/g) || []).length; });
+  const total = media.length + docs.length + linkCount;
+  const bytes = live.reduce((n, m) => n + (m.file && m.file.size ? m.file.size : 0), 0);
+  const tiles = media.slice(-8).reverse();
+
+  // members
+  const sorted = [...c.members].sort((a, b) => ((b.id === myId) - (a.id === myId)) || ((b.id === c.adminId) - (a.id === c.adminId)));
+  const needle = q.trim().toLowerCase();
+  const filtered = needle ? sorted.filter((m) => (m.name || "").toLowerCase().includes(needle)) : sorted;
+  const LIMIT = 6, visible = showAll || needle ? filtered : filtered.slice(0, LIMIT);
+  const goMembers = () => { setSearching(true); setTimeout(() => { const s = scrollRef.current, m = memRef.current; if (s && m) s.scrollTo({ top: m.offsetTop - GI_BAR, behavior: "smooth" }); }, 30); };
+
+  const ico = (I) => ce(I, { size: 22, color: "#8891A0" });
+  const row = (key, icon, title, sub, o = {}) => ce("div", { key, onClick: o.onClick, style: { display: "flex", alignItems: "center", gap: 22, padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" } },
+    ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
+    ce("div", { style: { flex: 1, minWidth: 0 } },
+      ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" } }, title),
+      sub && ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, sub)),
+    o.right);
+  const line = (k) => ce("div", { key: k, style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+  const pill = (label, Icon, fn, off) => ce("button", { key: label, onClick: off ? undefined : fn, disabled: !!off, style: { background: "none", border: "none", padding: 0, cursor: off ? "default" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, opacity: off ? 0.45 : 1 } },
+    ce("span", { style: { width: 68, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Icon, { size: 20, color: "#F5F7FA" })),
+    ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" } }, label));
+  const greenDot = (Icon) => ce("span", { style: { width: 44, height: 44, borderRadius: "50%", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", margin: "-10px 0" } }, ce(Icon, { size: 22, color: "#06210F" }));
+  const checkbox = (on) => ce("div", { style: { width: 20, height: 20, borderRadius: 4, border: "2px solid " + (on ? "#21C063" : "#8891A0"), background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && ce(Check, { size: 14, color: "#06210F", strokeWidth: 3 }));
+  const gsheet = (title, children) => ce("div", { onClick: () => setSheet(null), style: { position: "absolute", inset: 0, zIndex: 30, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end" } },
+    ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "88%", background: "#12161C", borderTopLeftRadius: 22, borderTopRightRadius: 22, display: "flex", flexDirection: "column", padding: "10px 0 14px", boxSizing: "border-box", animation: "lcStUp .25s ease-out" } },
+      ce("div", { style: { width: 40, height: 4, borderRadius: 2, background: "#3A4452", margin: "0 auto 12px" } }),
+      ce("div", { style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, title),
+      ce("div", { style: { overflowY: "auto", flex: 1, minHeight: 0 } }, children)));
+  const listRow = (key, icon, name, on, fn) => ce("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 18, padding: "13px 24px", cursor: "pointer" } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, icon), ce("div", { style: { flex: 1, fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, name), checkbox(on));
+  const dot = (color) => ce("span", { style: { width: 13, height: 13, borderRadius: "50%", background: color, display: "block" } });
+  const subHead = (t) => ce("div", { key: t, style: { padding: "14px 24px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, t);
+  const badge = ce("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", background: "#1E2530", borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap", flexShrink: 0 } }, "Group Admin");
+  const memberRow = (m) => {
+    const online = m.id === myId || !!presence[m.id];
+    return ce("div", { key: m.id, onClick: () => setProfile(m), style: { display: "flex", alignItems: "center", gap: 16, padding: "8px 22px", cursor: "pointer" } },
+      ce(Ring, { size: 44, color: m.color, initials: m.initials, photo: m.avatar, online }),
+      ce("div", { style: { flex: 1, minWidth: 0 } },
+        ce("div", { style: { fontFamily: "Inter", fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, m.id === myId ? "You" : m.name, m.verified && ce(VerifiedBadge, {})),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, m.about || "Hey there! I am using Letschat Africa.")),
+      isAdmin && m.phone && ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", flexShrink: 0 } }, "+" + String(m.phone).replace(/\D/g, "")),
+      m.id === c.adminId && badge);
+  };
+  const barBtn = (label, side, child, fn, extra) => ce("button", { "aria-label": label, onClick: fn, style: { position: "absolute", top: 0, [side]: extra, height: GI_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, child);
+  const menuItems = [
+    isAdmin && ["Add members", () => setSheet("add")],
+    isAdmin && ["Edit name", () => { setNameDraft(c.name); setSheet("name") }],
+    isAdmin && ["Edit description", () => { setDesc(c.description || ""); setSheet("desc"); }],
+    isAdmin && ["Change photo", () => fileRef.current && fileRef.current.click()],
+    ["Export chat", () => onExport && onExport()]].filter(Boolean);
+  const longDesc = (c.description || "").length > 48;
+  const descShown = c.description ? (longDesc && !descOpen ? c.description.slice(0, 48).trim() + "… " : c.description + (longDesc ? " " : "")) : "";
+
+  return ce("div", { style: { position: "absolute", inset: 0, background: "#0E1116", zIndex: 20, display: "flex", flexDirection: "column", overflow: "hidden" } },
+    ce("style", null, "@keyframes lcStUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}"),
+    // collapsing header
+    ce("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: hH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" } }),
+    barBtn("Back", "left", ce(ArrowLeft, { size: 23, color: "#F5F7FA" }), onBack, 6),
+    barBtn("More", "right", ce(MoreVertical, { size: 22, color: "#F5F7FA" }), () => setMenu((m) => !m), 6),
+    isAdmin && barBtn("Invite", "right", ce(GiQr, { size: 22, color: "#F5F7FA" }), () => setSheet("link"), 50),
+    barBtn("Add to lists", "right", ce(ListPlus, { size: 22, color: "#F5F7FA" }), () => setSheet("lists"), isAdmin ? 94 : 50),
+    ce("div", { style: { position: "absolute", top: 0, left: 106, right: isAdmin ? 142 : 98, height: GI_BAR, zIndex: 5, display: "flex", alignItems: "center", opacity: titleOpacity, transform: "translateY(" + ((1 - titleOpacity) * 8) + "px)", pointerEvents: "none" } },
+      ce("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.name)),
+    ce("div", { onClick: c.avatar ? () => setZoom(true) : undefined, style: { position: "absolute", top, left, width: size, height: size, zIndex: 5, borderRadius: "50%", overflow: "hidden", background: GROUP_COLOR + "26", cursor: c.avatar ? "pointer" : "default" } },
+      c.avatar ? ce("img", { src: photoSrc(c.avatar), alt: "", draggable: false, onContextMenu: (e) => e.preventDefault(), style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })
+        : ce("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: GROUP_COLOR, fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 } }, c.other.initials)),
+    ce("input", { ref: fileRef, type: "file", accept: "image/jpeg,image/png", style: { display: "none" }, onChange: pickPhoto }),
+    menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 8 } },
+      ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: GI_BAR - 8, right: 10, minWidth: 200, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)", animation: "lcStUp .15s ease-out" } },
+        menuItems.map(([label, fn]) => ce("div", { key: label, onClick: () => { setMenu(false); fn(); }, style: { padding: "13px 20px", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", cursor: "pointer" } }, label)))),
+
+    ce("div", { ref: scrollRef, onScroll, style: { flex: 1, minHeight: 0, overflowY: "auto", position: "relative", paddingTop: GI_HERO + 8, paddingBottom: 30 } },
+      error && ce("div", { style: { marginBottom: 10 } }, ce(Banner, { text: error, onClose: () => setError("") })),
+      ce("div", { style: { textAlign: "center", padding: "0 24px" } },
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 26, color: "#F5F7FA", overflowWrap: "anywhere" } }, c.name),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginTop: 4 } }, "Group · ", ce("span", { style: { color: "#21C063" } }, c.members.length + (c.members.length === 1 ? " member" : " members"))),
+        c.description ? ce("div", { style: { fontFamily: "Inter", fontSize: 15.5, color: "#9BA7B4", marginTop: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.4 } }, descShown, longDesc && ce("span", { onClick: () => setDescOpen((v) => !v), style: { color: "#21C063", cursor: "pointer" } }, descOpen ? "Show less" : "Read more"))
+          : isAdmin ? ce("div", { onClick: () => { setDesc(""); setSheet("desc"); }, style: { fontFamily: "Inter", fontSize: 15, color: "#21C063", marginTop: 12, cursor: "pointer" } }, "Add group description") : null,
+        ce("div", { style: { display: "flex", justifyContent: "center", gap: 18, margin: "20px 0 18px" } },
+          pill("Voice chat", Mic, null, true),
+          pill("Add", GiUserPlus, () => (isAdmin ? setSheet("add") : needAdmin())),
+          pill("Search", Search, goMembers))),
+      line("l0"),
+      row("lists", ico(ListPlus), "Add to lists", null, { onClick: () => setSheet("lists") }),
+      line("l1"),
+      ce("div", { onClick: onOpenMedia, style: { display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" } },
+        ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Media, links, and docs"),
+        ce("span", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 } }, total),
+        ce(ChevronRight, { size: 18, color: "#8891A0" })),
+      (tiles.length > 0 || docs.length > 0) && ce("div", { style: { display: "flex", gap: 4, overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
+        tiles.map((m) => ce("img", { key: m.id, src: m.file.data, alt: m.file.name, onClick: () => onOpenImage && onOpenImage(m.file.data), style: { width: 100, height: 100, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } })),
+        tiles.length === 0 && docs.slice(-6).reverse().map((m) => ce("div", { key: m.id, onClick: onOpenMedia, style: { width: 100, height: 100, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 6, boxSizing: "border-box", cursor: "pointer" } },
+          ce(Paperclip, { size: 20, color: "#35D0BA" }), ce("span", { style: { fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.file.name)))),
+      row("storage", ico(FolderIcon), "Manage storage", bytes ? fmtSize(bytes) : "0 KB", { onClick: onOpenMedia }),
+      row("notif", ico(Bell), "Notifications", muted ? "Muted" : "On", { onClick: onNotifications }),
+      line("l2"),
+      ce("div", { ref: memRef, style: { display: "flex", alignItems: "center", padding: "12px 22px 6px" } },
+        ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, c.members.length + (c.members.length === 1 ? " member" : " members")),
+        ce("button", { "aria-label": "Search members", onClick: () => { setSearching((v) => !v); setQ(""); }, style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 2 } }, ce(Search, { size: 20, color: "#8891A0" }))),
+      searching && ce("div", { style: { margin: "0 22px 8px", display: "flex", alignItems: "center", gap: 10, background: "#1E2530", borderRadius: 999, padding: "9px 14px" } },
+        ce(Search, { size: 17, color: "#5B6673" }), ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search members", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } })),
+      !needle && isAdmin && row("addm", greenDot(GiUserPlus), "Add members", null, { onClick: () => setSheet("add") }),
+      !needle && isAdmin && row("invite", greenDot(LinkIcon), "Invite via link or QR code", null, { onClick: () => setSheet("link") }),
+      visible.map(memberRow),
+      needle && !filtered.length && ce("div", { style: { padding: "14px 22px", fontFamily: "Inter", fontSize: 14, color: "#5B6673" } }, "No members match “" + q.trim() + "”."),
+      !needle && !showAll && filtered.length > LIMIT && ce("div", { onClick: () => setShowAll(true), style: { padding: "12px 22px 12px 82px", fontFamily: "Inter", fontSize: 16, color: "#21C063", cursor: "pointer" } }, "See all (" + (filtered.length - LIMIT) + " more)"),
+      isAdmin && c.dmRequests.length > 0 && ce("div", { style: { padding: "6px 22px" } },
+        ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: "10px 0 6px" } }, "Private chat requests"),
+        c.dmRequests.map((r) => {
+          const f = c.members.find((m) => m.id === r.from), t = c.members.find((m) => m.id === r.to);
+          return ce("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } },
+            ce("div", { style: { flex: 1 } }, f ? f.name : "?", " ", ce("span", { style: { color: "#5B6673" } }, "wants to chat with"), " ", t ? t.name : "?"),
+            ce("button", { onClick: () => call(r.id, "dm-requests/" + r.id, { approve: true }), style: smallBtn }, "Approve"),
+            ce("button", { onClick: () => call(r.id, "dm-requests/" + r.id, { approve: false }), style: { ...smallBtn, color: "#FF6B5D" } }, "Decline"));
+        })),
+      line("l3"),
+      row("fav", ce(GiHeart, { size: 22, color: isFav ? "#21C063" : "#8891A0" }), isFav ? "Remove from Favorites" : "Add to Favorites", null, { onClick: onToggleFavorite }),
+      row("export", ico(GiUpload), "Export chat", null, { onClick: onExport }),
+      line("l4"),
+      row("report", ce(ThumbsDown, { size: 22, color: "#FF6B5D" }), "Report group", null, { color: "#FF6B5D", onClick: onReport }),
+      c.createdAt ? ce("div", { style: { padding: "14px 22px 6px", fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Created on " + new Date(c.createdAt).toLocaleDateString()) : null),
+
+    sheet === "lists" && gsheet("Choose list", [
+      ce("div", { key: "new", onClick: newList, style: { display: "flex", alignItems: "center", gap: 18, padding: "10px 24px", cursor: "pointer", color: "#21C063", fontFamily: "Inter", fontSize: 16 } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, ce(Plus, { size: 20, color: "#21C063" })), "New list"),
+      subHead("Your lists"),
+      listRow("fav", ce(GiHeart, { size: 20, color: "#F5F7FA" }), "Favorites", !!isFav, () => onToggleFavorite && onToggleFavorite()),
+      lists.map((l) => listRow(l.id, dot(l.color), l.name, inList(l), () => toggleList(l))),
+      GI_SUGGEST.filter(([n]) => !lists.some((l) => l.name === n)).length > 0 && subHead("Suggestions"),
+      GI_SUGGEST.filter(([n]) => !lists.some((l) => l.name === n)).map(([n, col]) => listRow("s" + n, dot(col), n, false, () => addSuggest(n, col))),
+      ce("div", { key: "done", style: { padding: "14px 18px 0" } }, ce("button", { onClick: () => setSheet(null), style: { width: "100%", padding: 14, borderRadius: 999, border: "none", background: "#21C063", color: "#06210F", fontFamily: "Sora", fontWeight: 700, fontSize: 16, cursor: "pointer" } }, "Done"))]),
+
+    sheet === "link" && gsheet("Group link", [
+      ce("div", { key: "n", style: { padding: "0 24px 8px", fontFamily: "Inter", fontSize: 13, color: "#21C063", overflowWrap: "anywhere" } }, link),
+      row("copy", ico(GiCopy), copied ? "Copied ✓" : "Copy link", null, { onClick: copy }),
+      row("share", ico(ForwardIcon), "Share link", null, { onClick: share }),
+      row("sms", ico(Send), "Send link via SMS", null, { onClick: () => { window.location.href = "sms:?&body=" + encodeURIComponent("Join \"" + c.name + "\" on Letschat Africa: " + link); } }),
+      row("reset", ico(GiRefresh), "Reset link", null, { color: "#FF6B5D", onClick: () => window.confirm("Reset the link? The old link will stop working.") && call("reset", "invite/reset", {}) })]),
+
+    sheet === "add" && gsheet("Add members", [
+      ce("div", { key: "ph", style: { display: "flex", gap: 8, alignItems: "center", padding: "0 20px 8px" } },
+        ce("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } }, ce("input", { value: phone, onChange: (e) => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@username, email or phone", style: { ...inputEl, fontSize: 13.5 } })),
+        ce("button", { onClick: addByPhone, disabled: busy === "phone" || !phone.trim(), style: smallBtn }, busy === "phone" ? "…" : "Add")),
+      error && ce("div", { key: "er", style: { padding: "0 4px" } }, ce(Banner, { text: error, onClose: () => setError("") })),
+      ce("div", { key: "ls", style: { padding: "0 22px" } },
+        addable.map((u) => ce(PersonRow, { key: u.id, u, online: !!presence[u.id], status: statusText(!!presence[u.id], lastSeen[u.id]), right: ce("button", { onClick: () => call(u.id, "members", { userIds: [u.id] }), disabled: busy === u.id, style: smallBtn }, busy === u.id ? "…" : "Add") })),
+        addable.length === 0 && ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#5B6673", padding: "8px 0" } }, "All your contacts are already in this group."))]),
+
+    sheet === "name" && gsheet("Group name", ce("div", { style: { padding: "0 20px 6px" } },
+      ce("div", { style: inputBox }, ce("input", { autoFocus: true, value: nameDraft, maxLength: 60, onChange: (e) => setNameDraft(e.target.value), style: inputEl })),
+      ce("button", { onClick: saveName, disabled: busy === "name", style: { ...primaryBtn(busy === "name"), background: "#21C063", color: "#06210F" } }, busy === "name" ? "Saving…" : "Save"))),
+
+    sheet === "desc" && gsheet("Group description", ce("div", { style: { padding: "0 20px 6px" } },
+      ce("div", { style: { ...inputBox, alignItems: "flex-start" } }, ce("textarea", { autoFocus: true, value: desc, maxLength: 300, rows: 4, onChange: (e) => setDesc(e.target.value), placeholder: "What is this group about?", style: { ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14.5, resize: "none" } })),
+      ce("button", { onClick: saveDesc, disabled: busy === "desc", style: { ...primaryBtn(busy === "desc"), background: "#21C063", color: "#06210F" } }, busy === "desc" ? "Saving…" : "Save"))),
+
+    profile && ce(MemberProfileSheet, { m: profile, c, myId, isAdmin, presence, lastSeen, call, onClose: () => setProfile(null) }),
+    zoom && ce(ImageZoomModal, { photo: c.avatar, initials: c.other.initials, color: GROUP_COLOR, onClose: () => setZoom(false) }));
+}
+function MemberProfileSheet({ m, c, myId, isAdmin, presence, lastSeen, call, onClose }) {
+    const [zoom, setZoom] = useState(false);
+    const [sent, setSent] = useState(false);
+    const mine = m.id === myId;
+    const online = mine || !!presence[m.id];
+    const rq = (c.dmRequests || []).filter(r => r.from === myId && r.to === m.id).slice(-1)[0];
+    const direct = isAdmin || c.adminId === m.id; // admin chats need no approval
+    const done = (sent && !rq) || (rq && (rq.status === "pending" || rq.status === "approved"));
+    const label = sent && !rq ? "Chat added to your Chats ✓" : rq && rq.status === "pending" ? "Request sent, waiting for the admin" : rq && rq.status === "approved" ? "Approved: it's in your Chats" : rq && rq.status === "declined" ? "Declined. Ask again" : direct ? "Message privately" : "Request private chat";
+    return (React.createElement("div", { style: { ...sheet, zIndex: 30 }, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: { ...card, alignItems: "center", textAlign: "center" } },
+            React.createElement(Ring, { size: 110, color: m.color, initials: m.initials, photo: m.avatar, online: online, onClick: m.avatar ? () => setZoom(true) : undefined }),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 12 } },
+                m.name,
+                mine ? " (you)" : ""),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginBottom: 8 } }, mine ? "online" : statusText(online, lastSeen[m.id])),
+            m.about && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 10 } }, m.about),
+            isAdmin && (m.phone || m.email) && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", marginBottom: 10 } },
+                m.phone && React.createElement("div", null,
+                    "+",
+                    m.phone),
+                m.email && React.createElement("div", null, m.email)),
+            !mine && React.createElement("button", { onClick: async () => { if (await call(m.id, "dm-requests", { toId: m.id }))
+                    setSent(true); }, disabled: !!done, style: { ...primaryBtn(!!done), marginTop: 6 } }, label),
+            zoom && React.createElement(ImageZoomModal, { photo: m.avatar, initials: m.initials, color: m.color, onClose: () => setZoom(false) }))));
+}
+function JoinGroupModal({ code, token, onClose, onJoined }) {
+    const [info, setInfo] = useState(null);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+    useEffect(() => {
+        api("/api/v1/groups/invite/" + encodeURIComponent(code), { token }).then(setInfo).catch(e => setError(e.message));
+    }, [code]);
+    const join = async () => {
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/v1/groups/join", { method: "POST", token, body: { code } });
+            onJoined(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { style: sheet, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: card },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, "Join group"),
+            info && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 16 } },
+                "You were invited to ",
+                React.createElement("b", { style: { color: "#F5F7FA" } }, info.name),
+                " \u00B7 ",
+                info.memberCount,
+                " members"),
+            !info && !error && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673", marginBottom: 16 } }, "Checking invite link\u2026"),
+            error && React.createElement(Banner, { text: error }),
+            info && React.createElement("button", { onClick: join, disabled: busy, style: primaryBtn(busy) }, busy ? "Joining…" : info.joined ? "Open group" : "Join group"),
+            React.createElement("button", { onClick: onClose, style: { ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 } }, info ? "Not now" : "Close"))));
+}
+// ---- games: single-player games that run on the phone (no server needed). Best scores are kept on this device. ----
+const shuffled = (arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+} return a; };
+const gameBtn = { background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "10px 16px", fontFamily: "Inter", fontWeight: 600, fontSize: 14, cursor: "pointer" };
+// swipe on an element -> "left" | "right" | "up" | "down" (the element also stops the page from scrolling while you play)
+function useSwipe(ref, onSwipe) {
+    const cb = useRef(onSwipe);
+    cb.current = onSwipe;
+    useEffect(() => {
+        const el = ref.current;
+        if (!el)
+            return;
+        let sx = 0, sy = 0, on = false;
+        const ts = (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; on = true; };
+        const te = (e) => {
+            if (!on)
+                return;
+            on = false;
+            const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) < 24)
+                return;
+            cb.current(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
+        };
+        const tm = (e) => e.preventDefault();
+        el.addEventListener("touchstart", ts, { passive: true });
+        el.addEventListener("touchend", te, { passive: true });
+        el.addEventListener("touchmove", tm, { passive: false });
+        return () => { el.removeEventListener("touchstart", ts); el.removeEventListener("touchend", te); el.removeEventListener("touchmove", tm); };
+    }, []);
+}
+const ARROWS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+function useArrowKeys(onDir) {
+    const cb = useRef(onDir);
+    cb.current = onDir;
+    useEffect(() => {
+        const h = (e) => { const d = ARROWS[e.key]; if (!d || /^(input|textarea)$/i.test((e.target && e.target.tagName) || ""))
+            return; e.preventDefault(); cb.current(d); };
+        window.addEventListener("keydown", h);
+        return () => window.removeEventListener("keydown", h);
+    }, []);
+}
+// ---------- Tic-Tac-Toe (you are X, the computer is O) ----------
+const TTT_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+function tttWinner(b) {
+    for (const [x, y, z] of TTT_LINES)
+        if (b[x] && b[x] === b[y] && b[x] === b[z])
+            return { who: b[x], line: [x, y, z] };
+    return b.every(Boolean) ? { who: "draw", line: [] } : null;
+}
+function tttScore(b, turn, depth) {
+    const w = tttWinner(b);
+    if (w)
+        return w.who === "O" ? 10 - depth : w.who === "X" ? depth - 10 : 0;
+    let best = turn === "O" ? -99 : 99;
+    for (let i = 0; i < 9; i++)
+        if (!b[i]) {
+            b[i] = turn;
+            const s = tttScore(b, turn === "O" ? "X" : "O", depth + 1);
+            b[i] = null;
+            best = turn === "O" ? Math.max(best, s) : Math.min(best, s);
+        }
+    return best;
+}
+function tttPick(board, level) {
+    const b = board.slice();
+    const free = [];
+    b.forEach((v, i) => { if (!v)
+        free.push(i); });
+    if (!free.length)
+        return -1;
+    const rnd = () => free[Math.floor(Math.random() * free.length)];
+    if (level === "easy")
+        return rnd();
+    if (level === "normal") { // win if it can, block you if it must, otherwise take the centre or anything
+        for (const who of ["O", "X"])
+            for (const i of free) {
+                b[i] = who;
+                const w = tttWinner(b);
+                b[i] = null;
+                if (w && w.who === who)
+                    return i;
+            }
+        return b[4] ? rnd() : 4;
+    }
+    if (free.length === 9)
+        return [0, 2, 4, 6, 8][Math.floor(Math.random() * 5)];
+    let best = -99, pick = free[0];
+    for (const i of free) {
+        b[i] = "O";
+        const s = tttScore(b, "X", 1);
+        b[i] = null;
+        if (s > best || (s === best && Math.random() < 0.3)) {
+            best = s;
+            pick = i;
+        }
+    }
+    return pick;
+}
+function TicTacToeGame({ stats, onResult }) {
+    const [level, setLevel] = useState("normal");
+    const [board, setBoard] = useState(Array(9).fill(null));
+    const [turn, setTurn] = useState("X");
+    const [youStart, setYouStart] = useState(true);
+    const reported = useRef(false);
+    const result = tttWinner(board);
+    useEffect(() => {
+        if (result) {
+            if (!reported.current) {
+                reported.current = true;
+                onResult(result.who === "X" ? "w" : result.who === "O" ? "l" : "d");
+            }
+            return;
+        }
+        if (turn !== "O")
+            return;
+        const t = setTimeout(() => {
+            setBoard(b => { const i = tttPick(b, level); if (i < 0)
+                return b; const nb = b.slice(); nb[i] = "O"; return nb; });
+            setTurn("X");
+        }, 380);
+        return () => clearTimeout(t);
+    }, [board, turn, level]);
+    const play = (i) => { if (result || turn !== "X" || board[i])
+        return; const nb = board.slice(); nb[i] = "X"; setBoard(nb); setTurn("O"); };
+    const again = () => { const ys = !youStart; setYouStart(ys); setBoard(Array(9).fill(null)); reported.current = false; setTurn(ys ? "X" : "O"); };
+    const msg = result ? (result.who === "X" ? "You win! 🎉" : result.who === "O" ? "Computer wins" : "It's a draw") : turn === "X" ? "Your turn (X)" : "Computer is thinking…";
+    const s = stats || { w: 0, d: 0, l: 0 };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "10px 20px 24px" } },
+        React.createElement("div", { style: { display: "flex", gap: 8 } }, [["easy", "Easy"], ["normal", "Normal"], ["hard", "Hard"]].map(([id, label]) => (React.createElement("button", { key: id, onClick: () => setLevel(id), style: { ...gameBtn, padding: "7px 14px", fontSize: 13, background: level === id ? "#35D0BA" : "#1E2530", color: level === id ? "#0E1116" : "#F5F7FA" } }, label)))),
+        React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", minHeight: 24 } }, msg),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, width: "100%", maxWidth: 300 } }, board.map((v, i) => {
+            const win = result && result.line.includes(i);
+            return (React.createElement("button", { key: i, "aria-label": "Square " + (i + 1), onClick: () => play(i), style: { aspectRatio: "1 / 1", borderRadius: 14, border: win ? "2px solid #35D0BA" : "1px solid #2B3544", background: win ? "#35D0BA22" : "#161B22", fontFamily: "Sora", fontWeight: 800, fontSize: 42, color: v === "X" ? "#35D0BA" : "#F2B84B", cursor: v || result ? "default" : "pointer", padding: 0 } }, v));
+        })),
+        result && React.createElement("button", { onClick: again, style: { ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Play again"),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } },
+            "Wins ",
+            s.w,
+            " \u00B7 Draws ",
+            s.d,
+            " \u00B7 Losses ",
+            s.l)));
+}
+// ---------- Memory Match ----------
+const MEM_EMOJI = ["🦁", "🐘", "🦒", "🦓", "🐆", "🦛", "🦜", "🐒", "🦩", "🐊", "🦏", "🐍"];
+function MemoryGame({ best, onScore }) {
+    const [cards] = useState(() => { const p = shuffled(MEM_EMOJI).slice(0, 8); return shuffled([...p, ...p]); });
+    const [open, setOpen] = useState([]);
+    const [done, setDone] = useState([]);
+    const [moves, setMoves] = useState(0);
+    const [secs, setSecs] = useState(0);
+    const [started, setStarted] = useState(false);
+    const won = done.length === cards.length;
+    useEffect(() => { if (!started || won)
+        return; const t = setInterval(() => setSecs(x => x + 1), 1000); return () => clearInterval(t); }, [started, won]);
+    useEffect(() => { if (won)
+        onScore(moves); }, [won]);
+    const flip = (i) => {
+        if (open.length >= 2 || open.includes(i) || done.includes(i))
+            return;
+        setStarted(true);
+        const next = [...open, i];
+        setOpen(next);
+        if (next.length === 2) {
+            setMoves(m => m + 1);
+            const [a, b] = next;
+            if (cards[a] === cards[b])
+                setTimeout(() => { setDone(d => [...d, a, b]); setOpen([]); }, 350);
+            else
+                setTimeout(() => setOpen([]), 800);
+        }
+    };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "10px 20px 24px" } },
+        React.createElement("div", { style: { display: "flex", gap: 22, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" } },
+            React.createElement("span", null,
+                "Moves ",
+                React.createElement("b", { style: { color: "#F5F7FA" } }, moves)),
+            React.createElement("span", null,
+                "Time ",
+                React.createElement("b", { style: { color: "#F5F7FA" } },
+                    Math.floor(secs / 60),
+                    ":",
+                    String(secs % 60).padStart(2, "0"))),
+            React.createElement("span", null,
+                "Best ",
+                React.createElement("b", { style: { color: "#F2B84B" } }, best || "–"))),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, width: "100%", maxWidth: 340 } }, cards.map((e, i) => {
+            const up = open.includes(i) || done.includes(i);
+            return (React.createElement("button", { key: i, "aria-label": up ? e : "Hidden card", onClick: () => flip(i), style: { aspectRatio: "1 / 1", borderRadius: 12, border: done.includes(i) ? "2px solid #35D0BA" : "1px solid #2B3544", background: up ? "#161B22" : "#1E8677", fontSize: 32, padding: 0, cursor: up ? "default" : "pointer", opacity: done.includes(i) ? 0.75 : 1 } }, up ? e : ""));
+        })),
+        won && React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#35D0BA", textAlign: "center" } },
+            "You found them all in ",
+            moves,
+            " moves! \uD83C\uDF89",
+            React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 400, fontSize: 13, color: "#8891A0", marginTop: 4 } }, "Tap \u21BB at the top to play again."))));
+}
+// ---------- Snake ----------
+const SNAKE_N = 16, SNAKE_CELL = 20;
+const SNAKE_DIRS = { left: { x: -1, y: 0 }, right: { x: 1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
+function SnakeGame({ best, onScore }) {
+    const canvasRef = useRef(null);
+    const g = useRef(null);
+    const timer = useRef(null);
+    const scoreCb = useRef(onScore);
+    scoreCb.current = onScore;
+    const [status, setStatus] = useState("ready");
+    const [score, setScore] = useState(0);
+    const stop = () => { clearInterval(timer.current); timer.current = null; };
+    useEffect(() => { draw(); return stop; }, []);
+    const placeFood = (snake) => {
+        const free = [];
+        for (let x = 0; x < SNAKE_N; x++)
+            for (let y = 0; y < SNAKE_N; y++)
+                if (!snake.some(p => p.x === x && p.y === y))
+                    free.push({ x, y });
+        return free[Math.floor(Math.random() * free.length)];
+    };
+    const draw = () => {
+        const cv = canvasRef.current;
+        if (!cv)
+            return;
+        const c = cv.getContext("2d"), s = g.current, C = SNAKE_CELL;
+        c.fillStyle = "#0B0E13";
+        c.fillRect(0, 0, cv.width, cv.height);
+        c.fillStyle = "#121821";
+        for (let x = 0; x < SNAKE_N; x++)
+            for (let y = 0; y < SNAKE_N; y++)
+                if ((x + y) % 2)
+                    c.fillRect(x * C, y * C, C, C);
+        if (!s)
+            return;
+        c.fillStyle = "#FF6B5D";
+        c.beginPath();
+        c.arc(s.food.x * C + C / 2, s.food.y * C + C / 2, C / 2 - 3, 0, Math.PI * 2);
+        c.fill();
+        s.snake.forEach((p, i) => { c.fillStyle = i === 0 ? "#7CF0DE" : "#35D0BA"; c.fillRect(p.x * C + 1, p.y * C + 1, C - 2, C - 2); });
+    };
+    const speed = (sc) => Math.max(70, 140 - Math.floor(sc / 10) * 4);
+    const tick = () => {
+        const s = g.current;
+        if (!s)
+            return;
+        s.dir = s.next;
+        const head = { x: s.snake[0].x + s.dir.x, y: s.snake[0].y + s.dir.y };
+        const eat = head.x === s.food.x && head.y === s.food.y;
+        const body = eat ? s.snake : s.snake.slice(0, -1);
+        if (head.x < 0 || head.y < 0 || head.x >= SNAKE_N || head.y >= SNAKE_N || body.some(p => p.x === head.x && p.y === head.y)) {
+            stop();
+            setStatus("over");
+            scoreCb.current(s.score);
+            draw();
+            return;
+        }
+        s.snake = [head, ...body];
+        if (eat) {
+            s.score += 10;
+            setScore(s.score);
+            s.food = placeFood(s.snake);
+            stop();
+            timer.current = setInterval(tick, speed(s.score));
+        }
+        draw();
+    };
+    const start = () => {
+        stop();
+        const snake = [{ x: 5, y: 8 }, { x: 4, y: 8 }, { x: 3, y: 8 }];
+        g.current = { snake, dir: SNAKE_DIRS.right, next: SNAKE_DIRS.right, food: placeFood(snake), score: 0 };
+        setScore(0);
+        setStatus("playing");
+        draw();
+        timer.current = setInterval(tick, speed(0));
+    };
+    const turn = (name) => {
+        const s = g.current, v = SNAKE_DIRS[name];
+        if (!s || !timer.current || (v.x === -s.dir.x && v.y === -s.dir.y))
+            return;
+        s.next = v;
+    };
+    useSwipe(canvasRef, turn);
+    useArrowKeys(turn);
+    const pad = { width: 62, height: 52, borderRadius: 14, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", fontSize: 22, cursor: "pointer", padding: 0 };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "10px 20px 24px" } },
+        React.createElement("div", { style: { display: "flex", gap: 24, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" } },
+            React.createElement("span", null,
+                "Score ",
+                React.createElement("b", { style: { color: "#F5F7FA" } }, score)),
+            React.createElement("span", null,
+                "Best ",
+                React.createElement("b", { style: { color: "#F2B84B" } }, Math.max(best || 0, status === "over" ? score : 0)))),
+        React.createElement("div", { style: { position: "relative", width: "100%", maxWidth: 340 } },
+            React.createElement("canvas", { ref: canvasRef, width: SNAKE_N * SNAKE_CELL, height: SNAKE_N * SNAKE_CELL, style: { width: "100%", aspectRatio: "1 / 1", display: "block", borderRadius: 14, border: "1px solid #2B3544", touchAction: "none" } }),
+            status !== "playing" && (React.createElement("div", { style: { position: "absolute", inset: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" } }, status === "over" ? "Game over · " + score : "Snake 🐍"),
+                React.createElement("button", { onClick: start, style: { ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, status === "over" ? "Try again" : "Start"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Swipe or use the arrows to steer")))),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 62px)", gap: 6, justifyContent: "center" } },
+            React.createElement("span", null),
+            React.createElement("button", { "aria-label": "Up", onClick: () => turn("up"), style: pad }, "\u25B2"),
+            React.createElement("span", null),
+            React.createElement("button", { "aria-label": "Left", onClick: () => turn("left"), style: pad }, "\u25C0"),
+            React.createElement("button", { "aria-label": "Down", onClick: () => turn("down"), style: pad }, "\u25BC"),
+            React.createElement("button", { "aria-label": "Right", onClick: () => turn("right"), style: pad }, "\u25B6"))));
+}
+// ---------- 2048 ----------
+function g2048Slide(row) {
+    const a = row.filter(Boolean);
+    let gained = 0;
+    for (let i = 0; i < a.length - 1; i++)
+        if (a[i] === a[i + 1]) {
+            a[i] *= 2;
+            gained += a[i];
+            a.splice(i + 1, 1);
+        }
+    while (a.length < 4)
+        a.push(0);
+    return [a, gained];
+}
+function g2048Move(grid, dir) {
+    const out = grid.map(r => r.slice());
+    let gained = 0, moved = false;
+    const at = (i, j) => (dir === "left" ? [i, j] : dir === "right" ? [i, 3 - j] : dir === "up" ? [j, i] : [3 - j, i]);
+    for (let i = 0; i < 4; i++) {
+        const line = [];
+        for (let j = 0; j < 4; j++) {
+            const [r, c] = at(i, j);
+            line.push(grid[r][c]);
+        }
+        const [res, gain] = g2048Slide(line);
+        gained += gain;
+        for (let j = 0; j < 4; j++) {
+            const [r, c] = at(i, j);
+            if (out[r][c] !== res[j])
+                moved = true;
+            out[r][c] = res[j];
+        }
+    }
+    return { grid: out, gained, moved };
+}
+function g2048Add(grid) {
+    const empty = [];
+    grid.forEach((row, r) => row.forEach((v, c) => { if (!v)
+        empty.push([r, c]); }));
+    if (!empty.length)
+        return grid;
+    const [r, c] = empty[Math.floor(Math.random() * empty.length)];
+    const out = grid.map(x => x.slice());
+    out[r][c] = Math.random() < 0.9 ? 2 : 4;
+    return out;
+}
+const g2048CanMove = (grid) => ["left", "right", "up", "down"].some(d => g2048Move(grid, d).moved);
+const TILE_COLORS = { 0: ["#1B222D", "#1B222D"], 2: ["#2B3544", "#F5F7FA"], 4: ["#34445A", "#F5F7FA"], 8: ["#F2B84B", "#0E1116"], 16: ["#F29A4B", "#0E1116"], 32: ["#FF8A5D", "#0E1116"], 64: ["#FF6B5D", "#0E1116"], 128: ["#35D0BA", "#0E1116"], 256: ["#2BB8A3", "#0E1116"], 512: ["#4FA8E0", "#0E1116"], 1024: ["#8B7CF6", "#0E1116"], 2048: ["#F5F7FA", "#0E1116"] };
+function Game2048({ best, onScore }) {
+    const [grid, setGrid] = useState(() => g2048Add(g2048Add(Array.from({ length: 4 }, () => Array(4).fill(0)))));
+    const [score, setScore] = useState(0);
+    const [over, setOver] = useState(false);
+    const [won, setWon] = useState(false);
+    const boardRef = useRef(null);
+    const cur = useRef({});
+    cur.current = { grid, score, over };
+    const move = (dir) => {
+        const s = cur.current;
+        if (s.over)
+            return;
+        const r = g2048Move(s.grid, dir);
+        if (!r.moved)
+            return;
+        const next = g2048Add(r.grid), sc = s.score + r.gained;
+        setGrid(next);
+        setScore(sc);
+        onScore(sc);
+        if (next.some(row => row.includes(2048)))
+            setWon(true);
+        if (!g2048CanMove(next))
+            setOver(true);
+    };
+    useSwipe(boardRef, move);
+    useArrowKeys(move);
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "10px 20px 24px" } },
+        React.createElement("div", { style: { display: "flex", gap: 24, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" } },
+            React.createElement("span", null,
+                "Score ",
+                React.createElement("b", { style: { color: "#F5F7FA" } }, score)),
+            React.createElement("span", null,
+                "Best ",
+                React.createElement("b", { style: { color: "#F2B84B" } }, Math.max(best || 0, score)))),
+        React.createElement("div", { ref: boardRef, style: { position: "relative", width: "100%", maxWidth: 340, touchAction: "none", background: "#10151C", borderRadius: 14, padding: 8, border: "1px solid #2B3544", boxSizing: "border-box" } },
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 } }, grid.flat().map((v, i) => {
+                const [bg, fg] = TILE_COLORS[v] || ["#F5F7FA", "#0E1116"];
+                return React.createElement("div", { key: i, style: { aspectRatio: "1 / 1", borderRadius: 10, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 800, fontSize: v >= 1024 ? 20 : v >= 128 ? 24 : 28 } }, v || "");
+            })),
+            (over || won) && (React.createElement("div", { style: { position: "absolute", inset: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" } }, over ? "No more moves" : "You made 2048! 🎉"),
+                over ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } },
+                    "Score ",
+                    score,
+                    " \u00B7 tap \u21BB for a new game") : React.createElement("button", { onClick: () => setWon(false), style: { ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Keep going")))),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", textAlign: "center" } }, "Swipe to slide the tiles. Matching numbers merge.")));
+}
+// ---------- the Games tab ----------
+const GAME_LIST = [
+    { id: "ttt", name: "Tic-Tac-Toe", emoji: "❌", blurb: "Beat the computer", color: "#8B7CF6" },
+    { id: "memory", name: "Memory Match", emoji: "🧠", blurb: "Find all the pairs", color: "#35D0BA" },
+    { id: "snake", name: "Snake", emoji: "🐍", blurb: "Eat, grow, don't crash", color: "#4FA8E0" },
+    { id: "g2048", name: "2048", emoji: "🔢", blurb: "Slide and merge tiles", color: "#F2B84B" },
+];
+function GamesScreen({ myId }) {
+    const [scores, setScores] = useState(() => loadJSON("games:" + myId, {}));
+    const [playing, setPlaying] = useState(null);
+    const [round, setRound] = useState(0);
+    const record = (id, v) => setScores(prev => {
+        const cur = prev[id];
+        let next;
+        if (id === "ttt") {
+            const t = cur || { w: 0, d: 0, l: 0 };
+            next = { ...t, [v]: t[v] + 1 };
+        }
+        else if (id === "memory")
+            next = { best: cur && cur.best ? Math.min(cur.best, v) : v };
+        else
+            next = { best: Math.max((cur && cur.best) || 0, v) };
+        const all = { ...prev, [id]: next };
+        saveJSON("games:" + myId, all);
+        return all;
+    });
+    const line = (id) => {
+        const s = scores[id];
+        if (id === "ttt")
+            return s ? "W " + s.w + " · D " + s.d + " · L " + s.l : "Not played yet";
+        return s && s.best ? "Best: " + s.best + (id === "memory" ? " moves" : "") : "Not played yet";
+    };
+    if (playing) {
+        const game = GAME_LIST.find(x => x.id === playing);
+        const best = scores[playing] && scores[playing].best;
+        return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", flexShrink: 0 } },
+                React.createElement("button", { "aria-label": "Back to games", onClick: () => setPlaying(null), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } },
+                    React.createElement(ArrowLeft, { size: 22 })),
+                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA" } },
+                    game.emoji,
+                    " ",
+                    game.name),
+                React.createElement("button", { "aria-label": "Restart", onClick: () => setRound(r => r + 1), style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } },
+                    React.createElement(RotateCcw, { size: 20, color: "#9BA7B4" }))),
+            React.createElement("div", { style: { flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" } },
+                playing === "ttt" && React.createElement(TicTacToeGame, { key: round, stats: scores.ttt, onResult: (r) => record("ttt", r) }),
+                playing === "memory" && React.createElement(MemoryGame, { key: round, best: best, onScore: (v) => record("memory", v) }),
+                playing === "snake" && React.createElement(SnakeGame, { key: round, best: best, onScore: (v) => v > 0 && record("snake", v) }),
+                playing === "g2048" && React.createElement(Game2048, { key: round, best: best, onScore: (v) => record("g2048", v) }))));
+    }
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Games" }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: "0 16px 20px" } },
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 14 } }, "Pick a game. Your best scores are saved on this device."),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } }, GAME_LIST.map(gm => (React.createElement("div", { key: gm.id, onClick: () => { setRound(0); setPlaying(gm.id); }, style: { background: "#161B22", border: "1px solid #262E3A", borderRadius: 18, padding: "16px 14px", cursor: "pointer" } },
+                React.createElement("div", { style: { width: 52, height: 52, borderRadius: 16, background: gm.color + "26", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 12 } }, gm.emoji),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" } }, gm.name),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "3px 0 8px" } }, gm.blurb),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: gm.color } }, line(gm.id)))))))));
+}
+// ===================== GAMES HUB =====================
+// Plain JS on purpose (no JSX): the same block is used in app.jsx and the compiled index.html.
+const gh = React.createElement;
+const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
+const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
+// ---- chess engine (shared with the server) ----
+const CH_N = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]], CH_K = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]], CH_B = [[-1, -1], [-1, 1], [1, -1], [1, 1]], CH_R = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+function chKing(b, p) { return b.indexOf(6 + 8 * p); }
+function chAtt(b, sq, by) {
+    const r = sq >> 3, c = sq & 7, pr = by === 0 ? r + 1 : r - 1;
+    for (const dc of [-1, 1]) {
+        const cc = c + dc;
+        if (pr >= 0 && pr < 8 && cc >= 0 && cc < 8 && b[pr * 8 + cc] === 1 + 8 * by)
+            return true;
+    }
+    for (const [dr, dc] of CH_N) {
+        const rr = r + dr, cc = c + dc;
+        if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 2 + 8 * by)
+            return true;
+    }
+    for (const [dr, dc] of CH_K) {
+        const rr = r + dr, cc = c + dc;
+        if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 6 + 8 * by)
+            return true;
+    }
+    for (const [dirs, a, q] of [[CH_B, 3, 5], [CH_R, 4, 5]])
+        for (const [dr, dc] of dirs) {
+            let rr = r + dr, cc = c + dc;
+            while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+                const v = b[rr * 8 + cc];
+                if (v != null) {
+                    if (v === a + 8 * by || v === q + 8 * by)
+                        return true;
+                    break;
+                }
+                rr += dr;
+                cc += dc;
+            }
+        }
+    return false;
+}
+function chPseudo(s, p) {
+    const b = s.b, out = [], fwd = p === 0 ? -1 : 1, start = p === 0 ? 6 : 1, last = p === 0 ? 0 : 7;
+    for (let i = 0; i < 64; i++) {
+        const v = b[i];
+        if (v == null || (v >> 3) !== p)
+            continue;
+        const t = v & 7, r = i >> 3, c = i & 7;
+        if (t === 1) {
+            const r1 = r + fwd;
+            if (r1 < 0 || r1 > 7)
+                continue;
+            const add = (to) => { if (r1 === last)
+                for (let pt = 2; pt <= 5; pt++)
+                    out.push(i * 64 + to + 4096 * pt);
+            else
+                out.push(i * 64 + to); };
+            if (b[r1 * 8 + c] == null) {
+                add(r1 * 8 + c);
+                if (r === start && b[(r + 2 * fwd) * 8 + c] == null)
+                    out.push(i * 64 + (r + 2 * fwd) * 8 + c);
+            }
+            for (const dc of [-1, 1]) {
+                const cc = c + dc;
+                if (cc < 0 || cc > 7)
+                    continue;
+                const to = r1 * 8 + cc, o = b[to];
+                if ((o != null && (o >> 3) !== p) || (o == null && to === s.ep))
+                    add(to);
+            }
+        }
+        else if (t === 2 || t === 6) {
+            for (const [dr, dc] of t === 2 ? CH_N : CH_K) {
+                const rr = r + dr, cc = c + dc;
+                if (rr < 0 || rr > 7 || cc < 0 || cc > 7)
+                    continue;
+                const o = b[rr * 8 + cc];
+                if (o == null || (o >> 3) !== p)
+                    out.push(i * 64 + rr * 8 + cc);
+            }
+        }
+        else {
+            for (const [dr, dc] of t === 3 ? CH_B : t === 4 ? CH_R : CH_B.concat(CH_R)) {
+                let rr = r + dr, cc = c + dc;
+                while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+                    const o = b[rr * 8 + cc];
+                    if (o == null)
+                        out.push(i * 64 + rr * 8 + cc);
+                    else {
+                        if ((o >> 3) !== p)
+                            out.push(i * 64 + rr * 8 + cc);
+                        break;
+                    }
+                    rr += dr;
+                    cc += dc;
+                }
+            }
+        }
+    }
+    const base = p === 0 ? 56 : 0, ks = base + 4;
+    if (b[ks] === 6 + 8 * p && !chAtt(b, ks, 1 - p)) {
+        if (s.c[p * 2] && b[base + 5] == null && b[base + 6] == null && b[base + 7] === 4 + 8 * p && !chAtt(b, base + 5, 1 - p) && !chAtt(b, base + 6, 1 - p))
+            out.push(ks * 64 + base + 6);
+        if (s.c[p * 2 + 1] && b[base + 3] == null && b[base + 2] == null && b[base + 1] == null && b[base] === 4 + 8 * p && !chAtt(b, base + 3, 1 - p) && !chAtt(b, base + 2, 1 - p))
+            out.push(ks * 64 + base + 2);
+    }
+    return out;
+}
+function chApply(s, m) {
+    const pt = Math.floor(m / 4096), mm = m % 4096, from = mm >> 6, to = mm & 63, b = s.b.slice(), v = b[from], p = v >> 3, t = v & 7, cap = b[to], c = s.c.slice();
+    let ep = -1, reset = t === 1 || cap != null;
+    b[from] = null;
+    b[to] = v;
+    if (t === 1) {
+        if (cap == null && (from & 7) !== (to & 7)) {
+            b[to + (p === 0 ? 8 : -8)] = null;
+            reset = true;
+        }
+        if (Math.abs((to >> 3) - (from >> 3)) === 2)
+            ep = (from + to) / 2;
+        if (pt)
+            b[to] = pt + 8 * p;
+    }
+    if (t === 6) {
+        c[p * 2] = false;
+        c[p * 2 + 1] = false;
+        if (Math.abs((to & 7) - (from & 7)) === 2) {
+            const base = from - (from & 7);
+            if ((to & 7) === 6) {
+                b[base + 5] = b[base + 7];
+                b[base + 7] = null;
+            }
+            else {
+                b[base + 3] = b[base];
+                b[base] = null;
+            }
+        }
+    }
+    for (const sq of [from, to]) {
+        if (sq === 63)
+            c[0] = false;
+        if (sq === 56)
+            c[1] = false;
+        if (sq === 7)
+            c[2] = false;
+        if (sq === 0)
+            c[3] = false;
+    }
+    return { b, nx: 1 - p, c, ep, hm: reset ? 0 : s.hm + 1, lm: mm };
+}
+function chLegal(s, p) { return chPseudo(s, p).filter((m) => { const ns = chApply(s, m); return !chAtt(ns.b, chKing(ns.b, p), 1 - p); }); }
+// ---- end chess engine ----
+const GAME_RULES = {
+    ttt: {
+        init: () => Array(9).fill(null),
+        moves: (s) => s.map((v, i) => (v == null ? i : -1)).filter((i) => i >= 0),
+        play: (s, m, p) => { const n = s.slice(); n[m] = p; return n; },
+        win: (s) => {
+            for (const l of [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]])
+                if (s[l[0]] != null && s[l[0]] === s[l[1]] && s[l[1]] === s[l[2]])
+                    return { p: s[l[0]], line: l };
+            return null;
+        },
+    },
+    c4: {
+        init: () => Array(42).fill(null),
+        moves: (s) => [0, 1, 2, 3, 4, 5, 6].filter((c) => s[c] == null),
+        play: (s, c, p) => { const n = s.slice(); for (let r = 5; r >= 0; r--)
+            if (n[r * 7 + c] == null) {
+                n[r * 7 + c] = p;
+                break;
+            } return n; },
+        win: (s) => {
+            for (let r = 0; r < 6; r++)
+                for (let c = 0; c < 7; c++) {
+                    const p = s[r * 7 + c];
+                    if (p == null)
+                        continue;
+                    for (const [dr, dc] of [[0, 1], [1, 0], [1, 1], [1, -1]]) {
+                        const line = [];
+                        for (let k = 0; k < 4; k++) {
+                            const rr = r + dr * k, cc = c + dc * k;
+                            if (rr < 0 || rr > 5 || cc < 0 || cc > 6 || s[rr * 7 + cc] !== p)
+                                break;
+                            line.push(rr * 7 + cc);
+                        }
+                        if (line.length === 4)
+                            return { p, line };
+                    }
+                }
+            return null;
+        },
+    },
+    ludo: {
+        // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
+        init: () => ({ t: [[-1, -1, -1, -1], [-1, -1, -1, -1]], d: null, last: 0, nx: 0 }),
+        can: (s, p, i) => { const r = s.t[p][i], d = s.d; if (r === 56 || d == null)
+            return false; if (r === -1)
+            return d === 6; return r + d <= 56; },
+        moves: (s, p) => (s.nx !== p ? [] : s.d == null ? [-1] : [0, 1, 2, 3].filter((i) => GAME_RULES.ludo.can(s, p, i))),
+        play: (s, m, p, rnd) => {
+            const t = s.t.map((a) => a.slice());
+            if (m === -1) {
+                const d = 1 + Math.floor(rnd() * 6), ns = { t, d, last: d, nx: p };
+                if (![0, 1, 2, 3].some((i) => GAME_RULES.ludo.can(ns, p, i))) {
+                    ns.d = null;
+                    ns.nx = 1 - p;
+                }
+                return ns;
+            }
+            const d = s.d, r = t[p][m], nr = r === -1 ? 0 : r + d;
+            let extra = d === 6;
+            t[p][m] = nr;
+            if (nr <= 50) {
+                const a = (p * 26 + nr) % 52;
+                if (!LUDO_SAFE.includes(a)) {
+                    const q = 1 - p;
+                    t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) {
+                        t[q][j] = -1;
+                        extra = true;
+                    } });
+                }
+            }
+            if (nr === 56)
+                extra = true;
+            return { t, d: null, last: d, nx: extra ? p : 1 - p };
+        },
+        win: (s) => { for (const p of [0, 1])
+            if (s.t[p].every((r) => r === 56))
+                return { p, line: null }; return null; },
+        next: (s) => s.nx,
+        draw: () => false,
+    },
+    snl: {
+        // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
+        init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
+        moves: (s, p) => (s.nx === p ? [-1] : []),
+        play: (s, m, p, rnd) => {
+            const d = 1 + Math.floor(rnd() * 6), pos = s.p.slice();
+            let np = pos[p] + d;
+            if (np > 100)
+                np = pos[p];
+            const jump = SNL_JUMPS[np], ev = jump ? (jump > np ? 1 : -1) : 0;
+            if (jump)
+                np = jump;
+            pos[p] = np;
+            return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev };
+        },
+        win: (s) => { for (const p of [0, 1])
+            if (s.p[p] === 100)
+                return { p, line: null }; return null; },
+        next: (s) => s.nx,
+        draw: () => false,
+    },
+    checkers: {
+        // Nigerian draughts on 8x8. Men step forward but capture forward AND backward, kings fly any distance, capturing is compulsory and you must take the route that captures the most pieces.
+        // Captured pieces stay on the board until your move ends (and can't be jumped twice). A man is crowned only if its move ends on the far row.
+        // 0/1 = player men, 2/3 = kings (owner = v % 2). Move = from * 64 + to. A multi-capture is a chain of jumps by one piece: mj = that piece, cp = pieces jumped so far this turn.
+        D: [[-1, -1], [-1, 1], [1, -1], [1, 1]],
+        init: () => { const b = Array(64).fill(null); for (let r = 0; r < 8; r++)
+            for (let c = 0; c < 8; c++)
+                if ((r + c) % 2 === 1) {
+                    if (r < 3)
+                        b[r * 8 + c] = 1;
+                    else if (r > 4)
+                        b[r * 8 + c] = 0;
+                } return { b, nx: 0, mj: -1, q: 0, cp: [] }; },
+        jumps: (b, cp, i) => {
+            const v = b[i], p = v % 2, r0 = Math.floor(i / 8), c0 = i % 8, out = [];
+            for (const [dr, dc] of GAME_RULES.checkers.D) {
+                let r = r0 + dr, c = c0 + dc;
+                if (v >= 2)
+                    while (r >= 0 && r < 8 && c >= 0 && c < 8 && b[r * 8 + c] == null) {
+                        r += dr;
+                        c += dc;
+                    }
+                if (r < 0 || r > 7 || c < 0 || c > 7)
+                    continue;
+                const j = r * 8 + c, t = b[j];
+                if (t == null || t % 2 === p || cp.includes(j))
+                    continue;
+                let r2 = r + dr, c2 = c + dc;
+                while (r2 >= 0 && r2 < 8 && c2 >= 0 && c2 < 8 && b[r2 * 8 + c2] == null) {
+                    out.push([r2 * 8 + c2, j]);
+                    if (v < 2)
+                        break;
+                    r2 += dr;
+                    c2 += dc;
+                }
+            }
+            return out;
+        },
+        dep: (b, cp, i) => {
+            const R = GAME_RULES.checkers, v = b[i];
+            let best = 0;
+            for (const [to, x] of R.jumps(b, cp, i)) {
+                const b2 = b.slice();
+                b2[to] = v;
+                b2[i] = null;
+                const d = 1 + R.dep(b2, cp.concat(x), to);
+                if (d > best)
+                    best = d;
+            }
+            return best;
+        },
+        cap: (b, m) => {
+            const from = Math.floor(m / 64), to = m % 64, dr = Math.sign(Math.floor(to / 8) - Math.floor(from / 8)), dc = Math.sign((to % 8) - (from % 8));
+            let x = -1;
+            for (let r = Math.floor(from / 8) + dr, c = (from % 8) + dc; r * 8 + c !== to; r += dr, c += dc)
+                if (b[r * 8 + c] != null)
+                    x = r * 8 + c;
+            return x;
+        },
+        moves: (s, p) => {
+            if (s.nx !== p)
+                return [];
+            const R = GAME_RULES.checkers, cp = s.cp || [], own = s.mj >= 0 ? [s.mj] : s.b.map((v, i) => (v != null && v % 2 === p ? i : -1)).filter((i) => i >= 0);
+            let best = 0, caps = [];
+            for (const i of own)
+                for (const [to, x] of R.jumps(s.b, cp, i)) {
+                    const b2 = s.b.slice();
+                    b2[to] = b2[i];
+                    b2[i] = null;
+                    const d = 1 + R.dep(b2, cp.concat(x), to);
+                    if (d > best) {
+                        best = d;
+                        caps = [];
+                    }
+                    if (d === best)
+                        caps.push(i * 64 + to);
+                }
+            if (caps.length || s.mj >= 0)
+                return caps;
+            const out = [];
+            for (const i of own) {
+                const v = s.b[i], r0 = Math.floor(i / 8), c0 = i % 8, dirs = v >= 2 ? R.D : p === 0 ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+                for (const [dr, dc] of dirs) {
+                    let r = r0 + dr, c = c0 + dc;
+                    while (r >= 0 && r < 8 && c >= 0 && c < 8 && s.b[r * 8 + c] == null) {
+                        out.push(i * 64 + r * 8 + c);
+                        if (v < 2)
+                            break;
+                        r += dr;
+                        c += dc;
+                    }
+                }
+            }
+            return out;
+        },
+        play: (s, m, p) => {
+            const R = GAME_RULES.checkers, b = s.b.slice(), from = Math.floor(m / 64), to = m % 64, v = b[from], cp = (s.cp || []).slice(), x = R.cap(s.b, m);
+            b[from] = null;
+            b[to] = v;
+            if (x >= 0) {
+                cp.push(x);
+                if (R.jumps(b, cp, to).length)
+                    return { b, nx: p, mj: to, q: 0, cp };
+            }
+            cp.forEach((i) => { b[i] = null; });
+            if (v < 2 && (p === 0 ? to < 8 : to >= 56))
+                b[to] = v + 2;
+            return { b, nx: 1 - p, mj: -1, q: x >= 0 || v < 2 ? 0 : s.q + 1, cp: [] };
+        },
+        win: (s) => (GAME_RULES.checkers.moves(s, s.nx).length ? null : { p: 1 - s.nx, line: null }),
+        next: (s) => s.nx,
+        draw: (s) => s.q >= 80,
+    },
+    whot: {
+        // Whot, Nigerian rules, 2 players, 54 cards. Card id = shape*100 + number (shapes 0-4; Whot = 520). Move: -1 draw, id plays a card, 520 + 1000*(shape+1) plays Whot calling a shape. Add 100000 to call "Last card".
+        // 1 Hold on / 8 Suspension: play again. 2 Pick two / 5 Pick three: stack the same number or draw. 14 General market: opponent picks one, you play again.
+        // Last card: when you play down to ONE card you must have called it (the +100000 flag, only offered with 2 cards in hand), otherwise you pick 2 as a penalty.
+        sh: (c) => Math.floor(c / 100), nm: (c) => c % 100,
+        shuf: (a, rnd) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) {
+            const j = Math.floor(rnd() * (i + 1));
+            [b[i], b[j]] = [b[j], b[i]];
+        } return b; },
+        init: () => {
+            const R = GAME_RULES.whot, set = { 0: [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14], 1: [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14], 2: [1, 2, 3, 5, 7, 10, 11, 13, 14], 3: [1, 2, 3, 5, 7, 10, 11, 13, 14], 4: [1, 2, 3, 4, 5, 7, 8] };
+            let deck = [];
+            for (const k in set)
+                set[k].forEach((n) => deck.push(k * 100 + n));
+            for (let i = 0; i < 5; i++)
+                deck.push(520);
+            deck = R.shuf(deck, Math.random);
+            const h = [deck.splice(0, 6), deck.splice(0, 6)];
+            let disc = [];
+            for (;;) {
+                const c = deck.shift();
+                if (R.sh(c) < 5 && ![1, 2, 5, 8, 14].includes(R.nm(c))) {
+                    disc = [c];
+                    break;
+                }
+                deck.push(c);
+            }
+            return { h, deck, disc, want: -1, pend: 0, pk: 0, nx: 0, last: null, t: 0 };
+        },
+        ok: (s, c) => {
+            const R = GAME_RULES.whot;
+            if (s.pend > 0)
+                return R.nm(c) === s.pk;
+            if (R.sh(c) === 5)
+                return true;
+            const top = s.disc[s.disc.length - 1];
+            return s.want >= 0 ? R.sh(c) === s.want : R.sh(c) === R.sh(top) || R.nm(c) === R.nm(top);
+        },
+        moves: (s, p) => {
+            if (s.nx !== p)
+                return [];
+            const R = GAME_RULES.whot, out = [-1];
+            const calls = s.h[p].length === 2 ? [0, 100000] : [0];
+            new Set(s.h[p]).forEach((c) => { if (!R.ok(s, c))
+                return; for (const f of calls) {
+                if (R.sh(c) === 5)
+                    for (let k = 0; k < 5; k++)
+                        out.push(c + 1000 * (k + 1) + f);
+                else
+                    out.push(c + f);
+            } });
+            return out;
+        },
+        take: (s, p, n, rnd) => {
+            const R = GAME_RULES.whot;
+            for (let i = 0; i < n; i++) {
+                if (!s.deck.length) {
+                    const top = s.disc.pop();
+                    s.deck = R.shuf(s.disc, rnd);
+                    s.disc = [top];
+                    if (!s.deck.length)
+                        break;
+                }
+                s.h[p].push(s.deck.shift());
+            }
+        },
+        play: (s, m, p, rnd) => {
+            const R = GAME_RULES.whot, ns = { ...s, h: s.h.map((a) => a.slice()), deck: s.deck.slice(), disc: s.disc.slice(), t: s.t + 1 };
+            if (m === -1) {
+                const n = s.pend > 0 ? s.pend : 1;
+                R.take(ns, p, n, rnd);
+                ns.pend = 0;
+                ns.pk = 0;
+                ns.nx = 1 - p;
+                ns.last = { by: p, draw: n };
+                return ns;
+            }
+            const call = m >= 100000;
+            if (call)
+                m -= 100000;
+            const c = m % 1000, k = Math.floor(m / 1000) - 1, n = R.nm(c);
+            ns.h[p].splice(ns.h[p].indexOf(c), 1);
+            ns.disc.push(c);
+            ns.want = R.sh(c) === 5 ? k : -1;
+            ns.last = { by: p, card: c, want: ns.want };
+            ns.nx = 1 - p;
+            if (n === 2) {
+                ns.pend = s.pend + 2;
+                ns.pk = 2;
+            }
+            else if (n === 5) {
+                ns.pend = s.pend + 3;
+                ns.pk = 5;
+            }
+            else if (n === 1 || n === 8)
+                ns.nx = p;
+            else if (n === 14) {
+                R.take(ns, 1 - p, 1, rnd);
+                ns.nx = p;
+            }
+            if (ns.h[p].length === 1) {
+                if (call)
+                    ns.last.lc = true;
+                else {
+                    R.take(ns, p, 2, rnd);
+                    ns.last.pen = true;
+                }
+            }
+            return ns;
+        },
+        win: (s) => { for (const p of [0, 1])
+            if (s.h[p].length === 0)
+                return { p, line: null }; return null; },
+        view: (s, i) => ({ ...s, h: s.h.map((a, j) => (j === i ? a : a.map(() => null))), deck: s.deck.map(() => 0), disc: s.disc.slice(-1) }),
+        next: (s) => s.nx,
+        draw: (s) => s.t > 400,
+    },
+    race: {
+        // Turbo Racer is real-time, so it has no turns or moves. The room only carries the track seed; positions go through race:pos / race:finish.
+        init: () => ({ seed: Math.floor(Math.random() * 2147483647), len: 1800 }),
+        moves: () => [],
+        play: (s) => s,
+        win: () => null,
+        next: () => 0,
+        draw: () => false,
+    },
+    chess: {
+        // Chess. Player 0 = white (starts at the bottom), player 1 = black. Piece = type + 8*owner (1 P, 2 N, 3 B, 4 R, 5 Q, 6 K). Move = from*64 + to (+ 4096 * promotion type).
+        init: () => { const b = Array(64).fill(null), back = [4, 2, 3, 5, 6, 3, 2, 4]; for (let c = 0; c < 8; c++) {
+            b[c] = back[c] + 8;
+            b[8 + c] = 9;
+            b[48 + c] = 1;
+            b[56 + c] = back[c];
+        } return { b, nx: 0, c: [true, true, true, true], ep: -1, hm: 0, lm: null }; },
+        moves: (s, p) => (s.nx === p ? chLegal(s, p) : []),
+        play: (s, m) => chApply(s, m),
+        win: (s) => (chLegal(s, s.nx).length === 0 && chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx) ? { p: 1 - s.nx, line: null } : null),
+        draw: (s) => {
+            if (s.hm >= 100)
+                return true;
+            const o = [];
+            s.b.forEach((v) => { if (v != null && (v & 7) !== 6)
+                o.push(v & 7); });
+            if (o.length === 0 || (o.length === 1 && (o[0] === 2 || o[0] === 3)))
+                return true;
+            return chLegal(s, s.nx).length === 0 && !chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx);
+        },
+        next: (s) => s.nx,
+    },
+};
+const HUB_GAMES = [
+    { id: "ttt", name: "Tic-Tac-Toe", emoji: "✖️", color: "#35D0BA", blurb: "Three in a row", ready: true },
+    { id: "c4", name: "Connect 4", emoji: "🔴", color: "#FF4FA3", blurb: "Drop discs, link four", ready: true },
+    { id: "snl", name: "Snakes & Ladders", emoji: "🐍", color: "#2DD4A0", blurb: "Climb up, slide down", ready: true },
+    { id: "whot", name: "Smart Whot", emoji: "🃏", color: "#F5B83D", blurb: "Nigerian rules", ready: true },
+    { id: "chess", name: "Chess", emoji: "♟️", color: "#8B5CF6", blurb: "Classic strategy", ready: true },
+    { id: "checkers", name: "Checkers", emoji: "⚫", color: "#4C8DFF", blurb: "Nigerian rules", ready: true },
+    { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Roll, race, capture", ready: true },
+    { id: "race", name: "Turbo Racer", emoji: "🏎️", color: "#FF3B5C", blurb: "Race, dodge, nitro", ready: true },
+    { id: "dominoes", name: "Dominoes", emoji: "🧩", color: "#2DD4A0", blurb: "Match the tiles" },
+];
+const hubName = (id) => (HUB_GAMES.find((g) => g.id === id) || { name: id }).name;
+const LEVELS = ["Easy", "Medium", "Hard", "Expert"];
+const PCOL = ["#35D0BA", "#FF4FA3"];
+const ROBOT = { id: "robot", name: "Robot", initials: "🤖", color: "#8B5CF6", level: 0, robot: true };
+const GLASS = { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.11)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: 20 };
+const rankName = (lv) => (lv >= 10 ? "Legend" : lv >= 6 ? "Pro" : lv >= 3 ? "Challenger" : "Rookie");
+const flag = (cc) => (cc && cc.length === 2 ? String.fromCodePoint(...[...cc].map((c) => 127397 + c.charCodeAt(0))) : "🌍");
+const hubPing = () => { try {
+    if (typeof playPing === "function")
+        playPing();
+}
+catch (e) { } };
+// ---- robot brain: negamax with alpha-beta; lower levels also blunder on purpose ----
+function robotNega(game, s, p, d, a, b) {
+    const R = GAME_RULES[game], w = R.win(s);
+    if (w)
+        return w.p === p ? 1000 + d : -1000 - d;
+    const mv = R.moves(s);
+    if (!mv.length)
+        return 0;
+    if (d === 0) {
+        if (game !== "c4")
+            return 0;
+        let v = 0;
+        for (let r = 0; r < 6; r++) {
+            const x = s[r * 7 + 3];
+            if (x != null)
+                v += x === p ? 3 : -3;
+        }
+        return v;
+    }
+    let best = -1e9;
+    for (const m of mv.slice().sort((x, y) => Math.abs(x - 3) - Math.abs(y - 3))) {
+        const v = -robotNega(game, R.play(s, m, p), 1 - p, d - 1, -b, -a);
+        if (v > best)
+            best = v;
+        if (best > a)
+            a = best;
+        if (a >= b)
+            break;
+    }
+    return best;
+}
+function robotPick(game, s, me, level) {
+    if (game === "ludo")
+        return ludoPick(s, me, level);
+    if (game === "snl")
+        return -1;
+    if (game === "chess")
+        return chPick(s, me, level);
+    if (game === "whot")
+        return whotPick(s, me, level);
+    if (game === "checkers")
+        return ckPick(s, me, level);
+    const R = GAME_RULES[game], mv = R.moves(s);
+    if (Math.random() < [0.7, 0.35, 0.1, 0][level])
+        return mv[Math.floor(Math.random() * mv.length)];
+    const depth = game === "ttt" ? 9 : [1, 3, 5, 6][level];
+    let best = -1e9, picks = [];
+    for (const m of mv) {
+        const v = -robotNega(game, R.play(s, m, me), 1 - me, depth - 1, -1e9, 1e9);
+        if (v > best) {
+            best = v;
+            picks = [m];
+        }
+        else if (v === best)
+            picks.push(m);
+    }
+    return picks[Math.floor(Math.random() * picks.length)];
+}
+// ---- Ludo: robot brain and board ----
+function ludoPick(s, me, level) {
+    const R = GAME_RULES.ludo, mv = R.moves(s, me);
+    if (mv[0] === -1)
+        return -1;
+    if (Math.random() < [0.8, 0.4, 0.1, 0][level])
+        return mv[Math.floor(Math.random() * mv.length)];
+    let best = -1e9, pick = mv[0];
+    for (const m of mv) {
+        const ns = R.play(s, m, me, () => 0.5), r0 = s.t[me][m], r1 = ns.t[me][m];
+        let v = (r1 === 56 ? 40 : 0) + (r0 === -1 ? 25 : 0) + r1 * 0.3 + Math.random();
+        ns.t[1 - me].forEach((q, j) => { if (q === -1 && s.t[1 - me][j] !== -1)
+            v += 50; });
+        if (r1 <= 50) {
+            const a = (me * 26 + r1) % 52;
+            if (LUDO_SAFE.includes(a))
+                v += 12;
+            else if (level >= 2)
+                s.t[1 - me].forEach((q) => { if (q >= 0 && q <= 50) {
+                    const gap = (a - ((1 - me) * 26 + q) + 52) % 52;
+                    if (gap >= 1 && gap <= 6)
+                        v -= level === 3 ? 30 : 18;
+                } });
+        }
+        if (v > best) {
+            best = v;
+            pick = m;
+        }
+    }
+    return pick;
+}
+const LUDO_RING = [[6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [5, 6], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [0, 7], [0, 8], [1, 8], [2, 8], [3, 8], [4, 8], [5, 8], [6, 9], [6, 10], [6, 11], [6, 12], [6, 13], [6, 14], [7, 14], [8, 14], [8, 13], [8, 12], [8, 11], [8, 10], [8, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [14, 7], [14, 6], [13, 6], [12, 6], [11, 6], [10, 6], [9, 6], [8, 5], [8, 4], [8, 3], [8, 2], [8, 1], [8, 0], [7, 0], [6, 0]];
+function ludoXY(p, r, i) {
+    if (r === -1)
+        return [[[1.5, 1.5], [3.5, 1.5], [1.5, 3.5], [3.5, 3.5]], [[10.5, 10.5], [12.5, 10.5], [10.5, 12.5], [12.5, 12.5]]][p][i];
+    if (r === 56)
+        return [7.5 + (p ? 1 : -1) * 0.95, 7.5 + (i - 1.5) * 0.3];
+    const c = r > 50 ? [7, p ? 64 - r : r - 50] : LUDO_RING[(p * 26 + r) % 52];
+    return [c[1] + 0.5, c[0] + 0.5];
+}
+// ---- fit-to-screen helpers: boards size themselves to the space the game card has, so nothing scrolls while you play ----
+function useFit() {
+    const ref = useRef(null), [box, setBox] = useState({ w: 320, h: 420 });
+    useEffect(() => {
+        const el = ref.current;
+        if (!el)
+            return;
+        const upd = () => { const w = el.clientWidth, h = el.clientHeight; setBox((b) => (b.w === w && b.h === h ? b : { w, h })); };
+        upd();
+        let ro;
+        if (typeof ResizeObserver !== "undefined") {
+            ro = new ResizeObserver(upd);
+            ro.observe(el);
+        }
+        window.addEventListener("resize", upd);
+        return () => { ro && ro.disconnect(); window.removeEventListener("resize", upd); };
+    }, []);
+    return [ref, box];
+}
+const gameColor = (id) => (HUB_GAMES.find((x) => x.id === id) || {}).color || "#8B5CF6";
+const sideOf = (fit, extra) => Math.max(120, Math.floor(Math.min(fit.w - 20, fit.h - extra - 20)));
+// decorated frame around a board: glowing gradient rim, dark inner mat, little studs in the corners
+function GameFrame({ color, children }) {
+    const stud = (pos) => gh("i", { style: { position: "absolute", width: 6, height: 6, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, #fff, " + color + ")", boxShadow: "0 0 6px " + color, ...pos } });
+    return gh("div", { className: "lc-game", style: { position: "relative", padding: 7, borderRadius: 20, background: "linear-gradient(145deg, " + color + ", #F5B83D 48%, " + color + ")", boxShadow: "0 0 22px " + color + "66, 0 6px 18px rgba(0,0,0,.45)" } }, gh("div", { style: { padding: 3, borderRadius: 14, background: "#0B0F16", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.18)" } }, children), stud({ top: 1, left: 1 }), stud({ top: 1, right: 1 }), stud({ bottom: 1, left: 1 }), stud({ bottom: 1, right: 1 }));
+}
+const RULES_TEXT = {
+    ttt: "Take turns placing X and O. The first to get three in a row wins.",
+    c4: "Drop a disc into a column. The first to connect four in a row wins.",
+    ludo: "Roll a 6 to leave base. A 6 or a capture gives another roll. Get all your pieces home first.",
+    snl: "Reach 100 with an exact roll. A 6 gives another roll. Ladders take you up, snakes slide you down.",
+    checkers: "Nigerian rules: men capture backwards too, kings fly across the board, and you must take the route that captures the most pieces. Captured pieces come off when your move ends. Reach the far row to be crowned.",
+    whot: "Nigerian rules: match the shape or number. 1 Hold on and 8 Suspension play again. 2 and 5 make the other player pick; pass it on with the same number. 14 is General Market. 20 Whot calls a shape. With 2 cards left, call Last card before you play or you pick 2. Empty your hand to win.",
+    chess: "Castling, en passant and promotion are included. A game is drawn by stalemate, 50 quiet moves or too few pieces.",
+    race: "Tap left or right (or A / D, arrow keys) to change lane, space for nitro. Dodge cars and cones, avoid oil, grab ⚡ and boost pads, and tuck in behind your rival for a slipstream. First across the line wins.",
+};
+function RulesSheet({ game, color, onClose }) {
+    const g = HUB_GAMES.find((x) => x.id === game) || {};
+    return gh("div", { onClick: onClose, style: { position: "absolute", inset: 6, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(7,10,16,.86)", borderRadius: 18 } }, gh("div", { onClick: (e) => e.stopPropagation(), style: { ...GLASS, borderRadius: 18, padding: "16px 18px", maxWidth: 320, border: "1px solid " + color, boxShadow: "0 0 24px " + color + "55", textAlign: "center" } }, gh("div", { style: { fontSize: 30 } }, g.emoji), gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: "#F5F7FA", marginTop: 2 } }, (g.name || "Game") + " rules"), gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#C9D1DC", marginTop: 8 } }, RULES_TEXT[game] || ""), hubBtn("Got it", onClose, { small: true, style: { marginTop: 12 } })));
+}
+function hubStatusRow(onRules, status) {
+    return gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "2px 10px 5px" } }, status, gh("button", { onClick: onRules, "aria-label": "Game rules", style: { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", borderRadius: 999, padding: "3px 10px", color: "#C9D1DC", fontFamily: "Inter", fontWeight: 600, fontSize: 11.5, cursor: "pointer" } }, "ⓘ Rules"));
+}
+const roomShell = (gc, bg) => ({ display: "flex", flexDirection: "column", height: "calc(100% - 8px)", margin: "4px 6px", boxSizing: "border-box", border: "2px solid transparent", borderRadius: 22, overflow: "hidden", position: "relative", background: bg + " padding-box, linear-gradient(160deg, " + gc + ", rgba(245,184,61,.6) 50%, " + gc + ") border-box", boxShadow: "0 0 24px " + gc + "55, inset 0 0 30px " + gc + "22" });
+function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+    const R = GAME_RULES.ludo, canRoll = myTurn && s.d == null, legal = myTurn && s.d != null ? R.moves(s, you) : [];
+    const kids = [gh("rect", { key: "bg", x: 0, y: 0, width: 15, height: 15, rx: 0.6, fill: "#0F141C" }),
+        gh("rect", { key: "b0", x: 0, y: 0, width: 6, height: 6, rx: 0.5, fill: PCOL[0] + "22" }), gh("rect", { key: "b1", x: 9, y: 9, width: 6, height: 6, rx: 0.5, fill: PCOL[1] + "22" }),
+        gh("rect", { key: "b2", x: 9, y: 0, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }), gh("rect", { key: "b3", x: 0, y: 9, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }),
+        gh("rect", { key: "ct", x: 6, y: 6, width: 3, height: 3, fill: "#1B1440", stroke: "#8B5CF6", strokeWidth: 0.06 })];
+    LUDO_RING.forEach((c, i) => kids.push(gh("rect", { key: "r" + i, x: c[1] + 0.04, y: c[0] + 0.04, width: 0.92, height: 0.92, rx: 0.15, fill: i === 0 ? PCOL[0] + "77" : i === 26 ? PCOL[1] + "77" : "#1B2330" }), LUDO_SAFE.includes(i) ? gh("text", { key: "s" + i, x: c[1] + 0.5, y: c[0] + 0.75, fontSize: 0.6, textAnchor: "middle", fill: "#8891A0" }, "★") : null));
+    for (let k = 1; k <= 5; k++)
+        kids.push(gh("rect", { key: "h0" + k, x: k + 0.04, y: 7.04, width: 0.92, height: 0.92, rx: 0.15, fill: PCOL[0] + "55" }), gh("rect", { key: "h1" + k, x: 14 - k + 0.04, y: 7.04, width: 0.92, height: 0.92, rx: 0.15, fill: PCOL[1] + "55" }));
+    const seen = {};
+    [0, 1].forEach((p) => s.t[p].forEach((r, i) => {
+        let [x, y] = ludoXY(p, r, i);
+        const key = x + "," + y, n = seen[key] || 0;
+        seen[key] = n + 1;
+        x += n * 0.14;
+        y -= n * 0.14;
+        const can = p === you && legal.includes(i);
+        kids.push(gh("circle", { key: "t" + p + i, cx: x, cy: y, r: 0.36, fill: PCOL[p], stroke: can ? "#fff" : "#0B0F16", strokeWidth: can ? 0.14 : 0.07, style: { cursor: can ? "pointer" : "default", filter: can ? "drop-shadow(0 0 0.35px #fff)" : "none" }, onClick: can ? () => onTap(i) : undefined, role: can ? "button" : undefined, "aria-label": can ? "Move piece " + (i + 1) : undefined }));
+    }));
+    const side = sideOf(fit, 66);
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("ludo") }, gh("svg", { viewBox: "0 0 15 15", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 0 0" } }, gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, myTurn ? (s.d == null ? "Tap the dice to roll." : legal.length > 1 ? "Tap a glowing piece to move it." : "Moving…") : "Waiting for the other player.")));
+}
+// ---- Snakes & Ladders: board ----
+function snlXY(n) { const r = Math.floor((n - 1) / 10), c = r % 2 ? 9 - ((n - 1) % 10) : (n - 1) % 10; return [c + 0.5, 9 - r + 0.5]; }
+function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+    const canRoll = myTurn;
+    const kids = [];
+    for (let n = 1; n <= 100; n++) {
+        const [x, y] = snlXY(n);
+        kids.push(gh("rect", { key: "c" + n, x: x - 0.5 + 0.02, y: y - 0.5 + 0.02, width: 0.96, height: 0.96, rx: 0.12, fill: (Math.floor((n - 1) / 10) + n) % 2 ? "#1B2330" : "#141B26" }), gh("text", { key: "n" + n, x: x - 0.4, y: y - 0.26, fontSize: 0.3, fill: "#5B6673" }, n));
+    }
+    Object.keys(SNL_JUMPS).forEach((k) => {
+        const a = +k, b = SNL_JUMPS[k], [x1, y1] = snlXY(a), [x2, y2] = snlXY(b), dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, px = -dy / len, py = dx / len;
+        if (b > a) {
+            kids.push(gh("g", { key: "L" + a, stroke: "#F5B83D", strokeLinecap: "round", opacity: 0.9 }, gh("line", { x1: x1 + px * 0.12, y1: y1 + py * 0.12, x2: x2 + px * 0.12, y2: y2 + py * 0.12, strokeWidth: 0.07 }), gh("line", { x1: x1 - px * 0.12, y1: y1 - py * 0.12, x2: x2 - px * 0.12, y2: y2 - py * 0.12, strokeWidth: 0.07 }), [0.2, 0.4, 0.6, 0.8].map((t) => gh("line", { key: t, x1: x1 + dx * t + px * 0.12, y1: y1 + dy * t + py * 0.12, x2: x1 + dx * t - px * 0.12, y2: y1 + dy * t - py * 0.12, strokeWidth: 0.05 }))));
+        }
+        else {
+            kids.push(gh("g", { key: "S" + a, opacity: 0.9 }, gh("path", { d: "M" + x1 + " " + y1 + " Q" + ((x1 + x2) / 2 + px * 1.1) + " " + ((y1 + y2) / 2 + py * 1.1) + " " + x2 + " " + y2, fill: "none", stroke: "#FF4FA3", strokeWidth: 0.17, strokeLinecap: "round" }), gh("circle", { cx: x1, cy: y1, r: 0.2, fill: "#FF4FA3" }), gh("circle", { cx: x1 - 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" }), gh("circle", { cx: x1 + 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" })));
+        }
+    });
+    [0, 1].forEach((p) => { const n = s.p[p], [x, y] = n === 0 ? [p ? 9.6 : 0.4, 10.35] : snlXY(n), off = n > 0 && s.p[0] === s.p[1] ? (p ? 0.18 : -0.18) : 0; kids.push(gh("circle", { key: "t" + p, cx: x + off, cy: y, r: 0.3, fill: PCOL[p], stroke: "#0B0F16", strokeWidth: 0.07, style: { filter: "drop-shadow(0 0 0.25px " + PCOL[p] + ")", transition: "all .35s" } })); });
+    const side = Math.max(120, Math.floor(Math.min(fit.w - 20, (fit.h - 66 - 20) / 1.08)));
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("snl") }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids)), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 0 0" } }, gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player."))));
+}
+// ---- Draughts: robot brain and board ----
+function ckEval(s, p) { let v = 0; s.b.forEach((x, i) => { if (x == null)
+    return; const o = x % 2, k = x >= 2, r = i >> 3, val = (k ? 28 : 10) + (k ? 0 : (o ? r : 7 - r)) * 0.3; v += o === p ? val : -val; }); return v; }
+function ckNega(s, d, a, b) {
+    const R = GAME_RULES.checkers, p = s.nx, w = R.win(s);
+    if (w)
+        return -1000 - d;
+    if (R.draw(s))
+        return 0;
+    if (d === 0)
+        return ckEval(s, p);
+    let best = -1e9;
+    for (const m of R.moves(s, p)) {
+        const ns = R.play(s, m, p), v = ns.nx === p ? ckNega(ns, d - 1, a, b) : -ckNega(ns, d - 1, -b, -a);
+        if (v > best)
+            best = v;
+        if (best > a)
+            a = best;
+        if (a >= b)
+            break;
+    }
+    return best;
+}
+function ckPick(s, me, level) {
+    const R = GAME_RULES.checkers, mv = R.moves(s, me);
+    if (Math.random() < [0.6, 0.25, 0.05, 0][level])
+        return mv[Math.floor(Math.random() * mv.length)];
+    const depth = [1, 3, 5, 6][level];
+    let best = -1e9, picks = [];
+    for (const m of mv) {
+        const ns = R.play(s, m, me), v = ns.nx === me ? ckNega(ns, depth - 1, -1e9, 1e9) : -ckNega(ns, depth - 1, -1e9, 1e9);
+        if (v > best) {
+            best = v;
+            picks = [m];
+        }
+        else if (v === best)
+            picks.push(m);
+    }
+    return picks[Math.floor(Math.random() * picks.length)];
+}
+function CheckersBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+    const R = GAME_RULES.checkers, [sel, setSel] = useState(null);
+    const legal = myTurn ? R.moves(s, you) : [], froms = new Set(legal.map((m) => Math.floor(m / 64)));
+    const cur = s.mj >= 0 && myTurn ? s.mj : sel != null && froms.has(sel) ? sel : null;
+    const xy = (i) => { const r = i >> 3, c = i & 7; return you === 1 ? [7 - c, 7 - r] : [c, r]; };
+    const kids = [];
+    for (let i = 0; i < 64; i++) {
+        const [x, y] = xy(i), dark = ((i >> 3) + (i & 7)) % 2 === 1, dest = cur != null && legal.includes(cur * 64 + i);
+        kids.push(gh("rect", { key: "q" + i, x, y, width: 1, height: 1, fill: dark ? "#1E2A3D" : "#121821", onClick: dest ? () => { setSel(null); onTap(cur * 64 + i); } : undefined, style: { cursor: dest ? "pointer" : "default" } }));
+        if (dest)
+            kids.push(gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.18, fill: "#F5B83D", style: { pointerEvents: "none" } }));
+    }
+    s.b.forEach((v, i) => {
+        if (v == null)
+            return;
+        const [x, y] = xy(i), o = v % 2, can = froms.has(i), on = cur === i;
+        kids.push(gh("g", { key: "p" + i, opacity: (s.cp || []).includes(i) ? 0.35 : 1, onClick: can && s.mj < 0 ? () => setSel(i) : undefined, style: { cursor: can ? "pointer" : "default" }, role: can ? "button" : undefined, "aria-label": can ? "Select piece" : undefined }, gh("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.38, fill: PCOL[o], stroke: on ? "#fff" : can ? "#F5B83D" : "#0B0F16", strokeWidth: on ? 0.1 : can ? 0.07 : 0.05, style: { filter: "drop-shadow(0 0 0.2px " + PCOL[o] + ")" } }), v >= 2 ? gh("text", { x: x + 0.5, y: y + 0.68, fontSize: 0.55, textAnchor: "middle", fill: "#0B0F16" }, "♛") : gh("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.2, fill: "none", stroke: "#0B0F16", strokeWidth: 0.04, opacity: 0.4 })));
+    });
+    const side = sideOf(fit, 26);
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("checkers") }, gh("svg", { viewBox: "0 0 8 8", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#C9D1DC", textAlign: "center", padding: "6px 0 0", height: 20, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, !myTurn ? "Waiting for the other player." : s.mj >= 0 ? "Keep jumping with the same piece." : cur != null ? "Tap a gold dot to move there." : legal.length && R.cap(s.b, legal[0]) >= 0 ? "You must capture. Take the route that captures the most pieces." : "Tap a glowing piece to move it."));
+}
+// ---- Smart Whot: robot brain and cards ----
+function whotPick(s, me, level) {
+    const R = GAME_RULES.whot, callIt = Math.random() < [0.7, 0.88, 0.97, 1][level], plays = R.moves(s, me).filter((m) => m >= 0 && (s.h[me].length !== 2 || (m >= 100000) === callIt)), rand = () => plays[Math.floor(Math.random() * plays.length)];
+    if (!plays.length)
+        return -1;
+    if (s.pend > 0)
+        return Math.random() < [0.3, 0.15, 0.05, 0][level] ? -1 : rand();
+    if (Math.random() < [0.55, 0.25, 0.05, 0][level])
+        return Math.random() < 0.15 ? -1 : rand();
+    const hand = s.h[me], opp = s.h[1 - me].length;
+    let best = -1e9, pick = plays[0];
+    for (const m of plays) {
+        const mm = m % 100000, c = mm % 1000, n = R.nm(c), sh = R.sh(c), k = Math.floor(mm / 1000) - 1;
+        let v = 3 + hand.filter((x) => R.sh(x) === sh).length * 0.5;
+        if (hand.length === 1)
+            v = 100;
+        else if (n === 1 || n === 8)
+            v = 8;
+        else if (n === 2)
+            v = 6 + (opp <= 3 ? 4 : 0);
+        else if (n === 5)
+            v = 7 + (opp <= 3 ? 4 : 0);
+        else if (n === 14)
+            v = 7;
+        else if (sh === 5)
+            v = (hand.length <= 2 ? 10 : 0.5) + hand.filter((x) => R.sh(x) === k).length * 0.8;
+        v += Math.random() * [8, 4, 1.2, 0.2][level];
+        if (v > best) {
+            best = v;
+            pick = m;
+        }
+    }
+    return pick;
+}
+const WHOT_SH = [["●", "#FF5A5F"], ["▲", "#35D0BA"], ["✚", "#A78BFA"], ["■", "#4C8DFF"], ["★", "#F5B83D"]];
+const WHOT_TAG = { 1: "Hold on", 2: "Pick 2", 5: "Pick 3", 8: "Suspend", 14: "Market" };
+function WhotCard({ c, can, onClick, big, sc = 1, ml = 0 }) {
+    const w = Math.round((big ? 70 : 52) * sc), hgt = Math.round((big ? 100 : 76) * sc), R = GAME_RULES.whot, base = { width: w, height: hgt, borderRadius: 12, flexShrink: 0, marginLeft: ml, boxSizing: "border-box", padding: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", cursor: can ? "pointer" : "default", transform: can ? "translateY(-8px)" : "none", transition: "transform .15s" };
+    if (c == null)
+        return gh("div", { className: "lc-card", style: { ...base, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "2px solid rgba(255,255,255,.35)", color: "#fff", fontFamily: "Sora", fontWeight: 800, fontSize: big ? 26 : 20 } }, "W");
+    const sh = R.sh(c), n = R.nm(c), col = sh === 5 ? "#F5B83D" : WHOT_SH[sh][1];
+    return gh("button", { className: "lc-card", onClick: can ? onClick : undefined, "aria-label": sh === 5 ? "Whot 20" : ["circle", "triangle", "cross", "square", "star"][sh] + " " + n, style: { ...base, background: sh === 5 ? "linear-gradient(145deg,#2A1A52,#0F141C)" : "#F5F7FA", border: "2px solid " + (can ? "#fff" : col), boxShadow: can ? "0 0 14px " + col : "none", opacity: can || big ? 1 : 0.62 } }, gh("div", { style: { position: "absolute", top: 4, left: 6, fontFamily: "Sora", fontWeight: 800, fontSize: big ? 15 : 13, color: sh === 5 ? "#F5B83D" : "#0B0F16" } }, n), gh("div", { style: { fontSize: (sh === 5 ? (big ? 15 : 12) : (big ? 38 : 28)) * (sc < 1 ? 0.88 : 1), color: col, fontFamily: "Sora", fontWeight: 800, lineHeight: 1 } }, sh === 5 ? "WHOT" : WHOT_SH[sh][0]), WHOT_TAG[n] && sh < 5 ? gh("div", { style: { position: "absolute", bottom: 3, fontFamily: "Inter", fontSize: big ? 9.5 : 8, fontWeight: 700, color: "#4B5563" } }, WHOT_TAG[n]) : null);
+}
+function WhotBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+    const R = GAME_RULES.whot, [pick, setPick] = useState(false), [lc, setLc] = useState(false), mv = myTurn ? R.moves(s, you) : [], ids = new Set(mv.filter((m) => m >= 0).map((m) => m % 1000));
+    const hand = s.h[you].slice().sort((a, b) => a - b), top = s.disc[s.disc.length - 1], opp = s.h[1 - you].length, l = s.last;
+    const sc = fit.h >= 430 ? 1 : fit.h >= 390 ? 0.86 : 0.72, cw = 52 * sc, nh = hand.length, step = nh > 1 ? Math.min(cw + 6, (fit.w - 8 - cw) / (nh - 1)) : 0;
+    const who = l ? (l.by === you ? "You" : "Opponent") : "";
+    let note = !l ? "" : l.draw ? who + " picked " + l.draw + " card" + (l.draw > 1 ? "s" : "") + "." : R.nm(l.card) === 14 ? who + " played General Market: the other player picked 1." : R.nm(l.card) === 1 || R.nm(l.card) === 8 ? who + " played " + WHOT_TAG[R.nm(l.card)] + " and plays again." : "";
+    if (l && l.card != null) {
+        if (l.pen)
+            note = (note + " " + who + " forgot to call Last card and picks 2!").trim();
+        else if (l.lc)
+            note = (note + " " + who + " called Last card!").trim();
+    }
+    const call = lc && hand.length === 2 ? 100000 : 0, tapCard = (c) => { if (R.sh(c) === 5)
+        setPick(true);
+    else {
+        setLc(false);
+        onTap(c + call);
+    } };
+    return gh("div", { style: { width: "100%", maxWidth: 380, display: "flex", flexDirection: "column" } }, gh("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } }, gh("div", { style: { display: "flex" } }, Array.from({ length: Math.min(opp, 7) }, (_, i) => gh("div", { key: i, style: { width: 18, height: 28, borderRadius: 5, marginLeft: i ? -10 : 0, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "1px solid rgba(255,255,255,.4)" } }))), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC" } }, "Opponent has " + opp + " card" + (opp === 1 ? "" : "s"))), gh("div", { style: { ...GLASS, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, marginBottom: 6, border: "2px solid rgba(245,184,61,.6)", boxShadow: "0 0 18px rgba(245,184,61,.28), inset 0 0 0 3px rgba(11,15,22,.9), inset 0 0 0 4px rgba(245,184,61,.3)" } }, gh("button", { onClick: myTurn ? () => onTap(-1) : undefined, disabled: !myTurn, "aria-label": s.pend > 0 && myTurn ? "Pick " + s.pend + " cards" : "Pick a card from the market", style: { background: "none", border: "none", padding: 0, cursor: myTurn ? "pointer" : "default", textAlign: "center" } }, gh(WhotCard, { c: null, big: true, sc, can: myTurn }), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: myTurn ? "#F5B83D" : "#8891A0", marginTop: 6 } }, (s.pend > 0 && myTurn ? "Pick " + s.pend : "Market") + " · " + s.deck.length)), gh("div", { style: { textAlign: "center" } }, gh(WhotCard, { c: top, big: true, sc }), s.want >= 0 ? gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 12.5, color: WHOT_SH[s.want][1], marginTop: 6 } }, "Needs " + WHOT_SH[s.want][0]) : gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", marginTop: 6 } }, "Play pile"))), s.pend > 0 ? gh("div", { style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#FF4FA3", marginBottom: 3 } }, s.nx === you ? "Pick " + s.pend + " is coming! Play a " + s.pk + " or pick." : "Opponent must play a " + s.pk + " or pick " + s.pend + ".") : null, note ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 3 } }, note) : null, pick ? gh("div", { style: { ...GLASS, padding: 8, marginBottom: 4, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginBottom: 8 } }, "Call a shape"), gh("div", { style: { display: "flex", justifyContent: "center", gap: 8 } }, WHOT_SH.map(([g, col], k) => gh("button", { key: k, onClick: () => { setPick(false); setLc(false); onTap(520 + 1000 * (k + 1) + call); }, "aria-label": "Call " + ["circle", "triangle", "cross", "square", "star"][k], style: { width: 48, height: 48, borderRadius: 14, border: "2px solid " + col, background: "rgba(255,255,255,.06)", color: col, fontSize: 24, cursor: "pointer" } }, g))), gh("button", { onClick: () => setPick(false), style: { background: "none", border: "none", color: "#9BA7B4", fontFamily: "Inter", fontSize: 12.5, marginTop: 8, cursor: "pointer" } }, "Cancel")) : null, myTurn && hand.length === 2 && ids.size ? gh("button", { onClick: () => setLc(!lc), "aria-pressed": lc, style: { display: "block", margin: "2px auto 0", padding: "8px 18px", borderRadius: 999, border: "2px solid " + (lc ? "#F5B83D" : "rgba(255,255,255,.25)"), background: lc ? "rgba(245,184,61,.2)" : "rgba(255,255,255,.06)", color: lc ? "#F5B83D" : "#C9D1DC", fontFamily: "Sora", fontWeight: 800, fontSize: 13, cursor: "pointer" } }, lc ? "✋ Last card! (called)" : "Tap to call Last card before you play") : null, gh("div", { style: { display: "flex", justifyContent: "center", padding: "12px 4px 4px" } }, hand.map((c, i) => gh(WhotCard, { key: i + "-" + c, c, sc, ml: i ? step - cw : 0, can: ids.has(c), onClick: () => tapCard(c) }))), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "center", padding: "2px 0" } }, !myTurn ? "Waiting for the other player." : s.pend > 0 ? "Play a " + s.pk + " to pass it on, or tap the market." : ids.size ? "Tap a raised card to play it, or tap the market." : "No card fits. Tap the market to pick one."));
+}
+// ---- Chess: robot brain and board ----
+const CH_VAL = [0, 100, 320, 330, 500, 900, 0];
+function chEval(b) {
+    let v = 0;
+    for (let i = 0; i < 64; i++) {
+        const x = b[i];
+        if (x == null)
+            continue;
+        const t = x & 7, o = x >> 3, r = i >> 3, c = i & 7, cen = 7 - Math.abs(c - 3.5) - Math.abs(r - 3.5);
+        let sc = CH_VAL[t];
+        if (t === 1)
+            sc += (o === 0 ? 6 - r : r - 1) * 6 + (c > 1 && c < 6 ? cen : 0);
+        else if (t === 2 || t === 3)
+            sc += cen * 4;
+        v += o === 0 ? sc : -sc;
+    }
+    return v;
+}
+const chOrder = (s, mv) => mv.map((m) => { const f = (m % 4096) >> 6, t = m & 63, cp = s.b[t]; return [m, (cp != null ? CH_VAL[cp & 7] * 10 - CH_VAL[s.b[f] & 7] : 0) + (m >= 4096 ? 800 : 0)]; }).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+function chQ(s, a, bt, qd, ctx) {
+    const p = s.nx, e = chEval(s.b), stand = p === 0 ? e : -e;
+    if (stand >= bt)
+        return stand;
+    if (stand > a)
+        a = stand;
+    if (qd === 0)
+        return stand;
+    for (const m of chOrder(s, chLegal(s, p).filter((x) => s.b[x & 63] != null))) {
+        const v = -chQ(chApply(s, m), -bt, -a, qd - 1, ctx);
+        if (v >= bt)
+            return v;
+        if (v > a)
+            a = v;
+    }
+    return a;
+}
+function chSearch(s, d, a, bt, ply, ctx) {
+    if ((++ctx.n & 255) === 0 && Date.now() > ctx.t)
+        throw ctx;
+    const p = s.nx, mv = chLegal(s, p);
+    if (!mv.length)
+        return chAtt(s.b, chKing(s.b, p), 1 - p) ? -30000 + ply : 0;
+    if (s.hm >= 100)
+        return 0;
+    if (d === 0)
+        return chQ(s, a, bt, 2, ctx);
+    let best = -1e9;
+    for (const m of chOrder(s, mv)) {
+        const v = -chSearch(chApply(s, m), d - 1, -bt, -a, ply + 1, ctx);
+        if (v > best)
+            best = v;
+        if (best > a)
+            a = best;
+        if (a >= bt)
+            break;
+    }
+    return best;
+}
+function chPick(s, me, level) {
+    const mv = chLegal(s, me);
+    if (Math.random() < [0.45, 0.15, 0.03, 0][level])
+        return mv[Math.floor(Math.random() * mv.length)];
+    const ctx = { n: 0, t: Date.now() + [150, 450, 900, 1500][level] };
+    let best = chOrder(s, mv)[0], order = chOrder(s, mv);
+    for (let d = 1; d <= [1, 2, 3, 5][level]; d++) {
+        try {
+            let bv = -1e9, bm = order[0];
+            const scored = [];
+            for (const m of order) {
+                const v = -chSearch(chApply(s, m), d - 1, -1e9, 1e9, 1, ctx) + Math.random() * [40, 15, 4, 1][level];
+                scored.push([m, v]);
+                if (v > bv) {
+                    bv = v;
+                    bm = m;
+                }
+            }
+            best = bm;
+            order = scored.sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+            if (bv > 20000)
+                break;
+        }
+        catch (e) {
+            if (e !== ctx)
+                throw e;
+            break;
+        }
+    }
+    return best;
+}
+function ChessBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+    const [sel, setSel] = useState(null), [promo, setPromo] = useState(null);
+    const legal = myTurn ? chLegal(s, you) : [], froms = new Set(legal.map((m) => (m % 4096) >> 6)), cur = sel != null && froms.has(sel) ? sel : null;
+    const xy = (i) => { const r = i >> 3, c = i & 7; return you === 1 ? [7 - c, 7 - r] : [c, r]; };
+    const inCheck = chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx), kingSq = chKing(s.b, s.nx), G = ["", "♟", "♞", "♝", "♜", "♛", "♚"];
+    const handle = (i) => {
+        if (!myTurn)
+            return;
+        const vs = cur != null ? legal.filter((m) => m % 4096 === cur * 64 + i) : [];
+        if (vs.length) {
+            setSel(null);
+            if (vs.length > 1)
+                setPromo(cur * 64 + i);
+            else
+                onTap(vs[0]);
+            return;
+        }
+        setSel(froms.has(i) ? i : null);
+    };
+    const kids = [];
+    for (let i = 0; i < 64; i++) {
+        const [x, y] = xy(i), dark = ((i >> 3) + (i & 7)) % 2 === 1, dest = cur != null && legal.some((m) => m % 4096 === cur * 64 + i), isLast = s.lm != null && (i === s.lm >> 6 || i === (s.lm & 63));
+        kids.push(gh("rect", { key: "q" + i, x, y, width: 1, height: 1, fill: dark ? "#16202E" : "#27364D", onClick: () => handle(i), style: { cursor: myTurn && (dest || froms.has(i)) ? "pointer" : "default" }, "aria-label": "abcdefgh"[i & 7] + (8 - (i >> 3)) }));
+        if (isLast)
+            kids.push(gh("rect", { key: "l" + i, x, y, width: 1, height: 1, fill: "rgba(245,184,61,.2)", style: { pointerEvents: "none" } }));
+        if (inCheck && i === kingSq)
+            kids.push(gh("circle", { key: "k" + i, cx: x + 0.5, cy: y + 0.5, r: 0.48, fill: "rgba(255,70,70,.5)", style: { pointerEvents: "none" } }));
+        if (cur === i)
+            kids.push(gh("rect", { key: "s" + i, x: x + 0.04, y: y + 0.04, width: 0.92, height: 0.92, fill: "none", stroke: "#fff", strokeWidth: 0.07, style: { pointerEvents: "none" } }));
+        if (dest)
+            kids.push(s.b[i] != null ? gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.44, fill: "none", stroke: "#F5B83D", strokeWidth: 0.09, style: { pointerEvents: "none" } }) : gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.16, fill: "#F5B83D", style: { pointerEvents: "none" } }));
+    }
+    s.b.forEach((v, i) => { if (v == null)
+        return; const [x, y] = xy(i), o = v >> 3; kids.push(gh("text", { key: "p" + i, x: x + 0.5, y: y + 0.78, fontSize: 0.86, textAnchor: "middle", fill: o ? "#1A1030" : "#F5F7FA", stroke: o ? "#FF4FA3" : "#35D0BA", strokeWidth: 0.035, style: { pointerEvents: "none", userSelect: "none" } }, G[v & 7] + "\uFE0E")); });
+    const side = sideOf(fit, 26);
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh("div", { style: { position: "relative" } }, gh(GameFrame, { color: gameColor("chess") }, gh("svg", { viewBox: "0 0 8 8", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)), promo != null ? gh("div", { style: { ...GLASS, position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 3, background: "rgba(11,15,22,.95)", padding: 10, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", marginBottom: 6 } }, "Promote your pawn to"), gh("div", { style: { display: "flex", gap: 8, justifyContent: "center" } }, [5, 4, 3, 2].map((t) => gh("button", { key: t, onClick: () => { const m = promo + 4096 * t; setPromo(null); onTap(m); }, "aria-label": ["", "", "Knight", "Bishop", "Rook", "Queen"][t], style: { width: 48, height: 48, borderRadius: 14, border: "1px solid #F5B83D", background: "rgba(255,255,255,.07)", color: "#F5F7FA", fontSize: 28, cursor: "pointer" } }, G[t] + "\uFE0E")))) : null), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: inCheck ? "#FF8A8A" : "#C9D1DC", textAlign: "center", padding: "6px 0 0", height: 20, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (inCheck ? "Check! " : "") + (!myTurn ? "Waiting for the other player." : cur != null ? "Tap a gold dot to move there." : "Tap one of your pieces.")));
+}
+// ---- Turbo Racer: real-time racing. Both drivers get the same track (built from a seed); first across the line wins. ----
+const RACE = { vmax: 45, accel: 30, len: 1800 };
+function raceItems(seed, len) {
+    let a = seed >>> 0;
+    const rnd = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const it = [];
+    for (let d = 150; d < len - 100; d += 30) {
+        const r = rnd(), dd = d + rnd() * 8, lanes = [0, 1, 2, 3];
+        for (let i = 3; i > 0; i--) {
+            const j = Math.floor(rnd() * (i + 1));
+            const x = lanes[i];
+            lanes[i] = lanes[j];
+            lanes[j] = x;
+        }
+        if (r < 0.36) {
+            const n = rnd() < 0.3 ? 2 : 1;
+            for (let k = 0; k < n; k++)
+                it.push({ d: dd, l: lanes[k], t: rnd() < 0.6 ? "car" : "cone" });
+        }
+        else if (r < 0.5)
+            it.push({ d: dd, l: lanes[0], t: "oil" });
+        else if (r < 0.64)
+            it.push({ d: dd, l: lanes[0], t: "boost" });
+        else if (r < 0.74)
+            it.push({ d: dd, l: lanes[0], t: "nitro" });
+    }
+    return it;
+}
+const raceCar = (n) => ({ d: 0, x: 1.5, l: 1, v: 0, crash: 0, oil: 0, boost: 0, nt: 0, nitro: 1, hit: new Uint8Array(n), i: 0, draft: false });
+const raceDraft = (c, o) => { const g = o.d - c.d; return g > 3.5 && g < 24 && Math.abs(o.x - c.x) < 0.7; };
+// one physics step for any car (you, the robot). inp = { lane: 0..3 or null, nitro: bool }, vm = speed multiplier. Returns "crash" / "boost" / "nitro" / "oil" or null.
+function raceStep(c, dt, items, inp, vm, draft) {
+    if (inp.nitro && c.nitro > 0 && c.nt <= 0) {
+        c.nitro--;
+        c.nt = 2;
+    }
+    if (inp.lane != null && c.oil <= 0 && c.crash <= 0)
+        c.l = Math.max(0, Math.min(3, inp.lane));
+    const dx = c.l - c.x, st = 6.5 * dt;
+    c.x += Math.abs(dx) <= st ? dx : Math.sign(dx) * st;
+    c.crash = Math.max(0, c.crash - dt);
+    c.oil = Math.max(0, c.oil - dt);
+    c.boost = Math.max(0, c.boost - dt);
+    c.nt = Math.max(0, c.nt - dt);
+    const tv = RACE.vmax * vm * (c.crash > 0 ? 0.4 : c.oil > 0 ? 0.7 : 1) * (c.boost > 0 ? 1.45 : 1) * (c.nt > 0 ? 1.35 : 1) * (draft ? 1.08 : 1);
+    c.v += Math.sign(tv - c.v) * Math.min(Math.abs(tv - c.v), (tv > c.v ? RACE.accel : 70) * dt);
+    c.d += c.v * dt;
+    while (c.i < items.length && items[c.i].d < c.d - 6)
+        c.i++;
+    let ev = null;
+    for (let k = c.i; k < items.length && items[k].d < c.d + 3.5; k++) {
+        const it = items[k];
+        if (c.hit[k] || it.d < c.d - 3.5 || Math.abs(c.x - it.l) > 0.62)
+            continue;
+        c.hit[k] = 1;
+        if (it.t === "car" || it.t === "cone") {
+            if (c.crash <= 0) {
+                c.crash = it.t === "car" ? 0.9 : 0.5;
+                c.v *= 0.35;
+                ev = "crash";
+            }
+        }
+        else if (it.t === "oil") {
+            c.oil = 1;
+            ev = ev || "oil";
+        }
+        else if (it.t === "boost") {
+            c.boost = 1.4;
+            ev = ev || "boost";
+        }
+        else if (it.t === "nitro") {
+            c.nitro = Math.min(3, c.nitro + 1);
+            ev = ev || "nitro";
+        }
+    }
+    return ev;
+}
+// robot driver: looks ahead, picks the safest lane (and likes boost pads / nitro), sometimes misses things on lower levels
+function raceBotThink(b, items, level) {
+    const look = [16, 22, 28, 34][level] + b.v * 0.2, att = [0.55, 0.78, 0.92, 0.99][level];
+    const danger = [0, 0, 0, 0], bonus = [0, 0, 0, 0];
+    for (let k = b.i; k < items.length && items[k].d < b.d + look; k++) {
+        const it = items[k];
+        if (b.hit[k] || it.d < b.d + 1)
+            continue;
+        if (it.t === "car" || it.t === "cone")
+            danger[it.l] += 2;
+        else if (it.t === "oil")
+            danger[it.l] += 0.8;
+        else
+            bonus[it.l] += it.t === "nitro" ? 1.2 : 1;
+    }
+    let lane = null;
+    if (Math.random() < att) {
+        let best = 1e9;
+        for (let l = 0; l < 4; l++) {
+            const cost = danger[l] * 10 - bonus[l] * 3 + Math.abs(l - b.l) * 1.6 + Math.random() * [3, 1.5, 0.6, 0.15][level];
+            if (cost < best) {
+                best = cost;
+                lane = l;
+            }
+        }
+        if (lane === b.l)
+            lane = null;
+    }
+    const nitro = b.nitro > 0 && b.nt <= 0 && b.crash <= 0 && danger[b.l] === 0 && Math.random() < [0.02, 0.08, 0.18, 0.3][level];
+    return { lane, nitro };
+}
+const RACE_BOT_SPEED = [0.84, 0.92, 0.97, 1];
+const fmtRace = (s) => (s == null ? "–" : s.toFixed(1) + "s");
+function RaceRoom({ cfg, socket, myId, onExit, active }) {
+    const robot = cfg.mode === "robot";
+    const [g, setG] = useState(() => ({ you: cfg.you, players: cfg.players, score: cfg.score || [0, 0], seed: robot ? (Math.random() * 2147483647) | 0 : cfg.state.seed, len: robot ? RACE.len : cfg.state.len, round: 0, over: false, winner: null, reward: null, times: null, myTime: null, best: null, asked: false, theyAsked: false, gone: false, note: "" }));
+    const [stat, setStat] = useState("Get ready…");
+    const [msgs, setMsgs] = useState([]);
+    const [text, setText] = useState("");
+    const [floats, setFloats] = useState([]);
+    const gRef = useRef(g);
+    gRef.current = g;
+    const [fitRef, box] = useFit(), [rules, setRules] = useState(false), gc = gameColor("race");
+    const cv = useRef(null), ctl = useRef({}), sRef = useRef(null), actRef = useRef(active);
+    actRef.current = active;
+    const float = (e) => { const id = Math.random(); setFloats((f) => [...f, { id, e, x: 15 + Math.random() * 70 }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800); };
+    useEffect(() => {
+        const G = gRef.current, items = raceItems(G.seed, G.len), you = G.you, len = G.len, level = cfg.level || 0, canvas = cv.current, ctx = canvas.getContext("2d");
+        const dpr = Math.min(2, window.devicePixelRatio || 1), W = 360, H = 500, PX = 5.6, PY = H - 115, LW = 74, RX = (W - 4 * LW) / 2, cx = (l) => RX + (l + 0.5) * LW;
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+        const COL = [PCOL[you], PCOL[1 - you]];
+        const me = raceCar(items.length), opp = raceCar(items.length), bot = { t: 0, inp: { lane: null, nitro: false } };
+        me.l = me.x = you ? 2 : 1;
+        opp.l = opp.x = you ? 1 : 2;
+        const S = { phase: robot ? "count" : "wait", t0: performance.now(), last: performance.now(), tm: 0, want: null, nit: false, shake: 0, sent: false, done: false, sendT: 0, R: null };
+        sRef.current = S;
+        setStat("Get ready…");
+        const move = (dir) => { if (S.phase === "go")
+            S.want = Math.max(0, Math.min(3, me.l + dir)); };
+        const boost = () => { if (S.phase === "go")
+            S.nit = true; };
+        ctl.current = { move, boost };
+        const onKey = (e) => {
+            if (/^(input|textarea)$/i.test((e.target && e.target.tagName) || ""))
+                return;
+            const k = e.key;
+            if (k === "ArrowLeft" || k === "a" || k === "A") {
+                e.preventDefault();
+                move(-1);
+            }
+            else if (k === "ArrowRight" || k === "d" || k === "D") {
+                e.preventDefault();
+                move(1);
+            }
+            else if (k === " " || k === "ArrowUp" || k === "w" || k === "W" || k === "Shift") {
+                e.preventDefault();
+                boost();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        const onPos = (d) => { if (d.room === cfg.room)
+            S.R = { d: d.d, x: d.x, v: d.v, c: d.c, n: d.n, at: performance.now() }; };
+        const onGo = (d) => { if (d.room === cfg.room && S.phase === "wait") {
+            S.phase = "go";
+            S.last = performance.now();
+            setStat("Racing!");
+        } };
+        if (!robot && socket) {
+            socket.on("race:pos", onPos);
+            socket.on("race:go", onGo);
+        }
+        const endRobot = (w) => {
+            if (S.done)
+                return;
+            S.done = true;
+            S.phase = "over";
+            const cur = gRef.current, score = cur.score.slice();
+            score[w === 0 ? cur.you : 1 - cur.you] += 1;
+            let best = null;
+            if (w === 0) {
+                try {
+                    best = loadJSON("race:best", null);
+                    if (best == null || S.tm < best) {
+                        best = S.tm;
+                        saveJSON("race:best", best);
+                    }
+                }
+                catch (e) { }
+            }
+            setG((p) => ({ ...p, over: true, winner: w === 0 ? p.you : 1 - p.you, score, myTime: w === 0 ? S.tm : null, best }));
+            setStat("Race over");
+            if (socket)
+                socket.emit("game:solo", { game: "race", level, result: w === 0 ? "w" : "l" }, (r) => r && setG((p) => ({ ...p, reward: r })));
+        };
+        const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+        const drawCar = (x, y, col, o) => {
+            ctx.save();
+            ctx.globalAlpha = o.a == null ? 1 : o.a;
+            ctx.translate(x, y);
+            if (o.tilt)
+                ctx.rotate(o.tilt);
+            if (o.flame) {
+                const f = 14 + Math.random() * 14, gr = ctx.createLinearGradient(0, 28, 0, 28 + f);
+                gr.addColorStop(0, "#FFF3B0");
+                gr.addColorStop(0.5, "#35D0FF");
+                gr.addColorStop(1, "rgba(53,160,255,0)");
+                ctx.fillStyle = gr;
+                ctx.beginPath();
+                ctx.moveTo(-7, 27);
+                ctx.lineTo(0, 28 + f);
+                ctx.lineTo(7, 27);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.fillStyle = "#05070A";
+            ctx.fillRect(-20, -22, 7, 14);
+            ctx.fillRect(13, -22, 7, 14);
+            ctx.fillRect(-20, 10, 7, 14);
+            ctx.fillRect(13, 10, 7, 14);
+            if (o.glow) {
+                ctx.shadowColor = col;
+                ctx.shadowBlur = 18;
+            }
+            ctx.fillStyle = col;
+            rr(-14, -30, 28, 60, 9);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "rgba(255,255,255,.28)";
+            ctx.fillRect(-2.5, -30, 5, 60);
+            ctx.fillStyle = "#0B0F16";
+            rr(-9, -9, 18, 18, 5);
+            ctx.fill();
+            ctx.fillStyle = "rgba(160,220,255,.5)";
+            rr(-7, -8, 14, 6, 3);
+            ctx.fill();
+            ctx.fillStyle = "rgba(0,0,0,.45)";
+            rr(-15, 24, 30, 5, 2);
+            ctx.fill();
+            ctx.fillStyle = "#FFE9A0";
+            ctx.fillRect(-10, -29, 5, 3);
+            ctx.fillRect(5, -29, 5, 3);
+            ctx.restore();
+        };
+        const draw = (now) => {
+            const t = now / 1000, camD = me.d, yOf = (d) => PY - (d - camD) * PX;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.fillStyle = "#070A10";
+            ctx.fillRect(0, 0, W, H);
+            ctx.save();
+            if (S.shake > 0)
+                ctx.translate((Math.random() - 0.5) * S.shake * 16, (Math.random() - 0.5) * S.shake * 16);
+            ctx.fillStyle = "#0C1219";
+            ctx.fillRect(-10, 0, RX + 10, H);
+            ctx.fillRect(RX + 4 * LW, 0, RX + 10, H);
+            const rg = ctx.createLinearGradient(RX, 0, RX + 4 * LW, 0);
+            rg.addColorStop(0, "#151B25");
+            rg.addColorStop(0.5, "#1D2533");
+            rg.addColorStop(1, "#151B25");
+            ctx.fillStyle = rg;
+            ctx.fillRect(RX, 0, 4 * LW, H);
+            for (let dd = Math.floor((camD - (H - PY) / PX - 8) / 8) * 8; yOf(dd) > -8 * PX; dd += 8) {
+                const y = yOf(dd);
+                ctx.fillStyle = (dd / 8) & 1 ? "#FF4FA3" : "#F5F7FA";
+                ctx.fillRect(RX - 5, y - 8 * PX, 5, 8 * PX);
+                ctx.fillRect(RX + 4 * LW, y - 8 * PX, 5, 8 * PX);
+            }
+            ctx.fillStyle = "rgba(255,255,255,.22)";
+            for (let i = 1; i < 4; i++)
+                for (let dd = Math.floor((camD - (H - PY) / PX - 7) / 7) * 7; yOf(dd) > -7 * PX; dd += 7)
+                    ctx.fillRect(RX + i * LW - 1.5, yOf(dd) - 3 * PX, 3, 3 * PX);
+            [[0, "START"], [len, "FINISH"]].forEach(([d, label]) => { const y = yOf(d); if (y < -40 || y > H + 40)
+                return; for (let r = 0; r < 2; r++)
+                for (let c = 0; c < (4 * LW) / 12; c++) {
+                    ctx.fillStyle = (r + c) % 2 ? "#F5F7FA" : "#0B0F16";
+                    ctx.fillRect(RX + c * 12, y - 12 + r * 12, 12, 12);
+                } ctx.fillStyle = "#F5B83D"; ctx.font = "800 13px Sora, sans-serif"; ctx.textAlign = "center"; ctx.fillText(label, W / 2, y - 18); });
+            for (let k = 0; k < items.length && items[k].d < camD + PY / PX + 8; k++) {
+                const it = items[k], y = yOf(it.d);
+                if (y > H + 40 || y < -40)
+                    continue;
+                const x = cx(it.l);
+                if ((it.t === "boost" || it.t === "nitro") && me.hit[k])
+                    continue;
+                if (it.t === "car") {
+                    ctx.fillStyle = ["#8A94A6", "#B08A5A", "#6B8FB0", "#9A7BB8"][k % 4];
+                    rr(x - 15, y - 28, 30, 56, 8);
+                    ctx.fill();
+                    ctx.fillStyle = "#0B0F16";
+                    rr(x - 10, y - 12, 20, 16, 4);
+                    ctx.fill();
+                    ctx.fillStyle = "#FF3B3B";
+                    ctx.fillRect(x - 12, y + 24, 6, 3);
+                    ctx.fillRect(x + 6, y + 24, 6, 3);
+                }
+                else if (it.t === "cone") {
+                    ctx.fillStyle = "#FF8A3D";
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - 17);
+                    ctx.lineTo(x + 14, y + 14);
+                    ctx.lineTo(x - 14, y + 14);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = "#F5F7FA";
+                    ctx.fillRect(x - 8, y + 1, 16, 5);
+                }
+                else if (it.t === "oil") {
+                    ctx.fillStyle = "#04060A";
+                    ctx.beginPath();
+                    ctx.ellipse(x, y, 30, 22, 0, 0, 7);
+                    ctx.fill();
+                    ctx.fillStyle = "rgba(139,92,246,.35)";
+                    ctx.beginPath();
+                    ctx.ellipse(x - 6, y - 5, 14, 7, 0.4, 0, 7);
+                    ctx.fill();
+                }
+                else if (it.t === "boost") {
+                    ctx.fillStyle = "rgba(53,208,255,.16)";
+                    rr(x - 26, y - 30, 52, 60, 8);
+                    ctx.fill();
+                    ctx.strokeStyle = "#35D0FF";
+                    ctx.lineWidth = 4;
+                    ctx.lineCap = "round";
+                    for (let a = 0; a < 3; a++) {
+                        const yy = y + 14 - a * 14 - ((t * 40) % 14);
+                        ctx.beginPath();
+                        ctx.moveTo(x - 14, yy + 8);
+                        ctx.lineTo(x, yy - 4);
+                        ctx.lineTo(x + 14, yy + 8);
+                        ctx.stroke();
+                    }
+                }
+                else {
+                    ctx.shadowColor = "#F5B83D";
+                    ctx.shadowBlur = 14;
+                    ctx.fillStyle = "#F5B83D";
+                    ctx.beginPath();
+                    ctx.arc(x, y, 15, 0, 7);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = "#0B0F16";
+                    ctx.beginPath();
+                    ctx.moveTo(x + 3, y - 10);
+                    ctx.lineTo(x - 6, y + 2);
+                    ctx.lineTo(x, y + 2);
+                    ctx.lineTo(x - 3, y + 10);
+                    ctx.lineTo(x + 6, y - 2);
+                    ctx.lineTo(x, y - 2);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+            if (me.v > 50) {
+                ctx.fillStyle = "rgba(255,255,255,.09)";
+                for (let i = 0; i < 12; i++)
+                    ctx.fillRect(RX + ((i * 97) % (4 * LW)), (t * 500 * (me.v / 45) + i * 83) % H, 2, 30 + me.v * 0.5);
+            }
+            const oy = PY - (opp.d - camD) * PX, ox = cx(opp.x), wob = (c) => (c.crash > 0 ? Math.sin(t * 40) * 0.25 : c.oil > 0 ? Math.sin(t * 18) * 0.12 : 0);
+            if (oy > -40 && oy < H + 40)
+                drawCar(ox, oy, COL[1], { a: 0.95, tilt: wob(opp), flame: opp.nt > 0, glow: opp.boost > 0 || opp.nt > 0 });
+            else {
+                const ahead = oy < 0, yy = ahead ? 62 : H - 14;
+                ctx.fillStyle = COL[1];
+                ctx.beginPath();
+                if (ahead) {
+                    ctx.moveTo(ox, yy - 8);
+                    ctx.lineTo(ox + 9, yy + 6);
+                    ctx.lineTo(ox - 9, yy + 6);
+                }
+                else {
+                    ctx.moveTo(ox, yy + 6);
+                    ctx.lineTo(ox + 9, yy - 8);
+                    ctx.lineTo(ox - 9, yy - 8);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.font = "700 11px Inter, sans-serif";
+                ctx.textAlign = "left";
+                ctx.fillText((Math.abs(opp.d - me.d) | 0) + " m", ox + 13, yy + 4);
+            }
+            drawCar(cx(me.x), PY, COL[0], { tilt: wob(me), flame: me.nt > 0, glow: true });
+            if (me.crash > 0) {
+                ctx.fillStyle = "rgba(255,60,60," + 0.25 * Math.min(1, me.crash) + ")";
+                ctx.fillRect(-10, -10, W + 20, H + 20);
+            }
+            if (me.boost > 0 || me.nt > 0) {
+                const g2 = ctx.createLinearGradient(0, 0, 0, H);
+                g2.addColorStop(0, "rgba(53,208,255,.0)");
+                g2.addColorStop(1, "rgba(53,208,255,.22)");
+                ctx.fillStyle = g2;
+                ctx.fillRect(-10, -10, W + 20, H + 20);
+            }
+            ctx.restore();
+            // HUD
+            const pct = (c) => Math.max(0, Math.min(1, c.d / len)), bx = 18, bw = W - 36;
+            ctx.fillStyle = "rgba(255,255,255,.14)";
+            rr(bx, 12, bw, 7, 3.5);
+            ctx.fill();
+            ctx.fillStyle = COL[0];
+            rr(bx, 12, Math.max(7, bw * pct(me)), 7, 3.5);
+            ctx.fill();
+            [[opp, COL[1]], [me, COL[0]]].forEach(([c, col]) => { ctx.fillStyle = col; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bx + bw * pct(c), 15.5, 7, 0, 7); ctx.fill(); ctx.stroke(); });
+            const lead = me.d >= opp.d;
+            ctx.textAlign = "left";
+            ctx.fillStyle = lead ? "#F5B83D" : "#F5F7FA";
+            ctx.font = "800 24px Sora, sans-serif";
+            ctx.fillText(lead ? "1st" : "2nd", 18, 50);
+            ctx.font = "600 12px Inter, sans-serif";
+            ctx.fillStyle = "#C9D1DC";
+            ctx.fillText((Math.abs(me.d - opp.d) | 0) + " m " + (lead ? "ahead" : "behind"), 18, 66);
+            ctx.textAlign = "right";
+            ctx.font = "700 13px Sora, sans-serif";
+            ctx.fillStyle = "#F5F7FA";
+            ctx.fillText(Math.max(0, len - me.d | 0) + " m to go", W - 18, 50);
+            ctx.textAlign = "left";
+            ctx.font = "800 20px Sora, sans-serif";
+            ctx.fillStyle = "#F5F7FA";
+            ctx.fillText((me.v * 4 | 0) + "", 14, H - 14);
+            ctx.font = "600 11px Inter, sans-serif";
+            ctx.fillStyle = "#8891A0";
+            ctx.fillText("km/h", 14 + ((me.v * 4 | 0) + "").length * 12 + 4, H - 14);
+            ctx.textAlign = "right";
+            ctx.font = "700 11px Inter, sans-serif";
+            ctx.fillStyle = "#8891A0";
+            ctx.fillText("NITRO", W - 62, H - 14);
+            for (let i = 0; i < 3; i++) {
+                ctx.fillStyle = i < me.nitro ? "#F5B83D" : "rgba(255,255,255,.18)";
+                rr(W - 56 + i * 14, H - 26, 11, 14, 3);
+                ctx.fill();
+            }
+            if (me.draft && S.phase === "go") {
+                ctx.textAlign = "center";
+                ctx.font = "800 12px Sora, sans-serif";
+                ctx.fillStyle = "#35D0FF";
+                ctx.fillText("SLIPSTREAM", W / 2, 90);
+            }
+            ctx.textAlign = "center";
+            ctx.font = "800 64px Sora, sans-serif";
+            ctx.shadowColor = "#8B5CF6";
+            ctx.shadowBlur = 24;
+            ctx.fillStyle = "#F5F7FA";
+            if (S.phase === "count") {
+                const e = (now - S.t0) / 1000;
+                ctx.fillText(e < 3 ? String(Math.ceil(3 - e)) : "GO!", W / 2, H / 2 - 30);
+            }
+            else if (S.phase === "wait") {
+                ctx.font = "800 28px Sora, sans-serif";
+                ctx.fillText("GET READY…", W / 2, H / 2 - 30);
+            }
+            else if (S.phase === "go" && S.tm < 0.7)
+                ctx.fillText("GO!", W / 2, H / 2 - 30);
+            ctx.shadowBlur = 0;
+        };
+        let raf;
+        const frame = (now) => {
+            raf = requestAnimationFrame(frame);
+            if (robot && !actRef.current) {
+                S.last = now;
+                return;
+            }
+            const dt = Math.min(0.05, Math.max(0, (now - S.last) / 1000));
+            S.last = now;
+            if (S.phase === "count" && now - S.t0 > 3200) {
+                S.phase = "go";
+                setStat("Racing!");
+            }
+            if (S.phase === "go" || S.phase === "fin") {
+                S.tm += dt;
+                const dr = raceDraft(me, opp), ev = raceStep(me, dt, items, { lane: S.want, nitro: S.nit }, 1, dr);
+                S.want = null;
+                S.nit = false;
+                me.draft = dr;
+                if (ev === "crash") {
+                    S.shake = 0.4;
+                    try {
+                        navigator.vibrate && navigator.vibrate(70);
+                    }
+                    catch (e) { }
+                }
+                if (robot) {
+                    bot.t -= dt;
+                    if (bot.t <= 0) {
+                        bot.t = 0.09;
+                        bot.inp = raceBotThink(opp, items, level);
+                    }
+                    const inn = bot.inp;
+                    bot.inp = { lane: inn.lane, nitro: false };
+                    raceStep(opp, dt, items, inn, RACE_BOT_SPEED[level], raceDraft(opp, me));
+                    if (S.phase === "go") {
+                        if (me.d >= len)
+                            endRobot(0);
+                        else if (opp.d >= len)
+                            endRobot(1);
+                    }
+                }
+                else {
+                    const R = S.R;
+                    if (R) {
+                        const est = R.d + R.v * (now - R.at) / 1000;
+                        opp.d += (est - opp.d) * Math.min(1, dt * 10);
+                        opp.x += (R.x - opp.x) * Math.min(1, dt * 12);
+                        opp.v = R.v;
+                        opp.crash = R.c ? 0.3 : 0;
+                        opp.nt = R.n ? 1 : 0;
+                    }
+                    if (!S.sent && socket) {
+                        S.sendT -= dt;
+                        if (me.d >= len) {
+                            S.sent = true;
+                            S.phase = "fin";
+                            setStat("Finished! Waiting for the result…");
+                            socket.emit("race:pos", { room: cfg.room, d: me.d, x: me.x, v: me.v, c: 0, n: 0 });
+                            socket.emit("race:finish", { room: cfg.room });
+                        }
+                        else if (S.sendT <= 0) {
+                            S.sendT = 0.1;
+                            socket.emit("race:pos", { room: cfg.room, d: me.d, x: me.x, v: me.v, c: me.crash > 0 ? 1 : 0, n: me.nt > 0 ? 1 : 0 });
+                        }
+                    }
+                }
+            }
+            if (S.shake > 0)
+                S.shake = Math.max(0, S.shake - dt);
+            draw(now);
+        };
+        raf = requestAnimationFrame(frame);
+        return () => { cancelAnimationFrame(raf); window.removeEventListener("keydown", onKey); if (!robot && socket) {
+            socket.off("race:pos", onPos);
+            socket.off("race:go", onGo);
+        } };
+    }, [g.round]);
+    useEffect(() => {
+        if (robot || !socket)
+            return;
+        const mine = (d) => d.room === cfg.room;
+        const hs = {
+            "game:over": (d) => { if (!mine(d))
+                return; if (sRef.current)
+                sRef.current.phase = "over"; setStat("Race over"); setG((p) => ({ ...p, over: true, winner: d.winner, score: d.score, reward: d.reward, times: d.times, note: d.forfeit ? "Your opponent left, so you win." : "" })); },
+            "game:chat": (d) => mine(d) && setMsgs((m) => [...m.slice(-40), d]),
+            "game:react": (d) => mine(d) && float(d.emoji),
+            "game:rematch-request": (d) => mine(d) && setG((p) => ({ ...p, theyAsked: true })),
+            "game:start": (d) => { if (mine(d) && d.rematch)
+                setG((p) => ({ you: d.you, players: d.players, score: d.score, seed: d.state.seed, len: d.state.len, round: p.round + 1, over: false, winner: null, reward: null, times: null, myTime: null, best: null, asked: false, theyAsked: false, gone: false, note: "" })); },
+            "game:left": (d) => mine(d) && setG((p) => ({ ...p, gone: true })),
+        };
+        for (const k in hs)
+            socket.on(k, hs[k]);
+        return () => { for (const k in hs)
+            socket.off(k, hs[k]); };
+    }, []);
+    const rematch = () => {
+        if (robot) {
+            setG((p) => ({ ...p, you: 1 - p.you, players: [p.players[1], p.players[0]], score: [p.score[1], p.score[0]], seed: (Math.random() * 2147483647) | 0, round: p.round + 1, over: false, winner: null, reward: null, myTime: null, best: null, note: "" }));
+            return;
+        }
+        setG((p) => ({ ...p, asked: true }));
+        socket.emit("game:rematch", { room: cfg.room });
+    };
+    const send = () => { const t = text.trim(); if (!t)
+        return; socket.emit("game:chat", { room: cfg.room, text: t }); setText(""); };
+    const react = (e) => (robot ? float(e) : socket.emit("game:react", { room: cfg.room, emoji: e }));
+    const chip = (i) => {
+        const p = g.players[i];
+        return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)" } }, gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }), gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, i === g.you ? "You" : p.name), gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (i ? "Pink" : "Teal") + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))), gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 20, color: "#F5F7FA" } }, g.score[i]));
+    };
+    const won = g.over && g.winner === g.you, draw = g.over && g.winner === -1;
+    const verdict = !g.over ? null : draw ? "It's a draw" : won ? "🏆 You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
+    const tline = !g.over ? "" : robot ? (g.myTime != null ? "Your time " + fmtRace(g.myTime) + (g.best != null ? " · Best " + fmtRace(g.best) : "") : "Better luck next lap") : g.times ? "You " + fmtRace(g.times[g.you] == null ? null : g.times[g.you] / 1000) + " · Them " + fmtRace(g.times[1 - g.you] == null ? null : g.times[1 - g.you] / 1000) : "";
+    const ctlBtn = (label, onDown, o = {}) => gh("button", { onPointerDown: (e) => { e.preventDefault(); onDown(); }, "aria-label": o.aria || label, style: { flex: o.flex || 1, height: 48, borderRadius: 16, border: "1px solid " + (o.col || "rgba(255,255,255,.16)"), background: o.bg || "rgba(255,255,255,.07)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 800, fontSize: o.fs || 24, cursor: "pointer", touchAction: "manipulation", userSelect: "none", WebkitUserSelect: "none", boxShadow: o.glow || "none" } }, label);
+    const cH = Math.max(160, Math.floor(Math.min(box.h - 6 - 20 - 58, (box.w - 24 - 20) * 500 / 360))), cW = Math.floor(cH * 360 / 500);
+    return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #2A1030 0%, #0B0F16 60%)") }, gh("div", { style: { display: "flex", gap: 8, padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)), hubStatusRow(() => setRules(true), gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : stat)), g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null, gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative", gap: 8 } }, gh("div", { style: { position: "relative" } }, gh(GameFrame, { color: gc }, gh("div", { style: { position: "relative" } }, gh("canvas", { ref: cv, "aria-label": "Race track", onPointerDown: (e) => { const r = e.currentTarget.getBoundingClientRect(); ctl.current.move && ctl.current.move(e.clientX - r.left < r.width / 2 ? -1 : 1); }, style: { width: cW, height: cH, display: "block", borderRadius: 10, touchAction: "none" } }), g.over ? gh("div", { style: { position: "absolute", inset: 0, borderRadius: 10, background: "rgba(7,10,16,.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 26, color: "#F5F7FA" } }, verdict), gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#C9D1DC" } }, tline)) : null, floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e))))), gh("div", { style: { display: "flex", gap: 10, width: cW + 20 } }, ctlBtn("◀", () => ctl.current.move && ctl.current.move(-1), { aria: "Move left" }), ctlBtn("⚡ NITRO", () => ctl.current.boost && ctl.current.boost(), { flex: 1.6, fs: 15, col: "#F5B83D", bg: "rgba(245,184,61,.16)", glow: "0 0 16px rgba(245,184,61,.4)", aria: "Use nitro" }), ctlBtn("▶", () => ctl.current.move && ctl.current.move(1), { aria: "Move right" })), rules ? gh(RulesSheet, { game: "race", color: gc, onClose: () => setRules(false) }) : null), gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } }, gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } }, ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e))), robot ? null : gh("div", null, gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Talk some trash while you race.")), gh("div", { style: { display: "flex", gap: 8, marginBottom: 8 } }, gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Race chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }), hubBtn("Send", send, { small: true }))), gh("div", { style: { display: "flex", gap: 10 } }, hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }), hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
+}
+function hubBtn(label, onClick, o = {}) {
+    return gh("button", { onClick, disabled: o.disabled, "aria-label": o.aria || label, style: { border: o.ghost ? "1px solid rgba(255,255,255,0.18)" : "none", cursor: o.disabled ? "default" : "pointer", opacity: o.disabled ? 0.45 : 1, borderRadius: 999, padding: o.small ? "7px 14px" : "12px 20px", fontFamily: "Sora", fontWeight: 700, fontSize: o.small ? 12.5 : 14.5, color: o.ghost ? "#E8ECF2" : "#04110F", background: o.ghost ? "transparent" : (o.bg || "linear-gradient(135deg,#35D0BA,#6EE7D2)"), boxShadow: o.ghost || o.disabled ? "none" : "0 0 18px " + (o.glow || "rgba(53,208,186,0.45)"), ...(o.style || {}) } }, label);
+}
+function PlayerCard({ p, onPlay, onChallenge }) {
+    const dot = { online: "#35D0BA", looking: "#F5B83D", playing: "#FF4FA3" }[p.status] || "#5B6673";
+    const label = { online: "Online", looking: "Wants a game", playing: "In a game", offline: "Offline" }[p.status];
+    return gh("div", { style: { ...GLASS, padding: 12, display: "flex", alignItems: "center", gap: 12 } }, gh(Ring, { size: 48, color: p.color, initials: p.initials, photo: p.avatar, online: p.status !== "offline" }), gh("div", { style: { flex: 1, minWidth: 0 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, flag(p.country) + " " + (p.username || p.name)), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Lv " + p.level + " " + rankName(p.level) + " · " + p.w + "W " + p.l + "L"), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, marginTop: 3, color: dot, display: "flex", alignItems: "center", gap: 5 } }, gh("span", { style: { width: 7, height: 7, borderRadius: 4, background: dot, boxShadow: "0 0 8px " + dot } }), label + (p.fav ? " · Likes " + hubName(p.fav) : ""))), p.status === "playing" ? null : gh("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, hubBtn("Play", onPlay, { small: true, aria: "Invite " + p.name + " to play" }), hubBtn("Challenge", onChallenge, { small: true, ghost: true, aria: "Challenge " + p.name })));
+}
+// ---- the game room: board, avatars, score, turn, live chat, reactions, rematch, exit ----
+function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
+    const R = GAME_RULES[cfg.game], robot = cfg.mode === "robot";
+    const [fitRef, box] = useFit(), [rules, setRules] = useState(false), fit = { w: box.w - 24, h: box.h - 6 }, gc = gameColor(cfg.game);
+    const [g, setG] = useState({ you: cfg.you, players: cfg.players, state: cfg.state || R.init(), turn: cfg.turn || 0, over: false, winner: null, line: null, score: cfg.score || [0, 0], reward: null, note: "", asked: false, theyAsked: false });
+    const [msgs, setMsgs] = useState([]);
+    const [text, setText] = useState("");
+    const [floats, setFloats] = useState([]);
+    const gRef = useRef(g);
+    gRef.current = g;
+    const robotIdx = 1 - g.you;
+    const float = (e) => { const id = Math.random(); setFloats((f) => [...f, { id, e, x: 15 + Math.random() * 70 }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800); };
+    const finish = (state, w, idx) => {
+        const cur = gRef.current, full = R.draw ? R.draw(state) : R.moves(state).length === 0;
+        if (!w && !full) {
+            setG((p) => ({ ...p, state, turn: R.next ? R.next(state) : 1 - idx }));
+            return;
+        }
+        const result = !w ? "d" : w.p === cur.you ? "w" : "l";
+        const score = cur.score.slice();
+        if (w)
+            score[w.p] += 1;
+        setG((p) => ({ ...p, state, turn: -1, over: true, winner: w ? w.p : -1, line: w ? w.line : null, score, reward: null }));
+        if (socket)
+            socket.emit("game:solo", { game: cfg.game, level: cfg.level, result }, (r) => r && setG((p) => ({ ...p, reward: r })));
+    };
+    const place = (m, idx) => { const state = R.play(gRef.current.state, m, idx, Math.random); finish(state, R.win(state), idx); };
+    const tap = (m) => {
+        if (g.over || g.turn !== g.you || !R.moves(g.state, g.you).includes(m))
+            return;
+        if (robot)
+            place(m, g.you);
+        else
+            socket.emit("game:move", { room: cfg.room, move: m });
+    };
+    useEffect(() => {
+        if (!robot || g.over || g.turn !== robotIdx)
+            return;
+        const t = setTimeout(() => { const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null)
+            place(m, robotIdx); }, 550 + Math.random() * 500);
+        return () => clearTimeout(t);
+    }, [g.turn, g.over, g.state]);
+    useEffect(() => { if (!robot && !g.over && g.turn === g.you)
+        hubPing(); }, [g.turn]);
+    useEffect(() => {
+        if (robot || !socket)
+            return;
+        const mine = (d) => d.room === cfg.room;
+        const hs = {
+            "game:move": (d) => mine(d) && setG((p) => ({ ...p, state: d.state, turn: d.turn })),
+            "game:over": (d) => mine(d) && setG((p) => ({ ...p, over: true, turn: -1, winner: d.winner, line: d.line, score: d.score, reward: d.reward, note: d.forfeit ? "Your opponent left, so you win." : "" })),
+            "game:chat": (d) => mine(d) && setMsgs((m) => [...m.slice(-40), d]),
+            "game:react": (d) => mine(d) && float(d.emoji),
+            "game:rematch-request": (d) => mine(d) && setG((p) => ({ ...p, theyAsked: true })),
+            "game:start": (d) => { if (d.room === cfg.room && d.rematch)
+                setG({ you: d.you, players: d.players, state: d.state, turn: d.turn, over: false, winner: null, line: null, score: d.score, reward: null, note: "", asked: false, theyAsked: false }); },
+            "game:left": (d) => mine(d) && setG((p) => ({ ...p, gone: true })),
+        };
+        for (const k in hs)
+            socket.on(k, hs[k]);
+        return () => { for (const k in hs)
+            socket.off(k, hs[k]); };
+    }, []);
+    const rematch = () => {
+        if (robot) {
+            const you = 1 - g.you;
+            setG({ you, players: [g.players[1], g.players[0]], state: R.init(), turn: 0, over: false, winner: null, line: null, score: [g.score[1], g.score[0]], reward: null, note: "", asked: false, theyAsked: false });
+            return;
+        }
+        setG((p) => ({ ...p, asked: true }));
+        socket.emit("game:rematch", { room: cfg.room });
+    };
+    const send = () => { const t = text.trim(); if (!t)
+        return; socket.emit("game:chat", { room: cfg.room, text: t }); setText(""); };
+    const react = (e) => (robot ? float(e) : socket.emit("game:react", { room: cfg.room, emoji: e }));
+    const myTurn = !g.over && g.turn === g.you;
+    const chip = (i) => {
+        const p = g.players[i], on = !g.over && g.turn === i;
+        return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid " + (on ? PCOL[i] : "rgba(255,255,255,0.1)"), boxShadow: on ? "0 0 18px " + PCOL[i] + "88" : "none", transition: "box-shadow .25s, border-color .25s", background: "rgba(255,255,255,0.05)" } }, gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }), gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (i === g.you ? "You" : p.name)), gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (cfg.game === "ttt" ? (i ? "O" : "X") : cfg.game === "chess" ? (i ? "Black" : "White") : (i ? "Pink" : "Teal")) + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))), gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 20, color: "#F5F7FA" } }, g.score[i]));
+    };
+    const hit = (i) => g.line && g.line.includes(i);
+    const cells = !Array.isArray(g.state) ? null : g.state.map((v, i) => {
+        const col = v == null ? null : PCOL[v];
+        if (cfg.game === "ttt")
+            return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : gh("span", { key: "m" + v, className: "lc-mark" }, v === 0 ? "X" : "O"));
+        return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } }, gh("div", { key: col ? "f" : "e", className: col ? "lc-disc" : undefined, style: { width: "84%", height: "84%", margin: "8%", borderRadius: "50%", background: col || "#0A0E14", boxShadow: col ? "0 0 " + (hit(i) ? 16 : 8) + "px " + col : "inset 0 2px 6px rgba(0,0,0,.7)", border: hit(i) ? "2px solid #fff" : "none" } }));
+    });
+    const gw = cfg.game === "c4" ? Math.max(140, Math.floor(Math.min(fit.w - 20, (fit.h - 20) * 7 / 6, 420))) : Math.max(140, Math.floor(Math.min(fit.w - 20, fit.h - 20, 340)));
+    const verdict = !g.over ? null : g.winner === -1 ? "It's a draw" : g.winner === g.you ? "You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
+    return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #1B1440 0%, #0B0F16 60%)") }, gh("div", { style: { display: "flex", gap: 8, padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)), hubStatusRow(() => setRules(true), gh("div", { role: "status", key: g.over ? "over" : "t" + g.turn, className: g.over ? "lc-status lc-over" : "lc-status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…"))), g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null, gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative" } }, cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "checkers" ? gh(CheckersBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "whot" ? gh(WhotBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "chess" ? gh(ChessBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : gh(GameFrame, { color: gc }, gh("div", { style: { width: gw, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells)), floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e)), rules ? gh(RulesSheet, { game: cfg.game, color: gc, onClose: () => setRules(false) }) : null), gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } }, gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } }, ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e)), gh("div", { style: { flex: 1 } }), !robot && convo ? hubBtn("🎙 Voice", () => onCall(convo, false), { small: true, ghost: true, aria: "Start voice call" }) : null), robot ? null : gh("div", null, gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Say hi while you play.")), gh("div", { style: { display: "flex", gap: 8, marginBottom: 6 } }, gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Game chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }), hubBtn("Send", send, { small: true }))), gh("div", { style: { display: "flex", gap: 10 } }, hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }), hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
+}
+// ---- hub: tabs, setup sheet, lobby, rankings, notifications, challenge pop-ups ----
+function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goGames }) {
+    const [sub, setSub] = useState("play");
+    const [sk, setSk] = useState(null);
+    const [lobby, setLobby] = useState({ players: [], recent: [], me: null });
+    const [setup, setSetup] = useState(null);
+    const [room, setRoom] = useState(null);
+    const [searching, setSearching] = useState(null);
+    const [invites, setInvites] = useState([]);
+    const [alerts, setAlerts] = useState([]);
+    const [unread, setUnread] = useState(0);
+    const [bell, setBell] = useState(false);
+    const [arcade, setArcade] = useState(false);
+    const [period, setPeriod] = useState("day");
+    const [board, setBoard] = useState({ rows: [], me: null });
+    const [toast, setToast] = useState("");
+    const [onlinePops, setOnlinePops] = useState([]);
+    const roomRef = useRef(room);
+    roomRef.current = room;
+    const activeRef = useRef(active);
+    activeRef.current = active;
+    const sock = () => socketRef.current;
+    const alertNow = (icon, text) => { setAlerts((a) => [{ id: Math.random(), icon, text, at: Date.now() }, ...a].slice(0, 30)); setUnread((n) => n + 1); setToast(icon + " " + text); setTimeout(() => setToast(""), 3500); };
+    const refresh = () => { const s = sock(); if (s)
+        s.emit("game:lobby", setLobby); };
+    useEffect(() => { const t = setInterval(() => { if (socketRef.current !== sk)
+        setSk(socketRef.current); }, 700); return () => clearInterval(t); }, [sk]);
+    useEffect(() => { if (!sk)
+        return; refresh(); const t = setInterval(() => activeRef.current && refresh(), 8000); return () => clearInterval(t); }, [sk]);
+    useEffect(() => { if (active) {
+        refresh();
+        setUnread(0);
+    } }, [active]);
+    useEffect(() => { if (sk && active && sub === "ranks")
+        sk.emit("game:board", { period }, setBoard); }, [sk, active, sub, period, room]);
+    useEffect(() => {
+        if (!sk)
+            return;
+        const hs = {
+            "game:invite": (d) => { setInvites((v) => [...v, d]); alertNow("⚔️", d.from.name + (d.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(d.game)); hubPing(); },
+            "game:invite-expired": (d) => setInvites((v) => v.filter((i) => i.id !== d.id)),
+            "game:player-online": (d) => { const p = d && d.player; if (!p || p.id === myId)
+                return; alertNow("🟢", p.name + " is online"); setLobby((l) => (l.players.some((x) => x.id === p.id) ? l : { ...l, players: [...l.players, { ...p, status: "online" }] })); if (activeRef.current && !roomRef.current) {
+                setOnlinePops((v) => [...v.filter((x) => x.id !== p.id), p].slice(-3));
+                setTimeout(() => setOnlinePops((v) => v.filter((x) => x.id !== p.id)), 6000);
+                hubPing();
+            } refresh(); },
+            "game:accepted": (d) => alertNow("✅", d.by.name + " accepted your game"),
+            "game:declined": (d) => alertNow("🙈", d.by.name + " declined your invite"),
+            "game:start": (d) => { if (d.rematch)
+                return; setSearching(null); setSetup(null); setInvites([]); setArcade(false); setRoom({ mode: "online", room: d.room, game: d.game, you: d.you, players: d.players, state: d.state, turn: d.turn, score: d.score }); goGames(); refresh(); },
+            "game:over": (d) => alertNow(d.result === "w" ? "🏆" : d.result === "l" ? "💔" : "🤝", d.result === "w" ? "You won! +" + (d.reward ? d.reward.gain : 0) + " XP" : d.result === "l" ? "You lost this one. Rematch?" : "It was a draw"),
+            "game:rematch-request": (d) => alertNow("🔁", d.from.name + " wants a rematch"),
+            "game:move": (d) => { if (d.next === myId && !activeRef.current) {
+                alertNow("⏰", "Your turn");
+                hubPing();
+            } },
+        };
+        for (const k in hs)
+            sk.on(k, hs[k]);
+        return () => { for (const k in hs)
+            sk.off(k, hs[k]); };
+    }, [sk]);
+    const meCard = lobby.me || { id: myId, name: me.name, initials: me.initials, color: me.color, avatar: me.avatar, level: 1, xp: 0, w: 0, l: 0, d: 0, streak: 0, best: 0 };
+    const startRobot = (game, level) => setRoom({ mode: "robot", game, level, you: 0, players: [meCard, ROBOT], score: [0, 0] });
+    const findRandom = (game) => { const s = sock(); if (!s)
+        return; setSearching({ game }); s.emit("game:find", { game }, (r) => r && !r.ok && setSearching(null)); };
+    const invite = (p, game, kind) => {
+        const s = sock();
+        if (!s)
+            return;
+        s.emit("game:invite", { to: p.id, game, kind }, (r) => {
+            if (!r || !r.ok)
+                return alertNow("⚠️", p.name + (r && r.reason === "busy" ? " is in a game" : " is not available"));
+            alertNow("📨", "Invite sent to " + p.name);
+            const c = conversations.find((x) => !x.isGroup && x.other && x.other.id === p.id);
+            if (c)
+                s.emit("message:send", { conversationId: c.id, text: "🎮 " + (kind === "challenge" ? "I challenge you to " : "Let's play ") + hubName(game) + "! Open the Games tab to accept." });
+        });
+    };
+    const go = (patch) => {
+        const s = { ...(setup || {}), ...patch };
+        if (s.mode === "random" && s.game) {
+            setSetup(null);
+            return findRandom(s.game);
+        }
+        if (s.mode === "friend" && s.game && s.player) {
+            setSetup(null);
+            return invite(s.player, s.game, s.kind || "invite");
+        }
+        if (s.mode === "robot" && s.game && s.level != null) {
+            setSetup(null);
+            return startRobot(s.game, s.level);
+        }
+        setSetup(s);
+    };
+    const respond = (iv, accept) => { sock().emit("game:respond", { id: iv.id, accept }); setInvites((v) => v.filter((i) => i.id !== iv.id)); };
+    const exitRoom = () => { const r = roomRef.current; if (r && r.mode === "online" && sock())
+        sock().emit("game:leave"); setRoom(null); refresh(); };
+    const dmOf = (id) => conversations.find((x) => !x.isGroup && x.other && x.other.id === id);
+    const others = lobby.players;
+    const section = (title, list, empty) => gh("div", { style: { marginBottom: 18 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, title + " (" + list.length + ")"), list.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, list.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ mode: "friend", player: p, kind: "invite" }), onChallenge: () => go({ mode: "friend", player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", padding: "2px 2px" } }, empty));
+    const xpInLevel = meCard.xp % 100;
+    const badges = [["🏆", "Champion", "Win 10 games", meCard.w >= 10], ["🔥", "Win Streak", "Win 3 in a row", meCard.best >= 3], ["🎯", "Master Player", "Reach level 5", meCard.level >= 5], ["👑", "Top Player", "Be #1 on a leaderboard", board.rows[0] && board.rows[0].user.id === myId], ["⭐", "Rising Star", "Win 3 games", meCard.w >= 3]];
+    const playTab = gh("div", null, gh("div", { style: { ...GLASS, padding: 14, display: "flex", gap: 12, alignItems: "center", marginBottom: 14, boxShadow: "0 0 24px rgba(139,92,246,.18)" } }, gh(Ring, { size: 52, color: meCard.color, initials: meCard.initials, photo: meCard.avatar, online: true }), gh("div", { style: { flex: 1 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, "Level " + meCard.level + " " + rankName(meCard.level)), gh("div", { style: { height: 7, borderRadius: 4, background: "rgba(255,255,255,0.1)", margin: "7px 0 5px", overflow: "hidden" } }, gh("div", { style: { width: xpInLevel + "%", height: "100%", background: "linear-gradient(90deg,#35D0BA,#8B5CF6)", transition: "width .6s" } })), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, xpInLevel + "/100 XP · " + meCard.w + "W " + meCard.l + "L · 🔥 " + meCard.streak))), gh("div", { style: { display: "flex", gap: 10, marginBottom: 10 } }, hubBtn("👥 Find a Player", () => go({ mode: "friend" }), { style: { flex: 1 } }), hubBtn("🎲 Random Player", () => go({ mode: "random" }), { style: { flex: 1 }, bg: "linear-gradient(135deg,#FF4FA3,#FF8FC4)", glow: "rgba(255,79,163,.45)" })), gh("button", { onClick: () => go({ mode: "robot" }), style: { width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid rgba(139,92,246,.5)", borderRadius: 22, padding: "18px 18px", marginBottom: 18, background: "linear-gradient(135deg,rgba(139,92,246,.35),rgba(53,208,186,.18))", boxShadow: "0 0 26px rgba(139,92,246,.3)", display: "flex", alignItems: "center", gap: 14 } }, gh("div", { style: { fontSize: 44 } }, "🤖"), gh("div", null, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 19, color: "#F5F7FA" } }, "Play vs Robot"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", marginTop: 2 } }, "Easy to Expert. Starts right away."))), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 10px" } }, "Pick a game"), gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } }, HUB_GAMES.map((gm) => gh("button", { key: gm.id, disabled: !gm.ready, onClick: () => go({ game: gm.id, mode: null }), "aria-label": gm.name + (gm.ready ? "" : " coming soon"), style: { textAlign: "left", padding: 0, border: "1px solid " + gm.color + "55", borderRadius: 20, overflow: "hidden", cursor: gm.ready ? "pointer" : "default", background: "#121821", opacity: gm.ready ? 1 : 0.6 } }, gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "linear-gradient(145deg," + gm.color + "55," + gm.color + "10)" } }, gm.emoji), gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, gm.name), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: gm.ready ? "#9BA7B4" : "#F5B83D", marginTop: 2 } }, gm.ready ? gm.blurb : "Coming soon")))), gh("button", { onClick: () => setArcade(true), style: { textAlign: "left", padding: 0, border: "1px solid rgba(255,255,255,.14)", borderRadius: 20, overflow: "hidden", cursor: "pointer", background: "#121821" } }, gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "rgba(255,255,255,0.06)" } }, "🕹️"), gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, "Solo arcade"), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Snake, 2048, Memory")))));
+    const lobbyTab = gh("div", null, gh("div", { style: { display: "flex", gap: 8, marginBottom: 16 } }, [["Online", others.length, "#35D0BA"], ["Playing", others.filter((p) => p.status === "playing").length, "#FF4FA3"], ["Looking", others.filter((p) => p.status === "looking").length, "#F5B83D"]].map(([l, n, c]) => gh("div", { key: l, style: { ...GLASS, flex: 1, padding: "10px 6px", textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 22, color: c } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, l)))), section("Friends available", others.filter((p) => dmOf(p.id) && p.status !== "playing"), "None of your chat friends are free right now."), section("Looking for opponents", others.filter((p) => p.status === "looking"), "Nobody is waiting. Tap Random Player to be the first."), section("Playing now", others.filter((p) => p.status === "playing"), "No games running."), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, "Recently played"), lobby.recent.length ? lobby.recent.map((r, i) => gh("div", { key: i, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: "#C9D1DC" } }, hubName(r.game) + ": " + (r.aName || "Player") + " vs " + (r.bName || "Player") + (r.w ? " · " + (r.w === r.a ? r.aName : r.bName) + " won" : " · draw"))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Finished games show up here."));
+    const ranksTab = gh("div", null, gh("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]].map(([k, l]) => gh("button", { key: k, onClick: () => setPeriod(k), style: { flex: 1, padding: "9px 0", borderRadius: 999, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "1px solid " + (period === k ? "#35D0BA" : "rgba(255,255,255,.14)"), background: period === k ? "rgba(53,208,186,.18)" : "transparent", color: period === k ? "#35D0BA" : "#9BA7B4" } }, l))), board.rows.length ? board.rows.map((r) => gh("div", { key: r.user.id, style: { ...GLASS, padding: "9px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, borderColor: r.user.id === myId ? "#35D0BA" : "rgba(255,255,255,.11)" } }, gh("div", { style: { width: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: r.rank === 1 ? "#F5B83D" : "#9BA7B4" } }, r.rank === 1 ? "👑" : r.rank), gh(Ring, { size: 38, color: r.user.color, initials: r.user.initials, photo: r.user.avatar }), gh("div", { style: { flex: 1, minWidth: 0 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA" } }, r.user.id === myId ? "You" : r.user.username || r.user.name), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, "Lv " + r.user.level + " · " + r.xp + " XP earned")), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "right" } }, r.w + "W " + r.l + "L"))) : gh("div", { style: { ...GLASS, padding: 18, textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 14 } }, "No ranked games yet this " + period + ". Beat a real player to take the first spot."), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "14px 2px 8px" } }, "Your badges"), gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, badges.map(([e, n, how, got]) => gh("div", { key: n, style: { ...GLASS, padding: 12, opacity: got ? 1 : 0.5, borderColor: got ? "#F5B83D" : "rgba(255,255,255,.11)" } }, gh("div", { style: { fontSize: 26, filter: got ? "none" : "grayscale(1)" } }, e), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginTop: 4 } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, got ? "Unlocked" : how)))));
+    // setup sheet (one question at a time: game → how → difficulty / player)
+    let sheet = null;
+    if (setup) {
+        const s = setup;
+        let title, body;
+        if (!s.game) {
+            title = "Pick a game";
+            body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, HUB_GAMES.filter((x) => x.ready).map((gm) => gh("button", { key: gm.id, onClick: () => go({ game: gm.id }), style: { padding: 14, borderRadius: 18, border: "1px solid " + gm.color + "88", background: gm.color + "1f", cursor: "pointer", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 14 } }, gh("div", { style: { fontSize: 32 } }, gm.emoji), gm.name)));
+        }
+        else if (!s.mode) {
+            title = hubName(s.game) + ": how do you want to play?";
+            body = gh("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, [["friend", "👥 Play vs Friend", "Invite someone who is online"], ["random", "🎲 Play vs Random Player", "We match you with anyone waiting"], ["robot", "🤖 Play vs Robot", "Practice at your own level"]].map(([m, t, d]) => gh("button", { key: m, onClick: () => go({ mode: m }), style: { textAlign: "left", padding: "14px 16px", borderRadius: 18, border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.06)", cursor: "pointer" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, t), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", marginTop: 2 } }, d))));
+        }
+        else if (s.mode === "robot") {
+            title = "Choose difficulty";
+            body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, LEVELS.map((l, i) => gh("button", { key: l, onClick: () => go({ level: i }), style: { padding: "16px 8px", borderRadius: 18, border: "1px solid " + ["#35D0BA", "#F5B83D", "#FF7A45", "#FF4FA3"][i], background: "rgba(255,255,255,.05)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, ["🌱", "⚡", "🔥", "💀"][i] + " " + l)));
+        }
+        else {
+            title = "Who do you want to play?";
+            const pool = others.filter((p) => p.status !== "playing").sort((a, b) => !!dmOf(b.id) - !!dmOf(a.id));
+            body = pool.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, pool.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ player: p, kind: "invite" }), onChallenge: () => go({ player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", padding: "8px 2px" } }, "No one is online right now. Try Random Player, or play the Robot.");
+        }
+        sheet = gh("div", { style: { position: "absolute", inset: 0, zIndex: 20, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setSetup(null) }, gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "82%", overflowY: "auto", background: "#0F141C", borderTop: "1px solid rgba(139,92,246,.5)", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", animation: "hubUp .25s ease-out" } }, gh("div", { style: { display: "flex", alignItems: "center", marginBottom: 14 } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, title), gh("button", { onClick: () => setSetup(null), "aria-label": "Close", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 20 } }, "✕")), body));
+    }
+    const popups = gh("div", { style: { position: "fixed", top: 10, left: 10, right: 10, zIndex: 60, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" } }, invites.map((iv) => gh("div", { key: iv.id, style: { ...GLASS, background: "rgba(15,20,28,.92)", borderColor: "#8B5CF6", padding: 12, pointerEvents: "auto", boxShadow: "0 0 24px rgba(139,92,246,.5)", animation: "hubUp .25s ease-out" } }, gh("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10 } }, gh(Ring, { size: 40, color: iv.from.color, initials: iv.from.initials, photo: iv.from.avatar }), gh("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, gh("b", null, iv.from.name), (iv.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(iv.game))), gh("div", { style: { display: "flex", gap: 10 } }, hubBtn("Accept", () => respond(iv, true), { style: { flex: 1 }, small: true }), hubBtn("Decline", () => respond(iv, false), { style: { flex: 1 }, small: true, ghost: true })))), active ? onlinePops.map((p) => gh("div", { key: "on" + p.id, style: { ...GLASS, background: "rgba(15,20,28,.94)", borderColor: "#35D0BA", padding: 10, pointerEvents: "auto", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 0 20px rgba(53,208,186,.4)", animation: "hubUp .25s ease-out" } }, gh(Ring, { size: 38, color: p.color, initials: p.initials, photo: p.avatar, online: true }), gh("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, gh("b", null, p.name), " is online"), hubBtn("Play", () => { setOnlinePops((v) => v.filter((x) => x.id !== p.id)); go({ mode: "friend", player: p, kind: "invite" }); }, { small: true }), gh("button", { onClick: () => setOnlinePops((v) => v.filter((x) => x.id !== p.id)), "aria-label": "Dismiss", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 16 } }, "✕"))) : null, toast && !active ? gh("div", { style: { ...GLASS, background: "rgba(15,20,28,.92)", padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, toast) : null);
+    const tabs = gh("div", { role: "tablist", style: { display: "flex", gap: 6, padding: "0 16px 10px" } }, [["play", "🎮 Play"], ["lobby", "👥 Lobby"], ["ranks", "🏆 Ranks"]].map(([k, l]) => gh("button", { key: k, role: "tab", "aria-selected": sub === k, onClick: () => setSub(k), style: { flex: 1, padding: "9px 0", borderRadius: 14, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "none", background: sub === k ? "linear-gradient(135deg,rgba(53,208,186,.3),rgba(139,92,246,.3))" : "rgba(255,255,255,.05)", color: sub === k ? "#F5F7FA" : "#8891A0", boxShadow: sub === k ? "0 0 14px rgba(53,208,186,.3)" : "none" } }, l)));
+    let main;
+    if (room)
+        main = gh(room.game === "race" ? RaceRoom : GameRoom, { key: room.room || "robot", cfg: room, socket: sock(), myId, onExit: exitRoom, onCall, active, convo: room.mode === "online" ? dmOf((room.players.find((p) => p.id !== myId) || {}).id) : null });
+    else if (arcade)
+        main = gh("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, gh("button", { onClick: () => setArcade(false), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, textAlign: "left", padding: "12px 16px 0", cursor: "pointer" } }, "← Back to Games"), gh("div", { style: { flex: 1, minHeight: 0 } }, gh(GamesScreen, { myId })));
+    else
+        main = gh(React.Fragment, null, gh("div", { style: { display: "flex", alignItems: "center", padding: "14px 16px 10px" } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, "Games"), gh("button", { onClick: () => { setBell(true); setUnread(0); }, "aria-label": "Game notifications", style: { position: "relative", background: "rgba(255,255,255,.07)", border: "none", borderRadius: 14, padding: "8px 11px", fontSize: 18, cursor: "pointer" } }, "🔔", unread ? gh("span", { style: { position: "absolute", top: -4, right: -4, background: "#FF4FA3", color: "#fff", borderRadius: 10, fontSize: 10.5, fontFamily: "Sora", fontWeight: 700, padding: "1px 6px" } }, unread) : null)), tabs, gh("div", { style: { flex: 1, overflowY: "auto", padding: "4px 16px 24px", WebkitOverflowScrolling: "touch" } }, sub === "play" ? playTab : sub === "lobby" ? lobbyTab : ranksTab));
+    const bellPanel = bell ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 30, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setBell(false) }, gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", overflowY: "auto", background: "#0F141C", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", borderTop: "1px solid rgba(53,208,186,.5)" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Game notifications"), alerts.length ? alerts.map((a) => gh("div", { key: a.id, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, a.icon + " " + a.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, "Challenges, turns and results will show up here."))) : null;
+    const searchBox = searching ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 25, background: "rgba(3,5,9,.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 } }, gh("div", { style: { fontSize: 54, animation: "hubPulse 1.2s infinite" } }, "🔎"), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, "Finding a " + hubName(searching.game) + " opponent…"), hubBtn("Cancel", () => { sock().emit("game:cancel"); setSearching(null); refresh(); }, { ghost: true })) : null;
+    return gh(React.Fragment, null, gh("style", null, "@keyframes hubUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}@keyframes hubPulse{50%{transform:scale(1.18)}}@keyframes hubFloat{to{transform:translateY(-170px);opacity:0}}@keyframes lcPop{from{opacity:0;transform:scale(.4)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDeal{from{opacity:0;transform:translateY(-14px) scale(.9)}to{opacity:1;transform:none}}@keyframes lcDrop{from{opacity:0;transform:translateY(-60%)}70%{transform:translateY(4%)}to{opacity:1;transform:none}}@keyframes lcGlow{50%{box-shadow:0 0 28px rgba(245,184,61,.9);transform:scale(1.07)}}@keyframes lcWin{from{opacity:0;transform:scale(.7)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDot{50%{opacity:.45;transform:scale(.8)}}.lc-game svg circle,.lc-game svg text{transition:cx .35s ease,cy .35s ease,x .35s ease,y .35s ease,fill .2s,opacity .25s;transform-box:fill-box;transform-origin:center;animation:lcPop .3s ease-out backwards}.lc-game svg g{transform-box:fill-box;transform-origin:center}.lc-mark{display:inline-block;animation:lcPop .28s ease-out backwards}.lc-disc{animation:lcDrop .38s cubic-bezier(.3,.7,.4,1) backwards}.lc-card{animation:lcDeal .28s ease-out backwards}.lc-status{animation:lcFade .25s ease-out backwards}.lc-status.lc-over{animation:lcWin .5s ease-out backwards}button[aria-label='Roll the dice']:not(:disabled){animation:lcGlow 1.4s ease-in-out infinite}.lc-game svg circle[fill='#F5B83D']:not([stroke]){animation:lcDot 1.3s ease-in-out infinite}@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}"), gh("div", { style: { position: "absolute", inset: 0, display: active ? "flex" : "none", flexDirection: "column", background: "radial-gradient(120% 50% at 50% 0%, #1A1240 0%, #0B0F16 55%)" } }, main, sheet, bellPanel, searchBox), popups);
+}
+// ---- search: suggests words that appear in your chats and groups, and lists the messages that match ----
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function Marked({ text, tokens }) {
+    const t = tokens.filter(Boolean);
+    if (!t.length)
+        return React.createElement(React.Fragment, null, text);
+    return React.createElement(React.Fragment, null, text.split(new RegExp("(" + t.map(escRe).join("|") + ")", "ig")).map((p, i) => (i % 2 ? React.createElement("b", { key: i, style: { color: "#35D0BA", fontWeight: 700 } }, p) : p)));
+}
+const snippetOf = (text, tokens) => {
+    const low = text.toLowerCase();
+    const at = Math.min(...tokens.map(t => { const k = low.indexOf(t); return k < 0 ? Infinity : k; }));
+    return !isFinite(at) || at < 25 ? text : "…" + text.slice(at - 20);
+};
+function SearchPanel({ token, conversations, onOpen, onClose }) {
+    const [q, setQ] = useState("");
+    const [data, setData] = useState({ suggestions: [], results: [] });
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const reqId = useRef(0);
+    const inputRef = useRef(null);
+    const term = q.trim();
+    const low = term.toLowerCase();
+    const tokens = low.split(/\s+/).filter(Boolean);
+    useEffect(() => {
+        const id = ++reqId.current;
+        if (!term) {
+            setData({ suggestions: [], results: [] });
+            setBusy(false);
+            setError("");
+            return;
+        }
+        setBusy(true);
+        const t = setTimeout(() => {
+            api("/api/v1/search?q=" + encodeURIComponent(term), { token })
+                .then(d => { if (id === reqId.current) {
+                setData(d);
+                setError("");
+            } })
+                .catch(e => { if (id === reqId.current)
+                setError(e.message); })
+                .finally(() => { if (id === reqId.current)
+                setBusy(false); });
+        }, 220);
+        return () => clearTimeout(t);
+    }, [term]);
+    const byId = new Map(conversations.map(c => [c.id, c]));
+    const nameHits = term ? conversations.filter(c => (c.other.name || "").toLowerCase().includes(low)).slice(0, 5) : [];
+    const pick = (text) => { setQ(text); if (inputRef.current)
+        inputRef.current.blur(); };
+    const who = (c, h) => (h.mine ? "You: " : c.isGroup ? ((c.members.find(x => x.id === h.senderId) || {}).name || "Former member").split(" ")[0] + ": " : "");
+    const empty = term && !busy && !error && !nameHits.length && !data.suggestions.length && !data.results.length;
+    const label = { fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: "#5B6673", textTransform: "uppercase", letterSpacing: 0.6, padding: "12px 16px 4px" };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid #1B212B", flexShrink: 0 } },
+            React.createElement("button", { "aria-label": "Close search", onClick: onClose, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } },
+                React.createElement(ArrowLeft, { size: 22 })),
+            React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 22, padding: "9px 14px" } },
+                React.createElement(Search, { size: 17, color: "#8891A0", style: { flexShrink: 0 } }),
+                React.createElement("input", { ref: inputRef, autoFocus: true, value: q, onChange: e => setQ(e.target.value), placeholder: "Search chats and groups", maxLength: 100, style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
+                q && React.createElement("button", { "aria-label": "Clear", onClick: () => { setQ(""); if (inputRef.current)
+                        inputRef.current.focus(); }, style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexShrink: 0 } },
+                    React.createElement(X, { size: 17, color: "#8891A0" })))),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" } },
+            error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+            !term && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                React.createElement(Search, { size: 32, color: "#262E3A", style: { marginBottom: 12 } }),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#5B6673" } }, "Search for a word from any of your chats or groups. Matching words are suggested as you type."))),
+            empty && React.createElement("div", { style: { padding: "40px 30px", textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#5B6673" } },
+                "No matches for \u201C",
+                term,
+                "\u201D"),
+            data.suggestions.length > 0 && (React.createElement(React.Fragment, null,
+                React.createElement("div", { style: label }, "Suggestions"),
+                data.suggestions.map(s => {
+                    const starts = s.text.startsWith(low);
+                    return (React.createElement("div", { key: s.text, onClick: () => pick(s.text), style: { display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" } },
+                        React.createElement(Search, { size: 16, color: "#5B6673", style: { flexShrink: 0 } }),
+                        React.createElement("span", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 15, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, starts ? React.createElement(React.Fragment, null,
+                            s.text.slice(0, low.length),
+                            React.createElement("b", { style: { color: "#F5F7FA", fontWeight: 600 } }, s.text.slice(low.length))) : React.createElement("span", { style: { color: "#F5F7FA" } }, s.text)),
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673" } },
+                            s.count,
+                            "\u00D7")));
+                }))),
+            nameHits.length > 0 && (React.createElement(React.Fragment, null,
+                React.createElement("div", { style: label }, "Chats and groups"),
+                nameHits.map(c => (React.createElement("div", { key: c.id, onClick: () => onOpen(c), style: { display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", cursor: "pointer" } },
+                    React.createElement(Ring, { size: 40, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }),
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } },
+                        React.createElement(Marked, { text: c.other.name, tokens: tokens }))))))),
+            data.results.length > 0 && (React.createElement(React.Fragment, null,
+                React.createElement("div", { style: label },
+                    "Messages",
+                    data.results.length >= 50 ? " (latest 50)" : ""),
+                data.results.map(h => {
+                    const c = byId.get(h.conversationId);
+                    if (!c)
+                        return null;
+                    return (React.createElement("div", { key: h.id, onClick: () => onOpen(c, h), style: { display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", cursor: "pointer" } },
+                        React.createElement(Ring, { size: 44, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }),
+                        React.createElement("div", { style: { flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 9 } },
+                            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 2 } },
+                                React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
+                                React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#5B6673", flexShrink: 0 } }, timeLabel(h.time))),
+                            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                                who(c, h),
+                                React.createElement(Marked, { text: snippetOf(h.text, tokens), tokens: tokens })))));
+                }))),
+            busy && !data.results.length && !data.suggestions.length && React.createElement("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Searching\u2026"))));
+}
+function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence, favorites = [] }) {
+    const [searching, setSearching] = useState(false);
+    if (searching)
+        return React.createElement(SearchPanel, { token: token, conversations: conversations, onClose: () => setSearching(false), onOpen: (c, hit) => { setSearching(false); onOpenChat(c, hit); } });
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: React.createElement("span", null,
+                "Lets",
+                React.createElement("span", { style: { color: "#35D0BA" } }, "chat")), right: React.createElement("div", { style: { display: "flex", gap: 18, alignItems: "center" } },
+                React.createElement("div", { onClick: onNewGroup, title: "New group", style: { cursor: "pointer", display: "flex" } },
+                    React.createElement(Users, { size: 21, color: "#9BA7B4" })),
+                React.createElement("div", { onClick: () => setSearching(true), role: "button", "aria-label": "Search", style: { cursor: "pointer", display: "flex" } },
+                    React.createElement(Search, { size: 20, color: "#9BA7B4" })),
+                React.createElement("div", { onClick: onProfile, style: { cursor: "pointer" } },
+                    React.createElement(Ring, { size: 30, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, online: true }))) }),
+        error && React.createElement(Banner, { text: error }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
+            loading && (React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading chats\u2026")),
+            !loading && conversations.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                React.createElement(MessageCircle, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No chats yet"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Tap the pencil to message someone by their username, email or phone number."))),
+            conversations.map(c => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer" } },
+                React.createElement(Ring, { size: 52, color: c.other.color, initials: c.other.initials, photo: c.other.avatar, online: c.isGroup ? undefined : !!presence[c.other.id] }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 11 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 3 } },
+                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6 } },
+                            c.other.name,
+                            c.other.verified && React.createElement(VerifiedBadge, null),
+                            favorites.includes(c.id) && React.createElement(Star, { size: 13, color: "#F2B84B", style: { fill: "#F2B84B" } })),
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" } }, c.lastMessage ? timeLabel(c.lastMessage.time) : "")),
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 } }, c.lastMessage ? senderPrefix(c) + stripRich(c.lastMessage.text) : "Say hello 👋"),
+                        c.unread > 0 && (React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter", padding: "0 5px" } }, c.unread)))))))),
+        React.createElement("button", { onClick: onNewChat, style: {
+                position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27,
+                background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 8px 20px #35D0BA44", cursor: "pointer",
+            } },
+            React.createElement(Edit3, { size: 22, color: "#0E1116" }))));
+}
+function PostProductModal({ token, onClose, onPosted }) {
+    const [f, setF] = useState({ title: "", price: "", description: "" });
+    const [tags, setTags] = useState([]);
+    const descRef = useRef(null);
+    const insertAt = () => { setF((p) => ({ ...p, description: (p.description && !/\s$/.test(p.description) ? p.description + " " : p.description) + "@" })); setTimeout(() => descRef.current && descRef.current.focus(), 0); };
+    const [photo, setPhoto] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+    const pick = async (e) => {
+        const file = e.target.files[0];
+        e.target.value = "";
+        if (!file)
+            return;
+        if (!isJpgOrPng(file))
+            return setError("Photo must be a JPG or PNG image");
+        try {
+            setPhoto(await resizeImageToDataURL(file, 640));
+            setError("");
+        }
+        catch (err) {
+            setError(err.message);
+        }
+    };
+    const post = async () => {
+        setBusy(true);
+        setError("");
+        try {
+            await api("/api/v1/market", { method: "POST", token, body: { ...f, photo, tags: liveTags(f.description, tags).map((t) => ({ type: t.type, id: t.id })) } });
+            onPosted();
+        }
+        catch (e) {
+            setError(e.message);
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { style: sheet, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: card },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, "Post a product"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12 } }, "Posts are removed automatically after 24 hours."),
+            error && React.createElement(Banner, { text: error }),
+            React.createElement("div", { style: { overflowY: "auto", flex: 1 } },
+                React.createElement("label", { style: { ...inputBox, cursor: "pointer", justifyContent: "center", color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 } },
+                    photo ? React.createElement("img", { loading: "lazy", decoding: "async", src: photo, alt: "", style: { width: 90, height: 90, borderRadius: 10, objectFit: "cover" } }) : React.createElement(React.Fragment, null,
+                        React.createElement(Camera, { size: 18 }),
+                        " Add a photo"),
+                    React.createElement("input", { type: "file", accept: PHOTO_ACCEPT, style: { display: "none" }, onChange: pick })),
+                React.createElement("div", { style: inputBox },
+                    React.createElement("input", { value: f.title, maxLength: 80, onChange: set("title"), placeholder: "Product name", style: inputEl })),
+                React.createElement("div", { style: inputBox },
+                    React.createElement("input", { value: f.price, maxLength: 30, onChange: set("price"), placeholder: "Price (e.g. \u20A65,000)", style: inputEl })),
+                React.createElement("div", { style: inputBox },
+                    React.createElement(MentionField, { token: token, fieldRef: descRef, multiline: true, value: f.description, onChange: (t) => setF({ ...f, description: t }), tags: tags, setTags: setTags, maxLength: 1000, rows: 4, placeholder: "Describe it: condition, size, location\u2026 Type @ to tag a contact or group", className: "lc-plain", style: { ...inputEl, width: "100%", boxSizing: "border-box", fontFamily: "Inter", fontWeight: 400, fontSize: 14, resize: "none" } }),
+                    React.createElement("button", { onClick: insertAt, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignSelf: "flex-start" } },
+                        React.createElement(AtSign, { size: 22, color: "#8891A0" })))),
+            React.createElement("button", { onClick: post, disabled: busy || !f.title.trim() || !f.price.trim(), style: primaryBtn(busy) }, busy ? "Posting…" : "Post"))));
+}
+// ---- market: seller ratings + product comments with emoji ----
+const EMOJIS = ["😀", "😂", "🤣", "😊", "😍", "🥰", "😘", "😎", "🤩", "😢", "😭", "😡", "😮", "🤔", "🙄", "😴", "😅", "🤗", "🤝", "👍", "👎", "👏", "🙏", "💪", "🙌", "👌", "❤️", "💔", "🔥", "✨", "🎉", "💯", "✅", "❌", "⭐", "🛍️", "💰", "📦", "🚚", "🏷️"];
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\s)+$/u;
+const ratingText = (r) => (r && r.count ? "\u2605 " + r.avg.toFixed(1) + " (" + r.count + ")" : "No ratings yet");
+function StarRow({ value, onChange, size = 28 }) {
+    return (React.createElement("div", { style: { display: "flex", gap: 6 } }, [1, 2, 3, 4, 5].map(n => (React.createElement("button", { key: n, "aria-label": n + (n === 1 ? " star" : " stars"), onClick: onChange ? () => onChange(n) : undefined, style: { background: "none", border: "none", padding: 0, cursor: onChange ? "pointer" : "default", display: "flex" } }, React.createElement(Star, { size: size, color: n <= value ? "#F2B84B" : "#3A4452", style: { fill: n <= value ? "#F2B84B" : "none" } }))))));
+}
+function SheetFrame({ title, onClose, tall, children }) {
+    return (React.createElement("div", { onClick: onClose, style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" } }, React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", maxWidth: 640, height: tall ? "82%" : "auto", maxHeight: "88%", background: "#12161C", borderTop: "1px solid #262E3A", borderTopLeftRadius: 20, borderTopRightRadius: 20, display: "flex", flexDirection: "column" } }, React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "16px 16px 10px", flexShrink: 0 } }, React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" } }, title), React.createElement("button", { onClick: onClose, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, React.createElement(X, { size: 22, color: "#8891A0" }))), children)));
+}
+function RateSellerSheet({ seller, token, onClose, onDone }) {
+    const [info, setInfo] = useState(null);
+    const [pick, setPick] = useState(0);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    useEffect(() => {
+        api("/api/v1/market/seller/" + seller.id + "/rating", { token }).then(d => { setInfo(d); setPick(d.mine || 0); }).catch(e => setErr(e.message));
+    }, [seller.id, token]);
+    const submit = async () => {
+        if (!pick)
+            return;
+        setBusy(true);
+        try {
+            await api("/api/v1/market/seller/" + seller.id + "/rate", { method: "POST", token, body: { stars: pick } });
+            onDone();
+        }
+        catch (e) {
+            setErr(e.message);
+            setBusy(false);
+        }
+    };
+    return (React.createElement(SheetFrame, { title: "Rate " + seller.name, onClose: onClose }, React.createElement("div", { style: { padding: "6px 16px 22px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 } }, React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", textAlign: "center" } }, info ? ratingText(info) + (info.mine ? " \u00B7 you rated " + info.mine : "") : "Loading\u2026"), React.createElement(StarRow, { value: pick, onChange: setPick, size: 38 }), err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#FF6B5D", textAlign: "center" } }, err), React.createElement("button", { onClick: submit, disabled: busy || !pick, style: { ...primaryBtn(busy || !pick), marginTop: 4 } }, busy ? "Saving\u2026" : info && info.mine ? "Update rating" : "Submit rating"))));
+}
+function CommentsSheet({ listing, token, onClose, onChanged }) {
+    const [comments, setComments] = useState(null);
+    const [text, setText] = useState("");
+    const [tags, setTags] = useState([]);
+    const inputRef = useRef(null);
+    const [showEmoji, setShowEmoji] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const listRef = useRef(null);
+    const base = "/api/v1/market/" + listing.id + "/comments";
+    useEffect(() => { api(base, { token }).then(d => setComments(d.comments)).catch(e => setErr(e.message)); }, [base, token]);
+    useEffect(() => { if (listRef.current)
+        listRef.current.scrollTop = listRef.current.scrollHeight; }, [comments && comments.length]);
+    const send = async (t) => {
+        const body = (t === undefined ? text : t).trim();
+        if (!body || busy)
+            return;
+        setBusy(true);
+        try {
+            const d = await api(base, { method: "POST", token, body: { text: body, tags: t === undefined ? liveTags(body, tags).map((x) => ({ type: x.type, id: x.id })) : [] } });
+            setComments(d.comments);
+            if (t === undefined) {
+                setText("");
+                setTags([]);
+                setShowEmoji(false);
+            }
+            setErr("");
+            onChanged();
+        }
+        catch (e) {
+            setErr(e.message);
+        }
+        setBusy(false);
+    };
+    const remove = async (id) => {
+        try {
+            const d = await api(base + "/" + id, { method: "DELETE", token });
+            setComments(d.comments);
+            onChanged();
+        }
+        catch (e) {
+            setErr(e.message);
+        }
+    };
+    return (React.createElement(SheetFrame, { title: "Comments" + (comments ? " \u00B7 " + comments.length : ""), onClose: onClose, tall: true }, React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px" } }, comments === null && !err && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading\u2026"), comments && comments.length === 0 && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No comments yet. Ask a question or say something nice."), (comments || []).map(c => (React.createElement("div", { key: c.id, style: { display: "flex", gap: 10, padding: "9px 0", borderBottom: "1px solid #1B212B" } }, React.createElement(Ring, { size: 32, color: c.author ? c.author.color : "#5B6673", initials: c.author ? c.author.initials : "?", photo: c.author ? c.author.avatar : null }), React.createElement("div", { style: { flex: 1, minWidth: 0 } }, React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8 } }, React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member", c.author && c.author.verified && React.createElement(VerifiedBadge, { size: 13 })), React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#5B6673" } }, timeLabel(c.time)), c.canDelete && React.createElement("button", { onClick: () => window.confirm("Delete this comment?") && remove(c.id), style: { marginLeft: "auto", background: "none", border: "none", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12, cursor: "pointer", padding: 0 } }, "Delete")), React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, richText(c.text), React.createElement(TagPills, { tags: c.tags }))))))), err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#FF6B5D", padding: "6px 16px 0" } }, err), React.createElement("div", { style: { display: "flex", gap: 6, padding: "8px 16px 0", flexShrink: 0 } }, QUICK_EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => send(e), disabled: busy, "aria-label": "Send " + e, style: { flex: 1, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 10, padding: "6px 0", fontSize: 20, cursor: "pointer" } }, e)))), showEmoji && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 2, padding: "8px 12px 0", maxHeight: 130, overflowY: "auto", flexShrink: 0 } }, EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => setText(t => (t + e).slice(0, 500)), style: { background: "none", border: "none", fontSize: 24, padding: 5, cursor: "pointer" } }, e)))), React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 16px", flexShrink: 0 } }, React.createElement("button", { onClick: () => setShowEmoji(v => !v), "aria-label": "Emoji", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, React.createElement(Smile, { size: 24, color: showEmoji ? "#35D0BA" : "#8891A0" })), React.createElement("button", { onClick: () => { setText(t => (t && !/\s$/.test(t) ? t + " " : t) + "@"); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, React.createElement(AtSign, { size: 24, color: "#8891A0" })), React.createElement("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } }, React.createElement(MentionField, { token: token, fieldRef: inputRef, value: text, onChange: setText, tags: tags, setTags: setTags, maxLength: 500, onEnter: () => send(), placeholder: "Add a comment\u2026 Type @ to tag", className: "lc-plain", style: { ...inputEl, width: "100%", fontFamily: "Inter", fontWeight: 400, fontSize: 14 } })), React.createElement("button", { onClick: () => send(), disabled: busy || !text.trim(), "aria-label": "Send comment", style: { width: 42, height: 42, borderRadius: 21, border: "none", background: "#35D0BA", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, React.createElement(Send, { size: 19, color: "#0E1116" })))));
+}
+function MarketScreen({ token, myId, onMessageSeller }) {
+    const [items, setItems] = useState(null);
+    const [q, setQ] = useState("");
+    const [posting, setPosting] = useState(false);
+    const [error, setError] = useState("");
+    const [zoom, setZoom] = useState(null);
+    const [commentsFor, setCommentsFor] = useState(null);
+    const [ratingFor, setRatingFor] = useState(null);
+    const load = useCallback(() => api("/api/v1/market?q=" + encodeURIComponent(q), { token }).then(d => { setItems(d.listings); setError(""); }).catch(e => setError(e.message)), [q, token]);
+    useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+    const act = (id, path, method = "POST") => api("/api/v1/market/" + id + path, { method, token }).then(load).catch(e => setError(e.message));
+    const note = { padding: "40px 20px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Market" }),
+        React.createElement("div", { style: { padding: "0 16px 10px" } },
+            React.createElement("div", { style: { ...inputBox, marginBottom: 0, padding: "9px 12px" } },
+                React.createElement(Search, { size: 17, color: "#8891A0" }),
+                React.createElement("input", { value: q, onChange: e => setQ(e.target.value), placeholder: "Search products", style: { ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14 } }))),
+        error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto", padding: "0 16px 90px" } },
+            items === null && !error && React.createElement("div", { style: note }, "Loading\u2026"),
+            items && items.length === 0 && React.createElement("div", { style: note }, "Nothing here yet. Tap + to post the first product."),
+            (items || []).map(l => {
+                const mine = l.seller && l.seller.id === myId;
+                return (React.createElement("div", { key: l.id, style: { background: "#161B22", border: "1px solid #262E3A", borderRadius: 16, marginBottom: 12, overflow: "hidden", opacity: l.sold ? 0.6 : 1 } },
+                    l.photo && React.createElement("img", { loading: "lazy", decoding: "async", src: photoSrc(l.photo), alt: "", onClick: () => setZoom(l), style: { width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block", cursor: "pointer" } }),
+                    React.createElement("div", { style: { padding: "12px 14px" } },
+                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8 } },
+                            React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, l.title),
+                            React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#35D0BA", whiteSpace: "nowrap" } }, l.sold ? "SOLD" : l.price)),
+                        l.description && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" } }, richText(l.description)),
+                        l.tags && l.tags.length > 0 && React.createElement("div", { style: { margin: "-4px 0 10px" } },
+                            React.createElement(TagPills, { tags: l.tags })),
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, margin: l.description ? "0 0 10px" : "8px 0 10px" } },
+                            React.createElement("button", { onClick: () => setCommentsFor(l), style: smallBtn }, "\u{1F4AC} Comments" + (l.commentCount ? " (" + l.commentCount + ")" : "")),
+                            l.seller && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: l.seller.rating && l.seller.rating.count ? "#F2B84B" : "#5B6673" } }, ratingText(l.seller.rating)),
+                            !mine && l.seller && React.createElement("button", { onClick: () => setRatingFor(l.seller), style: smallBtn }, "Rate seller")),
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: l.description ? 0 : 10 } },
+                            l.seller && React.createElement(Ring, { size: 26, color: l.seller.color, initials: l.seller.initials, photo: l.seller.avatar }),
+                            React.createElement("span", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } },
+                                mine ? "You" : l.seller ? l.seller.name : "Unknown",
+                                l.seller && l.seller.verified && React.createElement(VerifiedBadge, { size: 13 }),
+                                " \u00B7 ",
+                                timeLabel(l.time)),
+                            mine ? (React.createElement(React.Fragment, null,
+                                React.createElement("button", { onClick: () => act(l.id, "/sold"), style: smallBtn }, l.sold ? "Relist" : "Mark sold"),
+                                React.createElement("button", { onClick: () => window.confirm("Remove this listing?") && act(l.id, "", "DELETE"), style: { ...smallBtn, color: "#FF6B5D" } }, "Remove"))) : l.seller && React.createElement("button", { onClick: () => onMessageSeller(l.seller).catch(e => setError(e.message)), style: smallBtn }, "Message seller")))));
+            })),
+        React.createElement("button", { onClick: () => setPosting(true), style: { position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27, background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 20px #35D0BA44", cursor: "pointer" } },
+            React.createElement(Plus, { size: 24, color: "#0E1116" })),
+        posting && React.createElement(PostProductModal, { token: token, onClose: () => setPosting(false), onPosted: () => { setPosting(false); load(); } }),
+        zoom && React.createElement(ImageZoomModal, { photo: zoom.photo, initials: "", color: "#35D0BA", onClose: () => setZoom(null) }),
+        commentsFor && React.createElement(CommentsSheet, { listing: commentsFor, token: token, onClose: () => setCommentsFor(null), onChanged: load }),
+        ratingFor && React.createElement(RateSellerSheet, { seller: ratingFor, token: token, onClose: () => setRatingFor(null), onDone: () => { setRatingFor(null); load(); } })));
+}
+// ============================================================================
+// Sounds, voice / video calls, status updates and the "Sounds & features" settings.
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+// ============================================================================
+const ce = React.createElement;
+// ---- feature switches, stored on this device ("Notification sound" lives in the notifs settings: notifs.sound) ----
+const DEFAULT_FEATURES = { sound: true, typingSound: true, sendSound: true, status: true, videoCalls: true, voiceCalls: true, clearVoice: true, voiceNotes: true };
+const getFeatures = () => ({ ...DEFAULT_FEATURES, ...loadJSON("features", {}) });
+const featOn = (k) => getFeatures()[k] !== false;
+// ---- sounds: synthesized in the browser (no audio files to download) ----
+let _sndCtx = null;
+function audioCtx() {
+    const A = window.AudioContext || window.webkitAudioContext;
+    if (!A)
+        return null;
+    _sndCtx = _sndCtx || new A();
+    if (_sndCtx.state === "suspended")
+        _sndCtx.resume();
+    return _sndCtx;
+}
+// phones only allow sound after a tap, so unlock the audio engine on the first touch / key press
+["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, () => { try {
+    const c = audioCtx();
+    if (c) {
+        loadSwoosh(c);
+        loadTyping(c);
+    }
+}
+catch { } }, { passive: true }));
+function noiseSource(ctx, dur) {
+    const n = Math.max(1, Math.floor(ctx.sampleRate * dur)), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++)
+        d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    return s;
+}
+let _swooshBuf = null, _swooshLoading = false;
+function loadSwoosh(ctx) {
+    if (_swooshBuf || _swooshLoading)
+        return;
+    _swooshLoading = true;
+    fetch("swoosh.mp3").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _swooshBuf = buf; }).catch(() => { _swooshLoading = false; });
+}
+let _typeBuf = null, _typeLoading = false;
+function loadTyping(ctx) {
+    if (_typeBuf || _typeLoading)
+        return;
+    _typeLoading = true;
+    fetch("typing.wav").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _typeBuf = buf; }).catch(() => { _typeLoading = false; });
+}
+// One click per key press. Phones/PCs report the key straight away (keydown); some Android keyboards only report the text change,
+// so that path covers them. They never double up: playSound ignores a second click within 30 ms.
+function typingKeySound(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey)
+        return;
+    const k = e.key;
+    if (k === "Backspace" || k === "Delete" || k === "Enter" || k === " ")
+        playSound("typing", true); // deeper click for these keys
+    else if (typeof k === "string" && k.length === 1)
+        playSound("typing");
+}
+function typingChangeSound(e, before) {
+    const ne = e.nativeEvent || {}, t = ne.inputType || "", add = e.target.value.length - before.length;
+    if (add === 0 || /^(insertFromPaste|insertFromDrop|insertReplacementText|historyUndo|historyRedo)/.test(t))
+        return;
+    playSound("typing", add < 0 || /^(insertLineBreak|insertParagraph)/.test(t) || ne.data === " ");
+}
+let _lastTick = 0;
+function playSound(kind, alt) {
+    if (!featOn("sound"))
+        return;
+    if (kind === "typing" && !featOn("typingSound"))
+        return;
+    if (kind === "send" && !featOn("sendSound"))
+        return;
+    try {
+        const ctx = audioCtx();
+        if (!ctx)
+            return;
+        const t = ctx.currentTime;
+        if (kind === "typing") { // a soft keyboard tick
+            const now = Date.now();
+            if (now - _lastTick < 30)
+                return;
+            _lastTick = now;
+            if (_typeBuf) {
+                const s = ctx.createBufferSource(), tg = ctx.createGain(), k = 0;
+                s.buffer = _typeBuf;
+                s.playbackRate.value = (alt ? 0.8 : 1) * (0.96 + Math.random() * 0.08);
+                tg.gain.setValueAtTime(0.8, t);
+                tg.gain.linearRampToValueAtTime(0, t + 0.045);
+                s.connect(tg);
+                tg.connect(ctx.destination);
+                s.start(t, k * 0.1, 0.05);
+                return;
+            }
+            loadTyping(ctx); // not loaded yet: use the built-in tick this one time
+            const src = noiseSource(ctx, 0.04), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            f.type = "bandpass";
+            f.frequency.value = 1900 + Math.random() * 900;
+            f.Q.value = 1.4;
+            g.gain.value = 0.55;
+            src.connect(f);
+            f.connect(g);
+            g.connect(ctx.destination);
+            src.start(t);
+        }
+        else if (kind === "send") { // a quick upward "whoosh"
+            if (_swooshBuf) {
+                const s = ctx.createBufferSource(), sg = ctx.createGain();
+                s.buffer = _swooshBuf;
+                sg.gain.value = 0.9;
+                s.connect(sg);
+                sg.connect(ctx.destination);
+                s.start(t);
+                return;
+            }
+            loadSwoosh(ctx); // not loaded yet: use the built-in whoosh this one time
+            const src = noiseSource(ctx, 0.32), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            f.type = "bandpass";
+            f.Q.value = 0.9;
+            f.frequency.setValueAtTime(500, t);
+            f.frequency.exponentialRampToValueAtTime(3600, t + 0.26);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(0.5, t + 0.07);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+            src.connect(f);
+            f.connect(g);
+            g.connect(ctx.destination);
+            src.start(t);
+            const o = ctx.createOscillator(), og = ctx.createGain();
+            o.type = "sine";
+            o.frequency.setValueAtTime(700, t);
+            o.frequency.exponentialRampToValueAtTime(1500, t + 0.12);
+            og.gain.setValueAtTime(0.0001, t);
+            og.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
+            og.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+            o.connect(og);
+            og.connect(ctx.destination);
+            o.start(t);
+            o.stop(t + 0.18);
+        }
+    }
+    catch { }
+}
+// ringing: [seconds from start, Hz] notes repeated every few seconds; returns a function that stops it
+function startRing(outgoing) {
+    let on = true;
+    const pattern = outgoing ? [[0, 440], [0.04, 480]] : [[0, 880], [0.2, 1175], [0.4, 880], [0.6, 1175]];
+    const len = outgoing ? 1.0 : 0.22, every = outgoing ? 3200 : 2600;
+    const ring = () => {
+        if (!on || !featOn("sound"))
+            return;
+        try {
+            const ctx = audioCtx();
+            if (!ctx)
+                return;
+            const t0 = ctx.currentTime;
+            for (const [off, hz] of pattern) {
+                const o = ctx.createOscillator(), g = ctx.createGain();
+                o.type = "sine";
+                o.frequency.value = hz;
+                g.gain.setValueAtTime(0.0001, t0 + off);
+                g.gain.exponentialRampToValueAtTime(0.18, t0 + off + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + len);
+                o.connect(g);
+                g.connect(ctx.destination);
+                o.start(t0 + off);
+                o.stop(t0 + off + len + 0.02);
+            }
+        }
+        catch { }
+        if (!outgoing) {
+            try {
+                const n = getNotifs();
+                if (n.vibrate && navigator.vibrate)
+                    navigator.vibrate([350, 150, 350]);
+            }
+            catch { }
+        }
+    };
+    ring();
+    const timer = setInterval(ring, every);
+    return () => { on = false; clearInterval(timer); try {
+        navigator.vibrate && navigator.vibrate(0);
+    }
+    catch { } };
+}
+// ---- calls ----
+const ICE_SERVERS = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+const fmtDur = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+const getCallLog = () => loadJSON("calllog", []);
+const addCallLog = (e) => saveJSON("calllog", [e, ...getCallLog()].slice(0, 50));
+const iconBtnStyle = { background: "none", border: "none", cursor: "pointer", padding: 0, marginRight: 16, display: "flex" };
+function mediaError(e, video) {
+    const n = e && e.name;
+    if (n === "NotAllowedError" || n === "SecurityError")
+        return "Allow microphone" + (video ? " and camera" : "") + " access to make calls";
+    if (n === "NotFoundError")
+        return "No microphone" + (video ? " or camera" : "") + " found on this device";
+    return "Could not start the " + (video ? "camera or " : "") + "microphone";
+}
+function CallLayer({ socket, apiRef, notify }) {
+    const [call, setCall] = useState(null);
+    const [remoteStream, setRemoteStream] = useState(null);
+    const [localStream, setLocalStream] = useState(null);
+    const [secs, setSecs] = useState(0);
+    const callRef = useRef(null), pcRef = useRef(null), localRef = useRef(null), pendingRef = useRef([]), candRef = useRef([]), ringRef = useRef(null);
+    const begin = (c) => { callRef.current = c; setCall(c); };
+    const upd = (patch) => { if (!callRef.current)
+        return; callRef.current = { ...callRef.current, ...patch }; setCall(callRef.current); };
+    const stopRing = () => { if (ringRef.current) {
+        ringRef.current();
+        ringRef.current = null;
+    } };
+    // closes everything and returns the call that was open
+    const teardown = () => {
+        const c = callRef.current;
+        stopRing();
+        if (pcRef.current) {
+            try {
+                pcRef.current.close();
+            }
+            catch { }
+            pcRef.current = null;
+        }
+        if (localRef.current) {
+            localRef.current.getTracks().forEach((t) => t.stop());
+            localRef.current = null;
+        }
+        pendingRef.current = [];
+        candRef.current = [];
+        callRef.current = null;
+        setCall(null);
+        setRemoteStream(null);
+        setLocalStream(null);
+        setSecs(0);
+        return c;
+    };
+    const finish = (outcome, note) => {
+        const c = teardown();
+        if (!c)
+            return;
+        addCallLog({ id: c.id || String(Date.now()), peer: { id: c.peer.id, name: c.peer.name, initials: c.peer.initials, color: c.peer.color, avatar: c.peer.avatar || null }, conversationId: c.conversationId, video: c.video, dir: c.dir, outcome, dur: c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0, time: Date.now() });
+        if (note)
+            notify(note);
+    };
+    const getMedia = (video) => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection)
+            return Promise.reject({ name: "Unsupported" });
+        const clear = featOn("clearVoice"); // "Clear voice": echo cancellation, noise suppression and automatic volume
+        return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false });
+    };
+    const makePc = (c, stream) => {
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        pcRef.current = pc;
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        pc.onicecandidate = (e) => { if (e.candidate)
+            socket.emit("call:signal", { callId: c.id, data: { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate } }); };
+        pc.ontrack = (e) => setRemoteStream(e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]));
+        pc.onconnectionstatechange = () => {
+            const s = pc.connectionState, cur = callRef.current;
+            if (!cur || cur.id !== c.id)
+                return;
+            if (s === "connected" && cur.phase !== "active") {
+                stopRing();
+                upd({ phase: "active", t0: Date.now() });
+            }
+            else if (s === "failed") {
+                socket.emit("call:end", { callId: c.id });
+                finish(cur.phase === "active" ? "completed" : "failed", "The call lost its connection");
+            }
+        };
+        return pc;
+    };
+    const applySignal = async (pc, c, data) => {
+        try {
+            if (data.sdp) {
+                await pc.setRemoteDescription({ type: data.sdp.type, sdp: data.sdp.sdp });
+                const q = candRef.current;
+                candRef.current = [];
+                for (const cand of q) {
+                    try {
+                        await pc.addIceCandidate(cand);
+                    }
+                    catch { }
+                }
+                if (data.sdp.type === "offer") {
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit("call:signal", { callId: c.id, data: { sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } } });
+                }
+            }
+            else if (data.candidate) {
+                if (pc.remoteDescription) {
+                    try {
+                        await pc.addIceCandidate(data.candidate);
+                    }
+                    catch { }
+                }
+                else
+                    candRef.current.push(data.candidate);
+            }
+        }
+        catch (e) {
+            console.warn("call signal failed", e);
+        }
+    };
+    // calls made from a chat or the Calls tab
+    useEffect(() => {
+        apiRef.current = {
+            start: async (conversation, video) => {
+                if (!socket)
+                    return notify("Not connected yet. Try again in a moment.");
+                if (callRef.current)
+                    return notify("You are already in a call");
+                const peer = conversation.other;
+                begin({ id: null, peer, conversationId: conversation.id, video: !!video, dir: "out", phase: "calling", muted: false, camOff: false });
+                let stream;
+                try {
+                    stream = await getMedia(!!video);
+                }
+                catch (e) {
+                    teardown();
+                    return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, video));
+                }
+                if (!callRef.current) {
+                    stream.getTracks().forEach((t) => t.stop());
+                    return;
+                } // cancelled while asking for permission
+                localRef.current = stream;
+                setLocalStream(stream);
+                socket.emit("call:invite", { to: peer.id, conversationId: conversation.id, video: !!video }, (ack) => {
+                    if (!callRef.current) {
+                        if (ack && ack.callId)
+                            socket.emit("call:end", { callId: ack.callId });
+                        return;
+                    }
+                    if (!ack || ack.error) {
+                        teardown();
+                        return notify((ack && ack.error) || "Could not start the call");
+                    }
+                    upd({ id: ack.callId, phase: "ringing" });
+                    stopRing();
+                    ringRef.current = startRing(true);
+                });
+            },
+        };
+    });
+    // events from the server
+    useEffect(() => {
+        if (!socket)
+            return;
+        const onIncoming = ({ callId, conversationId, video, from }) => {
+            const off = video ? !featOn("videoCalls") : !featOn("voiceCalls");
+            if (callRef.current || off) {
+                socket.emit("call:answer", { callId, accept: false, reason: "unavailable" });
+                return;
+            }
+            begin({ id: callId, peer: from, conversationId, video: !!video, dir: "in", phase: "ringing", muted: false, camOff: false });
+            stopRing();
+            ringRef.current = startRing(false);
+            try {
+                if (document.hidden && "Notification" in window && Notification.permission === "granted")
+                    new Notification(from.name, { body: "Incoming " + (video ? "video" : "voice") + " call", tag: "call-" + callId });
+            }
+            catch { }
+        };
+        const onAccepted = async ({ callId }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || c.dir !== "out" || !localRef.current)
+                return;
+            stopRing();
+            upd({ phase: "connecting" });
+            try {
+                const pc = makePc(c, localRef.current);
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit("call:signal", { callId, data: { sdp: { type: offer.type, sdp: offer.sdp } } });
+            }
+            catch (e) {
+                socket.emit("call:end", { callId });
+                finish("failed", "Could not connect the call");
+            }
+        };
+        const onSignal = ({ callId, data }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || !data)
+                return;
+            if (!pcRef.current)
+                pendingRef.current.push(data);
+            else
+                applySignal(pcRef.current, c, data);
+        };
+        const onEnded = ({ callId, reason }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId)
+                return;
+            const first = String(c.peer.name || "They").split(" ")[0];
+            if (c.phase === "active")
+                return finish("completed");
+            if (c.dir === "in")
+                return finish(reason === "ended" || reason === "missed" ? "missed" : reason);
+            const notes = { declined: first + " declined the call", unavailable: first + " can't take " + (c.video ? "video" : "voice") + " calls right now", missed: first + " didn't answer", failed: "The call was disconnected", ended: "Call ended" };
+            finish(reason === "missed" ? "unanswered" : reason, notes[reason]);
+        };
+        socket.on("call:incoming", onIncoming);
+        socket.on("call:accepted", onAccepted);
+        socket.on("call:signal", onSignal);
+        socket.on("call:ended", onEnded);
+        return () => { socket.off("call:incoming", onIncoming); socket.off("call:accepted", onAccepted); socket.off("call:signal", onSignal); socket.off("call:ended", onEnded); };
+    }, [socket]);
+    useEffect(() => {
+        if (!call || call.phase !== "active")
+            return;
+        const t = setInterval(() => { const c = callRef.current; if (c && c.t0)
+            setSecs(Math.round((Date.now() - c.t0) / 1000)); }, 1000);
+        return () => clearInterval(t);
+    }, [call && call.phase]);
+    useEffect(() => () => { teardown(); }, []);
+    const accept = async () => {
+        const c = callRef.current;
+        if (!c || c.dir !== "in" || c.phase !== "ringing")
+            return;
+        stopRing();
+        upd({ phase: "connecting" });
+        let stream;
+        try {
+            stream = await getMedia(c.video);
+        }
+        catch (e) {
+            socket.emit("call:answer", { callId: c.id, accept: false });
+            finish("failed");
+            return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, c.video));
+        }
+        if (!callRef.current || callRef.current.id !== c.id) {
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+        } // caller hung up meanwhile
+        localRef.current = stream;
+        setLocalStream(stream);
+        const pc = makePc(c, stream);
+        socket.emit("call:answer", { callId: c.id, accept: true });
+        const queued = pendingRef.current;
+        pendingRef.current = [];
+        for (const d of queued)
+            await applySignal(pc, c, d);
+    };
+    const decline = () => { const c = callRef.current; if (!c)
+        return; socket.emit("call:answer", { callId: c.id, accept: false }); finish("declined"); };
+    const hangUp = () => {
+        const c = callRef.current;
+        if (!c)
+            return;
+        if (c.id)
+            socket.emit("call:end", { callId: c.id });
+        finish(c.phase === "active" ? "completed" : c.dir === "out" ? "unanswered" : "missed");
+    };
+    const toggleMute = () => { const c = callRef.current; if (!c || !localRef.current)
+        return; localRef.current.getAudioTracks().forEach((t) => { t.enabled = c.muted; }); upd({ muted: !c.muted }); };
+    const toggleCam = () => { const c = callRef.current; if (!c || !localRef.current)
+        return; localRef.current.getVideoTracks().forEach((t) => { t.enabled = c.camOff; }); upd({ camOff: !c.camOff }); };
+    if (!call)
+        return null;
+    const peer = call.peer, vid = call.video, active = call.phase === "active";
+    const status = call.phase === "calling" ? "Calling…" : call.phase === "ringing" ? (call.dir === "in" ? "Incoming " + (vid ? "video" : "voice") + " call" : "Ringing…") : call.phase === "connecting" ? "Connecting…" : fmtDur(secs);
+    const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
+    const showRemoteVideo = vid && active && remoteStream;
+    return ce("div", { style: { position: "absolute", inset: 0, zIndex: 95, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" } }, ce("video", { ref: (el) => { if (el && el.srcObject !== remoteStream)
+            el.srcObject = remoteStream; }, autoPlay: true, playsInline: true, style: showRemoteVideo ? { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", background: "#000" } : { display: "none" } }), vid && localStream && !call.camOff && ce("video", { ref: (el) => { if (el && el.srcObject !== localStream)
+            el.srcObject = localStream; }, autoPlay: true, playsInline: true, muted: true, style: showRemoteVideo ? { position: "absolute", top: 16, right: 16, width: 96, height: 128, objectFit: "cover", borderRadius: 14, border: "2px solid #ffffff55", background: "#000", transform: "scaleX(-1)", zIndex: 2 } : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, transform: "scaleX(-1)" } }), ce("div", { style: { position: "relative", zIndex: 3, marginTop: showRemoteVideo ? 18 : "16%", textAlign: "center", textShadow: showRemoteVideo ? "0 1px 8px rgba(0,0,0,.8)" : "none" } }, !showRemoteVideo && ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: peer.color || "#35D0BA", initials: peer.initials || "?", photo: peer.avatar, ring: true })), ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: showRemoteVideo ? 18 : 24, color: "#F5F7FA" } }, peer.name), ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: active ? "#35D0BA" : "#9BA7B4", marginTop: 6 } }, status)), ce("div", { style: { flex: 1 } }), ce("div", { style: { position: "relative", zIndex: 3, display: "flex", gap: 26, alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } }, call.dir === "in" && call.phase === "ringing"
+        ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Decline")),
+            ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Accept call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Accept"))]
+        : [ce("div", { key: "m", style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.muted ? "Unmute" : "Mute")),
+            vid && ce("div", { key: "c", style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.camOff ? "Camera on" : "Camera off")),
+            ce("div", { key: "e", style: { textAlign: "center" } }, round("#FF6B5D", hangUp, "End call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.phase === "calling" || call.phase === "ringing" ? "Cancel" : "End"))]));
+}
+function CallsScreen({ conversations = [], onCall = () => { } }) {
+    const [log, setLog] = useState(getCallLog);
+    const F = getFeatures();
+    const bad = { missed: 1, declined: 1, unanswered: 1, failed: 1 };
+    const label = (e) => {
+        const kind = e.video ? "Video" : "Voice";
+        const what = e.outcome === "completed" ? (e.dir === "out" ? "Outgoing" : "Incoming") + (e.dur ? " · " + fmtDur(e.dur) : "") : e.outcome === "missed" ? "Missed" : e.outcome === "declined" ? (e.dir === "out" ? "Declined" : "You declined") : e.outcome === "unanswered" ? "No answer" : e.outcome === "unavailable" ? "Unavailable" : "Failed";
+        return kind + " · " + what + " · " + timeLabel(e.time);
+    };
+    const clear = () => { clearJSON("calllog"); setLog([]); };
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "Calls", right: log.length ? ce("button", { onClick: clear, style: smallBtn }, "Clear") : null }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, !log.length && ce("div", { style: { padding: "50px 30px", textAlign: "center" } }, ce(PhoneCall, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }), ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No calls yet"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Open a chat and tap the phone or video icon at the top to call someone.")), log.map((e) => {
+        const convo = conversations.find((c) => c.id === e.conversationId && !c.isGroup);
+        return ce("div", { key: e.id + e.time, style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", borderBottom: "1px solid #1B212B" } }, ce(Ring, { size: 46, color: e.peer.color || "#5B6673", initials: e.peer.initials || "?", photo: e.peer.avatar }), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: bad[e.outcome] && e.dir === "in" ? "#FF6B5D" : "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, e.peer.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, label(e))), convo && F.voiceCalls && ce("button", { onClick: () => onCall(convo, false), "aria-label": "Voice call", style: { ...iconBtnStyle, marginRight: 14 } }, ce(Phone, { size: 19, color: "#35D0BA" })), convo && F.videoCalls && ce("button", { onClick: () => onCall(convo, true), "aria-label": "Video call", style: { ...iconBtnStyle, marginRight: 0 } }, ce(Video, { size: 20, color: "#35D0BA" })));
+    })));
+}
+// ---- status ----
+const STATUS_COLORS = ["#1E8677", "#8B7CF6", "#FF6B5D", "#4FA8E0", "#F2B84B", "#5B6673"];
+function ago(ts) {
+    const m = Math.round((Date.now() - ts) / 60000);
+    return m < 1 ? "Just now" : m < 60 ? m + " min ago" : Math.floor(m / 60) + " h ago";
+}
+// ---- @tagging: type @ to tag a contact or a group (used by status captions and market posts) ----
+let TAG_CACHE = null;
+function useTagTargets(token) {
+    const [list, setList] = useState(TAG_CACHE || []);
+    useEffect(() => {
+        let off = false;
+        api("/api/v1/conversations", { token }).then((d) => {
+            const out = [];
+            for (const c of (d && d.conversations) || []) {
+                if (c.isGroup)
+                    out.push({ type: "group", id: c.id, name: c.name, color: "#8B5CF6", initials: String(c.name || "G").slice(0, 1).toUpperCase(), avatar: c.avatar });
+                else if (c.other && c.other.id)
+                    out.push({ type: "user", id: c.other.id, name: c.other.name, color: c.other.color, initials: c.other.initials, avatar: c.other.avatar });
+            }
+            TAG_CACHE = out;
+            if (!off)
+                setList(out);
+        }).catch(() => { });
+        return () => { off = true; };
+    }, [token]);
+    return list;
+}
+function TagPills({ tags, light }) {
+    if (!tags || !tags.length)
+        return null;
+    return ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, justifyContent: light ? "center" : "flex-start" } }, tags.map((t) => ce("span", { key: t.type + t.id, style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#35D0BA", background: "rgba(53,208,186,.14)", border: "1px solid rgba(53,208,186,.4)", borderRadius: 999, padding: "3px 10px" } }, (t.type === "group" ? "\u{1F465} " : "") + "@" + t.name)));
+}
+function MentionField({ token, value, onChange, tags, setTags, placeholder, multiline, maxLength, rows, style, fieldRef, onEnter, className }) {
+    const targets = useTagTargets(token);
+    const own = useRef(null), el = fieldRef || own;
+    const [open, setOpen] = useState(false);
+    const m = open ? /(^|\s)@([^\s@]{0,24})$/.exec(value || "") : null;
+    const q = m ? m[2].toLowerCase() : null;
+    const matches = q == null ? [] : targets.filter((t) => t.name && t.name.toLowerCase().includes(q)).slice(0, 6);
+    const pick = (t) => {
+        onChange(String(value).replace(/@[^\s@]*$/, "@" + t.name + " "));
+        setTags((p) => (p.some((x) => x.type === t.type && x.id === t.id) ? p : [...p, { type: t.type, id: t.id, name: t.name }]));
+        setTimeout(() => el.current && el.current.focus(), 0);
+    };
+    const common = {
+        ref: el, value, placeholder, className, style,
+        onChange: (e) => { onChange(maxLength ? e.target.value.slice(0, maxLength) : e.target.value); setOpen(true); },
+        onFocus: () => setOpen(true), onBlur: () => setTimeout(() => setOpen(false), 150),
+    };
+    return ce("div", { style: { position: "relative", flex: 1, minWidth: 0 } }, matches.length > 0 && ce("div", { onMouseDown: (e) => e.preventDefault(), role: "listbox", "aria-label": "Tag a contact or group", style: { position: "absolute", left: 0, right: 0, bottom: "calc(100% + 10px)", zIndex: 6, minWidth: 230, background: "#0F141C", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,.55), 0 0 14px rgba(53,208,186,.2)", animation: "lcFadeUp .18s ease-out" } }, matches.map((t) => ce("div", { key: t.type + t.id, onClick: () => pick(t), role: "option", style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #1B212B" } }, ce(Ring, { size: 30, color: t.color || "#5B6673", initials: t.initials || "?", photo: t.avatar }), ce("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.name), ce("span", { style: { fontFamily: "Inter", fontSize: 11, color: t.type === "group" ? "#A78BFA" : "#35D0BA" } }, t.type === "group" ? "Group" : "Contact")))), multiline ? ce("textarea", { ...common, rows: rows || 3 }) : ce("input", { ...common, onKeyDown: onEnter ? (e) => { if (e.key === "Enter")
+            onEnter(); } : undefined }));
+}
+const liveTags = (text, tags) => (tags || []).filter((t) => String(text || "").toLowerCase().includes("@" + String(t.name).toLowerCase()));
+// ---- status editor helpers: photo loading, flattening stickers/text/drawing into the picture, trimmed music ----
+const loadImg = (url) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("Could not read that image")); i.src = url; });
+const STATUS_TEXT_COLORS = ["#FFFFFF", "#FFD60A", "#FF6B5D", "#35D0BA", "#A78BFA", "#4FA8E0", "#000000"];
+const STICKERS = ["\u{1F600}", "\u{1F602}", "\u{1F979}", "\u{1F60D}", "\u{1F973}", "\u{1F60E}", "\u{1F929}", "\u{1F62D}", "\u{1F621}", "\u{1F914}", "\u{1F64F}", "\u{1F44D}", "\u{1F44F}", "\u{1F525}", "❤️", "\u{1F4AF}", "\u{1F389}", "\u{1F382}", "\u{1F381}", "✨", "⭐", "\u{1F339}", "\u{1F334}", "☀️", "\u{1F319}", "\u{1F355}", "\u{1F354}", "\u{1F357}", "\u{1F37A}", "⚽", "\u{1F3C0}", "\u{1F3B5}", "\u{1F3B6}", "\u{1F483}", "\u{1F57A}", "\u{1F697}", "✈️", "\u{1F3E0}", "\u{1F4F8}", "\u{1F4B0}", "\u{1F451}", "\u{1F4AA}", "\u{1F64C}", "\u{1F91D}"];
+const clock = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+const SHAPE_DEFS = {
+    rect: { d: "M6 14H94V86H6Z", h: 100 }, round: { d: "M24 14H76A18 18 0 0 1 94 32V68A18 18 0 0 1 76 86H24A18 18 0 0 1 6 68V32A18 18 0 0 1 24 14Z", h: 100 },
+    circle: { d: "M8 50a42 42 0 1 0 84 0a42 42 0 1 0 -84 0Z", h: 100 }, triangle: { d: "M50 10L92 88H8Z", h: 100 }, diamond: { d: "M50 8L92 50L50 92L8 50Z", h: 100 },
+    star: { d: "M50 6L61 38L95 38L67 58L78 92L50 71L22 92L33 58L5 38L39 38Z", h: 100 },
+    heart: { d: "M50 88C10 58 4 30 24 18C38 10 50 22 50 30C50 22 62 10 76 18C96 30 90 58 50 88Z", h: 100 },
+    line: { d: "M6 15H94", h: 30, open: true }, arrow: { d: "M6 15H82", head: "M95 15L76 3V27Z", h: 30, open: true },
+};
+const SHAPE_LIST = ["arrow", "line", "rect", "round", "circle", "triangle", "diamond", "star", "heart"];
+async function bakeStatus(photo, nat, bg, items, strokes) {
+    const W = photo ? nat.w : 720, H = photo ? nat.h : 1280;
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    const g = c.getContext("2d");
+    if (photo)
+        g.drawImage(await loadImg(photo), 0, 0, W, H);
+    else {
+        g.fillStyle = bg;
+        g.fillRect(0, 0, W, H);
+    }
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    for (const s of strokes) {
+        if (!s.p.length)
+            continue;
+        g.strokeStyle = s.c;
+        g.lineWidth = s.w * W;
+        g.beginPath();
+        s.p.forEach((pt, i) => (i ? g.lineTo(pt[0] * W, pt[1] * H) : g.moveTo(pt[0] * W, pt[1] * H)));
+        if (s.p.length === 1)
+            g.lineTo(s.p[0][0] * W + 0.1, s.p[0][1] * H);
+        g.stroke();
+    }
+    for (const it of items) {
+        const fs = it.s * W;
+        g.save(); g.translate(it.x * W, it.y * H); g.rotate(((it.r || 0) * Math.PI) / 180);
+        g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = it.c || "#fff";
+        if (it.kind === "shape") {
+            const df = SHAPE_DEFS[it.v] || SHAPE_DEFS.rect, k = fs / 100;
+            g.scale(k, k); g.translate(-50, -df.h / 2);
+            g.strokeStyle = it.c || "#fff"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round";
+            if (df.head) { g.stroke(new Path2D(df.d)); g.fill(new Path2D(df.head)); }
+            else if (df.open) g.stroke(new Path2D(df.d));
+            else { const p = new Path2D(df.d); if (it.f) g.fill(p); g.stroke(p); }
+        } else if (it.kind === "text") {
+            g.font = "700 " + fs + "px Sora, Inter, sans-serif";
+            g.shadowColor = "rgba(0,0,0,.6)"; g.shadowBlur = fs * 0.2; g.shadowOffsetY = fs * 0.06;
+            const lines = it.v.split("\n");
+            lines.forEach((ln, i) => g.fillText(ln, 0, (i - (lines.length - 1) / 2) * fs * 1.2));
+            g.shadowColor = "transparent";
+        } else { g.font = fs + "px 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif"; g.fillText(it.v, 0, 0); }
+        g.restore();
+    }
+    let q = 0.85, out;
+    do {
+        out = c.toDataURL("image/jpeg", q);
+        q -= 0.1;
+    } while (out.length > 1400000 && q > 0.3);
+    return out;
+}
+function decodeAudioFile(file) {
+    return file.arrayBuffer().then((ab) => new Promise((res, rej) => {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AC();
+        ctx.decodeAudioData(ab, (b) => { try {
+            ctx.close();
+        }
+        catch (e) { } res(b); }, (e) => rej(e || new Error("decode")));
+    }));
+}
+async function encodeClip(buf, start, len) {
+    const rate = 22050, frames = Math.max(1, Math.floor(len * rate));
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const off = new OAC(1, frames, rate);
+    const src = off.createBufferSource();
+    src.buffer = buf;
+    src.connect(off.destination);
+    src.start(0, start, len);
+    const out = await new Promise((res, rej) => { off.oncomplete = (e) => res(e.renderedBuffer); const p = off.startRendering(); if (p && p.then)
+        p.then(res, rej); });
+    const d = out.getChannelData(0), n = d.length, fade = Math.min(n, Math.floor(rate * 0.4));
+    const ab = new ArrayBuffer(44 + n * 2), v = new DataView(ab);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++)
+        v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, "RIFF");
+    v.setUint32(4, 36 + n * 2, true);
+    w(8, "WAVE");
+    w(12, "fmt ");
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true);
+    v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true);
+    w(36, "data");
+    v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) {
+        let s = d[i];
+        if (i > n - fade)
+            s *= (n - i) / fade;
+        s = Math.max(-1, Math.min(1, s));
+        v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    const u = new Uint8Array(ab);
+    let bin = "";
+    for (let i = 0; i < u.length; i += 0x8000)
+        bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return "data:audio/wav;base64," + btoa(bin);
+}
+// ---- status editor (full screen): top icons = close, music, rotate, sticker, text, draw; caption bar with @; audience + send ----
+function StatusComposer({ token, onClose, onPosted, mode }) {
+    const [photo, setPhoto] = useState(null);
+    const [nat, setNat] = useState({ w: 720, h: 1280 });
+    const [bg, setBg] = useState(STATUS_COLORS[0]);
+    const [items, setItems] = useState([]);
+    const [strokes, setStrokes] = useState([]);
+    const [sel, setSel] = useState(null);
+    const [panel, setPanel] = useState(null); // "text" | "sticker" | "music"
+    const [draw, setDraw] = useState(false);
+    const [pen, setPen] = useState("#FFFFFF");
+    const [txt, setTxt] = useState({ id: null, v: "", c: "#FFFFFF" });
+    const [caption, setCaption] = useState("");
+    const [tags, setTags] = useState([]);
+    const [music, setMusic] = useState(null); // { name, buf, dur, start, len }
+    const [playing, setPlaying] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const [box, setBox] = useState({ w: 0, h: 0 });
+    const areaRef = useRef(null), fileRef = useRef(null), audioRef = useRef(null), capRef = useRef(null), dragRef = useRef(null), penRef = useRef(null), playRef = useRef(null), hRef = useRef(null);
+    useEffect(() => {
+        const el = areaRef.current;
+        if (!el)
+            return;
+        const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+        measure();
+        let ro;
+        if (window.ResizeObserver) {
+            ro = new ResizeObserver(measure);
+            ro.observe(el);
+        }
+        window.addEventListener("resize", measure);
+        return () => { if (ro)
+            ro.disconnect(); window.removeEventListener("resize", measure); };
+    }, []);
+    const stopPlay = () => { const p = playRef.current; playRef.current = null; if (p) {
+        try {
+            p.src.onended = null;
+            p.src.stop();
+        }
+        catch (e) { }
+        try {
+            p.ctx.close();
+        }
+        catch (e) { }
+    } setPlaying(false); };
+    useEffect(() => () => stopPlay(), []);
+    const startPlay = (m) => {
+        const mm = m || music;
+        if (!mm)
+            return;
+        stopPlay();
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AC();
+            const src = ctx.createBufferSource();
+            src.buffer = mm.buf;
+            src.connect(ctx.destination);
+            src.onended = () => stopPlay();
+            src.start(0, mm.start, mm.len);
+            playRef.current = { ctx, src };
+            setPlaying(true);
+        }
+        catch (e) {
+            setError("Could not play that audio");
+        }
+    };
+    const aspect = nat.w / nat.h, pad = 8;
+    const availW = Math.max(0, box.w - pad * 2), availH = Math.max(0, box.h - pad * 2);
+    let sw = availW, sh = sw / aspect;
+    if (sh > availH) {
+        sh = availH;
+        sw = sh * aspect;
+    }
+    sw = Math.floor(sw);
+    sh = Math.floor(sh);
+    const hasArt = !!photo || items.length > 0 || strokes.length > 0;
+    const canPost = !busy && (hasArt || caption.trim().length > 0);
+    const pick = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!f)
+            return;
+        if (!/^image\//.test(f.type))
+            return setError("Please choose a photo (videos are not supported yet)");
+        try {
+            const url = await compressImage(f, 1080);
+            const img = await loadImg(url);
+            setPhoto(url);
+            setNat({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
+            setError("");
+        }
+        catch (err) {
+            setError(err.message || "Could not open that photo");
+        }
+    };
+    const rotate = async () => {
+        if (!photo)
+            return setBg(STATUS_COLORS[(STATUS_COLORS.indexOf(bg) + 1) % STATUS_COLORS.length]);
+        try {
+            const img = await loadImg(photo);
+            const c = document.createElement("canvas");
+            c.width = img.height;
+            c.height = img.width;
+            const g = c.getContext("2d");
+            g.translate(c.width, 0);
+            g.rotate(Math.PI / 2);
+            g.drawImage(img, 0, 0);
+            const k = nat.w / nat.h;
+            setItems((a) => a.map((it) => ({ ...it, x: 1 - it.y, y: it.x, s: Math.min(1, it.s * k), r: ((it.r || 0) + 90) % 360 })));
+            setStrokes((a) => a.map((s) => ({ ...s, w: s.w * k, p: s.p.map((pt) => [1 - pt[1], pt[0]]) })));
+            setPhoto(c.toDataURL("image/jpeg", 0.9));
+            setNat({ w: c.width, h: c.height });
+        }
+        catch (e) { }
+    };
+    const upd = (id, patch) => setItems((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const addItem = (it) => { const id = Math.random().toString(36).slice(2); setItems((a) => [...a, { id, x: 0.5, y: 0.5, ...it }]); setSel(id); };
+    const selItem = items.find((x) => x.id === sel);
+    const ptrs = useRef({}), gest = useRef(null);
+    const down = (e, it) => {
+        e.stopPropagation(); setSel(it.id);
+        const r = e.currentTarget.parentNode.getBoundingClientRect();
+        ptrs.current[e.pointerId] = [e.clientX, e.clientY];
+        const ids = Object.keys(ptrs.current);
+        if (ids.length >= 2) { // two fingers on the item: pinch to resize, twist to rotate
+            const a = ptrs.current[ids[0]], b = ptrs.current[ids[1]];
+            gest.current = { id: it.id, d0: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, a0: Math.atan2(b[1] - a[1], b[0] - a[0]), s0: it.s, r0: it.r || 0 };
+            dragRef.current = null;
+        } else {
+            dragRef.current = { id: it.id, r, dx: (e.clientX - r.left) / r.width - it.x, dy: (e.clientY - r.top) / r.height - it.y };
+        }
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { }
+    };
+    const move = (e) => {
+        if (ptrs.current[e.pointerId]) ptrs.current[e.pointerId] = [e.clientX, e.clientY];
+        const ids = Object.keys(ptrs.current), gs = gest.current;
+        if (gs && ids.length >= 2) {
+            const a = ptrs.current[ids[0]], b = ptrs.current[ids[1]];
+            upd(gs.id, { s: Math.min(1, Math.max(0.03, gs.s0 * (Math.hypot(a[0] - b[0], a[1] - b[1]) / gs.d0))), r: gs.r0 + ((Math.atan2(b[1] - a[1], b[0] - a[0]) - gs.a0) * 180) / Math.PI });
+            return;
+        }
+        const d = dragRef.current; if (!d) return;
+        upd(d.id, { x: Math.min(1, Math.max(0, (e.clientX - d.r.left) / d.r.width - d.dx)), y: Math.min(1, Math.max(0, (e.clientY - d.r.top) / d.r.height - d.dy)) });
+    };
+    const up = (e) => { if (e && e.pointerId !== undefined) delete ptrs.current[e.pointerId]; if (!Object.keys(ptrs.current).length) { dragRef.current = null; gest.current = null; } else if (Object.keys(ptrs.current).length < 2) gest.current = null; };
+    const hDown = (e, it) => { // corner handle: drag to resize and rotate in one go
+        e.stopPropagation();
+        const box = e.currentTarget.parentNode.getBoundingClientRect(), cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+        hRef.current = { id: it.id, cx, cy, d0: Math.hypot(e.clientX - cx, e.clientY - cy) || 1, a0: Math.atan2(e.clientY - cy, e.clientX - cx), s0: it.s, r0: it.r || 0 };
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { }
+    };
+    const hMove = (e) => { const h = hRef.current; if (!h) return; e.stopPropagation(); upd(h.id, { s: Math.min(1, Math.max(0.03, h.s0 * (Math.hypot(e.clientX - h.cx, e.clientY - h.cy) / h.d0))), r: h.r0 + ((Math.atan2(e.clientY - h.cy, e.clientX - h.cx) - h.a0) * 180) / Math.PI }); };
+    const hUp = () => { hRef.current = null; };
+    const handle = (pos, label, glyph, on) => ce("div", Object.assign({ "aria-label": label, style: { position: "absolute", width: 26, height: 26, borderRadius: 13, background: "#fff", color: "#0E1116", fontSize: 14, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 6px rgba(0,0,0,.5)", touchAction: "none", cursor: "pointer", fontFamily: "Inter", ...pos } }, on), glyph);
+    const renderItem = (it) => {
+        const isSel = sel === it.id, w = it.s * sw, df = it.kind === "shape" ? (SHAPE_DEFS[it.v] || SHAPE_DEFS.rect) : null;
+        const inner = df
+            ? ce("svg", { width: w, height: w * df.h / 100, viewBox: "0 0 100 " + df.h, style: { display: "block", overflow: "visible", pointerEvents: "none" } },
+                ce("path", { d: df.d, fill: df.head || df.open ? "none" : it.f ? it.c : "none", stroke: it.c, strokeWidth: 6, strokeLinecap: "round", strokeLinejoin: "round" }),
+                df.head && ce("path", { d: df.head, fill: it.c, stroke: it.c, strokeWidth: 2, strokeLinejoin: "round" }))
+            : it.v;
+        return ce("div", { key: it.id, onPointerDown: (e) => down(e, it), onPointerMove: move, onPointerUp: up, onPointerCancel: up, style: { position: "absolute", left: it.x * sw, top: it.y * sh, transform: "translate(-50%,-50%) rotate(" + (it.r || 0) + "deg)", fontSize: it.s * sw, lineHeight: it.kind === "text" ? 1.2 : 1, color: it.c, fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, textAlign: "center", whiteSpace: "pre", cursor: "grab", touchAction: "none", userSelect: "none", pointerEvents: draw ? "none" : "auto", textShadow: it.kind === "text" ? "0 2px 8px rgba(0,0,0,.6)" : "none", outline: isSel ? "1.5px dashed rgba(255,255,255,.9)" : "1.5px dashed transparent", outlineOffset: 6, borderRadius: 4, background: "transparent" } },
+            inner,
+            isSel && !draw && handle({ top: -20, left: -20 }, "Delete", "×", { onPointerDown: (e) => { e.stopPropagation(); setItems((a) => a.filter((x) => x.id !== it.id)); setSel(null); } }),
+            isSel && !draw && handle({ bottom: -20, right: -20 }, "Resize and rotate", "⤡", { onPointerDown: (e) => hDown(e, it), onPointerMove: hMove, onPointerUp: hUp, onPointerCancel: hUp }));
+    };
+
+    const pt = (e, r) => [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+    const dDown = (e) => { const r = e.currentTarget.getBoundingClientRect(); penRef.current = r; const p = pt(e, r); setStrokes((a) => [...a, { c: pen, w: 0.012, p: [p] }]); try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    catch (err) { } };
+    const dMove = (e) => { const r = penRef.current; if (!r)
+        return; const p = pt(e, r); setStrokes((a) => { const b = a.slice(); const l = b[b.length - 1]; if (l)
+        b[b.length - 1] = { ...l, p: [...l.p, p] }; return b; }); };
+    const dUp = () => { penRef.current = null; };
+    const openText = (it) => { setTxt(it ? { id: it.id, v: it.v, c: it.c } : { id: null, v: "", c: "#FFFFFF" }); setSel(null); setPanel("text"); };
+    useEffect(() => { if (mode === "text") openText(null); }, []);
+    const saveText = () => {
+        const v = txt.v.replace(/\s+$/, "").replace(/^\s+/, "");
+        if (v) {
+            if (txt.id)
+                upd(txt.id, { v, c: txt.c });
+            else
+                addItem({ kind: "text", v, c: txt.c, s: v.length > 14 ? 0.055 : 0.075 });
+        }
+        setPanel(null);
+    };
+    const resize = (k) => selItem && upd(selItem.id, { s: Math.min(1, Math.max(0.03, selItem.s * k)) });
+    const insertAt = () => { setCaption((c) => (c && !/\s$/.test(c) ? c + " " : c) + "@"); setTimeout(() => capRef.current && capRef.current.focus(), 0); };
+    const pickAudio = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!f)
+            return;
+        if (f.size > 40 * 1024 * 1024)
+            return setError("That audio file is too big (max 40 MB)");
+        try {
+            const buf = await decodeAudioFile(f);
+            const m = { name: f.name.replace(/\.[^.]+$/, "").slice(0, 40) || "Music", buf, dur: buf.duration, start: 0, len: Math.max(1, Math.min(15, Math.floor(buf.duration))) };
+            setMusic(m);
+            setError("");
+            startPlay(m);
+        }
+        catch (err) {
+            setError("Could not read that audio file. Try an MP3, M4A or WAV.");
+        }
+    };
+    const setClip = (patch) => { stopPlay(); setMusic((m) => { const n = { ...m, ...patch }; n.start = Math.max(0, Math.min(n.start, Math.max(0, n.dur - n.len))); return n; }); };
+    const close = () => { if ((hasArt || caption.trim() || music) && !window.confirm("Discard this status?"))
+        return; stopPlay(); onClose(); };
+    const post = async () => {
+        if (!canPost)
+            return;
+        setBusy(true);
+        setError("");
+        stopPlay();
+        try {
+            const body = { text: caption.trim(), bg, tags: liveTags(caption, tags).map((t) => ({ type: t.type, id: t.id })) };
+            if (hasArt)
+                body.photo = await bakeStatus(photo, nat, bg, items, strokes);
+            if (music) {
+                const data = await encodeClip(music.buf, music.start, music.len);
+                body.music = { data, name: music.name, dur: music.len };
+            }
+            await api("/api/v1/status", { method: "POST", token, body });
+            onPosted();
+        }
+        catch (e) {
+            setError((e && e.message) || "Could not post your status");
+            setBusy(false);
+        }
+    };
+    const round = (on) => ({ width: 44, height: 44, borderRadius: 22, border: "none", background: on ? "#35D0BA" : "transparent", filter: on ? "none" : "drop-shadow(0 1px 3px rgba(0,0,0,.8))", color: on ? "#0E1116" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, flexShrink: 0 });
+    const tool = (label, on, onClick, child) => ce("button", { key: label, onClick, "aria-label": label, style: round(on) }, child);
+    const top = ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "12px 12px 8px", flexShrink: 0 } }, tool("Close", false, close, ce(X, { size: 24, color: "#fff" })), ce("div", { style: { flex: 1 } }), tool("Add music", !!music, () => { setDraw(false); setPanel("music"); }, ce(MusicIcon, { size: 22, color: music ? "#0E1116" : "#fff" })), tool(photo ? "Rotate photo" : "Change background colour", false, rotate, ce(RotateIcon, { size: 22, color: "#fff" })), tool("Add sticker", false, () => { setDraw(false); setPanel("sticker"); }, ce(StickerIcon, { size: 22, color: "#fff" })), tool("Add text", false, () => { setDraw(false); openText(null); }, ce("span", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 18 } }, "Aa")), tool("Draw", draw, () => { setSel(null); setDraw((d) => !d); }, ce(Pencil, { size: 22, color: draw ? "#0E1116" : "#fff" })));
+    const stage = ce("div", { onPointerDown: () => setSel(null), style: { position: "relative", width: sw, height: sh, background: photo ? "#000" : bg, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(255,255,255,.08)", touchAction: "none", animation: "lcFade .3s ease-out" } }, photo && ce("img", { src: photo, alt: "", draggable: false, style: { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "fill", userSelect: "none", pointerEvents: "none" } }), !photo && !items.length && !strokes.length && ce("div", { style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "rgba(255,255,255,.75)", pointerEvents: "none" } }, "Tap Aa to write, or add a photo"), ce("svg", { width: sw, height: sh, viewBox: "0 0 " + sw + " " + sh, onPointerDown: draw ? dDown : undefined, onPointerMove: draw ? dMove : undefined, onPointerUp: draw ? dUp : undefined, onPointerCancel: draw ? dUp : undefined, style: { position: "absolute", left: 0, top: 0, touchAction: "none", pointerEvents: draw ? "auto" : "none", cursor: draw ? "crosshair" : "default" } }, strokes.map((s, i) => ce("polyline", { key: i, fill: "none", stroke: s.c, strokeWidth: s.w * sw, strokeLinecap: "round", strokeLinejoin: "round", points: s.p.map((q) => (q[0] * sw).toFixed(1) + "," + (q[1] * sh).toFixed(1)).join(" ") }))), items.map(renderItem));
+    const selBar = selItem && !draw && ce("div", { style: { position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 3 } }, [["Smaller", "A−", () => resize(0.87)], ["Bigger", "A+", () => resize(1.15)], selItem.kind !== "sticker" ? ["Colour", ce("span", { style: { color: selItem.c, fontSize: 20, lineHeight: 1 } }, "●"), () => upd(selItem.id, { c: STATUS_TEXT_COLORS[(STATUS_TEXT_COLORS.indexOf(selItem.c) + 1) % STATUS_TEXT_COLORS.length] })] : null, selItem.kind === "shape" && !(SHAPE_DEFS[selItem.v] || {}).open ? ["Fill", selItem.f ? "◼" : "◻", () => upd(selItem.id, { f: !selItem.f })] : null, ["Rotate", "↻", () => upd(selItem.id, { r: ((selItem.r || 0) + 15) % 360 })], selItem.kind === "text" ? ["Edit text", "✎", () => openText(selItem)] : null, ["Delete", "\u{1F5D1}", () => { setItems((a) => a.filter((x) => x.id !== selItem.id)); setSel(null); }]].filter(Boolean).map(([l, g, f]) => ce("button", { key: l, onClick: f, "aria-label": l, style: { ...round(false), width: 38, height: 38, fontFamily: "Inter", fontWeight: 700, fontSize: 14, background: "transparent", textShadow: "0 1px 4px rgba(0,0,0,.9)" } }, g)));
+    const musicChip = music && ce("button", { onClick: () => setPanel("music"), style: { position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", maxWidth: "88%", display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid rgba(53,208,186,.6)", borderRadius: 999, padding: "6px 12px", color: "#fff", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", zIndex: 3 } }, ce(MusicIcon, { size: 15, color: "#35D0BA" }), ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, music.name + " · " + clock(music.start) + "–" + clock(music.start + music.len)));
+    const dot = (c, on, f) => ce("button", { key: c, onClick: f, "aria-label": "Colour " + c, style: { width: 28, height: 28, borderRadius: 14, background: c, border: on ? "3px solid #fff" : "3px solid rgba(255,255,255,.25)", cursor: "pointer", padding: 0, flexShrink: 0 } });
+    const bottom = draw
+        ? ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 18px", flexShrink: 0 } }, STATUS_TEXT_COLORS.map((c) => dot(c, pen === c, () => setPen(c))), ce("div", { style: { flex: 1 } }), ce("button", { onClick: () => setStrokes((a) => a.slice(0, -1)), disabled: !strokes.length, style: { ...smallBtn, opacity: strokes.length ? 1 : 0.4 } }, "Undo"), ce("button", { onClick: () => setDraw(false), style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done"))
+        : ce("div", { style: { flexShrink: 0 } }, !photo && ce("div", { style: { display: "flex", gap: 10, justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))), ce("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } }, ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }), ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })), ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }), ce("button", { onClick: insertAt, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))), ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: post, disabled: !canPost, "aria-label": "Post status", style: { width: 56, height: 56, borderRadius: 28, border: "none", background: "#21C063", cursor: canPost ? "pointer" : "default", opacity: canPost ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: canPost ? "0 0 18px rgba(33,192,99,.55)" : "none" } }, busy ? ce("span", { style: { color: "#06210F", fontFamily: "Inter", fontWeight: 700, fontSize: 12 } }, "…") : ce(Send, { size: 26, color: "#06210F" }))));
+    const sheetBox = { position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(15,20,28,.4)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: "22px 22px 0 0", borderTop: "1px solid rgba(53,208,186,.5)", padding: "14px 16px 22px", maxHeight: "70%", overflowY: "auto", animation: "hubUp .22s ease-out", zIndex: 10 };
+    const musicPanel = panel === "music" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => { stopPlay(); setPanel(null); } }, ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox }, ce("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, "Add music"), ce("button", { onClick: () => { stopPlay(); setPanel(null); }, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")), ce("input", { ref: audioRef, type: "file", accept: "audio/*", onChange: pickAudio, style: { display: "none" } }), !music && ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 12 } }, "Pick a song or sound from your phone, then choose the part you want (up to 15 seconds)."), ce("button", { onClick: () => audioRef.current && audioRef.current.click(), style: { ...smallBtn, width: "100%", padding: "11px 12px", marginBottom: 14 } }, music ? "Choose a different file" : "Choose audio from your device"), music && ce("div", null, ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, "♪ " + music.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 12px" } }, "Full length " + clock(music.dur) + " · playing " + clock(music.start) + " to " + clock(music.start + music.len)), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 4 } }, "Start at"), ce("input", { type: "range", min: 0, max: Math.max(0, Math.floor((music.dur - music.len) * 2) / 2), step: 0.5, value: music.start, disabled: music.dur - music.len < 0.5, onChange: (e) => setClip({ start: Number(e.target.value) }), style: { width: "100%", accentColor: "#35D0BA", marginBottom: 12 } }), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 6 } }, "Length"), ce("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [5, 10, 15].filter((n) => n <= Math.floor(music.dur) || n === 5).map((n) => ce("button", { key: n, onClick: () => setClip({ len: Math.min(n, Math.floor(music.dur) || n) }), style: { ...smallBtn, flex: 1, background: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#35D0BA" : "#1E2530", color: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#0E1116" : "#35D0BA" } }, n + " sec"))), ce("div", { style: { display: "flex", gap: 10 } }, ce("button", { onClick: () => (playing ? stopPlay() : startPlay()), style: { ...smallBtn, flex: 1, padding: "10px 12px" } }, playing ? "⏹ Stop preview" : "▶ Preview"), ce("button", { onClick: () => { stopPlay(); setMusic(null); }, style: { ...smallBtn, flex: 1, padding: "10px 12px", color: "#FF6B5D" } }, "Remove music")))));
+    const stickerPanel = panel === "sticker" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => setPanel(null) }, ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox }, ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Stickers and emojis"), ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s))),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", margin: "18px 0 10px" } }, "Shapes and arrows"),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 } }, SHAPE_LIST.map((k) => { const df = SHAPE_DEFS[k]; return ce("button", { key: k, onClick: () => { addItem({ kind: "shape", v: k, c: "#FFFFFF", f: false, s: df.open ? 0.4 : 0.3 }); setPanel(null); }, "aria-label": "Shape " + k, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "10px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("svg", { width: 34, height: 34 * df.h / 100 + 6, viewBox: "0 0 100 " + df.h, style: { overflow: "visible" } }, ce("path", { d: df.d, fill: "none", stroke: "#fff", strokeWidth: 7, strokeLinecap: "round", strokeLinejoin: "round" }), df.head && ce("path", { d: df.head, fill: "#fff", stroke: "#fff", strokeWidth: 2 }))); }))));
+    const textPanel = panel === "text" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } }, ce("div", { style: { display: "flex", alignItems: "center", padding: "12px" } }, ce("button", { onClick: () => setPanel(null), style: { ...smallBtn, color: "#9BA7B4" } }, "Cancel"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: saveText, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")), ce("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" } }, ce("textarea", { autoFocus: true, value: txt.v, rows: 3, maxLength: 80, onChange: (e) => setTxt({ ...txt, v: e.target.value.split("\n").slice(0, 3).join("\n") }), placeholder: "Type something…", className: "lc-plain", style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: txt.c, fontFamily: "Sora", fontWeight: 700, fontSize: 30, textShadow: "0 2px 8px rgba(0,0,0,.6)" } })), ce("div", { style: { display: "flex", justifyContent: "center", gap: 12, padding: "10px 12px 24px" } }, STATUS_TEXT_COLORS.map((c) => dot(c, txt.c === c, () => setTxt({ ...txt, c })))));
+    return ce("div", { role: "dialog", "aria-label": "New status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 65, background: "#000", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, top, error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })), ce("div", { ref: areaRef, style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, stage, selBar, musicChip), bottom, musicPanel, stickerPanel, textPanel);
+}
+// ---- status v2: story rail, search, starred, archive, privacy/mute, reactions + replies ----
+const STATUS_QUICK = ["😍", "😂", "😮", "😢", "🙏", "👍"];
+const statusPrefs = () => ({ receipts: true, archive: true, muted: [], ...(loadJSON("statusPrefs", {}) || {}) });
+async function statusThumb(src, w) { // small JPEG data URL so starred/archived updates survive the 24h clear
+    try {
+        const blob = await (await fetch(photoSrc(src))).blob();
+        const url = URL.createObjectURL(blob);
+        const img = await new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = url; });
+        const k = Math.min(1, (w || 420) / img.width), c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        return c.toDataURL("image/jpeg", 0.7);
+    } catch (e) { return null; }
+}
+const statusSnap = async (item, name) => ({ id: item.id, name, text: item.text || "", bg: item.bg, time: item.time, photo: item.photo ? await statusThumb(item.photo) : null });
+function StatusViewer({ groups, start, token, onClose, onChanged }) {
+    const [g, setG] = useState(start);
+    const [i, setI] = useState(0);
+    const [paused, setPaused] = useState(false);
+    const [menu, setMenu] = useState(false);
+    const [more, setMore] = useState(false);
+    const [reply, setReply] = useState("");
+    const [toast, setToast] = useState("");
+    const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
+    const group = groups[g], item = group && group.items[i];
+    const timer = useRef({ t: null, left: 0, at: 0 });
+    const sw = useRef({ x: 0, y: 0, mx: 0, my: 0, on: false, moved: false, block: 0 }), dirRef = useRef(1);
+    const [dx, setDx] = useState(0);
+    const next = () => { dirRef.current = 1; if (i + 1 < group.items.length) setI(i + 1); else if (g + 1 < groups.length) { setG(g + 1); setI(0); } else onClose(); };
+    const prev = () => { dirRef.current = -1; if (i > 0) setI(i - 1); else if (g > 0) { setG(g - 1); setI(groups[g - 1].items.length - 1); } };
+    const nextRef = useRef(next); nextRef.current = next;
+    const dur = item ? Math.max(5500, (item.musicDur || 0) * 1000) : 5500;
+    const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
+    useEffect(() => { setPaused(false); setMore(false); setMenu(false); setReply(""); }, [g, i]);
+    useEffect(() => {
+        if (!item) return;
+        if (!group.mine && !item.seen && statusPrefs().receipts) { api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { }); }
+        timer.current.left = dur;
+    }, [g, i]);
+    useEffect(() => { // run / pause the auto-advance timer (hold, menu, typing a reply or expanded caption pause it)
+        const t = timer.current;
+        if (!item) return;
+        if (paused || menu || more) { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } return; }
+        t.at = Date.now(); t.t = setTimeout(() => nextRef.current(), t.left);
+        return () => { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } };
+    }, [g, i, paused, menu, more]);
+    useEffect(() => { // play the trimmed music while this update is on screen
+        if (!item || !item.music) return;
+        let audio = null, url = null, dead = false;
+        fetch(photoSrc(item.music)).then((r) => r.blob()).then((b) => {
+            if (dead) return;
+            url = URL.createObjectURL(b); audio = new Audio(url); audio.loop = true;
+            const p = audio.play(); if (p && p.catch) p.catch(() => { });
+        }).catch(() => { });
+        return () => { dead = true; if (audio) audio.pause(); if (url) URL.revokeObjectURL(url); };
+    }, [g, i]);
+    if (!item) return null;
+    const remove = async () => {
+        if (!window.confirm("Delete this status update?")) return;
+        try { await api("/api/v1/status/" + item.id, { method: "DELETE", token }); onChanged(); if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } }
+        catch { }
+    };
+    const isStar = starred.some((s) => s.id === item.id);
+    const toggleStar = async () => {
+        setMenu(false);
+        if (isStar) { const n = starred.filter((s) => s.id !== item.id); setStarred(n); saveJSON("statusStarred", n); return flash("Removed from Starred"); }
+        const snap = await statusSnap(item, group.mine ? "My status" : group.user.name);
+        const n = [snap, ...starred].slice(0, 30); setStarred(n); saveJSON("statusStarred", n); flash("Starred ⭐");
+    };
+    const muteUser = () => {
+        setMenu(false);
+        const p = statusPrefs(); if (!p.muted.includes(group.user.id)) saveJSON("statusPrefs", { ...p, muted: [...p.muted, group.user.id] });
+        flash("Muted " + group.user.name); onChanged(); setTimeout(onClose, 600);
+    };
+    const sendToOwner = async (text) => { // replies and reactions arrive as a private message from the viewer
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: group.user.id } });
+            const s = window.__lcSocket && window.__lcSocket();
+            if (!s) throw new Error("Not connected. Try again in a moment.");
+            const about = item.text ? ": “" + item.text.slice(0, 60) + (item.text.length > 60 ? "…" : "") + "”" : (item.photo ? " (photo)" : "");
+            s.emit("message:send", { conversationId: conversation.id, text: "↩ Status" + about + "\n" + text }, (ack) => { if (ack && ack.error) flash(ack.error); else flash("Sent to " + group.user.name); });
+        } catch (e) { flash((e && e.message) || "Could not send"); }
+    };
+    const sendReply = () => { const t = reply.trim(); if (!t) return; setReply(""); sendToOwner(t); };
+    const long = !!(item.photo && item.text && item.text.length > 110);
+    const hold = { // press = pause, swipe left/right = next/previous post (across people too), swipe down = close
+        onMouseDown: () => setPaused(true), onMouseUp: () => setPaused(false),
+        onTouchStart: (e) => { const t = e.touches[0]; sw.current = { x: t.clientX, y: t.clientY, mx: 0, my: 0, on: true, moved: false, block: sw.current.block }; setPaused(true); },
+        onTouchMove: (e) => { const s = sw.current; if (!s.on) return; const t = e.touches[0]; s.mx = t.clientX - s.x; s.my = t.clientY - s.y; if (!s.moved && Math.abs(s.mx) > 12 && Math.abs(s.mx) > Math.abs(s.my)) s.moved = true; if (s.moved) setDx(s.mx); },
+        onTouchEnd: () => { const s = sw.current; s.on = false; setPaused(false); setDx(0); if (s.moved) { s.block = Date.now(); if (s.mx < -60) next(); else if (s.mx > 60) prev(); } else if (s.my > 110 && s.my > Math.abs(s.mx) * 1.5) { s.block = Date.now(); onClose(); } },
+        onTouchCancel: () => { sw.current.on = false; setPaused(false); setDx(0); } };
+    const mi = (label, fn, color) => ce("button", { key: label, onClick: fn, style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 18px", fontFamily: "Inter", fontSize: 14.5, color: color || "#E6EAF0", cursor: "pointer" } }, label);
+    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}@keyframes lcStIn{from{opacity:0;transform:translateX(var(--d,28px))}to{opacity:1;transform:none}}"),
+        ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } },
+            ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more ? "paused" : "running" } })))),
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 3 } },
+            ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })),
+            ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
+            ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (group.items.length > 1 ? " · " + (i + 1) + "/" + group.items.length : "") + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))),
+            ce("button", { onClick: () => setMenu(!menu), "aria-label": "More", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(MoreVertical, { size: 22, color: "#fff" })),
+            menu && ce("div", { style: { position: "absolute", top: 54, right: 12, background: "#1B212B", borderRadius: 12, minWidth: 190, boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden" } },
+                mi(isStar ? "Remove star" : "Star", toggleStar), !group.mine && mi("Mute " + group.user.name, muteUser), group.mine && mi("Delete", () => { setMenu(false); remove(); }, "#FF6B5D"))),
+        ce("div", Object.assign({ style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", transform: dx ? "translateX(" + dx + "px)" : "none", opacity: dx ? Math.max(0.5, 1 - Math.abs(dx) / 400) : 1, transition: dx ? "none" : "transform .2s ease, opacity .2s ease" } }, hold),
+            item.photo && ce("img", { key: item.id, src: photoSrc(item.photo), alt: "", draggable: false, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out" } }),
+            !item.photo && ce("div", { key: item.id, style: { "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out", padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(item.text)),
+            ce("div", { onClick: () => { if (Date.now() - sw.current.block > 350) prev(); }, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }),
+            ce("div", { onClick: () => { if (Date.now() - sw.current.block > 350) next(); }, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })),
+        ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { onClick: () => long && setMore(!more), style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)", maxHeight: more ? "45%" : undefined, overflowY: more ? "auto" : undefined, cursor: long ? "pointer" : "default" } },
+            item.photo && item.text ? (long && !more ? ce("span", null, richText(item.text.slice(0, 110).trim() + "… "), ce("b", null, "Read more")) : richText(item.text)) : null, ce(TagPills, { tags: item.tags, light: true })),
+        group.mine ? ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+            ce("span", { style: { flex: 1 } }, "Seen by " + (item.views || 0)),
+            ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete"))
+            : ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 20px", background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+                ce("input", { value: reply, onChange: (e) => setReply(e.target.value), onFocus: () => setPaused(true), onBlur: () => setPaused(false), onKeyDown: (e) => { if (e.key === "Enter") sendReply(); }, placeholder: "Reply", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,.14)", border: "none", outline: "none", borderRadius: 999, padding: "10px 16px", color: "#fff", fontFamily: "Inter", fontSize: 14.5 } }),
+                reply.trim() ? ce("button", { onClick: sendReply, "aria-label": "Send reply", style: { width: 38, height: 38, borderRadius: 19, border: "none", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ce(Send, { size: 18, color: "#06210F" }))
+                    : STATUS_QUICK.slice(0, 5).map((e) => ce("button", { key: e, onClick: () => sendToOwner(e + " reacted to your status"), "aria-label": "React " + e, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 2 } }, e))),
+        toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
+}
+// A tiny grid of saved updates (used by Starred and Archive)
+function StatusSaved({ title, list, empty, onBack, onRemove, top }) {
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title, onBack }),
+        top,
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 12px 24px" } },
+            !list.length && ce("div", { style: { padding: "40px 24px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, empty),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } }, list.map((s) =>
+                ce("div", { key: s.id, style: { position: "relative", aspectRatio: "9 / 16", borderRadius: 12, overflow: "hidden", background: s.bg || "#1E8677", display: "flex", alignItems: "center", justifyContent: "center" } },
+                    s.photo ? ce("img", { src: s.photo, alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { padding: 8, color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 12, textAlign: "center", wordBreak: "break-word" } }, (s.text || "").slice(0, 70)),
+                    ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "14px 6px 5px", background: "linear-gradient(transparent, rgba(0,0,0,.7))", color: "#fff", fontFamily: "Inter", fontSize: 10.5 } }, (s.name ? s.name + " · " : "") + new Date(s.time).toLocaleDateString()),
+                    ce("button", { onClick: () => onRemove(s.id), "aria-label": "Remove", style: { position: "absolute", top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" } }, ce(X, { size: 13, color: "#fff" })))))));
+}
+// ---- Broadcast lists: write once, it goes to every chosen contact as a private message. Lists are saved on this device ----
+const loadLists = () => { const l = loadJSON("broadcastLists", []); return Array.isArray(l) ? l : []; };
+async function sendBroadcast(token, ids, text) {
+    const s = window.__lcSocket && window.__lcSocket();
+    if (!s) throw new Error("Not connected. Try again in a moment.");
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: id } });
+            await Promise.race([
+                new Promise((res, rej) => s.emit("message:send", { conversationId: conversation.id, text }, (ack) => (ack && ack.error ? rej(new Error(ack.error)) : res()))),
+                new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000))]);
+            ok++;
+        } catch (e) { fail++; }
+    }
+    return { ok, fail };
+}
+function BroadcastScreen({ token, contacts, onBack }) {
+    const [lists, setLists] = useState(loadLists);
+    const [view, setView] = useState(null); // null = all lists, { mode: "edit" | "send", id }
+    const [name, setName] = useState(""), [picked, setPicked] = useState([]), [q, setQ] = useState("");
+    const [text, setText] = useState(""), [busy, setBusy] = useState(false), [msg, setMsg] = useState(""), [err, setErr] = useState("");
+    const save = (n) => { setLists(n); saveJSON("broadcastLists", n); };
+    const byId = (id) => contacts.find((c) => c.id === id);
+    const cur = view && view.id ? lists.find((l) => l.id === view.id) : null;
+    const col = { display: "flex", flexDirection: "column", height: "100%" };
+    const startEdit = (l) => { setName(l ? l.name : ""); setPicked(l ? l.ids.filter(byId) : []); setQ(""); setErr(""); setView({ mode: "edit", id: l ? l.id : null }); };
+    const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+    const commit = () => {
+        if (!name.trim()) return setErr("Give the list a name");
+        if (!picked.length) return setErr("Pick at least one contact");
+        if (view.id) { save(lists.map((l) => (l.id === view.id ? { ...l, name: name.trim(), ids: picked } : l))); setMsg(""); setView({ mode: "send", id: view.id }); }
+        else { const id = "bl" + Date.now().toString(36); save([{ id, name: name.trim(), ids: picked, history: [], created: Date.now() }, ...lists]); setMsg(""); setView({ mode: "send", id }); }
+    };
+    const remove = () => { if (!window.confirm("Delete this broadcast list?")) return; save(lists.filter((l) => l.id !== view.id)); setView(null); };
+    const send = async () => {
+        const t = text.trim(); if (!t || busy || !cur) return;
+        const ids = cur.ids.filter(byId);
+        if (!ids.length) return setMsg("None of the contacts on this list are available.");
+        setBusy(true); setMsg("");
+        let r;
+        try { r = await sendBroadcast(token, ids, t); } catch (e) { r = { ok: 0, fail: ids.length, error: e.message }; }
+        setBusy(false);
+        if (r.ok) { setText(""); save(lists.map((l) => (l.id === cur.id ? { ...l, history: [...(l.history || []), { text: t, time: Date.now(), ok: r.ok, fail: r.fail }].slice(-30) } : l))); }
+        setMsg(r.error || ("Sent to " + r.ok + " of " + ids.length + (r.fail ? " · " + r.fail + " failed" : "")));
+    };
+    const tick = (on) => ce("div", { style: { width: 22, height: 22, borderRadius: 6, border: "2px solid " + (on ? "#21C063" : "#262E3A"), background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center" } }, on && ce(Check, { size: 14, color: "#06210F", strokeWidth: 3 }));
+    const bAvatar = ce("div", { style: { width: 46, height: 46, borderRadius: 23, background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(Megaphone, { size: 22, color: "#06210F" }));
+
+    if (!view) return ce("div", { style: col },
+        ce(TopBar, { title: "Broadcast lists", onBack, right: ce("button", { onClick: () => startEdit(null), style: smallBtn }, "New list") }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: { padding: "0 16px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", lineHeight: 1.45 } }, "Create a list of chosen contacts and send them the same message any time. Each person receives it as a private chat message."),
+            !lists.length && ce("div", { style: { padding: "30px 24px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, "No broadcast lists yet. Tap New list to create one."),
+            lists.map((l) => { const n = l.ids.filter(byId).length, last = (l.history || [])[(l.history || []).length - 1];
+                return ce("div", { key: l.id, onClick: () => { setMsg(""); setText(""); setView({ mode: "send", id: l.id }); }, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", cursor: "pointer" } }, bAvatar,
+                    ce("div", { style: { flex: 1, minWidth: 0 } },
+                        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, l.name),
+                        ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, last ? last.text : n + (n === 1 ? " recipient" : " recipients")))); })));
+
+    if (view.mode === "edit") {
+        const needle = q.trim().toLowerCase(), shown = contacts.filter((c) => !needle || (c.name || "").toLowerCase().includes(needle));
+        return ce("div", { style: col },
+            ce(TopBar, { title: view.id ? "Edit list" : "New broadcast list", onBack: () => setView(view.id ? { mode: "send", id: view.id } : null) }),
+            err && ce(Banner, { text: err, onClose: () => setErr("") }),
+            ce("div", { style: { padding: "0 16px" } },
+                ce("div", { style: inputBox }, ce("input", { value: name, maxLength: 40, onChange: (e) => setName(e.target.value), placeholder: "List name", style: inputEl })),
+                ce("div", { style: { ...inputBox, marginBottom: 6 } }, ce(Search, { size: 18, color: "#5B6673" }), ce("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search contacts", style: { ...inputEl, fontWeight: 500, fontFamily: "Inter" } })),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", paddingBottom: 4 } }, picked.length + " selected")),
+            ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px" } },
+                !contacts.length && ce("div", { style: { padding: "24px 0", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, "No contacts yet. Start a chat with someone first."),
+                shown.map((c) => ce(PersonRow, { key: c.id, u: c, status: "", onClick: () => toggle(c.id), right: tick(picked.includes(c.id)) }))),
+            ce("div", { style: { padding: "10px 16px 16px", flexShrink: 0 } }, ce("button", { onClick: commit, style: { ...primaryBtn(false), background: "#21C063", color: "#06210F" } }, view.id ? "Save changes" : "Create list")));
+    }
+
+    if (!cur) return null;
+    const members = cur.ids.map(byId).filter(Boolean), hist = cur.history || [];
+    return ce("div", { style: col },
+        ce(TopBar, { title: cur.name, onBack: () => setView(null), right: ce("div", { style: { display: "flex", gap: 8 } }, ce("button", { onClick: () => startEdit(cur), style: smallBtn }, "Edit"), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 12px" } },
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12, lineHeight: 1.5 } }, "Recipients (" + members.length + "): " + (members.map((m) => m.name).join(", ") || "none available")),
+            !hist.length && ce("div", { style: { padding: "26px 10px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, "Type a message below to send it to everyone on this list."),
+            hist.map((h, k) => ce("div", { key: k, style: { display: "flex", justifyContent: "flex-end", marginBottom: 10 } },
+                ce("div", { style: { maxWidth: "82%", background: "#1E8677", color: "#fff", borderRadius: "14px 14px 4px 14px", padding: "9px 12px", fontFamily: "Inter", fontSize: 14.5, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, h.text,
+                    ce("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 4, textAlign: "right" } }, "Sent to " + h.ok + " · " + new Date(h.time).toLocaleString()))))),
+        msg && ce("div", { style: { padding: "6px 16px", fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA", flexShrink: 0 } }, msg),
+        ce("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, padding: "8px 12px 14px", flexShrink: 0, borderTop: "1px solid #1F2733" } },
+            ce("textarea", { value: text, rows: 1, maxLength: MAX_MSG_CHARS, onChange: (e) => setText(e.target.value), placeholder: "Broadcast message", style: { flex: 1, minWidth: 0, resize: "none", maxHeight: 120, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 18, outline: "none", padding: "10px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } }),
+            ce("button", { onClick: send, disabled: busy || !text.trim(), "aria-label": "Send broadcast", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#21C063", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, busy ? ce("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : ce(Send, { size: 22, color: "#06210F" }))));
+}
+function StatusScreen({ profile, token, onSettings, contacts }) {
+    const [data, setData] = useState({ mine: [], feed: [] });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [composer, setComposer] = useState(false);
+    const [mode, setMode] = useState(null), [info, setInfo] = useState("");
+    const [view, setView] = useState(null); // { groups, start }
+    const [menu, setMenu] = useState(false);
+    const [searching, setSearching] = useState(false);
+    const [q, setQ] = useState("");
+    const [recents, setRecents] = useState(() => loadJSON("statusRecents", []));
+    const [sub, setSub] = useState(null); // "starred" | "privacy" | "archive"
+    const [prefs, setPrefs] = useState(statusPrefs);
+    const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
+    const [archive, setArchive] = useState(() => loadJSON("statusArchive", []));
+    const F = getFeatures();
+    const setPref = (patch) => { const n = { ...prefs, ...patch }; setPrefs(n); saveJSON("statusPrefs", n); };
+    const load = useCallback(() => api("/api/v1/status", { token }).then((d) => { setData(d); setError(""); setPrefs(statusPrefs()); setStarred(loadJSON("statusStarred", [])); }).catch((e) => setError(e.message)).finally(() => setLoading(false)), [token]);
+    useEffect(() => { load(); }, [load]);
+    useEffect(() => { // archive my own updates before the server clears them after 24h
+        if (!prefs.archive || !data.mine.length) return;
+        const have = new Set(loadJSON("statusArchive", []).map((s) => s.id)), fresh = data.mine.filter((s) => !have.has(s.id));
+        if (!fresh.length) return;
+        let dead = false;
+        Promise.all(fresh.map((s) => statusSnap(s, "My status"))).then((snaps) => { if (dead) return; const n = [...snaps, ...loadJSON("statusArchive", [])].slice(0, 60); saveJSON("statusArchive", n); setArchive(n); });
+        return () => { dead = true; };
+    }, [data.mine.map((s) => s.id).join(","), prefs.archive]);
+    const mineGroup = { mine: true, user: profile, items: data.mine };
+    const open = (groups, start) => setView({ groups, start });
+    const addTap = (m) => { if (!F.status) return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setMode(m || null); setComposer(true); };
+    const feed = data.feed.filter((gr) => !prefs.muted.includes(gr.user.id)).slice().sort((a, b) => (a.allSeen === b.allSeen ? b.latest - a.latest : a.allSeen ? 1 : -1));
+    const mutedFeed = data.feed.filter((gr) => prefs.muted.includes(gr.user.id));
+    const needle = q.trim().toLowerCase();
+    const hits = needle ? feed.filter((gr) => gr.user.name.toLowerCase().includes(needle) || gr.items.some((it) => (it.text || "").toLowerCase().includes(needle))) : [];
+    const remember = (t) => { const n = [t, ...recents.filter((x) => x !== t)].slice(0, 8); setRecents(n); saveJSON("statusRecents", n); };
+    const openFrom = (gr) => { remember(gr.user.name); open(feed, feed.indexOf(gr)); };
+    const iconBtn = (label, child, fn) => ce("button", { key: label, onClick: fn, "aria-label": label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, child);
+    const head = (t) => ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, t);
+    const row = (key, ring, title, sub2, onClick, right) => ce("div", { key, onClick, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", cursor: "pointer" } }, ring, ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, sub2)), right);
+    if (sub === "broadcast") return ce(BroadcastScreen, { token, contacts: contacts || [], onBack: () => setSub(null) });
+    if (sub === "starred") return ce(StatusSaved, { title: "Starred", list: starred, empty: "Star a status update from its ⋮ menu to keep a copy here.", onBack: () => setSub(null), onRemove: (id) => { const n = starred.filter((s) => s.id !== id); setStarred(n); saveJSON("statusStarred", n); } });
+    if (sub === "archive") return ce(StatusSaved, { title: "Status archive", list: archive, empty: "Nothing archived yet. New updates you post are saved here.", onBack: () => setSub(null), onRemove: (id) => { const n = archive.filter((s) => s.id !== id); setArchive(n); saveJSON("statusArchive", n); },
+        top: ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Archive my status updates"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Keep a copy on this device after your update disappears.")), ce(Toggle, { on: prefs.archive, onChange: (v) => setPref({ archive: v }) })) });
+    if (sub === "privacy") return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Status privacy", onBack: () => setSub(null) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "View receipts"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Let people know when you have seen their status. Turn off to view privately.")), ce(Toggle, { on: prefs.receipts, onChange: (v) => setPref({ receipts: v }) })),
+            head("Muted updates"),
+            !mutedFeed.length && ce("div", { style: { padding: "6px 16px 16px", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No muted contacts. Mute someone from the ⋮ menu while viewing their status."),
+            mutedFeed.map((gr) => row(gr.user.id, ce(Ring, { size: 44, color: "#5B6673", initials: gr.user.initials, photo: gr.user.avatar, ring: false }), gr.user.name, "Muted", null, ce("button", { onClick: () => setPref({ muted: prefs.muted.filter((x) => x !== gr.user.id) }), style: smallBtn }, "Unmute")))));
+    const stRing = (u, size, seen) => ce("div", { style: { width: size, height: size, borderRadius: "50%", border: "3px solid " + (seen ? "#5B6673" : "#21C063"), padding: 2, boxSizing: "border-box", background: "rgba(0,0,0,.35)", flexShrink: 0 } }, ce(Ring, { size: size - 10, color: u.color || "#35D0BA", initials: u.initials, photo: u.avatar, ring: false }));
+    const card = (key, onClick, bgNode, label, avatar, extra) => ce("div", { key, onClick, style: { flex: "0 0 auto", width: 90, height: 158, borderRadius: 18, overflow: "hidden", position: "relative", cursor: "pointer", background: "#101820", border: "1px solid #1F2733", boxSizing: "border-box" } },
+        bgNode, avatar, extra,
+        ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 9px 10px", background: "linear-gradient(transparent, rgba(0,0,0,.82))" } },
+            ce("div", { style: { color: "#fff", fontFamily: "Sora", fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, textAlign: "left", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "break-word" } }, label)));
+    const thumb = (gr) => { const it = gr.items[gr.items.length - 1]; return it.photo ? ce("img", { src: photoSrc(it.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { width: "100%", height: "100%", background: it.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, boxSizing: "border-box", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 11, textAlign: "center", wordBreak: "break-word", overflow: "hidden" } }, (it.text || "").slice(0, 50)); };
+    const topRight = ce("div", { style: { display: "flex", alignItems: "center", gap: 6, position: "relative" } },
+        iconBtn("Search status", ce(Search, { size: 22, color: "#F5F7FA" }), () => { setSearching(true); setQ(""); }),
+        iconBtn("Menu", ce(MoreVertical, { size: 22, color: "#F5F7FA" }), () => setMenu(!menu)),
+        menu && ce("div", { style: { position: "absolute", top: 40, right: 0, background: "#161B22", borderRadius: 20, minWidth: 225, padding: "6px 0", boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden", zIndex: 30 } },
+            [["Advertise", () => setInfo("Advertise is coming soon.")], ["Create channel", () => setInfo("Channels are coming soon.")], ["Broadcast", () => setSub("broadcast")], ["Status privacy", () => setSub("privacy")], ["Starred", () => setSub("starred")], ["Status archive settings", () => setSub("archive")], ["Settings", () => onSettings && onSettings()]].map(([l, fn]) =>
+                ce("button", { key: l, onClick: () => { setMenu(false); fn(); }, style: { display: "block", position: "relative", width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 20px 14px 32px", fontFamily: "Inter", fontSize: 16.5, color: "#E6EAF0", cursor: "pointer", whiteSpace: "nowrap" } }, l === "Settings" && ce("span", { style: { position: "absolute", left: 14, top: "50%", marginTop: -4, width: 8, height: 8, borderRadius: 4, background: "#21C063" } }), l))));
+    const searchBar = ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "#0E1116", flexShrink: 0 } },
+        iconBtn("Back", ce(ArrowLeft, { size: 22, color: "#F5F7FA" }), () => { setSearching(false); setQ(""); }),
+        ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search status", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }),
+        q && iconBtn("Clear", ce(X, { size: 18, color: "#8891A0" }), () => setQ("")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        searching ? searchBar : ce(TopBar, { title: "Updates", right: topRight }),
+        searching ? ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            !needle && recents.length > 0 && ce("div", { style: { display: "flex", alignItems: "center", padding: "6px 16px" } }, ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Recent searches"), ce("button", { onClick: () => { setRecents([]); saveJSON("statusRecents", []); }, style: smallBtn }, "Clear all")),
+            !needle && recents.map((t) => row("r" + t, ce(Search, { size: 20, color: "#5B6673" }), t, "", () => setQ(t), ce("button", { onClick: (e) => { e.stopPropagation(); const n = recents.filter((x) => x !== t); setRecents(n); saveJSON("statusRecents", n); }, "aria-label": "Remove", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 16, color: "#5B6673" })))),
+            needle && hits.map((gr) => row(gr.user.id, ce(Ring, { size: 48, color: gr.allSeen ? "#5B6673" : gr.user.color, initials: gr.user.initials, photo: gr.user.avatar, ring: true }), gr.user.name, gr.items.length + (gr.items.length === 1 ? " new status" : " new statuses") + " · " + ago(gr.latest), () => openFrom(gr))),
+            needle && !hits.length && ce("div", { style: { padding: "30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, "No status updates match “" + q.trim() + "”."))
+            : ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 150 }, onClick: () => menu && setMenu(false) },
+                error && ce(Banner, { text: error, onClose: () => setError("") }),
+                info && ce(Banner, { text: info, tone: "info", onClose: () => setInfo("") }),
+                ce("div", { style: { padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 700, fontSize: 22, color: "#F5F7FA" } }, "Status"),
+                ce("div", { style: { display: "flex", gap: 7, overflowX: "auto", padding: "0 16px 14px", scrollbarWidth: "none" } },
+                    card("add", () => addTap("photo"), ce("div", { style: { position: "absolute", left: 0, right: 0, top: 36, display: "flex", justifyContent: "center" } }, ce("div", { style: { position: "relative" } }, ce(Ring, { size: 50, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: false }), ce("div", { "aria-label": "Add status", style: { position: "absolute", right: -5, bottom: -5, width: 24, height: 24, borderRadius: 12, background: F.status ? "#21C063" : "#5B6673", border: "2px solid #101820", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Plus, { size: 15, color: "#06210F" })))), "Add status", null, null),
+                    data.mine.length > 0 && card("mine", () => open([mineGroup], 0), thumb(mineGroup), "My status",
+                        ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(profile, 52, false)),
+                        data.mine.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, data.mine.length)),
+                    feed.map((gr, k) => card(gr.user.id, () => { remember(gr.user.name); open(feed, k); }, thumb(gr), gr.user.name,
+                        ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(gr.user, 52, gr.allSeen)),
+                        gr.items.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, gr.items.length) ))),
+                ce("button", { onClick: () => setInfo("Boost status is coming soon."), style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 12, width: "calc(100% - 44px)", margin: "4px 22px 6px", height: 42, borderRadius: 999, background: "transparent", border: "1px solid #2B3544", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 16, cursor: "pointer" } }, ce(Megaphone, { size: 20, color: "#21C063" }), "Boost status"),
+                loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+                !loading && !feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")),
+        !searching && ce("div", { style: { position: "absolute", right: 16, bottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 14, zIndex: 20 } },
+            ce("button", { onClick: () => addTap("text"), "aria-label": "Text status", style: { width: 46, height: 46, borderRadius: 15, border: "none", background: "#1F2630", boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Pencil, { size: 22, color: "#E6EAF0" })),
+            ce("button", { onClick: () => addTap("photo"), "aria-label": "Add status", style: { width: 62, height: 62, borderRadius: 20, border: "none", background: "#21C063", boxShadow: "0 6px 18px rgba(33,192,99,.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce("div", { style: { position: "relative", display: "flex" } }, ce(Camera, { size: 28, color: "#06210F" }), ce("div", { style: { position: "absolute", top: -8, right: -9, display: "flex" } }, ce(Plus, { size: 14, color: "#06210F" }))))),
+        composer && ce(StatusComposer, { token, mode, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }),
+        view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load }));
+}
+
+// ---- Tools > Sounds & features ----
+function FeaturesScreen({ onBack }) {
+    const [f, setF] = useState(getFeatures);
+    const [notifs, setNotifs] = useState(getNotifs);
+    const setFeat = (patch) => { const next = { ...f, ...patch }; setF(next); saveJSON("features", next); };
+    const setNotif = (patch) => { const next = { ...notifs, ...patch }; setNotifs(next); saveJSON("notifs", next); };
+    const head = (t) => ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, t);
+    const row = (title, sub, on, onChange, disabled) => ce("div", { key: title, style: settingRow }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, sub)), ce(Toggle, { on, onChange, disabled }));
+    const quiet = !f.sound;
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "Sounds & features", onBack }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, head("Sounds"), row("Sound", "Turn every app sound on or off.", f.sound, (v) => { setFeat({ sound: v }); if (v)
+        setTimeout(() => playSound("send"), 30); }), row("Typing sound", "A soft keyboard tick while you type.", f.typingSound, (v) => { setFeat({ typingSound: v }); if (v && f.sound)
+        setTimeout(() => playSound("typing"), 30); }, quiet), row("Send sound", "A whoosh when your message is sent.", f.sendSound, (v) => { setFeat({ sendSound: v }); if (v && f.sound)
+        setTimeout(() => playSound("send"), 30); }, quiet), row("Notification sound", "A tone when a new message arrives.", notifs.sound, (v) => { setNotif({ sound: v }); if (v && f.sound)
+        playPing(); }, quiet), head("Status"), row("Status upload", "Post photo and text updates that disappear after 24 hours.", f.status, (v) => setFeat({ status: v })), head("Calls"), row("Voice calling", "Make and receive voice calls. When off, incoming voice calls are declined.", f.voiceCalls, (v) => setFeat({ voiceCalls: v })), row("Video calling", "Make and receive video calls. When off, incoming video calls are declined.", f.videoCalls, (v) => setFeat({ videoCalls: v })), row("Clear voice", "Cut echo and background noise in calls and voice notes.", f.clearVoice, (v) => setFeat({ clearVoice: v })), head("Voice notes"), row("Voice recording and sending", "Show the microphone button so you can record and send voice notes.", f.voiceNotes, (v) => setFeat({ voiceNotes: v })), ce("div", { style: { padding: "16px 16px 0", fontFamily: "Inter", fontSize: 12, color: "#5B6673", lineHeight: 1.5 } }, "These switches are saved on this device.")));
+}
+const SUPPORT = {
+    whatsapp: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_WHATSAPP) || "").replace(/\D/g, ""),
+    email: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_EMAIL) || "").trim(),
+};
+const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [], muted: {}, biz: { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] } };
+const isMutedChat = (muted, id) => { const v = muted && muted[id]; return v !== undefined && (v === 0 || v > Date.now()); };
+// ---- Tools tab (business-style layout): performance, For you, Grow your business, Organize your chats, Manage your account, How to ----
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+const ToolInfo = makeIcon([["c", 12, 12, 10], ["p", "M12 16v-4"], ["p", "M12 8h.01"]]);
+const ToolZap = makeIcon([["p", "M13 2 3 14h9l-1 8 10-12h-9l1-8z"]]);
+const ToolMegaphone = makeIcon([["p", "m3 11 18-5v12L3 14v-3z"], ["p", "M11.6 16.8a3 3 0 1 1-5.8-1.6"]]);
+const ToolMoon = makeIcon([["p", "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"]]);
+const ToolLink = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"], ["p", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]]);
+const ToolStore = makeIcon([["p", "m2 7 2-4h16l2 4"], ["p", "M3 7v13h18V7"], ["p", "M9 20v-6h6v6"]]);
+const ToolMsg = makeIcon([["p", "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"], ["p", "M8 9h8"], ["p", "M8 13h5"]]);
+const ToolPlay = makeIcon([["p", "m6 3 14 9-14 9z"]]);
+const ToolTrash = makeIcon([["p", "M3 6h18"], ["p", "M8 6V4h8v2"], ["p", "M19 6l-1 14H6L5 6"]]);
+const DEFAULT_BIZ = { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] };
+const bizOfSettings = (s) => ({ ...DEFAULT_BIZ, ...((s && s.biz) || {}) });
+
+function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, settings = DEFAULT_SETTINGS, token, conversations = [] }) {
+    const ce = React.createElement;
+    const [menu, setMenu] = useState(false);
+    const [info, setInfo] = useState(false);
+    const [promoOff, setPromoOff] = useState(() => !!loadJSON("toolsPromoOff", false));
+    const [statusViews, setStatusViews] = useState(null);
+    const [catViews, setCatViews] = useState(null);
+    useEffect(() => { let live = true; api("/api/v1/catalog/me", { token }).then((d) => { if (live) setCatViews(Number(d.views) || 0); }).catch(() => { }); return () => { live = false; }; }, []);
+    const [howTo, setHowTo] = useState(null);
+    const biz = bizOfSettings(settings);
+    useEffect(() => {
+        let live = true;
+        if (!token) return;
+        api("/api/v1/status", { token }).then((d) => { if (live) setStatusViews((d.mine || []).reduce((n, s) => n + (Number(s.views) || 0), 0)); }).catch(() => { });
+        return () => { live = false; };
+    }, [token]);
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const started = conversations.filter((c) => !c.isGroup && (c.createdAt || 0) >= weekAgo).length;
+    const nFav = settings.favorites.length;
+    const dismissPromo = () => { setPromoOff(true); saveJSON("toolsPromoOff", true); };
+    const heading = (t) => ce("div", { style: { padding: "20px 16px 6px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, t);
+    const row = (Icon, title, sub, onClick, badge) => ce("div", { key: title, onClick, style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" } },
+        ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(Icon, { size: 21, color: "#9BA7B4" })),
+        ce("div", { style: { flex: 1, minWidth: 0 } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35 } }, sub)),
+        badge && ce("span", { style: { width: 9, height: 9, borderRadius: "50%", background: "#35D0BA", flexShrink: 0 } }));
+    const stat = (Icon, value, label) => ce("div", { key: label, style: { flex: 1, minWidth: 0, border: "1px solid #262E3A", borderRadius: 14, padding: "12px 12px 10px", background: "#10151C" } },
+        ce(Icon, { size: 18, color: "#35D0BA" }),
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA", margin: "6px 0 2px" } }, value),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", lineHeight: 1.25 } }, label));
+    const guides = [
+        { title: "Build trust with your profile", bg: "linear-gradient(135deg,#1F6F66,#35D0BA)", body: "A complete profile helps people trust you.\n\n1. Open Profile and add a clear photo and your name.\n2. Add a short bio so people know what you do.\n3. Share your profile link so anyone can start a chat with you.", go: "Open profile", act: onProfile },
+        { title: "Show off your products", bg: "linear-gradient(135deg,#7A4B16,#F2B84B)", body: "Post what you sell in Market.\n\n1. Open the Market tab.\n2. Add a listing with a photo, price and description.\n3. Mark it as sold when it is gone.", go: "Open Market", act: () => onTab("market") },
+        { title: "Reach out with status", bg: "linear-gradient(135deg,#243B6B,#6E8BFF)", body: "Status updates reach your contacts for 24 hours.\n\n1. Open the Updates tab.\n2. Tap the green camera button and post a photo, or the pencil for a text update.\n3. Come back to Tools to see how many people viewed it.", go: "Open Status", act: () => onTab("status") },
+    ];
+    const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }),
+        menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 20 } },
+            ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } },
+                menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } },
+                "Last 7 days performance",
+                ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))),
+            info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."),
+            ce("div", { style: { display: "flex", gap: 10, padding: "0 16px" } },
+                stat(ToolMsg, String(started), "Conversations started"),
+                stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"),
+                stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")),
+            !promoOff && heading("For you"),
+            !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } },
+                ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })),
+                ce("div", { style: { display: "flex", gap: 14, paddingRight: 24 } },
+                    ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })),
+                    ce("div", { style: { flex: 1 } },
+                        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"),
+                        ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))),
+                ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")),
+            heading("Grow your business"),
+            row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")),
+            row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile),
+            row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")),
+            heading("Organize your chats"),
+            row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")),
+            row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")),
+            row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")),
+            row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")),
+            heading("Manage your account"),
+            row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile),
+            row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")),
+            row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")),
+            heading("How to"),
+            ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
+                ce("div", { style: { height: 86, background: g.bg, display: "flex", alignItems: "center", justifyContent: "center" } },
+                    ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))),
+                ce("div", { style: { padding: "10px 10px 12px", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5, color: "#F5F7FA", lineHeight: 1.3 } }, g.title))))),
+        howTo && ce("div", { onClick: () => setHowTo(null), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 30, display: "flex", alignItems: "flex-end" } },
+            ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderRadius: "20px 20px 0 0", padding: "20px 18px 22px", maxHeight: "75%", overflowY: "auto" } },
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, howTo.title),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#C5CDD8", lineHeight: 1.55, whiteSpace: "pre-line" } }, howTo.body),
+                ce("div", { style: { display: "flex", gap: 10, marginTop: 18 } },
+                    ce("button", { onClick: () => { const a = howTo.act; setHowTo(null); a(); }, style: { flex: 1, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "11px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, howTo.go),
+                    ce("button", { onClick: () => setHowTo(null), style: { ...smallBtn, borderRadius: 22, padding: "11px 20px" } }, "Close")))));
+}
+
+// Greeting message and Away message share one screen (saved on your account; the server sends them).
+function AutoMessageScreen({ kind, settings, onBack, onSave }) {
+    const ce = React.createElement;
+    const isGreeting = kind === "greeting";
+    const cur = bizOfSettings(settings)[kind];
+    const [on, setOn] = useState(cur.on);
+    const [text, setText] = useState(cur.text);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const dirty = on !== cur.on || text.trim() !== cur.text;
+    const save = async () => {
+        if (on && !text.trim()) { setErr("Write the message before turning it on."); return; }
+        setBusy(true); setErr("");
+        const ok = await onSave({ [kind]: { on, text: text.trim() } }, isGreeting ? "Greeting message saved" : "Away message saved");
+        setBusy(false);
+        if (!ok) setErr("Could not save. Check your connection and try again.");
+    };
+    const title = isGreeting ? "Greeting message" : "Away message";
+    const blurb = isGreeting ? "Sent once when someone messages you for the first time." : "Sent when you are offline. Each chat gets it at most once every 12 hours.";
+    const sample = isGreeting ? "Hello! Thanks for reaching out. How can I help you today?" : "Thanks for your message. I\u2019m away right now and will reply as soon as I\u2019m back.";
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title, onBack }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: settingRow },
+                ce("div", { style: { flex: 1 } },
+                    ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Send " + title.toLowerCase()),
+                    ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, blurb)),
+                ce(Toggle, { on, onChange: setOn })),
+            ce("div", { style: { padding: "16px 16px 0" } },
+                ce("div", { style: { ...sectionTitle, margin: "0 0 8px" } }, "Message"),
+                ce("textarea", { value: text, maxLength: 1000, rows: 5, onChange: (e) => setText(e.target.value), placeholder: sample, style: { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: 12, resize: "none", outline: "none" } }),
+                ce("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 } },
+                    ce("button", { onClick: () => setText(sample), style: smallBtn }, "Use example"),
+                    ce("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673" } }, text.length + "/1000")),
+                err && ce("div", { style: { marginTop: 10, fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+                ce("button", { onClick: save, disabled: busy || !dirty, style: { marginTop: 16, width: "100%", background: dirty ? "#35D0BA" : "#1E2530", color: dirty ? "#0E1116" : "#5B6673", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: dirty ? "pointer" : "default" } }, busy ? "Saving\u2026" : "Save"))));
+}
+
+// Quick replies: saved messages with a shortcut. In any chat, type / and the shortcut to insert one.
+function QuickRepliesScreen({ settings, onBack, onSave }) {
+    const ce = React.createElement;
+    const list = bizOfSettings(settings).quickReplies;
+    const [edit, setEdit] = useState(null); // { id?, shortcut, text }
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const commit = async (next, msg) => { setBusy(true); setErr(""); const ok = await onSave({ quickReplies: next }, msg); setBusy(false); if (!ok) setErr("Could not save. Check your connection and try again."); return ok; };
+    const saveEdit = async () => {
+        const shortcut = edit.shortcut.trim().replace(/^\/+/, "").replace(/\s+/g, "-").toLowerCase(), text = edit.text.trim();
+        if (!shortcut || !text) { setErr("Add a shortcut and a message."); return; }
+        if (list.some((q) => q.shortcut === shortcut && q.id !== edit.id)) { setErr("You already have a quick reply with that shortcut."); return; }
+        const item = { id: edit.id || Math.random().toString(36).slice(2, 10), shortcut, text };
+        const next = edit.id ? list.map((q) => (q.id === edit.id ? item : q)) : [...list, item];
+        if (await commit(next, "Quick reply saved")) setEdit(null);
+    };
+    const field = { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: 12, outline: "none" };
+    if (edit) return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: edit.id ? "Edit quick reply" : "New quick reply", onBack: () => { setEdit(null); setErr(""); } }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: 16 } },
+            ce("div", { style: { ...sectionTitle, margin: "0 0 8px" } }, "Shortcut"),
+            ce("input", { value: edit.shortcut, maxLength: 24, placeholder: "e.g. price", onChange: (e) => setEdit({ ...edit, shortcut: e.target.value }), style: field }),
+            ce("div", { style: { ...sectionTitle, margin: "18px 0 8px" } }, "Message"),
+            ce("textarea", { value: edit.text, maxLength: 1000, rows: 6, placeholder: "The message that will be inserted", onChange: (e) => setEdit({ ...edit, text: e.target.value }), style: { ...field, resize: "none" } }),
+            err && ce("div", { style: { marginTop: 10, fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+            ce("button", { onClick: saveEdit, disabled: busy, style: { marginTop: 16, width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, busy ? "Saving\u2026" : "Save")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Quick replies", onBack, right: ce("button", { onClick: () => { setErr(""); setEdit({ shortcut: "", text: "" }); }, style: smallBtn }, "New") }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            list.length === 0 && ce("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                ce(ToolZap, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No quick replies yet"),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Save messages you send often. In any chat, type / then the shortcut to insert one.")),
+            err && ce("div", { style: { padding: "10px 16px", fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+            list.map((q) => ce("div", { key: q.id, onClick: () => { setErr(""); setEdit({ ...q }); }, style: { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+                ce("div", { style: { flex: 1, minWidth: 0 } },
+                    ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#35D0BA" } }, "/" + q.shortcut),
+                    ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, q.text)),
+                ce("button", { "aria-label": "Delete quick reply", disabled: busy, onClick: (e) => { e.stopPropagation(); commit(list.filter((x) => x.id !== q.id), "Quick reply deleted"); }, style: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" } }, ce(ToolTrash, { size: 19, color: "#8891A0" }))))));
+}
+
+function Toggle({ on, onChange, disabled }) {
+    return (React.createElement("button", { role: "switch", "aria-checked": on, disabled: disabled, onClick: () => onChange(!on), style: { width: 46, height: 27, borderRadius: 14, border: "none", padding: 0, position: "relative", cursor: disabled ? "default" : "pointer", background: on ? "#35D0BA" : "#2B3544", transition: "background .15s", flexShrink: 0, opacity: disabled ? 0.6 : 1 } },
+        React.createElement("span", { style: { position: "absolute", top: 3, left: on ? 22 : 3, width: 21, height: 21, borderRadius: "50%", background: "#F5F7FA", transition: "left .15s" } })));
+}
+const settingRow = { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderBottom: "1px solid #1B212B" };
+function FavouritesScreen({ conversations, settings, presence, onBack, onOpenChat, onToggleFavorite }) {
+    const favs = conversations.filter(c => settings.favorites.includes(c.id));
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Favourites", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            favs.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                React.createElement(Star, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No favourites yet"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Open a chat, tap the three dots at the top and choose \u201CAdd to favourites\u201D. They will show up here for quick access."))),
+            favs.map(c => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+                React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar, online: c.isGroup ? undefined : !!presence[c.other.id] }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                        c.other.name,
+                        c.other.verified && React.createElement(VerifiedBadge, null)),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.lastMessage ? senderPrefix(c) + stripRich(c.lastMessage.text) : "No messages yet")),
+                c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread),
+                React.createElement("button", { "aria-label": "Remove from favourites", onClick: (e) => { e.stopPropagation(); onToggleFavorite(c.id); }, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } },
+                    React.createElement(Star, { size: 20, color: "#F2B84B", style: { fill: "#F2B84B" } }))))))));
+}
+function PrivacyScreen({ settings, onBack, onPrivacy, onBlock }) {
+    const p = settings.privacy;
+    const seg = (val, label) => (React.createElement("button", { onClick: () => onPrivacy({ lastSeen: val }), style: { flex: 1, padding: "9px 0", borderRadius: 9, border: "none", cursor: "pointer", fontFamily: "Inter", fontWeight: 600, fontSize: 13, background: p.lastSeen === val ? "#35D0BA" : "transparent", color: p.lastSeen === val ? "#0E1116" : "#9BA7B4" } }, label));
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Privacy", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            React.createElement("div", { style: settingRow },
+                React.createElement("div", { style: { flex: 1 } },
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Read receipts"),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "If you turn this off, you won\u2019t send or receive blue ticks. Voice notes and groups are covered too.")),
+                React.createElement(Toggle, { on: p.readReceipts, onChange: (v) => onPrivacy({ readReceipts: v }) })),
+            React.createElement("div", { style: { ...settingRow, display: "block" } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Last seen & online"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 10px" } }, "Choose who can see when you are online or were last active."),
+                React.createElement("div", { style: { display: "flex", gap: 4, background: "#1E2530", borderRadius: 12, padding: 4 } },
+                    seg("everyone", "Everyone"),
+                    seg("nobody", "Nobody"))),
+            React.createElement("div", { style: { ...sectionTitle, margin: "20px 16px 6px" } },
+                "Blocked contacts \u00B7 ",
+                settings.blocked.length),
+            settings.blocked.length === 0 && React.createElement("div", { style: { padding: "6px 16px 24px", fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "You haven\u2019t blocked anyone. To block someone, open their chat, tap the three dots and choose Block."),
+            React.createElement("div", { style: { padding: "0 16px 24px" } }, settings.blocked.map(u => (React.createElement(PersonRow, { key: u.id, u: u, status: u.phone ? "+" + String(u.phone).replace(/\D/g, "") : "Blocked", right: React.createElement("button", { onClick: () => onBlock(u.id, false), style: smallBtn }, "Unblock") })))))));
+}
+// ---- notification preferences (kept on this device) + alerts for incoming messages ----
+const DEFAULT_NOTIFS = { sound: true, vibrate: true, banner: true, preview: true, groups: true };
+const getNotifs = () => ({ ...DEFAULT_NOTIFS, ...loadJSON("notifs", {}) });
+let _audioCtx = null;
+function playPing() {
+    try {
+        const A = window.AudioContext || window.webkitAudioContext;
+        if (!A)
+            return;
+        _audioCtx = _audioCtx || new A();
+        const ctx = _audioCtx;
+        if (ctx.state === "suspended")
+            ctx.resume();
+        const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(880, t);
+        o.frequency.setValueAtTime(1175, t + 0.12);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start(t);
+        o.stop(t + 0.36);
+    }
+    catch { }
+}
+function alertIncoming(m, convo, viewingThis) {
+    const n = getNotifs();
+    if (convo && convo.isGroup && !n.groups)
+        return;
+    const hidden = document.hidden;
+    if (viewingThis && !hidden)
+        return;
+    if (n.sound && featOn("sound"))
+        playPing();
+    if (n.vibrate) {
+        try {
+            navigator.vibrate && navigator.vibrate(200);
+        }
+        catch { }
+    }
+    if (n.banner && hidden && "Notification" in window && Notification.permission === "granted") {
+        try {
+            const title = convo ? convo.other.name : "Letschat Africa";
+            const body = n.preview ? (m.text || "New message") : "New message";
+            new Notification(title, { body, tag: "conv-" + m.conversationId });
+        }
+        catch { }
+    }
+}
+function PushRow() {
+    const P = window.LetschatPush;
+    const [st, setSt] = useState("checking");
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    useEffect(() => { let live = true; if (!P) {
+        setSt("unsupported");
+        return;
+    } P.status().then((s) => { if (live)
+        setSt(s); }); return () => { live = false; }; }, []);
+    const change = async (v) => {
+        setBusy(true);
+        setErr("");
+        try {
+            if (v) {
+                await P.enable();
+                setSt("on");
+            }
+            else {
+                await P.disable();
+                setSt("off");
+            }
+        }
+        catch (e) {
+            setErr(e.message || "Something went wrong");
+            setSt(await P.status());
+        }
+        setBusy(false);
+    };
+    const note = err || (st === "needs-install" ? "On iPhone: tap Share, then Add to Home Screen, open Letschat from there, and come back to turn this on."
+        : st === "unsupported" ? "Not supported in this browser."
+            : st === "denied" ? "Blocked in your browser settings. Allow notifications for this site to use this."
+                : st === "unavailable" ? "Not set up on the server yet."
+                    : "Get message alerts even when the app is closed.");
+    return (React.createElement("div", { style: settingRow }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Push notifications"), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: err ? "#FF6B5D" : "#8891A0", marginTop: 2 } }, note)), React.createElement(Toggle, { on: st === "on", onChange: change, disabled: busy || st === "checking" || st === "unsupported" || st === "needs-install" || st === "denied" || st === "unavailable" })));
+}
+function NotificationsScreen({ onBack }) {
+    const [prefs, setPrefs] = useState(getNotifs);
+    const [perm, setPerm] = useState(() => ("Notification" in window ? Notification.permission : "unsupported"));
+    const set = (patch) => { const next = { ...prefs, ...patch }; setPrefs(next); saveJSON("notifs", next); };
+    const askBanner = async (v) => {
+        if (!v)
+            return set({ banner: false });
+        if (!("Notification" in window)) {
+            setPerm("unsupported");
+            return;
+        }
+        let p = Notification.permission;
+        if (p === "default") {
+            try {
+                p = await Notification.requestPermission();
+            }
+            catch { }
+        }
+        setPerm(p);
+        set({ banner: p === "granted" });
+    };
+    const row = (title, sub, on, onChange, disabled) => (React.createElement("div", { style: settingRow }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, sub)), React.createElement(Toggle, { on: on, onChange: onChange, disabled: disabled })));
+    const bannerNote = perm === "unsupported" ? "Not supported in this browser." : perm === "denied" ? "Blocked in your browser settings. Allow notifications for this site to use this." : "Show an alert when a message arrives while the app is in the background.";
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, React.createElement(TopBar, { title: "Notifications", onBack: onBack }), React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, row("Message sound", "Play a tone when a new message arrives.", prefs.sound, (v) => { set({ sound: v }); if (v)
+        playPing(); }), row("Vibration", "Vibrate on new messages (supported phones only).", prefs.vibrate, (v) => { set({ vibrate: v }); if (v) {
+        try {
+            navigator.vibrate && navigator.vibrate(200);
+        }
+        catch { }
+    } }), row("Group messages", "Get alerts for messages in groups.", prefs.groups, (v) => set({ groups: v })), React.createElement(PushRow, null), row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"), row("Show message preview", "Include the message text in background alerts.", prefs.preview, (v) => set({ preview: v })), React.createElement("div", { style: { padding: "18px 16px" } }, React.createElement("button", { onClick: playPing, style: smallBtn }, "Play test sound")))));
+}
+function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, onNewGroup }) {
+    const groups = conversations.filter(c => c.isGroup);
+    const mine = groups.filter(c => c.adminId === myId);
+    const others = groups.filter(c => c.adminId !== myId);
+    const rowFor = (c) => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } }, React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }), React.createElement("div", { style: { flex: 1, minWidth: 0 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, (c.members ? c.members.length : 0) + " members \u00B7 " + (c.members ? c.members.filter(m => m.id === myId || presence[m.id]).length : 0) + " online")), c.adminId === myId && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#35D0BA", border: "1px solid #35D0BA55", background: "#35D0BA18", borderRadius: 8, padding: "2px 8px" } }, "Admin"), c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread)));
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, React.createElement(TopBar, { title: "Communities", onBack: onBack, right: React.createElement("button", { onClick: onNewGroup, style: smallBtn }, "New group") }), React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, groups.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } }, React.createElement(Users, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }), React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No groups yet"), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Tap \u201CNew group\u201D to create one, or open an invite link from a friend to join theirs."))), mine.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you manage \u00B7 " + mine.length), mine.map(rowFor), others.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you\u2019re in \u00B7 " + others.length), others.map(rowFor))));
+}
+const FAQ = [
+    ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a username, email or phone number with country code, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
+    ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
+    ["How do I send a photo, file or voice note?", "Use the paperclip for files (up to 3 MB), the camera to take a photo and the microphone to record. Tap the mic again, or the send button, to send the voice note."],
+    ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members and share an invite link from Group info."],
+    ["How do I share my profile link?", "Go to Tools → Profile → Profile link. Anyone who opens your link can start a direct message with you. Tap Reset to make the old link stop working."],
+    ["How do favourites work?", "Open a chat, tap the three dots and choose Add to favourites. Find all of them in Tools → Favourites."],
+    ["How do I block someone?", "Open their chat, tap the three dots and choose Block. They can no longer message you. You can unblock them in Tools → Privacy."],
+    ["What do read receipts and last seen do?", "In Tools → Privacy you can switch off blue ticks and hide when you were last online. If you hide yours, you won’t see receipts from others either."],
+    ["I changed my photo but it hasn’t updated.", "Pull the app fresh by closing and reopening it. New photos show for everyone after a moment."],
+    ["Messages are slow or not sending.", "Check your internet connection. The server can take up to a minute to wake up after a quiet period, then everything speeds up."],
+];
+function HelpScreen({ onBack, user }) {
+    const [open, setOpen] = useState(-1);
+    const [copied, setCopied] = useState(false);
+    const info = [
+        "Letschat Africa support info",
+        "User: " + (user && user.name) + " (" + (user && user.phone ? "+" + String(user.phone).replace(/\D/g, "") : "no phone") + ")",
+        "App: " + window.location.origin,
+        "Browser: " + navigator.userAgent,
+        "Time: " + new Date().toISOString(),
+    ].join("\n");
+    const copyInfo = async () => { try {
+        await navigator.clipboard.writeText(info);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }
+    catch (e) { } };
+    const wa = () => window.open("https://wa.me/" + SUPPORT.whatsapp + "?text=" + encodeURIComponent("Hi Letschat Africa support, I need help with:\n\n\n" + info), "_blank");
+    const mail = () => { window.location.href = "mailto:" + SUPPORT.email + "?subject=" + encodeURIComponent("Letschat Africa support") + "&body=" + encodeURIComponent("Hi, I need help with:\n\n\n" + info); };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Help", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
+            React.createElement("div", { style: { ...sectionTitle, margin: "6px 16px" } }, "Frequently asked questions"),
+            FAQ.map(([q, ans], i) => (React.createElement("div", { key: i, style: { borderBottom: "1px solid #1B212B" } },
+                React.createElement("div", { onClick: () => setOpen(open === i ? -1 : i), style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" } },
+                    React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA" } }, q),
+                    React.createElement(ChevronRight, { size: 17, color: "#5B6673", style: { transform: open === i ? "rotate(90deg)" : "none", transition: "transform .15s" } })),
+                open === i && React.createElement("div", { style: { padding: "0 16px 16px", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#9BA7B4" } }, ans)))),
+            React.createElement("div", { style: { ...sectionTitle, margin: "22px 16px 8px" } }, "Contact us"),
+            React.createElement("div", { style: { padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 } },
+                SUPPORT.whatsapp && React.createElement("button", { onClick: wa, style: primaryBtn(false) }, "Chat with support on WhatsApp"),
+                SUPPORT.email && React.createElement("button", { onClick: mail, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, "Email support"),
+                React.createElement("button", { onClick: copyInfo, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, copied ? "Copied ✓" : "Copy my support info"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", textAlign: "center", marginTop: 4 } }, "Letschat Africa \u00B7 secure chat for everyone")))));
+}
+// ---- emoji tray for the message box ----
+const EMOJI_TABS = [
+    { name: "Smileys", icon: "😀", list: "😀 😃 😄 😁 😆 😅 😂 🤣 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖".split(" ") },
+    { name: "Gestures", icon: "👍", list: "👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤝 🙏 👏 🙌 👐 🤲 💪 🙋 🙆 🙅 🤷 🤦 💁 🙇 🤳 ✍️ 💅 👀 👁️ 👂 👃 👄 🧠".split(" ") },
+    { name: "Hearts", icon: "❤️", list: "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 💋 💯 💢 💥 💫 💦 💨 🔥 ✨ ⭐ 🌟 🎉 🎊 🎁 🏆 🥇".split(" ") },
+    { name: "Animals & nature", icon: "🦁", list: "🦁 🐘 🦒 🦓 🐆 🦛 🦜 🐒 🦩 🐊 🐍 🐶 🐱 🐭 🐰 🦊 🐻 🐼 🐨 🐯 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🦅 🦋 🐝 🐢 🐠 🐬 🌳 🌴 🌵 🌸 🌹 🌻 🌞 🌙 ⭐ 🌈 ☀️ ⛅ 🌧️ ⚡ ❄️ 🌍".split(" ") },
+    { name: "Food & drink", icon: "🍔", list: "🍎 🍌 🍉 🍇 🍓 🍍 🥭 🥑 🌽 🥕 🍅 🥔 🍞 🧀 🍳 🥩 🍗 🍖 🍔 🍟 🍕 🌭 🌮 🍝 🍚 🍲 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 ☕ 🍵 🥤 🍺 🍷 💧".split(" ") },
+    { name: "Activities & objects", icon: "⚽", list: "⚽ 🏀 🏈 🎾 🏐 🏏 🥊 🎮 🎲 ♟️ 🎯 🎵 🎶 🎤 🎧 🎸 🥁 📱 💻 📷 📚 ✏️ 💡 🔑 🔒 💰 💵 🚗 🚌 ✈️ 🚀 🏠 ⏰ 📞 ✅ ❌ ❓ ❗ ⚠️ 🚫".split(" ") },
+];
+// ---- tap the name/photo area in a chat header to see that person's profile (full screen, header collapses as you scroll) ----
+const PROFILE_HERO = 190, PROFILE_BAR = 58;
+function ContactProfileSheet({ u, online, lastSeen, conversation, conversations = [], msgs = [], myId, isFav, iBlocked, muted, onVoice, onVideo, onToggleFavorite, onNotifications, onBlock, onReport, onOpenMedia, onOpenImage, onNewGroup, onNote, token, onClose }) {
+    const [zoom, setZoom] = useState(false);
+    const [p, setP] = useState(0); // 0 = header fully open, 1 = collapsed into the top bar
+    const [menu, setMenu] = useState(false);
+    const [noteOpen, setNoteOpen] = useState(false);
+    const [noteText, setNoteText] = useState(() => loadJSON("contactNote:" + u.id, ""));
+    const [savedNote, setSavedNote] = useState(noteText);
+    const RANGE = PROFILE_HERO - PROFILE_BAR;
+    const onScroll = (e) => { const np = Math.min(1, Math.max(0, e.currentTarget.scrollTop / RANGE)); setP(prev => (Math.abs(prev - np) > 0.004 ? np : prev)); };
+    const heroH = PROFILE_HERO - p * RANGE;
+    const size = 92 - p * (92 - 38);
+    const top = (heroH - size / 2) * (1 - p) + 10 * p;
+    const left = "calc(" + ((1 - p) * 50) + "% - " + ((1 - p) * size / 2) + "px + " + (p * 56) + "px)";
+    const titleOpacity = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+    const live = msgs.filter(m => !m.deleted);
+    const isImg = (m) => m.file && m.file.data && /^data:image\//.test(m.file.data);
+    const media = live.filter(isImg);
+    const docs = live.filter(m => m.file && !isImg(m));
+    let linkCount = 0;
+    live.forEach(m => { if (typeof m.text === "string")
+        linkCount += (m.text.match(/https?:\/\/[^\s]+/g) || []).length; });
+    const total = media.length + docs.length + linkCount;
+    const bytes = live.reduce((n, m) => n + (m.file && m.file.size ? m.file.size : 0), 0);
+    const tiles = media.slice(-8).reverse();
+    const groups = conversations.filter(c => c.isGroup && (c.members || []).some(m => m.id === u.id));
+    const biz = u.business || null;
+    const subtitle = u.phone ? "+" + String(u.phone).replace(/\D/g, "") : u.email || (u.username ? "@" + u.username : "");
+    const share = async () => {
+        const text = u.name + (u.phone ? " +" + String(u.phone).replace(/\D/g, "") : u.username ? " @" + u.username : "");
+        try {
+            if (navigator.share) {
+                await navigator.share({ title: u.name + " on Letschat Africa", text });
+                return;
+            }
+        }
+        catch (e) {
+            if (e && e.name === "AbortError")
+                return;
+        }
+        try {
+            await navigator.clipboard.writeText(text);
+            onNote("Contact copied");
+        }
+        catch (e) {
+            window.prompt("Copy this contact", text);
+        }
+    };
+    const saveNote = () => { const t = noteText.trim(); saveJSON("contactNote:" + u.id, t); setSavedNote(t); setNoteOpen(false); };
+    const ico = (I) => React.createElement(I, { size: 22, color: "#8891A0" });
+    const row = (key, icon, title, sub, o = {}) => (React.createElement("div", { key: key, onClick: o.onClick, style: { display: "flex", alignItems: "center", gap: 22, padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" } },
+        React.createElement("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" } }, title),
+            sub && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, overflow: o.wrapSub ? "visible" : "hidden", textOverflow: "ellipsis", whiteSpace: o.wrapSub ? "normal" : "nowrap", overflowWrap: "anywhere" } }, sub)),
+        o.right));
+    const line = (k) => React.createElement("div", { key: k, style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+    const round = (label, Icon, fn) => (React.createElement("button", { key: label, onClick: fn, style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 } },
+        React.createElement("span", { style: { width: 52, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement(Icon, { size: 19, color: "#F5F7FA" })),
+        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" } }, label)));
+    const hoursOk = biz && typeof biz.open === "boolean";
+    return (React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 45, background: "#0E1116", display: "flex", flexDirection: "column", overflow: "hidden" } },
+        React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: heroH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" } },
+            React.createElement("div", { style: { position: "absolute", inset: 0, overflow: "hidden", opacity: 1 - p } },
+                u.avatar ? React.createElement("img", { loading: "lazy", decoding: "async", src: photoSrc(u.avatar), alt: "", draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 25%", display: "block" } })
+                    : React.createElement("div", { style: { width: "100%", height: "100%", background: "linear-gradient(135deg, " + u.color + "55, #0E1116)" } }),
+                React.createElement("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 45%, rgba(14,17,22,0.55) 100%)" } }))),
+        React.createElement("button", { "aria-label": "Back", onClick: onClose, style: { position: "absolute", top: 0, left: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement(ArrowLeft, { size: 23, color: "#F5F7FA" })),
+        React.createElement("button", { "aria-label": "More", onClick: () => setMenu(m => !m), style: { position: "absolute", top: 0, right: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement(MoreVertical, { size: 22, color: "#F5F7FA" })),
+        React.createElement("div", { style: { position: "absolute", top: 0, left: 106, right: 56, height: PROFILE_BAR, zIndex: 5, display: "flex", alignItems: "center", opacity: titleOpacity, transform: "translateY(" + ((1 - titleOpacity) * 8) + "px)", pointerEvents: "none" } },
+            React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, u.name),
+            u.verified && React.createElement(VerifiedBadge, { size: 15 })),
+        React.createElement("div", { onClick: u.avatar ? () => setZoom(true) : undefined, style: { position: "absolute", top, left, width: size, height: size, zIndex: 5, borderRadius: "50%", boxSizing: "border-box", border: (3 - 1.5 * p) + "px solid #35D0BA", background: "#0E1116", cursor: u.avatar ? "pointer" : "default" } }, u.avatar ? React.createElement("img", { loading: "lazy", decoding: "async", src: photoSrc(u.avatar), alt: "", draggable: false, onContextMenu: e => e.preventDefault(), style: { width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block" } })
+            : React.createElement("div", { style: { width: "100%", height: "100%", borderRadius: "50%", background: u.color + "26", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 } }, u.initials)),
+        menu && (React.createElement("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 8 } },
+            React.createElement("div", { onClick: e => e.stopPropagation(), style: { position: "absolute", top: PROFILE_BAR - 8, right: 10, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)" } }, [["Share", () => share()], [iBlocked ? "Unblock" : "Block", () => onBlock()], ["Report", () => onReport()]].map(([label, fn]) => (React.createElement("div", { key: label, onClick: () => { setMenu(false); fn(); }, style: { padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: "#F5F7FA", cursor: "pointer" } }, label)))))),
+        React.createElement("div", { onScroll: onScroll, style: { flex: 1, minHeight: 0, overflowY: "auto", paddingTop: PROFILE_HERO + 52, paddingBottom: 30 } },
+            React.createElement("div", { style: { textAlign: "center", padding: "0 24px" } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, overflowWrap: "anywhere" } },
+                    u.name,
+                    u.verified && React.createElement(VerifiedBadge, { size: 20 })),
+                subtitle && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#9BA7B4", marginTop: 4, overflowWrap: "anywhere" } }, subtitle),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginTop: 4 } }, statusText(online, lastSeen)),
+                React.createElement("div", { style: { display: "flex", justifyContent: "center", gap: 18, margin: "18px 0 20px" } },
+                    onVoice && round("Voice", Phone, onVoice),
+                    onVideo && round("Video", Video, onVideo),
+                    round("Share", ForwardIcon, share))),
+            line("l0"),
+            row("lists", ico(ListPlus), "Add to lists", isFav ? "Favourites" : null, { onClick: onToggleFavorite, right: isFav ? React.createElement(Check, { size: 20, color: "#35D0BA", strokeWidth: 3 }) : null }),
+            row("notes", ico(NotesIcon), savedNote ? "Notes" : "Add notes", savedNote || null, { onClick: () => setNoteOpen(true) }),
+            biz && (hoursOk || biz.hours) && row("hours", ico(ClockIcon), hoursOk ? (biz.open ? "Open now" : "Closed now") : "Hours", null, { color: hoursOk ? (biz.open ? "#35D0BA" : "#FF6B5D") : undefined, right: biz.hours ? React.createElement("span", { style: { fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" } }, biz.hours) : null }),
+            biz && biz.category && row("cat", ico(ShoppingBag), biz.category),
+            biz && biz.address && row("addr", ico(MapPin), biz.address, null, { wrapSub: true }),
+            biz && biz.description && row("bdesc", ico(EpDoc), biz.description, null, { wrapSub: true }),
+            biz && biz.website && row("bweb", ico(EpGlobe), biz.website, null, { wrapSub: true, onClick: () => window.open(/^https?:\/\//i.test(biz.website) ? biz.website : "https://" + biz.website, "_blank", "noopener") }),
+            biz && biz.instagram && row("big", ico(EpInstagram), biz.instagram, null, { wrapSub: true }),
+            biz && biz.facebook && row("bfb", ico(EpFacebook), biz.facebook, null, { wrapSub: true }),
+            biz && biz.email && row("bmail", ico(EpMail), biz.email, null, { wrapSub: true, onClick: () => { window.location.href = "mailto:" + biz.email; } }),
+            biz && row("biz", ico(InfoIcon), "Business account", "This account is a business on Letschat Africa"),
+            React.createElement(ProfileCatalogRow, { uid: u.id, name: u.name, token: token }),
+            line("l1"),
+            React.createElement("div", { onClick: onOpenMedia, style: { display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" } },
+                React.createElement("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Media, links, and docs"),
+                React.createElement("span", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 } }, total),
+                React.createElement(ChevronRight, { size: 18, color: "#8891A0" })),
+            (tiles.length > 0 || docs.length > 0) && (React.createElement("div", { style: { display: "flex", gap: 4, overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
+                tiles.map(m => React.createElement("img", { loading: "lazy", decoding: "async", key: m.id, src: m.file.data, alt: m.file.name, onClick: () => onOpenImage(m.file.data), style: { width: 84, height: 84, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } })),
+                tiles.length === 0 && docs.slice(-6).reverse().map(m => (React.createElement("div", { key: m.id, onClick: onOpenMedia, style: { width: 84, height: 84, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 6, boxSizing: "border-box", cursor: "pointer" } },
+                    React.createElement(Paperclip, { size: 20, color: "#35D0BA" }),
+                    React.createElement("span", { style: { fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.file.name)))))),
+            row("storage", ico(FolderIcon), "Manage storage", bytes ? fmtSize(bytes) : "0 KB", { onClick: onOpenMedia }),
+            row("notif", ico(Bell), "Notifications", muted ? "Muted" : "On", { onClick: onNotifications }),
+            line("l2"),
+            React.createElement("div", { style: { padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "About"),
+            React.createElement("div", { style: { padding: "4px 22px 12px", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" } }, u.about || "Hey there! I am using Letschat Africa."),
+            line("l3"),
+            groups.length > 0 && React.createElement("div", { style: { padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, groups.length === 1 ? "1 group in common" : groups.length + " groups in common"),
+            row("newgrp", React.createElement("span", { style: { width: 40, height: 40, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" } },
+                React.createElement(Users, { size: 20, color: "#0E1116" })), "Create group with " + u.name, null, { onClick: () => onNewGroup(u.id) }),
+            groups.map(g => row("g" + g.id, React.createElement("span", { style: { margin: "-8px 0", display: "flex" } },
+                React.createElement(Ring, { size: 40, color: "#7B6CF6", initials: (g.name || "G").slice(0, 1).toUpperCase(), photo: g.avatar })), g.name, (g.members || []).filter(m => m.id !== myId).map(m => m.name).join(", "))),
+            line("l4"),
+            row("block", React.createElement(Ban, { size: 22, color: "#FF6B5D" }), (iBlocked ? "Unblock " : "Block ") + u.name, null, { color: "#FF6B5D", onClick: onBlock }),
+            row("report", React.createElement(ThumbsDown, { size: 22, color: "#FF6B5D" }), "Report " + u.name, null, { color: "#FF6B5D", onClick: onReport })),
+        noteOpen && (React.createElement(SheetFrame, { title: "Notes about " + u.name, onClose: () => setNoteOpen(false) },
+            React.createElement("textarea", { value: noteText, onChange: e => setNoteText(e.target.value), maxLength: 500, rows: 5, placeholder: "Only you can see these notes", style: { width: "100%", boxSizing: "border-box", background: "#0E1116", border: "1px solid #2B3544", borderRadius: 12, padding: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", resize: "none" } }),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", margin: "6px 2px 14px" } }, "Saved on this device only."),
+            React.createElement("button", { onClick: saveNote, style: { ...smallBtn, width: "100%", padding: "12px", fontSize: 14 } }, "Save"))),
+        zoom && React.createElement(ImageZoomModal, { photo: u.avatar, initials: u.initials, color: u.color, onClose: () => setZoom(false) })));
+}
+// ---- make web links inside messages tappable ----
+function withLinks(node) {
+    if (Array.isArray(node))
+        return node.map((n, i) => (typeof n === "string" ? React.createElement(React.Fragment, { key: "l" + i }, withLinks(n)) : n));
+    if (typeof node !== "string" || node.indexOf("http") < 0)
+        return node;
+    return node.split(/(https?:\/\/[^\s]+)/g).map((part, i) => (/^https?:\/\//.test(part)
+        ? React.createElement("a", { key: i, href: part, target: "_blank", rel: "noopener noreferrer", style: { color: "#7FE3D3", textDecoration: "underline", wordBreak: "break-all" } }, part)
+        : part));
+}
+// ---- quick-reply suggestions (the "Suggestions" button in the message box) ----
+function quickReplies(msgs, myId) {
+    let last = null;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+        const x = msgs[i];
+        if (x.senderId !== myId && !x.deleted && typeof x.text === "string" && !x.audio && !x.hasAudio && !x.file) {
+            last = x.text.toLowerCase();
+            break;
+        }
+    }
+    if (!last)
+        return ["Hi 👋", "Hello, how are you?", "Good day"];
+    if (/\b(thanks|thank you|thx)\b/.test(last))
+        return ["You're welcome", "No problem 👍", "Anytime"];
+    if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(last))
+        return ["Hi 👋", "Hello, how are you?", "I'm good, you?"];
+    if (/\?\s*$/.test(last))
+        return ["Yes", "No", "Maybe", "Let me check", "I'll get back to you"];
+    if (/\b(when|what time)\b/.test(last))
+        return ["Today", "Tomorrow", "In a few minutes", "I'll let you know"];
+    return ["Okay 👍", "Thanks!", "Noted", "Call me", "I'll get back to you"];
+}
+// ---- chat menu helpers: theme, media/links/docs, mute ----
+// Money-and-games doodle wallpaper (original line icons: coins, notes, naira, dice, gamepads, cards, trophy, crown...). Drawn as a repeating SVG tile so it stays crisp and costs ~2 KB.
+const DOODLE_TILE = "url(\"data:image/svg+xml," + encodeURIComponent("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"360\" height=\"360\" viewBox=\"0 0 360 360\"><g fill=\"none\" stroke=\"#fff\" stroke-opacity=\".12\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"translate(8 10) rotate(-14 14 14) scale(1.15)\"><path d=\"M2 4h4l3 14h14l3-10H7\"/><circle cx=\"11\" cy=\"23\" r=\"1.8\"/><circle cx=\"21\" cy=\"23\" r=\"1.8\"/><circle cx=\"16\" cy=\"11.5\" r=\"3.6\"/><path d=\"M14.4 11v.1M17.6 11v.1M14.2 12.8c1 1.2 2.6 1.2 3.6 0\"/></g><g transform=\"translate(80 18) rotate(10 14 14) scale(1.15)\"><path d=\"M14 25C3 18 1 11 5.5 7a5.3 5.3 0 0 1 8.5 2 5.3 5.3 0 0 1 8.5-2C27 11 25 18 14 25z\"/></g><g transform=\"translate(152 10) rotate(-8 14 14) scale(1.15)\"><circle cx=\"6\" cy=\"19\" r=\"5\"/><circle cx=\"23\" cy=\"19\" r=\"5\"/><path d=\"M6 19l5-9h8l4 9M11 10l5 9 3-9M9 7h4M18 10l-1-3h3\"/></g><g transform=\"translate(224 18) rotate(16 14 14) scale(1.15)\"><path d=\"M14 9c-3-2.5-10-1-10 6 0 5 3.5 11 7 11 1.5 0 2-.8 3-.8s1.5.8 3 .8c3.5 0 7-6 7-11 0-7-7-8.5-10-6z\"/><path d=\"M14 9c0-3 1.5-5.5 5-6.5\"/></g><g transform=\"translate(296 10) rotate(-18 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"14\" r=\"12\"/><circle cx=\"14\" cy=\"14\" r=\"8.5\"/><path d=\"M10 9l8 10M18 9l-8 10M9.5 12.5h9M9.5 15.5h9\"/></g><g transform=\"translate(44 82) rotate(6 14 14) scale(1.15)\"><rect x=\"5\" y=\"5\" width=\"18\" height=\"13\" rx=\"1.5\"/><path d=\"M1 22h26l-2.5 3h-21z\"/></g><g transform=\"translate(116 90) rotate(12 14 14) scale(1.15)\"><path d=\"M3 4h22v15H12l-6 5v-5H3z\"/><path d=\"M8 9h12M8 13h8\"/></g><g transform=\"translate(188 82) rotate(-10 14 14) scale(1.15)\"><path d=\"M14 6c-3.5-2.5-8-2.5-12-1v17c4-1.5 8.5-1.5 12 1 3.5-2.5 8-2.5 12-1V5c-4-1.5-8.5-1.5-12 1z\"/><path d=\"M14 6v17\"/></g><g transform=\"translate(260 90) rotate(18 14 14) scale(1.15)\"><rect x=\"3\" y=\"3\" width=\"22\" height=\"22\" rx=\"5.5\"/><circle cx=\"9.5\" cy=\"9.5\" r=\"1.5\"/><circle cx=\"18.5\" cy=\"9.5\" r=\"1.5\"/><circle cx=\"14\" cy=\"14\" r=\"1.5\"/><circle cx=\"9.5\" cy=\"18.5\" r=\"1.5\"/><circle cx=\"18.5\" cy=\"18.5\" r=\"1.5\"/></g><g transform=\"translate(332 82) rotate(-6 14 14) scale(1.15)\"><rect x=\"2\" y=\"7\" width=\"24\" height=\"16\" rx=\"2.5\"/><path d=\"M9 2l5 5 5-5M9 26h10\"/></g><g transform=\"translate(-28 82) rotate(-6 14 14) scale(1.15)\"><rect x=\"2\" y=\"7\" width=\"24\" height=\"16\" rx=\"2.5\"/><path d=\"M9 2l5 5 5-5M9 26h10\"/></g><g transform=\"translate(8 154) rotate(8 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"9\" r=\"5.5\"/><path d=\"M8.5 8c.5-4.5 10.5-4.5 11 0M6 27v-3a8 8 0 0 1 16 0v3\"/><path d=\"M12 9.5v.1M16 9.5v.1M12.5 11.5c1 1 2 1 3 0\"/></g><g transform=\"translate(80 162) rotate(-16 14 14) scale(1.15)\"><rect x=\"1\" y=\"6\" width=\"26\" height=\"16\" rx=\"2.5\"/><circle cx=\"14\" cy=\"14\" r=\"4\"/><path d=\"M5 10v.1M23 18v.1\"/></g><g transform=\"translate(152 154) rotate(14 14 14) scale(1.15)\"><path d=\"M4 25l1.5-6.5L20 4l5 5L10.5 23.5z\"/><path d=\"M16.5 7.5l5 5M5.5 18.5l5 5\"/></g><g transform=\"translate(224 162) rotate(-4 14 14) scale(1.15)\"><path d=\"M7 7h14a6.5 6.5 0 0 1 6.5 6.5v2a4.5 4.5 0 0 1-8 2.8L18 17H10l-1.5 1.3a4.5 4.5 0 0 1-8-2.8v-2A6.5 6.5 0 0 1 7 7z\"/><path d=\"M8.5 11v5M6 13.5h5\"/><circle cx=\"20\" cy=\"12.5\" r=\"1.1\"/><circle cx=\"23.5\" cy=\"15\" r=\"1.1\"/></g><g transform=\"translate(296 154) rotate(-12 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"9\" r=\"5.5\"/><circle cx=\"6.5\" cy=\"8\" r=\"2.3\"/><circle cx=\"21.5\" cy=\"8\" r=\"2.3\"/><path d=\"M14 15l-7 12h14z\"/><path d=\"M12 9.5v.1M16 9.5v.1M12.5 11.5c1 1 2 1 3 0\"/></g><g transform=\"translate(44 226) rotate(10 14 14) scale(1.15)\"><ellipse cx=\"14\" cy=\"8.5\" rx=\"5.5\" ry=\"7\"/><path d=\"M14 15.5V27\"/></g><g transform=\"translate(116 234) rotate(-20 14 14) scale(1.15)\"><path d=\"M3 22h22M4 22V9l6 5 4-8 4 8 6-5v13\"/><path d=\"M3 26h22\"/></g><g transform=\"translate(188 226) rotate(6 14 14) scale(1.15)\"><path d=\"M2 3h15v10H8l-4 3.5V13H2z\"/><path d=\"M13 16h12v8h-2v3.5L19 24h-6z\"/></g><g transform=\"translate(260 234) rotate(16 14 14) scale(1.15)\"><path d=\"M7 3h14v8a7 7 0 0 1-14 0z\"/><path d=\"M7 5H2v3a4 4 0 0 0 4 4M21 5h5v3a4 4 0 0 1-4 4M14 18v5M8 26h12\"/></g><g transform=\"translate(332 226) rotate(-8 14 14) scale(1.15)\"><path d=\"M14 2c4 5 11 8 11 14a6 6 0 0 1-11 3 6 6 0 0 1-11-3C3 10 10 7 14 2z\"/><path d=\"M10 27h8M14 20v7\"/></g><g transform=\"translate(-28 226) rotate(-8 14 14) scale(1.15)\"><path d=\"M14 2c4 5 11 8 11 14a6 6 0 0 1-11 3 6 6 0 0 1-11-3C3 10 10 7 14 2z\"/><path d=\"M10 27h8M14 20v7\"/></g><g transform=\"translate(8 298) rotate(12 14 14) scale(1.15)\"><path d=\"M14 25C3 18 1 11 5.5 7a5.3 5.3 0 0 1 8.5 2 5.3 5.3 0 0 1 8.5-2C27 11 25 18 14 25z\"/></g><g transform=\"translate(80 306) rotate(-14 14 14) scale(1.15)\"><path d=\"M14 2l3.5 7.5 8 1-6 5.5 1.7 8L14 20l-7.2 4 1.7-8-6-5.5 8-1z\"/></g><g transform=\"translate(152 298) rotate(8 14 14) scale(1.15)\"><path d=\"M2 4h4l3 14h14l3-10H7\"/><circle cx=\"11\" cy=\"23\" r=\"1.8\"/><circle cx=\"21\" cy=\"23\" r=\"1.8\"/><circle cx=\"16\" cy=\"11.5\" r=\"3.6\"/><path d=\"M14.4 11v.1M17.6 11v.1M14.2 12.8c1 1.2 2.6 1.2 3.6 0\"/></g><g transform=\"translate(224 306) rotate(-10 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"14\" r=\"12\"/><circle cx=\"14\" cy=\"14\" r=\"8.5\"/><path d=\"M10 9l8 10M18 9l-8 10M9.5 12.5h9M9.5 15.5h9\"/></g><g transform=\"translate(296 298) rotate(4 14 14) scale(1.15)\"><path d=\"M14 9c-3-2.5-10-1-10 6 0 5 3.5 11 7 11 1.5 0 2-.8 3-.8s1.5.8 3 .8c3.5 0 7-6 7-11 0-7-7-8.5-10-6z\"/><path d=\"M14 9c0-3 1.5-5.5 5-6.5\"/></g></g></svg>") + "\") 0 0 / 360px 360px repeat";
+const themeBg = (t) => (t.img ? "url(" + t.img + ") center top / cover no-repeat, " + t.bg : t.plain ? t.bg : DOODLE_TILE + ", " + t.bg);
+// The composer strip under the chat can't show a cropped photo, so image themes use their solid colour there.
+const themeBar = (t) => t.bg;
+const CHAT_THEMES = [
+    { id: "lcdark", name: "Letschat dark", bg: "#050505", img: "data:image/webp;base64,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" }, { id: "lccolor", name: "Letschat colour", bg: "#050505", img: "data:image/webp;base64,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" }, { id: "default", name: "Default", bg: "#0B0E13" }, { id: "midnight", name: "Midnight", bg: "#0A1224" }, { id: "forest", name: "Forest", bg: "#0A1711" },
+    { id: "plum", name: "Plum", bg: "#170F1C" }, { id: "ember", name: "Ember", bg: "#1C1009" }, { id: "slate", name: "Slate", bg: "#12171E" }, { id: "black", name: "Pure black", bg: "#000000" },
+    { id: "plain", name: "No doodles", bg: "#0B0E13", plain: true },
+];
+function SheetFrame({ title, onClose, children, tall }) {
+    return (React.createElement("div", { style: { ...sheet, zIndex: 65 }, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: { ...card, ...(tall ? { height: "80%" } : {}) } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } },
+                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, title),
+                React.createElement("button", { "aria-label": "Close", onClick: onClose, style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } },
+                    React.createElement(X, { size: 20, color: "#8891A0" }))),
+            React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, children))));
+}
+function ChatThemeSheet({ current, onPick, onClose }) {
+    return (React.createElement(SheetFrame, { title: "Chat theme", onClose: onClose },
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 } }, CHAT_THEMES.map(t => (React.createElement("button", { key: t.id, onClick: () => onPick(t.id), style: { background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "center" } },
+            React.createElement("div", { style: { height: 64, borderRadius: 14, background: themeBg(t), border: current === t.id ? "2px solid #35D0BA" : "1px solid #2B3544", display: "flex", alignItems: "center", justifyContent: "center" } }, current === t.id && React.createElement(Check, { size: 20, color: "#35D0BA", strokeWidth: 3 })),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#B9C2CC", marginTop: 6 } }, t.name)))))));
+}
+function MuteSheet({ onPick, onClose }) {
+    const opts = [["8h", "8 hours"], ["1w", "1 week"], ["always", "Always"]];
+    return (React.createElement(SheetFrame, { title: "Mute notifications", onClose: onClose },
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 6 } }, "You won't get sounds or pop-ups for new messages in this chat."),
+        opts.map(([k, label]) => React.createElement("div", { key: k, onClick: () => onPick(k), style: { padding: "15px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, label))));
+}
+function MediaDocsSheet({ msgs, conversation, myId, onOpenImage, onClose }) {
+    const [tab, setTab] = useState("media");
+    const live = msgs.filter(m => !m.deleted);
+    const media = live.filter(m => m.file && m.file.data && /^data:image\//.test(m.file.data));
+    const docs = live.filter(m => m.file && !(m.file.data && /^data:image\//.test(m.file.data)));
+    const links = [];
+    live.forEach(m => { if (typeof m.text === "string")
+        (m.text.match(/https?:\/\/[^\s]+/g) || []).forEach(u => links.push({ url: u, m })); });
+    const who = (m) => (m.senderId === myId ? "You" : conversation.isGroup ? ((conversation.members || []).find(u => u.id === m.senderId) || {}).name || "Former member" : conversation.other.name);
+    const tabs = [["media", "Media", media.length], ["docs", "Docs", docs.length], ["links", "Links", links.length]];
+    const empty = React.createElement("div", { style: { padding: "30px 10px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13.5 } }, "Nothing here yet");
+    return (React.createElement(SheetFrame, { title: "Media, links, and docs", onClose: onClose, tall: true },
+        React.createElement("div", { style: { display: "flex", gap: 6, marginBottom: 12 } }, tabs.map(([k, label, n]) => React.createElement("button", { key: k, onClick: () => setTab(k), style: { flex: 1, padding: "9px 4px", borderRadius: 999, border: "1px solid " + (tab === k ? "#35D0BA" : "#2B3544"), background: tab === k ? "rgba(53,208,186,0.14)" : "none", color: tab === k ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } },
+            label,
+            n ? " (" + n + ")" : ""))),
+        tab === "media" && (media.length ? React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 } }, media.map(m => React.createElement("img", { loading: "lazy", decoding: "async", key: m.id, src: m.file.data, alt: m.file.name, onClick: () => { onClose(); onOpenImage(m.file.data); }, style: { width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } }))) : empty),
+        tab === "docs" && (docs.length ? docs.map(m => (React.createElement("a", { key: m.id, href: m.file.data || undefined, download: m.file.name, style: { display: "flex", alignItems: "center", gap: 12, padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none", color: "#F5F7FA" } },
+            React.createElement("span", { style: { width: 38, height: 38, borderRadius: 10, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+                React.createElement(Paperclip, { size: 17, color: "#35D0BA" })),
+            React.createElement("span", { style: { minWidth: 0 } },
+                React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontWeight: 600, fontSize: 14, wordBreak: "break-all" } }, m.file.name),
+                React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0" } },
+                    fmtSize(m.file.size),
+                    " \u00B7 ",
+                    who(m),
+                    " \u00B7 ",
+                    fullTime(m.time)))))) : empty),
+        tab === "links" && (links.length ? links.map((l, i) => (React.createElement("a", { key: i, href: l.url, target: "_blank", rel: "noopener noreferrer", style: { display: "block", padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none" } },
+            React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontSize: 14, color: "#7FE3D3", wordBreak: "break-all" } }, l.url),
+            React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0", marginTop: 2 } },
+                who(l.m),
+                " \u00B7 ",
+                fullTime(l.m.time))))) : empty),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#5B6673", textAlign: "center", marginTop: 12 } }, "Shows what is loaded in this chat on this device.")));
+}
+// ---- message info (sent / read times + reactions) ----
+function fullTime(ts) { return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+function MessageInfoSheet({ m, conversation, myId, onClose }) {
+    const mine = m.senderId === myId;
+    const nameOf = (id) => id === myId ? "You" : id === (conversation.other && conversation.other.id) && !conversation.isGroup ? conversation.other.name : ((conversation.members || []).find(u => u.id === id) || {}).name || "Former member";
+    const preview = m.audio || m.hasAudio ? "🎤 Voice note" : m.file ? (m.file.mime && /^image\//.test(m.file.mime) ? "📷 Photo" : "📎 " + (m.file.name || "File")) : m.text;
+    const row = (label, value, key) => (React.createElement("div", { key: key || label, style: { display: "flex", justifyContent: "space-between", gap: 12, padding: "11px 0", borderBottom: "1px solid #1B212B", fontFamily: "Inter", fontSize: 14 } },
+        React.createElement("span", { style: { color: "#9BA7B4" } }, label),
+        React.createElement("span", { style: { color: "#F5F7FA", textAlign: "right" } }, value)));
+    const reactions = Object.entries(m.reactions || {});
+    const readers = conversation.isGroup ? (m.readBy || []).filter(id => id !== myId) : [];
+    return (React.createElement("div", { style: { ...sheet, zIndex: 65 }, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: card },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } },
+                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, "Message info"),
+                React.createElement("button", { "aria-label": "Close", onClick: onClose, style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } },
+                    React.createElement(X, { size: 20, color: "#8891A0" }))),
+            React.createElement("div", { style: { overflowY: "auto" } },
+                React.createElement("div", { style: { alignSelf: "flex-end", background: mine ? "#1E8677" : "#1E2530", borderRadius: 12, padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, marginBottom: 8, overflowWrap: "anywhere", maxHeight: 120, overflow: "hidden" } }, preview),
+                mine ? row("Sent", fullTime(m.time)) : row("Received", fullTime(m.time)),
+                mine && !conversation.isGroup && row("Read", m.readAt ? fullTime(m.readAt) : m.read ? "Yes" : "Not yet"),
+                mine && conversation.isGroup && row("Read by", readers.length ? readers.length + " of " + Math.max(0, (conversation.members || []).length - 1) : "No one yet"),
+                readers.map(id => row(nameOf(id), m.readTimes && m.readTimes[id] ? fullTime(m.readTimes[id]) : "Read", "r" + id)),
+                m.edited && row("Edited", m.editedAt ? fullTime(m.editedAt) : "Yes"),
+                m.forwarded && row("Forwarded", "Yes"),
+                reactions.length > 0 && (React.createElement("div", { style: { marginTop: 14 } },
+                    React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, color: "#8891A0", marginBottom: 4 } }, "REACTIONS"),
+                    reactions.map(([id, e]) => row(nameOf(id), React.createElement("span", { style: { fontSize: 20 } }, e), "e" + id))))))));
+}
+// ---- forward one or more messages to other chats ----
+function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
+  const h = React.createElement;
+  const [chosen, setChosen] = useState([]);       // chat ids
+  const [toStatus, setToStatus] = useState(false); // also post to my status
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const needle = q.trim().toLowerCase();
+  const all = conversations.filter(c => c && c.other);
+  const byRecent = all.slice().sort((a, b) => ((b.lastMessage && b.lastMessage.time) || 0) - ((a.lastMessage && a.lastMessage.time) || 0));
+  const match = (c) => !needle || String(c.other.name).toLowerCase().includes(needle);
+  const frequent = needle ? [] : byRecent.filter(c => !c.isGroup).slice(0, 3);
+  const recent = byRecent.filter(c => match(c) && !frequent.includes(c));
+  const total = chosen.length + (toStatus ? 1 : 0);
+  const toggle = (id) => setChosen(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+  const chosenNames = [...(toStatus ? ["My status"] : []), ...chosen.map(id => { const c = all.find(x => x.id === id); return c ? c.other.name : ""; })].filter(Boolean).join(", ");
+  const sub = (c) => (c.isGroup && c.members ? c.members.map(m => m.name).filter(Boolean).slice(0, 6).join(", ") : "");
+  const toJpeg = (dataUrl) => new Promise((ok) => { // statuses accept JPG/PNG up to ~1 MB: re-encode chat photos
+    const im = new Image();
+    im.onload = () => { const k = Math.min(1, 1280 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.8)); };
+    im.onerror = () => ok(null); im.src = dataUrl;
+  });
+  const postStatus = async (ordered) => {
+    let skipped = 0;
+    for (const m of ordered) {
+      if (m.file && m.file.data && /^data:image\//.test(m.file.data)) {
+        const photo = await toJpeg(m.file.data); if (!photo) { skipped++; continue; }
+        await api("/api/v1/status", { method: "POST", token, body: { photo } });
+      } else if (!m.audio && !m.file && !m.hasAudio && m.text) {
+        const chars = [...String(m.text)];
+        for (let i = 0; i < chars.length; i += 300) await api("/api/v1/status", { method: "POST", token, body: { text: chars.slice(i, i + 300).join("") } });
+      } else skipped++;
+    }
+    return skipped;
+  };
+  const go = async () => {
+    if (!total || busy) return;
+    if (chosen.length && !socket) return setErr("Not connected yet. Try again in a moment.");
+    setBusy(true); setErr("");
+    const ordered = [...msgs].sort((x, y) => x.time - y.time);
+    let failed = "";
+    for (const cid of chosen) {
+      for (const m of ordered) {
+        const payload = { conversationId: cid, forwarded: true };
+        if (m.audio) { payload.audio = m.audio; payload.duration = m.duration; }
+        else if (m.file && m.file.data) payload.file = { name: m.file.name, mime: m.file.mime, size: m.file.size, data: m.file.data };
+        else if (m.hasAudio || m.file) { failed = "Open the voice note or file once so it loads, then forward it."; continue; }
+        else payload.text = m.text;
+        await new Promise((resolve) => {
+          const t = setTimeout(resolve, 8000);
+          socket.emit("message:send", payload, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); });
+        });
+      }
+      if (note.trim()) await new Promise((resolve) => { const t = setTimeout(resolve, 8000); socket.emit("message:send", { conversationId: cid, text: note.trim() }, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); }); });
+    }
+    if (toStatus) {
+      try { const skipped = await postStatus(ordered); if (skipped) failed = failed || (skipped + (skipped === 1 ? " message" : " messages") + " could not go to your status (only text and photos can).") ; }
+      catch (e) { failed = failed || (e && e.message) || "Could not post to your status"; }
+    }
+    setBusy(false);
+    if (failed) setErr(failed); else onClose(true);
+  };
+  const iconBtn = (label, child, fn) => h("button", { key: label, "aria-label": label, onClick: fn, style: { background: "none", border: "none", cursor: "pointer", padding: 8, display: "flex" } }, child);
+  const circle = (on) => h("span", { style: { width: 24, height: 24, borderRadius: 12, border: on ? "none" : "2px solid #5B6673", background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && h(Check, { size: 15, color: "#06210F", strokeWidth: 3 }));
+  const label = (t) => h("div", { key: "l" + t, style: { padding: "14px 16px 6px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, t);
+  const row = (key, avatar, name, subtitle, on, fn) => h("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 14, padding: "9px 16px", cursor: "pointer" } },
+    avatar,
+    h("div", { style: { flex: 1, minWidth: 0 } },
+      h("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, name),
+      subtitle ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, subtitle) : null),
+    circle(on));
+  const chatRow = (c, pre) => row(pre + c.id, h(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }), c.other.name, sub(c), chosen.includes(c.id), () => toggle(c.id));
+  const showStatusRow = !needle || "my status".includes(needle);
+  return h("div", { style: { position: "absolute", inset: 0, zIndex: 65, background: "#0B1014", display: "flex", flexDirection: "column" } },
+    h("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "10px 8px 10px 6px", flexShrink: 0 } },
+      iconBtn("Back", h(ArrowLeft, { size: 24, color: "#F5F7FA" }), () => (searching ? (setSearching(false), setQ("")) : onClose(false))),
+      searching
+        ? h("input", { autoFocus: true, value: q, onChange: e => setQ(e.target.value), placeholder: "Search…", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } })
+        : h("div", { style: { flex: 1, minWidth: 0 } },
+          h("div", { style: { fontFamily: "Sora", fontWeight: 500, fontSize: total ? 17 : 21, color: "#F5F7FA" } }, "Forward to…"),
+          total ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, total + " selected") : null),
+      !searching && iconBtn("Search", h(Search, { size: 22, color: "#F5F7FA" }), () => setSearching(true))),
+    h("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+      showStatusRow && row("status", h("div", { style: { width: 46, height: 46, borderRadius: 23, background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Radio, { size: 22, color: "#06210F" })), "My status", "My contacts", toStatus, () => setToStatus(v => !v)),
+      frequent.length > 0 && label("Frequently contacted"), frequent.map(c => chatRow(c, "f")),
+      recent.length > 0 && label("Recent chats"), recent.map(c => chatRow(c, "r")),
+      !showStatusRow && !frequent.length && !recent.length && h("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 14 } }, "No chats found")),
+    err && h("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, padding: "6px 16px" } }, err),
+    total > 0 && h("div", { style: { flexShrink: 0, padding: "8px 12px 12px", background: "#0B1014", borderTop: "1px solid #1B212B" } },
+      h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+        h("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "#1B232C", borderRadius: 999, padding: "11px 16px" } }, chosenNames),
+        h("button", { "aria-label": "Send", onClick: go, disabled: busy, style: { width: 52, height: 52, borderRadius: 26, border: "none", background: "#21C063", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, busy ? h("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : h(Send, { size: 24, color: "#06210F" })))));
+}
+
+function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, onMute = () => { }, onReport = () => { }, onNewGroup = () => { }, focus = null }) {
+    const [msgs, setMsgs] = useState([]);
+    const [draft, setDraft] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [peerTyping, setPeerTyping] = useState(false);
+    const [zoomed, setZoomed] = useState(false);
+    const [info, setInfo] = useState(false);
+    const [peerInfo, setPeerInfo] = useState(false); // 1:1 contact profile sheet
+    const [replyTo, setReplyTo] = useState(null); // message being replied to
+    const [msgInfo, setMsgInfo] = useState(null); // message whose info sheet is open
+    const [fwd, setFwd] = useState(null); // messages being forwarded
+    const [pickMenu, setPickMenu] = useState(false); // the ⋮ menu in the selection bar
+    const [menuPage, setMenuPage] = useState("main"); // "main" | "more" (the ⋮ dropdown)
+    const [sheetName, setSheetName] = useState(null); // "theme" | "media" | "mute"
+    const [note, setNote] = useState("");
+    const [themeId, setThemeId] = useState(() => loadJSON("chatTheme:" + conversation.id, "lcdark"));
+    const chatTheme = CHAT_THEMES.find(t => t.id === themeId) || CHAT_THEMES[0];
+  const chatBg = themeBg(chatTheme);
+  const chatBar = chatTheme.img ? chatTheme.bg : chatBg;
+    const flashNote = (t) => { setNote(t); setTimeout(() => setNote(""), 2600); };
+    const [callMenu, setCallMenu] = useState(false); // the call button's dropdown (voice / video / call link)
+    const [sugOpen, setSugOpen] = useState(false); // quick-reply suggestions strip
+    const [pillBelow, setPillBelow] = useState(false);
+    const listEl = useRef(null);
+    const [rec, setRec] = useState(null);
+    const [recSec, setRecSec] = useState(0);
+    const [sending, setSending] = useState(false);
+    const [menu, setMenu] = useState(false);
+    const [viewer, setViewer] = useState(null);
+    const [sel, setSel] = useState(null); // message whose Edit / Delete sheet is open
+    const [editing, setEditing] = useState(null); // message being edited (its text sits in the input)
+    const pressRef = useRef(null);
+    const focusId = focus && focus.conversationId === conversation.id ? focus.id : null;
+    const pendingFocus = useRef(focusId);
+    const focusEl = useRef(null);
+    const [hl, setHl] = useState(null); // search result being highlighted
+    const [fText, setFText] = useState(null);
+    const [fIdx, setFIdx] = useState(0);
+    const fEls = useRef({}); // in-chat search
+    const fQ = fText ? fText.trim().toLowerCase() : "";
+    const fMatches = fQ ? msgs.filter(m => !m.deleted && typeof m.text === "string" && m.text.toLowerCase().includes(fQ)).map(m => m.id) : [];
+    const fPos = fMatches.length ? Math.min(fIdx, fMatches.length - 1) : 0;
+    const fCur = fMatches.length ? fMatches[fMatches.length - 1 - fPos] : null;
+    useEffect(() => { if (fCur && fEls.current[fCur])
+        fEls.current[fCur].scrollIntoView({ block: "center", behavior: "smooth" }); }, [fCur, fQ]);
+    const openedAt = useRef(0);
+    const fileRef = useRef(null);
+    const camRef = useRef(null);
+    const inputRef = useRef(null);
+    const endRef = useRef(null);
+    const typingTimeout = useRef(null);
+    // Typo suggestions: the last finished word that looks misspelled, with tappable corrections above the input.
+    const [typoIgnored, setTypoIgnored] = useState(typoLoadIgnored);
+    const typoHit = typoCheck(draft, typoIgnored);
+    const myQuick = bizOfSettings(settings).quickReplies;
+    const qMatch = /^\/([\w-]*)$/.exec(draft);
+    const qHits = qMatch ? myQuick.filter(q => q.shortcut.startsWith(qMatch[1].toLowerCase())).slice(0, 8) : [];
+    const useQuick = (q) => { setDraft(q.text); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+    const applyTypo = (fix) => { if (!typoHit)
+        return; setDraft(typoApply(draft, typoHit, fix)); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+    const ignoreTypo = () => { if (!typoHit)
+        return; const next = typoIgnored.concat(typoHit.word.toLowerCase()); setTypoIgnored(next); typoSaveIgnored(next); };
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        pendingFocus.current = focusId;
+        api(`/api/v1/conversations/${conversation.id}/messages`, { token })
+            .then(async ({ messages }) => {
+            let list = messages;
+            if (focusId && !list.some(x => x.id === focusId)) { // the search result is older than the latest page: load from there
+                try {
+                    list = (await api(`/api/v1/conversations/${conversation.id}/messages?since=${Math.max(0, focus.time - 60000)}&limit=200`, { token })).messages;
+                }
+                catch (e) { }
+            }
+            if (focusId && !list.some(x => x.id === focusId))
+                pendingFocus.current = null; // result no longer exists: just open at the bottom
+            const clearedAt = loadJSON("chatCleared:" + conversation.id, 0);
+            if (clearedAt)
+                list = list.filter(x => x.time > clearedAt);
+            if (!cancelled) {
+                setMsgs(list);
+                if (focusId) {
+                    setHl(focusId);
+                    setTimeout(() => setHl(null), 2800);
+                }
+            }
+        })
+            .catch(e => setError(e.message))
+            .finally(() => !cancelled && setLoading(false));
+        return () => { cancelled = true; };
+    }, [conversation.id]);
+    useEffect(() => {
+        if (!socket)
+            return;
+        const onNew = (m) => {
+            if (m.conversationId !== conversation.id)
+                return;
+            setMsgs(prev => [...prev, m]);
+        };
+        const onTyping = ({ conversationId, userId, typing }) => {
+            if (conversationId === conversation.id && userId !== myId)
+                setPeerTyping(typing);
+        };
+        const onUpdated = (m) => {
+            if (m.conversationId !== conversation.id)
+                return;
+            setMsgs(prev => prev.map(x => {
+                if (x.id !== m.id)
+                    return x;
+                if (m.deleted) {
+                    const { audio, file, duration, hasAudio, edited, editedAt, ...rest } = x;
+                    return { ...rest, text: m.text, deleted: true };
+                }
+                return { ...x, text: m.text, edited: true, editedAt: m.editedAt };
+            }));
+            if (m.deleted) {
+                setEditing(e => (e && e.id === m.id ? null : e));
+                setSel(s => (s && s.id === m.id ? null : s));
+            }
+        };
+        socket.on("message:new", onNew);
+        socket.on("message:updated", onUpdated);
+        socket.on("typing", onTyping);
+        return () => { socket.off("message:new", onNew); socket.off("message:updated", onUpdated); socket.off("typing", onTyping); };
+    }, [socket, conversation.id, myId]);
+    useEffect(() => {
+        if (pendingFocus.current && focusEl.current) {
+            focusEl.current.scrollIntoView({ block: "center" });
+            pendingFocus.current = null;
+            return;
+        }
+        if (!pendingFocus.current)
+            endRef.current?.scrollIntoView();
+    }, [msgs, peerTyping]);
+    useEffect(() => { onLocalUpdate(conversation.id, msgs); }, [msgs]);
+    const notifyTyping = (isTyping) => {
+        if (!socket)
+            return;
+        socket.emit("typing", { conversationId: conversation.id, typing: isTyping });
+        clearTimeout(typingTimeout.current);
+        if (isTyping)
+            typingTimeout.current = setTimeout(() => socket.emit("typing", { conversationId: conversation.id, typing: false }), 1500);
+    };
+    const EDIT_WINDOW_MS = 15 * 60 * 1000; // keep in step with the server
+    const canEdit = (m) => !!m && !m.deleted && !m.audio && !m.hasAudio && !m.file && Date.now() - m.time <= EDIT_WINDOW_MS;
+    const startEdit = (m) => {
+        setSel(null);
+        if (!canEdit(m))
+            return setError("Messages can only be edited for 15 minutes after sending");
+        setEditing(m);
+        setDraft(m.text);
+        setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
+    };
+    const cancelEdit = () => { setEditing(null); setDraft(""); };
+    const removeMsg = (m) => {
+        setSel(null);
+        if (!socket)
+            return setError("Not connected yet. Try again in a moment.");
+        if (!window.confirm("Delete this " + (m.audio || m.hasAudio ? "voice note" : "message") + " for everyone?"))
+            return;
+        socket.emit("message:delete", { messageId: m.id }, (ack) => { if (ack && ack.error)
+            setError(ack.error); });
+    };
+    const reactTo = (m, emoji) => { setSel(null); setPicked([]); if (!socket)
+        return setError("Not connected yet. Try again in a moment."); socket.emit("message:react", { messageId: m.id, emoji }, (ack) => { if (ack && ack.error)
+        setError(ack.error); }); };
+    if (window.LCReactions)
+        window.LCReactions.useLive(socket, conversation.id, setMsgs);
+    const openMenu = (m) => { if (m.senderId === myId && !m.deleted) {
+        openedAt.current = Date.now();
+        setSel(m);
+    } };
+    const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => { startPick(m); try {
+        if (navigator.vibrate)
+            navigator.vibrate(12);
+    }
+    catch (e) { } }, 250); };
+    const pressEnd = () => clearTimeout(pressRef.current);
+    const [emojiOpen, setEmojiOpen] = useState(false);
+    const [emojiTab, setEmojiTab] = useState(0);
+    const insertEmoji = (em) => {
+        const el = inputRef.current;
+        const a = el && typeof el.selectionStart === "number" ? el.selectionStart : draft.length;
+        const b = el && typeof el.selectionEnd === "number" ? el.selectionEnd : draft.length;
+        setDraft((draft.slice(0, a) + em + draft.slice(b)).slice(0, MAX_MSG_CHARS));
+        notifyTyping(true);
+        setTimeout(() => { if (el) {
+            const p = a + em.length;
+            try {
+                el.setSelectionRange(p, p);
+            }
+            catch (e) { }
+        } }, 0);
+    };
+    // ---- multi-select: long-press a bubble to start, then tap more bubbles to add or remove them ----
+    const [picked, setPicked] = useState([]);
+    const pickAt = useRef(0);
+    const pickedMsgs = msgs.filter(x => !x.deleted && picked.includes(x.id));
+    const picking = pickedMsgs.length > 0;
+    const startPick = (m) => { if (!m || m.deleted)
+        return; pickAt.current = Date.now(); setSel(null); setPicked(p => (p.includes(m.id) ? p : [...p, m.id])); };
+    const togglePick = (m) => { if (Date.now() - pickAt.current < 500)
+        return; setPicked(p => (p.includes(m.id) ? p.filter(id => id !== m.id) : [...p, m.id])); };
+    const muteUntil = conversation && isMutedChat(settings.muted, conversation.id);
+    const exportChat = () => {
+        const lines = msgs.filter(x => !x.deleted).map(x => {
+            const who = x.senderId === myId ? "You" : isGroup ? ((conversation.members.find(u => u.id === x.senderId) || {}).name || "Former member") : conversation.other.name;
+            const body = x.audio || x.hasAudio ? "<voice note>" : x.file ? "<attached: " + (x.file.name || "file") + ">" : x.text;
+            return "[" + new Date(x.time).toLocaleString() + "] " + who + ": " + body;
+        });
+        if (!lines.length)
+            return flashNote("There are no messages to export");
+        try {
+            const blob = new Blob(["Chat with " + conversation.other.name + "\n\n" + lines.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob), el = document.createElement("a");
+            el.href = url;
+            el.download = "Letschat chat with " + conversation.other.name.replace(/[\\/:*?"<>|]/g, "_") + ".txt";
+            document.body.appendChild(el);
+            el.click();
+            document.body.removeChild(el);
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            flashNote("Chat exported");
+        }
+        catch (e) {
+            flashNote("Could not export this chat");
+        }
+    };
+    const clearChat = () => {
+        if (!window.confirm("Clear all messages in this chat on this device? Other people keep their copy."))
+            return;
+        saveJSON("chatCleared:" + conversation.id, Date.now());
+        setMsgs([]);
+        clearPick();
+        flashNote("Chat cleared");
+    };
+    const addShortcut = async () => {
+        const url = window.location.origin + window.location.pathname + "?open=" + conversation.id;
+        try {
+            if (navigator.share) {
+                await navigator.share({ title: conversation.other.name + " on Letschat Africa", url });
+                return;
+            }
+        }
+        catch (e) {
+            if (e && e.name === "AbortError")
+                return;
+        }
+        try {
+            await navigator.clipboard.writeText(url);
+            flashNote("Shortcut link copied. Open it in your browser, then choose Add to Home screen.");
+        }
+        catch (e) {
+            window.prompt("Copy this shortcut link, open it in your browser, then choose Add to Home screen", url);
+        }
+    };
+    const reportChat = () => {
+        const name = conversation.other.name;
+        if (!window.confirm("Report " + (isGroup ? "this group" : name) + "? Letschat Africa will review the report. They won't be told."))
+            return;
+        onReport(isGroup ? null : conversation.other.id, conversation.id);
+    };
+    const sendCallLink = () => {
+        if (!socket)
+            return setError("Not connected yet. Try again in a moment.");
+        const url = window.location.origin + window.location.pathname + "?call=" + conversation.id + "&v=0";
+        socket.emit("message:send", { conversationId: conversation.id, text: "📞 Call me on Letschat Africa: " + url }, (ack) => { if (ack && ack.error)
+            setError(ack.error);
+        else
+            playSound("send"); });
+    };
+    const pickSuggestion = (t) => {
+        setDraft(d => (d.trim() ? d.replace(/\s*$/, " ") + t : t));
+        setSugOpen(false);
+        notifyTyping(true);
+        setTimeout(() => inputRef.current && inputRef.current.focus(), 0);
+    };
+    const clearPick = () => { setPicked([]); setPickMenu(false); };
+    const replyPicked = () => { const m = pickedMsgs[0]; if (!m)
+        return; setReplyTo(m); setEditing(null); clearPick(); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+    const infoPicked = () => { const m = pickedMsgs[0]; if (!m)
+        return; setMsgInfo(m); clearPick(); };
+    const forwardPicked = () => { if (!pickedMsgs.length)
+        return; setFwd(pickedMsgs); clearPick(); };
+    const jumpTo = (id) => { const el = fEls.current[id]; if (!el)
+        return; el.scrollIntoView({ block: "center", behavior: "smooth" }); setHl(id); setTimeout(() => setHl(null), 1600); };
+    // keep the emoji pill on screen: if the selected message is near the top of the list, show it underneath instead
+    useEffect(() => {
+        if (!(picked.length === 1))
+            return;
+        const el = fEls.current[picked[0]], box = listEl.current;
+        if (el && box)
+            setPillBelow(el.getBoundingClientRect().top - box.getBoundingClientRect().top < 70);
+    }, [picked.join(",")]);
+    const allMinePicked = picking && pickedMsgs.every(x => x.senderId === myId);
+    const copyPicked = async () => {
+        const text = pickedMsgs.map(x => {
+            const who = conversation.isGroup ? (x.senderId === myId ? "You" : ((conversation.members.find(u => u.id === x.senderId) || {}).name || "Former member")) + ": " : "";
+            return who + (x.audio || x.hasAudio ? "[Voice note]" : x.file ? "[File: " + (x.file.name || "file") + "]" : x.text);
+        }).join("\n");
+        try {
+            await navigator.clipboard.writeText(text);
+        }
+        catch (e) {
+            window.prompt("Copy these messages", text);
+        }
+        clearPick();
+    };
+    const deletePicked = () => {
+        const mine = pickedMsgs.filter(x => x.senderId === myId);
+        if (!mine.length)
+            return;
+        if (!socket)
+            return setError("Not connected yet. Try again in a moment.");
+        if (!window.confirm("Delete " + (mine.length === 1 ? "this message" : mine.length + " messages") + " for everyone?"))
+            return;
+        mine.forEach(x => socket.emit("message:delete", { messageId: x.id }, (ack) => { if (ack && ack.error)
+            setError(ack.error); }));
+        clearPick();
+    };
+    // Auto-expand the message box as the user types (Enter adds a new line), up to 40% of the screen, then it scrolls.
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el)
+            return;
+        el.style.height = "auto";
+        el.style.height = el.scrollHeight + "px";
+    }, [draft]);
+    const send = () => {
+        if (!draft.trim() || !socket)
+            return;
+        const text = draft.trim();
+        if (editing) {
+            if (text === editing.text)
+                return cancelEdit();
+            const id = editing.id;
+            return socket.emit("message:edit", { messageId: id, text }, (ack) => {
+                if (ack && ack.error)
+                    return setError(ack.error);
+                setEditing(null);
+                setDraft("");
+                if (ack && ack.message)
+                    setMsgs(prev => prev.map(x => (x.id === id ? { ...x, text: ack.message.text, edited: true, editedAt: ack.message.editedAt } : x)));
+            });
+        }
+        setDraft("");
+        notifyTyping(false);
+        playSound("send");
+        const rid = replyTo ? replyTo.id : undefined;
+        setReplyTo(null);
+        socket.emit("message:send", { conversationId: conversation.id, text, replyTo: rid }, (ack) => {
+            if (ack?.error)
+                setError(ack.error);
+        });
+    };
+    const sendFile = async (file) => {
+        if (!file)
+            return;
+        if (!socket)
+            return setError("Not connected yet. Try again in a moment.");
+        setSending(true);
+        const done = setTimeout(() => setSending(false), 20000);
+        try {
+            let data, mime = file.type || "application/octet-stream", name = file.name || "file";
+            if (/^image\/(jpeg|png|webp)$/.test(mime)) {
+                data = await compressImage(file);
+                mime = "image/jpeg";
+                name = name.replace(/\.\w+$/, "") + ".jpg";
+            }
+            else {
+                if (file.size > MAX_FILE)
+                    throw new Error("File is too large (max 3 MB)");
+                data = await readAsDataURL(file);
+            }
+            if (data.length > 4000000)
+                throw new Error("File is too large (max 3 MB)");
+            const rid = replyTo ? replyTo.id : undefined;
+            setReplyTo(null);
+            socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
+                clearTimeout(done);
+                setSending(false);
+                if (ack && ack.error)
+                    setError(ack.error);
+                else
+                    playSound("send");
+            });
+        }
+        catch (e) {
+            clearTimeout(done);
+            setSending(false);
+            setError(e.message || "Could not send that file");
+        }
+    };
+    const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; sendFile(f); };
+    const startRec = async () => {
+        if (!featOn("voiceNotes"))
+            return setError("Voice notes are turned off. Turn them on in Tools > Sounds & features.");
+        if (!socket || !navigator.mediaDevices || !window.MediaRecorder)
+            return setError("Voice notes are not supported on this device");
+        try {
+            const clear = featOn("clearVoice"); // clear voice = echo cancellation + noise suppression
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear } });
+            const mr = new MediaRecorder(stream, { audioBitsPerSecond: 24000 });
+            const r = { mr, chunks: [], t0: Date.now(), cancel: false };
+            mr.ondataavailable = (e) => { if (e.data.size)
+                r.chunks.push(e.data); };
+            mr.onstop = () => {
+                stream.getTracks().forEach(t => t.stop());
+                if (r.cancel)
+                    return;
+                const fr = new FileReader();
+                const rid = replyTo ? replyTo.id : undefined;
+                setReplyTo(null);
+                fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error)
+                    setError(ack.error);
+                else
+                    playSound("send"); });
+                fr.readAsDataURL(new Blob(r.chunks, { type: mr.mimeType || "audio/webm" }));
+            };
+            mr.start();
+            setRecSec(0);
+            setRec(r);
+        }
+        catch (e) {
+            setError("Allow microphone access to record voice notes");
+        }
+    };
+    const stopRec = (cancel) => { if (!rec)
+        return; rec.cancel = !!cancel; if (rec.mr.state !== "inactive")
+        rec.mr.stop(); setRec(null); };
+    useEffect(() => {
+        if (!rec)
+            return;
+        const t = setInterval(() => setRecSec(x => { if (x >= 59)
+            stopRec(false); return x + 1; }), 1000);
+        return () => clearInterval(t);
+    }, [rec]);
+    const isGroup = !!conversation.isGroup;
+    const online = !!presence[conversation.other.id];
+    const isFav = settings.favorites.includes(conversation.id);
+    const iBlocked = !isGroup && settings.blocked.some(b => b.id === conversation.other.id);
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "12px 8px 12px 10px", background: "#080B0F", position: "relative", flexShrink: 0 } },
+            picking && (() => {
+                const one = pickedMsgs.length === 1 ? pickedMsgs[0] : null;
+                const ib = { background: "none", border: "none", cursor: "pointer", padding: 9, display: "flex", flexShrink: 0 };
+                return (React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 60, background: "#0E1116", display: "flex", alignItems: "center", gap: 0, padding: "0 4px 0 6px" } },
+                    React.createElement("button", { "aria-label": "Cancel selection", onClick: clearPick, style: { ...ib, padding: 10 } },
+                        React.createElement(ArrowLeft, { size: 22, color: "#F5F7FA" })),
+                    React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 21, color: "#F5F7FA", paddingLeft: 10 } }, pickedMsgs.length),
+                    one && React.createElement("button", { "aria-label": "Reply", onClick: replyPicked, style: ib },
+                        React.createElement(ReplyIcon, { size: 22, color: "#F5F7FA" })),
+                    one && React.createElement("button", { "aria-label": "Message info", onClick: infoPicked, style: ib },
+                        React.createElement(InfoIcon, { size: 22, color: "#F5F7FA" })),
+                    allMinePicked && React.createElement("button", { "aria-label": "Delete selected messages", onClick: deletePicked, style: ib },
+                        React.createElement(Trash2, { size: 22, color: "#F5F7FA" })),
+                    React.createElement("button", { "aria-label": "Copy", onClick: copyPicked, style: ib },
+                        React.createElement(CopyIcon, { size: 22, color: "#F5F7FA" })),
+                    React.createElement("button", { "aria-label": "Forward", onClick: forwardPicked, style: ib },
+                        React.createElement(ForwardIcon, { size: 22, color: "#F5F7FA" })),
+                    React.createElement("button", { "aria-label": "More", onClick: () => setPickMenu(v => !v), style: ib },
+                        React.createElement(MoreVertical, { size: 22, color: "#F5F7FA" })),
+                    pickMenu && (React.createElement(React.Fragment, null,
+                        React.createElement("div", { onClick: () => setPickMenu(false), style: { position: "fixed", inset: 0, zIndex: 61 } }),
+                        React.createElement("div", { style: { position: "absolute", top: 54, right: 8, zIndex: 62, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" } }, [
+                            ...(one && one.senderId === myId && canEdit(one) ? [{ label: "Edit", run: () => { startEdit(one); clearPick(); } }] : []),
+                            { label: "Select all", run: () => { setPicked(msgs.filter(x => !x.deleted).map(x => x.id)); setPickMenu(false); } },
+                        ].map(it => (React.createElement("div", { key: it.label, onClick: it.run, style: { padding: "11px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: "#F5F7FA" } }, it.label))))))));
+            })(),
+            menu && (() => {
+                const close = () => { setMenu(false); setMenuPage("main"); };
+                const first = (name) => String(name || "").split(" ")[0];
+                const main = [
+                    { label: isGroup ? "Group info" : "View contact", run: () => { close(); if (isGroup)
+                            setInfo(true);
+                        else
+                            setPeerInfo(true); } },
+                    { label: "Search", run: () => { close(); setFText(""); setFIdx(0); } },
+                    { label: "Report", run: () => { close(); reportChat(); } },
+                    ...(isGroup ? [] : [{ label: iBlocked ? "Unblock" : "Block", run: () => { close(); if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you."))
+                                onBlock(conversation.other.id, !iBlocked); } }]),
+                    { label: muteUntil ? "Unmute notifications" : "Mute notifications", run: () => { close(); if (muteUntil)
+                            onMute(conversation.id, "off");
+                        else
+                            setSheetName("mute"); } },
+                    { divider: true },
+                    { label: "New group", run: () => { close(); onNewGroup(); } },
+                    { label: "More", more: true, run: () => setMenuPage("more") },
+                ];
+                const more = [
+                    { label: "Chat theme", run: () => { close(); setSheetName("theme"); } },
+                    { label: "Media, links, and docs", run: () => { close(); setSheetName("media"); } },
+                    { label: "Clear chat", run: () => { close(); clearChat(); } },
+                    { label: "Export chat", run: () => { close(); exportChat(); } },
+                    { label: "Add shortcut", run: () => { close(); addShortcut(); } },
+                    { label: isFav ? "Remove from favourites" : "Add to favourites", run: () => { close(); onToggleFavorite(conversation.id); } },
+                ];
+                const items = menuPage === "more" ? more : main;
+                return (React.createElement(React.Fragment, null,
+                    React.createElement("div", { onClick: close, style: { position: "fixed", inset: 0, zIndex: 40 } }),
+                    React.createElement("div", { role: "menu", style: { position: "absolute", top: 62, right: 6, zIndex: 41, minWidth: menuPage === "more" ? 236 : 208, maxWidth: "calc(100% - 12px)", background: "#12161B", border: "1px solid #1E252E", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" } }, items.map((it, i) => it.divider
+                        ? React.createElement("div", { key: "d" + i, style: { height: 1, background: "#232B37", margin: "6px 0" } })
+                        : React.createElement("div", { key: it.label, role: "menuitem", onClick: it.run, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" } },
+                            React.createElement("span", null, it.label),
+                            it.more && React.createElement("svg", { width: "7", height: "11", viewBox: "0 0 6 10", style: { marginLeft: 16 } },
+                                React.createElement("path", { d: "M0 0v10l6-5z", fill: "#9BA7B4" })))))));
+            })(),
+            React.createElement("button", { "aria-label": "Back", onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } },
+                React.createElement(ArrowLeft, { size: 24 })),
+            React.createElement(Ring, { size: 42, color: conversation.other.color, initials: conversation.other.initials, photo: conversation.other.avatar, online: undefined, onClick: conversation.other.avatar ? () => setZoomed(true) : undefined }),
+            React.createElement("div", { onClick: isGroup ? () => setInfo(true) : () => setPeerInfo(true), style: { flex: 1, minWidth: 0, cursor: "pointer", paddingLeft: 2 } },
+                React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 19, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                    conversation.other.name,
+                    conversation.other.verified && React.createElement(VerifiedBadge, null)),
+                peerTyping && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, "typing\u2026")),
+            !isGroup && (featOn("voiceCalls") || featOn("videoCalls")) && (React.createElement("button", { "aria-label": "Call options", "aria-haspopup": "menu", "aria-expanded": callMenu, onClick: () => { setMenu(false); setCallMenu(v => !v); }, style: { background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 } },
+                React.createElement(Phone, { size: 24, color: "#9BA7B4" }),
+                React.createElement("svg", { width: "11", height: "7", viewBox: "0 0 10 6", style: { transform: callMenu ? "rotate(180deg)" : "none", transition: "transform .15s" } },
+                    React.createElement("path", { d: "M0 0h10L5 6z", fill: "#9BA7B4" })))),
+            React.createElement("button", { "aria-label": "More options", onClick: () => { setCallMenu(false); setMenuPage("main"); setMenu(m => !m); }, style: { background: "none", border: "none", cursor: "pointer", padding: "8px 4px", display: "flex", flexShrink: 0 } },
+                React.createElement(MoreVertical, { size: 22, color: "#F5F7FA" })),
+            callMenu && !isGroup && (React.createElement(React.Fragment, null,
+                React.createElement("div", { onClick: () => setCallMenu(false), style: { position: "fixed", inset: 0, zIndex: 40 } }),
+                React.createElement("div", { role: "menu", style: { position: "absolute", top: 58, right: 40, zIndex: 41, minWidth: 220, background: "#171C24", border: "1px solid #232B37", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" } },
+                    featOn("voiceCalls") && React.createElement("div", { role: "menuitem", onClick: () => { setCallMenu(false); onCall(conversation, false); }, style: { display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" } },
+                        React.createElement(Phone, { size: 22, color: "#9BA7B4" }),
+                        "Voice call"),
+                    featOn("videoCalls") && React.createElement("div", { role: "menuitem", onClick: () => { setCallMenu(false); onCall(conversation, true); }, style: { display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" } },
+                        React.createElement(Video, { size: 22, color: "#9BA7B4" }),
+                        "Video call"),
+                    React.createElement("div", { style: { height: 1, background: "#232B37", margin: "6px 0" } }),
+                    React.createElement("div", { role: "menuitem", onClick: () => { setCallMenu(false); sendCallLink(); }, style: { display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" } },
+                        React.createElement(LinkIcon, { size: 22, color: "#9BA7B4" }),
+                        "Send call link"))))),
+        fText !== null && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 } },
+            React.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "8px 11px" } },
+                React.createElement(Search, { size: 16, color: "#8891A0", style: { flexShrink: 0 } }),
+                React.createElement("input", { autoFocus: true, value: fText, onChange: e => { setFText(e.target.value); setFIdx(0); }, placeholder: "Search in this chat", maxLength: 100, style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 } }),
+                fQ && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", whiteSpace: "nowrap" } }, fMatches.length ? (fMatches.length - fPos) + " of " + fMatches.length : "No results")),
+            React.createElement("button", { "aria-label": "Older match", disabled: !fMatches.length || fPos >= fMatches.length - 1, onClick: () => setFIdx(fPos + 1), style: { ...iconBtnStyle, opacity: !fMatches.length || fPos >= fMatches.length - 1 ? 0.35 : 1 } },
+                React.createElement(ChevronDown, { size: 20, color: "#9BA7B4", style: { transform: "rotate(180deg)" } })),
+            React.createElement("button", { "aria-label": "Newer match", disabled: fPos <= 0, onClick: () => setFIdx(fPos - 1), style: { ...iconBtnStyle, opacity: fPos <= 0 ? 0.35 : 1 } },
+                React.createElement(ChevronDown, { size: 20, color: "#9BA7B4" })),
+            React.createElement("button", { "aria-label": "Close search", onClick: () => { setFText(null); setFIdx(0); }, style: iconBtnStyle },
+                React.createElement(X, { size: 20, color: "#9BA7B4" })))),
+        React.createElement("div", { ref: listEl, style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: chatBg } },
+            loading && React.createElement("div", { style: { margin: "auto", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading conversation\u2026"),
+            error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+            !loading && msgs.length === 0 && (React.createElement("div", { style: { margin: "auto", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } },
+                "No messages yet.",
+                React.createElement("br", null),
+                "Say hello to ",
+                isGroup ? "the group" : conversation.other.name.split(" ")[0],
+                " \uD83D\uDC4B")),
+            msgs.map(m => {
+                const mine = m.senderId === myId;
+                const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
+                return (React.createElement("div", { key: m.id, ref: (el) => { fEls.current[m.id] = el; if (m.id === focusId)
+                        focusEl.current = el; }, onContextMenu: !m.deleted ? (e) => { e.preventDefault(); startPick(m); } : undefined, onClickCapture: picking ? (e) => { if (e.target.closest && e.target.closest("[data-lcpill]"))
+                        return; e.preventDefault(); e.stopPropagation(); if (!m.deleted)
+                        togglePick(m); } : undefined, onTouchStart: !m.deleted ? () => pressStart(m) : undefined, onTouchEnd: pressEnd, onTouchMove: pressEnd, onTouchCancel: pressEnd, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignSelf: "stretch", position: "relative", padding: "4px 12px", margin: "-4px -12px", zIndex: picking && picked.includes(m.id) ? 5 : undefined, background: picking && picked.includes(m.id) && !m.deleted ? "rgba(168,160,60,0.30)" : "transparent", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" } },
+                    picking && pickedMsgs.length === 1 && picked[0] === m.id && window.LCReactions && window.LCReactions.pill(m, myId, reactTo, mine, pillBelow),
+                    React.createElement("div", { style: {
+                            WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
+                            alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%", position: "relative",
+                            marginBottom: !mine && window.LCReactions && window.LCReactions.has(m) ? 14 : 0,
+                            background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
+                            borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
+                            padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
+                        } },
+                        isGroup && !mine && React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 } }, sender ? sender.name : "Former member"),
+                        m.forwarded && !m.deleted && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 9, fontSize: 14.5, fontStyle: "italic", color: "rgba(225,232,232,0.72)", marginBottom: 5 } },
+                            React.createElement(ForwardIcon, { size: 16, strokeWidth: 1.8, color: "rgba(225,232,232,0.72)" }),
+                            "Forwarded"),
+                        m.replyTo && !m.deleted && (React.createElement("div", { onClick: () => jumpTo(m.replyTo.id), style: { background: mine ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.06)", borderLeft: "4px solid " + (m.replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), borderRadius: 8, padding: "5px 9px", marginBottom: 6, cursor: "pointer", minWidth: 120 } },
+                            React.createElement("div", { style: { fontWeight: 700, fontSize: 12.5, color: m.replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA", marginBottom: 1 } }, m.replyTo.senderId === myId ? "You" : m.replyTo.name),
+                            React.createElement("div", { style: { fontSize: 13, color: "#D5DBE2", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }, m.replyTo.text))),
+                        m.deleted ? React.createElement("div", { style: { fontStyle: "italic", color: "#B9C2CC" } }, m.text)
+                            : m.audio ? React.createElement("audio", { controls: true, preload: "none", src: m.audio, style: { height: 36, width: 210, maxWidth: "100%" } })
+                                : m.file && m.file.data && /^data:image\//.test(m.file.data) ? React.createElement("img", { loading: "lazy", decoding: "async", src: m.file.data, alt: m.file.name, onClick: () => setViewer(m.file.data), style: { display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" } })
+                                    : m.file && m.file.data ? (React.createElement("a", { href: m.file.data, download: m.file.name, style: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 } },
+                                        React.createElement("span", { style: { width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+                                            React.createElement(Paperclip, { size: 17, color: "#35D0BA" })),
+                                        React.createElement("span", { style: { minWidth: 0 } },
+                                            React.createElement("span", { style: { display: "block", fontWeight: 600, fontSize: 13.5, wordBreak: "break-all" } }, m.file.name),
+                                            React.createElement("span", { style: { display: "block", fontSize: 11.5, color: "#B9C2CC" } },
+                                                fmtSize(m.file.size),
+                                                " \u00B7 tap to download")))) : React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, withLinks(richText(m.text))),
+                        window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine),
+                        React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
+                            m.edited && !m.deleted && React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" } }, "edited"),
+                            React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, timeLabel(m.time)),
+                            mine && !m.deleted && React.createElement("button", { "aria-label": "Message options", onClick: () => openMenu(m), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } },
+                                React.createElement(ChevronDown, { size: 14, color: "#B9C2CC" })),
+                            mine && (m.read || (m.readBy && m.readBy.length) ? React.createElement(CheckCheck, { size: 13, color: "#35D0BA" }) : React.createElement(Check, { size: 13, color: "#B9C2CC" }))))));
+            }),
+            peerTyping && (React.createElement("div", { style: { alignSelf: "flex-start", background: "#1E2530", borderRadius: 14, borderBottomLeftRadius: 3, padding: "9px 13px", color: "#8891A0", fontFamily: "Inter", fontSize: 13 } }, "typing\u2026")),
+            React.createElement("div", { ref: endRef })),
+        (rec || sending) && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 } },
+            React.createElement("span", { style: { width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" } }),
+            React.createElement("span", { style: { flex: 1 } }, rec ? "Recording " + Math.floor(recSec / 60) + ":" + String(recSec % 60).padStart(2, "0") + " · tap send to finish" : "Sending file…"),
+            rec && React.createElement("button", { onClick: () => stopRec(true), style: { ...smallBtn, color: "#FF6B5D" } }, "Cancel"))),
+        replyTo && !editing && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 } },
+            React.createElement("div", { style: { flex: 1, minWidth: 0, borderLeft: "4px solid " + (replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), background: "#1E2530", borderRadius: 8, padding: "6px 10px" } },
+                React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 12.5, color: replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA" } }, replyTo.senderId === myId ? "You" : ((isGroup ? (conversation.members.find(u => u.id === replyTo.senderId) || {}).name : conversation.other.name) || "Former member")),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#B9C2CC", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, replyTo.audio || replyTo.hasAudio ? "🎤 Voice note" : replyTo.text)),
+            React.createElement("button", { "aria-label": "Cancel reply", onClick: () => setReplyTo(null), style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" } },
+                React.createElement(X, { size: 18, color: "#8891A0" })))),
+        editing && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", flexShrink: 0 } },
+            React.createElement(Pencil, { size: 15, color: "#35D0BA" }),
+            React.createElement("span", { style: { flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                React.createElement("b", { style: { color: "#35D0BA" } }, "Editing message"),
+                " \u00B7 ",
+                editing.text),
+            React.createElement("button", { "aria-label": "Cancel editing", onClick: cancelEdit, style: { background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" } },
+                React.createElement(X, { size: 18, color: "#8891A0" })))),
+        !iBlocked && !rec && !editing && qHits.length > 0 && (React.createElement("div", { role: "group", "aria-label": "Your quick replies", style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" } }, qHits.map(q => React.createElement("button", { key: q.id, onMouseDown: e => e.preventDefault(), onClick: () => useQuick(q), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 12px", textAlign: "left", cursor: "pointer", flexShrink: 0, maxWidth: 240 } },
+            React.createElement("div", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 13 } }, "/" + q.shortcut),
+            React.createElement("div", { style: { color: "#C5CDD8", fontFamily: "Inter", fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, q.text))))),
+        !iBlocked && !rec && typoHit && (React.createElement("div", { role: "group", "aria-label": "Spelling suggestions", style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" } },
+            React.createElement("span", { style: { color: "#8891A0", flexShrink: 0, whiteSpace: "nowrap" } },
+                React.createElement("s", { style: { color: "#FF6B5D" } }, typoHit.word),
+                " \u2192"),
+            typoHit.options.map(o => (React.createElement("button", { key: o, onMouseDown: e => e.preventDefault(), onClick: () => applyTypo(o), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "5px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" } }, o))),
+            React.createElement("button", { "aria-label": "Ignore this word", onMouseDown: e => e.preventDefault(), onClick: ignoreTypo, style: { marginLeft: "auto", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 } },
+                React.createElement(X, { size: 16, color: "#8891A0" })))),
+        sugOpen && !iBlocked && !rec && !editing && (React.createElement("div", { role: "group", "aria-label": "Quick replies", style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0B0E13", flexShrink: 0, overflowX: "auto" } },
+            quickReplies(msgs, myId).map(t => (React.createElement("button", { key: t, onMouseDown: e => e.preventDefault(), onClick: () => pickSuggestion(t), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "8px 15px", color: "#F5F7FA", fontFamily: "Inter", fontWeight: 500, fontSize: 14, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" } }, t))),
+            React.createElement("button", { "aria-label": "Close suggestions", onClick: () => setSugOpen(false), style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 } },
+                React.createElement(X, { size: 16, color: "#8891A0" })))),
+        emojiOpen && !iBlocked && !rec && (React.createElement("div", { style: { background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 } },
+            React.createElement("div", { style: { display: "flex", gap: 4, padding: "6px 8px", borderBottom: "1px solid #1B212B", overflowX: "auto" } }, EMOJI_TABS.map((t, i) => React.createElement("button", { key: t.name, "aria-label": t.name, onClick: () => setEmojiTab(i), style: { background: emojiTab === i ? "#1E2530" : "none", border: "none", borderRadius: 10, padding: "4px 10px", fontSize: 20, cursor: "pointer", flexShrink: 0 } }, t.icon))),
+            React.createElement("div", { style: { height: 200, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(42px, 1fr))", padding: "6px 8px", gap: 2, alignContent: "start" } }, EMOJI_TABS[emojiTab].list.map(em => React.createElement("button", { key: em, onMouseDown: ev => ev.preventDefault(), onClick: () => insertEmoji(em), style: { background: "none", border: "none", fontSize: 26, height: 40, lineHeight: "40px", cursor: "pointer", padding: 0 } }, em))))),
+        iBlocked ? (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" } },
+            React.createElement("span", { style: { flex: 1 } }, "You blocked this contact."),
+            React.createElement("button", { onClick: () => onBlock(conversation.other.id, false), style: smallBtn }, "Unblock"))) : (React.createElement("div", { style: { padding: "6px 10px 10px", background: chatBar, flexShrink: 0 } },
+            React.createElement("input", { ref: fileRef, type: "file", onChange: pickFile, style: { display: "none" } }),
+            React.createElement("input", { ref: camRef, type: "file", accept: "image/*", capture: "environment", onChange: pickFile, style: { display: "none" } }),
+            React.createElement("div", { style: { background: "#1E2530", borderRadius: 28, padding: "12px 10px 8px 18px", display: "flex", flexDirection: "column", gap: 4 } },
+                React.createElement("textarea", { ref: inputRef, rows: 1, onFocus: () => setEmojiOpen(false), value: draft, maxLength: MAX_MSG_CHARS, className: "lc-plain", onChange: e => { typingChangeSound(e, draft); setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => { typingKeySound(e); if (e.key === "Escape" && editing)
+                        cancelEdit(); }, placeholder: editing ? "Edit message" : "Message", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "26px", minHeight: 26, padding: "2px 8px 2px 0", margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } }),
+                (() => {
+                    const hasText = draft.trim().length > 0;
+                    const micMode = !editing && !hasText && !rec && featOn("voiceNotes");
+                    const ib = { background: "none", border: "none", padding: 9, cursor: "pointer", display: "flex", flexShrink: 0 };
+                    return (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 0 } },
+                        !editing && React.createElement("button", { "aria-label": "Suggestions", "aria-pressed": sugOpen, onClick: () => setSugOpen(v => !v), style: { background: sugOpen ? "rgba(53,208,186,0.12)" : "none", border: "1px solid " + (sugOpen ? "#35D0BA" : "#3A4452"), borderRadius: 999, padding: "8px 18px", color: sugOpen ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 500, fontSize: 15.5, cursor: "pointer", flexShrink: 0 } }, "Suggestions"),
+                        React.createElement("div", { style: { flex: 1 } }),
+                        React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: ib },
+                            React.createElement(Smile, { size: 25, color: emojiOpen ? "#35D0BA" : "#9BA7B4" })),
+                        !editing && React.createElement("button", { "aria-label": "Attach file", onClick: () => fileRef.current && fileRef.current.click(), style: ib },
+                            React.createElement(Paperclip, { size: 24, color: "#9BA7B4" })),
+                        !editing && React.createElement("button", { "aria-label": "Take photo", onClick: () => camRef.current && camRef.current.click(), style: ib },
+                            React.createElement(Camera, { size: 24, color: "#9BA7B4" })),
+                        React.createElement("button", { "aria-label": rec ? "Stop and send voice note" : micMode ? "Record voice note" : "Send", onClick: () => { if (rec)
+                                stopRec(false);
+                            else if (hasText)
+                                send();
+                            else if (micMode)
+                                startRec();
+                            else if (inputRef.current)
+                                inputRef.current.focus(); }, style: { width: 50, height: 50, borderRadius: "50%", border: "none", background: rec ? "#FF6B5D" : "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginLeft: 6, boxShadow: "0 4px 14px #35D0BA33" } }, micMode ? React.createElement(Mic, { size: 23, color: "#0E1116" }) : React.createElement(Send, { size: 21, color: "#0E1116" }))));
+                })()))),
+        sel && (React.createElement("div", { onClick: () => { if (Date.now() - openedAt.current > 500)
+                setSel(null); }, style: { position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
+            React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" } },
+                React.createElement("div", { style: { padding: "6px 10px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, sel.audio || sel.hasAudio ? "🎤 Voice note" : sel.text),
+                window.LCReactions && window.LCReactions.bar(sel, myId, reactTo),
+                React.createElement("div", { onClick: () => startPick(sel), style: { display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" } },
+                    React.createElement(Check, { size: 18, color: "#35D0BA" }),
+                    "Select messages"),
+                canEdit(sel) && (React.createElement("div", { onClick: () => startEdit(sel), style: { display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" } },
+                    React.createElement(Pencil, { size: 18, color: "#35D0BA" }),
+                    "Edit message")),
+                React.createElement("div", { onClick: () => removeMsg(sel), style: { display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#FF6B5D" } },
+                    React.createElement(Trash2, { size: 18, color: "#FF6B5D" }),
+                    "Delete for everyone"),
+                React.createElement("div", { onClick: () => setSel(null), style: { padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#9BA7B4", textAlign: "center" } }, "Cancel")))),
+        viewer && (React.createElement("div", { onClick: () => setViewer(null), style: { position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" } },
+            React.createElement("img", { loading: "lazy", decoding: "async", src: viewer, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" } }),
+            React.createElement("div", { style: { position: "absolute", top: 14, right: 14, color: "#F5F7FA" } },
+                React.createElement(X, { size: 26 })))),
+        note && React.createElement("div", { style: { position: "absolute", left: 16, right: 16, bottom: 150, zIndex: 70, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" } }, note),
+        sheetName === "theme" && React.createElement(ChatThemeSheet, { current: themeId, onPick: (id) => { setThemeId(id); saveJSON("chatTheme:" + conversation.id, id); setSheetName(null); }, onClose: () => setSheetName(null) }),
+        sheetName === "media" && React.createElement(MediaDocsSheet, { msgs: msgs, conversation: conversation, myId: myId, onOpenImage: setViewer, onClose: () => setSheetName(null) }),
+        sheetName === "mute" && React.createElement(MuteSheet, { onPick: (d) => { setSheetName(null); onMute(conversation.id, d); }, onClose: () => setSheetName(null) }),
+        msgInfo && React.createElement(MessageInfoSheet, { m: msgInfo, conversation: conversation, myId: myId, onClose: () => setMsgInfo(null) }),
+        fwd && React.createElement(ForwardSheet, { msgs: fwd, token: token, conversations: conversations, socket: socket, onClose: () => setFwd(null) }),
+        peerInfo && !isGroup && React.createElement(ContactProfileSheet, { u: conversation.other, token: token, online: online, lastSeen: lastSeen[conversation.other.id], conversation: conversation, conversations: conversations, msgs: msgs, myId: myId, isFav: isFav, iBlocked: iBlocked, muted: !!muteUntil, onVoice: featOn("voiceCalls") ? () => { setPeerInfo(false); onCall(conversation, false); } : null, onVideo: featOn("videoCalls") ? () => { setPeerInfo(false); onCall(conversation, true); } : null, onToggleFavorite: () => onToggleFavorite(conversation.id), onNotifications: () => { if (muteUntil)
+                onMute(conversation.id, "off");
+            else
+                setSheetName("mute"); }, onBlock: () => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you."))
+                onBlock(conversation.other.id, !iBlocked); }, onReport: reportChat, onOpenMedia: () => setSheetName("media"), onOpenImage: setViewer, onNewGroup: (id) => onNewGroup(id), onNote: flashNote, onClose: () => setPeerInfo(false) }),
+        info && isGroup && React.createElement(GroupInfoScreen, { conversation: conversation, myId: myId, token: token, contacts: contacts, presence: presence, lastSeen: lastSeen, msgs: msgs, isFav: isFav, muted: !!muteUntil, onToggleFavorite: () => onToggleFavorite(conversation.id), onNotifications: () => { if (muteUntil) onMute(conversation.id, "off"); else setSheetName("mute"); }, onOpenMedia: () => setSheetName("media"), onOpenImage: setViewer, onExport: exportChat, onReport: reportChat, onBack: () => setInfo(false), onChanged: onGroupChanged }),
+        zoomed && (React.createElement(ImageZoomModal, { photo: conversation.other.avatar, initials: conversation.other.initials, color: conversation.other.color, onClose: () => setZoomed(false) }))));
+}
+// ---- shareable profile link: anyone who opens it can message you directly ----
+const profileLinkFor = (code) => window.location.origin + window.location.pathname + "?chat=" + code;
+function ProfileLinkRow({ token }) {
+    const [code, setCode] = useState(null);
+    const [copied, setCopied] = useState(false);
+    const [error, setError] = useState("");
+    useEffect(() => { api("/api/v1/me/profile-link", { token }).then(d => setCode(d.code)).catch(e => setError(e.message)); }, [token]);
+    const link = code ? profileLinkFor(code) : "";
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(link);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
+        }
+        catch (e) {
+            window.prompt("Copy your profile link", link);
+        }
+    };
+    const share = () => (navigator.share ? navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }).catch(() => { }) : copy());
+    const reset = async () => {
+        if (!window.confirm("Reset your profile link? The old link will stop working."))
+            return;
+        try {
+            const d = await api("/api/v1/me/profile-link/reset", { method: "POST", token });
+            setCode(d.code);
+            setError("");
+        }
+        catch (e) {
+            setError(e.message);
+        }
+    };
+    return (React.createElement("div", { style: { padding: "14px 20px", borderBottom: "1px solid #1B212B" } },
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 } }, "Profile link"),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 } }, "Anyone with this link can open a direct message with you."),
+        error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            React.createElement("button", { onClick: copy, disabled: !code, style: smallBtn }, copied ? "Copied ✓" : "Copy link"),
+            React.createElement("button", { onClick: share, disabled: !code, style: smallBtn }, "Share link"),
+            React.createElement("button", { onClick: reset, disabled: !code, style: { ...smallBtn, color: "#FF6B5D" } }, "Reset"))));
+}
+// Opened from someone's profile link: show who it is and start the DM
+function ChatLinkModal({ code, token, onClose, onStarted }) {
+    const [info, setInfo] = useState(null);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+    useEffect(() => {
+        api("/api/v1/users/profile/" + encodeURIComponent(code), { token }).then(setInfo).catch(e => setError(e.message));
+    }, [code]);
+    const start = async () => {
+        setBusy(true);
+        setError("");
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { profileCode: code } });
+            onStarted(conversation);
+        }
+        catch (e) {
+            setError(e.message);
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { style: sheet, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: card },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 } }, "Start a chat"),
+            info && (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 } },
+                React.createElement(Ring, { size: 52, color: info.user.color, initials: info.user.initials, photo: info.user.avatar }),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, info.user.name),
+                    info.user.about && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, info.user.about)))),
+            !info && !error && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673", marginBottom: 16 } }, "Checking profile link\u2026"),
+            info && info.self && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 } }, "This is your own profile link. Share it so others can message you."),
+            error && React.createElement(Banner, { text: error }),
+            info && !info.self && React.createElement("button", { onClick: start, disabled: busy, style: primaryBtn(busy) }, busy ? "Opening…" : "Message " + info.user.name.split(" ")[0]),
+            React.createElement("button", { onClick: onClose, style: { ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 } }, info && !info.self ? "Not now" : "Close"))));
+}
+function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut }) {
+    const [zoomed, setZoomed] = useState(false);
+    const [menu, setMenu] = useState(false);
+    const [cropFile, setCropFile] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const galleryRef = useRef(null);
+    const cameraRef = useRef(null);
+    const rows = [
+        { label: "Name", value: profile.name },
+        { label: "About", value: profile.about },
+        { label: "Username", value: profile.username ? "@" + profile.username : "Not set (tap to add)" },
+        profile.phone ? { label: "Phone", value: "+" + profile.phone, ro: true } : { label: "Email", value: profile.email || "", ro: true },
+    ];
+    const onFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!file)
+            return;
+        if (!isJpgOrPng(file)) {
+            setError("Please choose a JPG or PNG image.");
+            return;
+        }
+        setError("");
+        setCropFile(file);
+    };
+    const savePhoto = async (avatar) => {
+        setBusy(true);
+        setError("");
+        try {
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { avatar } });
+            onUserUpdate(user);
+        }
+        catch (e) {
+            setError(e.message);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }, onContextMenu: e => e.preventDefault() },
+        React.createElement(TopBar, { title: "Profile", onBack: onBack }),
+        menu && React.createElement(PhotoMenu, { hasPhoto: !!profile.avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => savePhoto(null) }),
+        cropFile && React.createElement(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setCropFile(null); savePhoto(d); } }),
+        React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" } },
+                React.createElement("div", { style: { position: "relative" } },
+                    React.createElement(Ring, { size: 110, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true, onClick: () => setZoomed(true) }),
+                    React.createElement(CameraBadge, { onClick: () => setMenu(true), busy: busy }),
+                    React.createElement("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
+                    React.createElement("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } })),
+                busy && React.createElement("div", { style: { marginTop: 12, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" } }, "Saving photo\u2026")),
+            error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+            rows.map(r => (React.createElement("div", { key: r.label, onClick: !r.ro ? onEdit : undefined, style: { padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" } },
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 } }, r.label),
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } },
+                        r.value,
+                        r.label === "Name" && profile.verified && React.createElement(VerifiedBadge, { size: 16 })),
+                    !r.ro && React.createElement(Pencil, { size: 15, color: "#5B6673" }))))),
+            React.createElement(ProfileLinkRow, { token: token }),
+            React.createElement("div", { style: { padding: "24px 20px" } },
+                React.createElement("button", { onClick: onLogOut, style: { width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" } },
+                    React.createElement(LogOut, { size: 16 }),
+                    " Log out"))),
+        zoomed && (React.createElement(ImageZoomModal, { photo: profile.avatar, initials: profile.initials, color: "#35D0BA", onClose: () => setZoomed(false) }))));
+}
+// Move + zoom + crop a chosen photo to a square, then export 512x512 JPEG
+function CropModal({ file, onCancel, onDone }) {
+    const VIEW = Math.min(300, Math.max(220, (typeof window !== "undefined" ? window.innerWidth : 360) - 80));
+    const OUT = 512;
+    const [img, setImg] = useState(null);
+    const [zoom, setZoom] = useState(1);
+    const [off, setOff] = useState({ x: 0, y: 0 });
+    const [err, setErr] = useState("");
+    const drag = useRef(null);
+    useEffect(() => {
+        const url = URL.createObjectURL(file);
+        const im = new Image();
+        im.onload = () => setImg(im);
+        im.onerror = () => setErr("Couldn't open that image. Try a different one.");
+        im.src = url;
+        return () => URL.revokeObjectURL(url);
+    }, [file]);
+    const nw = img ? img.naturalWidth : 1;
+    const nh = img ? img.naturalHeight : 1;
+    const cover = VIEW / Math.min(nw, nh); // scale at which the image just covers the square
+    const scale = cover * zoom;
+    const clamp = (o, s) => {
+        const mx = Math.max(0, (nw * s - VIEW) / 2), my = Math.max(0, (nh * s - VIEW) / 2);
+        return { x: Math.min(mx, Math.max(-mx, o.x)), y: Math.min(my, Math.max(-my, o.y)) };
+    };
+    const changeZoom = (z) => { setZoom(z); setOff((o) => clamp(o, cover * z)); };
+    const confirm = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = OUT;
+        canvas.height = OUT;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, OUT, OUT);
+        const sw = VIEW / scale;
+        const sx = (nw * scale / 2 - VIEW / 2 - off.x) / scale;
+        const sy = (nh * scale / 2 - VIEW / 2 - off.y) / scale;
+        ctx.drawImage(img, sx, sy, sw, sw, 0, 0, OUT, OUT);
+        onDone(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    const pill = { padding: "13px 0", borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 14, flex: 1 };
+    return (React.createElement("div", { style: { position: "fixed", inset: 0, zIndex: 80, background: "#05070A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 } },
+        React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", marginBottom: 6 } }, "Move and zoom"),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 18 } }, "Drag the photo to fit it inside the circle"),
+        err && React.createElement(Banner, { text: err }),
+        React.createElement("div", { onPointerDown: (e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, o: off }; }, onPointerMove: (e) => { if (drag.current)
+                setOff(clamp({ x: drag.current.o.x + e.clientX - drag.current.x, y: drag.current.o.y + e.clientY - drag.current.y }, scale)); }, onPointerUp: () => { drag.current = null; }, onPointerCancel: () => { drag.current = null; }, onWheel: (e) => changeZoom(Math.min(4, Math.max(1, zoom - e.deltaY * 0.002))), style: { position: "relative", width: VIEW, height: VIEW, overflow: "hidden", background: "#161B22", touchAction: "none", cursor: "grab", borderRadius: 4 } },
+            img && (React.createElement("img", { loading: "lazy", decoding: "async", src: img.src, alt: "", draggable: false, style: { position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" } })),
+            React.createElement("div", { style: { position: "absolute", inset: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" } })),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, width: VIEW, marginTop: 20 } },
+            React.createElement("span", { style: { color: "#8891A0", fontSize: 12, fontFamily: "Inter" } }, "-"),
+            React.createElement("input", { type: "range", min: "1", max: "4", step: "0.01", value: zoom, onChange: (e) => changeZoom(parseFloat(e.target.value)), style: { flex: 1, accentColor: "#35D0BA" }, "aria-label": "Zoom" }),
+            React.createElement("span", { style: { color: "#8891A0", fontSize: 12, fontFamily: "Inter" } }, "+")),
+        React.createElement("div", { style: { display: "flex", gap: 10, width: VIEW, marginTop: 24 } },
+            React.createElement("button", { onClick: onCancel, style: { ...pill, background: "#1E2530", color: "#F5F7FA" } }, "Cancel"),
+            React.createElement("button", { onClick: confirm, disabled: !img, style: { ...pill, background: img ? "#35D0BA" : "#1E2530", color: img ? "#0E1116" : "#5B6673" } }, "Use photo"))));
+}
+// ---- Edit profile (business-style layout) ----
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+const EpShare = makeIcon([["c", 18, 5, 3], ["c", 6, 12, 3], ["c", 18, 19, 3], ["p", "m8.59 13.51 6.83 3.98"], ["p", "m15.41 6.51-6.82 3.98"]]);
+const EpUserCircle = makeIcon([["c", 12, 12, 10], ["c", 12, 10, 3], ["p", "M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"]]);
+const EpGlobe = makeIcon([["c", 12, 12, 10], ["p", "M2 12h20"], ["p", "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"]]);
+const EpInstagram = makeIcon([["r", 2, 2, 20, 20, 5], ["p", "M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"], ["p", "M17.5 6.5h.01"]]);
+const EpFacebook = makeIcon([["p", "M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"]]);
+const EpMail = makeIcon([["r", 2, 4, 20, 16, 2], ["p", "m22 7-10 5L2 7"]]);
+const EpDoc = makeIcon([["p", "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"]]);
+const EpShapes = makeIcon([["p", "M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1z"], ["r", 3, 14, 7, 7, 1], ["c", 17.5, 17.5, 3.5]]);
+const EP_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const EP_CATEGORIES = ["Shopping & retail", "Arts & entertainment", "Education", "Food & beverage", "Beauty & personal care", "Health & wellness", "Fashion & clothing", "Automotive", "Professional services", "Technology", "Real estate", "Travel & hospitality", "Finance", "Home & garden", "Agriculture", "Events & weddings", "Other"];
+const epDefaultDays = () => EP_DAYS.map(() => ({ mode: "24h" }));
+const epDayLabel = (d) => (d.mode === "24h" ? "Open 24 hours" : d.mode === "closed" ? "Closed" : d.from + " \u2013 " + d.to);
+
+// ---- Catalogue: products and services shown on a profile (separate from Market) ----
+function catResize(file, max) { // photo -> small JPEG data URL
+    return new Promise((ok, no) => {
+        const fr = new FileReader();
+        fr.onerror = () => no(new Error("Could not read that photo"));
+        fr.onload = () => {
+            const im = new Image();
+            im.onerror = () => no(new Error("That file is not a photo"));
+            im.onload = () => { const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.8)); };
+            im.src = fr.result;
+        };
+        fr.readAsDataURL(file);
+    });
+}
+function CatalogGrid({ items, onTap }) {
+    const ce = React.createElement;
+    return ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, padding: "4px 14px 24px" } }, items.map((it) =>
+        ce("div", { key: it.id, onClick: () => onTap(it), style: { background: "#161B22", border: "1px solid #1F2733", borderRadius: 14, overflow: "hidden", cursor: "pointer" } },
+            it.photo ? ce("img", { src: photoSrc(it.photo), alt: it.name, style: { width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" } })
+                : ce("div", { style: { width: "100%", aspectRatio: "1 / 1", background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Grid3x3, { size: 30, color: "#5B6673" })),
+            ce("div", { style: { padding: "8px 10px 10px" } },
+                ce("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, it.name),
+                it.price ? ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#35D0BA", marginTop: 2 } }, it.price) : null))));
+}
+// Owner: add, edit and delete catalogue items (opened from Edit profile or Tools)
+function CatalogScreen({ token, onBack }) {
+    const ce = React.createElement;
+    const [items, setItems] = useState([]);
+    const [views, setViews] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [form, setForm] = useState(null); // { id?, name, price, description, photo, newPhoto }
+    const [busy, setBusy] = useState(false);
+    const fileRef = useRef(null);
+    const load = () => api("/api/v1/catalog/me", { token }).then((d) => { setItems(d.items || []); setViews(d.views || 0); setError(""); }).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    useEffect(() => { load(); }, []);
+    const pick = async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; try { const p = await catResize(f, 900); setForm((s) => ({ ...s, photo: p, newPhoto: p })); } catch (er) { setError(er.message); } };
+    const save = async () => {
+        if (!form.name.trim()) return setError("Give the item a name");
+        setBusy(true); setError("");
+        try {
+            const body = { name: form.name.trim(), price: form.price.trim(), description: form.description.trim() };
+            if (form.newPhoto) body.photo = form.newPhoto;
+            if (form.id) await api("/api/v1/catalog/" + form.id, { method: "PATCH", token, body });
+            else await api("/api/v1/catalog", { method: "POST", token, body });
+            setForm(null); await load();
+        } catch (e) { setError(e.message || "Could not save"); }
+        setBusy(false);
+    };
+    const del = async () => {
+        if (!window.confirm("Delete this item from your catalogue?")) return;
+        setBusy(true);
+        try { await api("/api/v1/catalog/" + form.id, { method: "DELETE", token }); setForm(null); await load(); } catch (e) { setError(e.message); }
+        setBusy(false);
+    };
+    const input = { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 12 };
+    if (form) return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: form.id ? "Edit item" : "New item", onBack: () => setForm(null) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 16px 24px" } },
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
+            ce("div", { onClick: () => fileRef.current && fileRef.current.click(), style: { width: "100%", aspectRatio: "16 / 10", borderRadius: 14, background: "#1B232C", border: "1px dashed #3A4452", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", marginBottom: 14 } },
+                form.photo ? ce("img", { src: photoSrc(form.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } })
+                    : ce("div", { style: { textAlign: "center", color: "#8891A0", fontFamily: "Inter", fontSize: 13.5 } }, ce(ImagePlus, { size: 30, color: "#8891A0" }), ce("div", { style: { marginTop: 6 } }, "Add a photo"))),
+            ce("input", { value: form.name, maxLength: 60, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "Item name", style: input }),
+            ce("input", { value: form.price, maxLength: 30, onChange: (e) => setForm({ ...form, price: e.target.value }), placeholder: "Price (optional), e.g. ₦5,000", style: input }),
+            ce("textarea", { value: form.description, maxLength: 500, rows: 4, onChange: (e) => setForm({ ...form, description: e.target.value }), placeholder: "Description (optional)", style: { ...input, resize: "none" } }),
+            ce("button", { onClick: save, disabled: busy, style: { ...primaryBtn(busy) } }, busy ? "Saving…" : "Save"),
+            form.id && ce("button", { onClick: del, disabled: busy, style: { width: "100%", marginTop: 12, padding: 13, borderRadius: 12, border: "1px solid #3A2B2B", background: "none", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, "Delete item")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Catalog", onBack, right: ce("button", { onClick: () => setForm({ name: "", price: "", description: "", photo: null, newPhoto: null }), "aria-label": "Add item", style: { background: "#35D0BA", border: "none", borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Plus, { size: 20, color: "#0E1116" })) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            ce("div", { style: { padding: "0 16px 10px", fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, "Shown on your profile so people can see what you offer. " + views + (views === 1 ? " person" : " people") + " viewed it in the last 7 days."),
+            loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+            !loading && !items.length && ce("div", { style: { padding: "40px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 14 } }, "Your catalogue is empty. Tap + to add your first product or service."),
+            ce(CatalogGrid, { items, onTap: (it) => setForm({ id: it.id, name: it.name, price: it.price || "", description: it.description || "", photo: it.photo, newPhoto: null }) })));
+}
+// Visitor: browse someone's catalogue (opened from their profile)
+function CatalogViewer({ uid, name, token, onClose }) {
+    const ce = React.createElement;
+    const [items, setItems] = useState(null);
+    const [open, setOpen] = useState(null);
+    useEffect(() => {
+        api("/api/v1/catalog/" + uid, { token }).then((d) => setItems(d.items || [])).catch(() => setItems([]));
+        api("/api/v1/catalog/" + uid + "/view", { method: "POST", token }).catch(() => { });
+    }, [uid]);
+    return ce("div", { style: { position: "absolute", inset: 0, zIndex: 66, background: "#0E1116", display: "flex", flexDirection: "column" } },
+        ce(TopBar, { title: (name ? name.split(" ")[0] + "’s catalog" : "Catalog"), onBack: open ? () => setOpen(null) : onClose }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            items === null && ce("div", { style: { padding: 24, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+            items && !items.length && ce("div", { style: { padding: "40px 30px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 14 } }, "Nothing here yet."),
+            items && !open && ce(CatalogGrid, { items, onTap: setOpen }),
+            open && ce("div", { style: { padding: "0 16px 24px" } },
+                open.photo && ce("img", { src: photoSrc(open.photo), alt: open.name, style: { width: "100%", borderRadius: 14, display: "block", marginBottom: 14 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" } }, open.name),
+                open.price ? ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#35D0BA", marginTop: 4 } }, open.price) : null,
+                open.description ? ce("div", { style: { fontFamily: "Inter", fontSize: 15, color: "#D5DBE2", marginTop: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.45 } }, open.description) : null)));
+}
+// A row for someone's profile: shows only when they have catalogue items
+function ProfileCatalogRow({ uid, name, token }) {
+    const ce = React.createElement;
+    const [count, setCount] = useState(0);
+    const [open, setOpen] = useState(false);
+    useEffect(() => { let live = true; api("/api/v1/catalog/" + uid, { token }).then((d) => { if (live) setCount((d.items || []).length); }).catch(() => { }); return () => { live = false; }; }, [uid]);
+    if (!count) return null;
+    return ce("div", null,
+        ce("div", { onClick: () => setOpen(true), style: { display: "flex", alignItems: "center", gap: 18, padding: "12px 22px", cursor: "pointer" } },
+            ce(Grid3x3, { size: 22, color: "#8891A0" }),
+            ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, count + (count === 1 ? " item" : " items"))),
+            ce(ChevronRight, { size: 18, color: "#8891A0" })),
+        open && ce(CatalogViewer, { uid, name, token, onClose: () => setOpen(false) }));
+}
+
+function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => { } }) {
+    const ce = React.createElement;
+    const b0 = profile.business || {};
+    const init = {
+        name: profile.name || "", about: profile.about || "", username: profile.username || "",
+        cats: b0.category ? String(b0.category).split(",").map((s) => s.trim()).filter(Boolean) : [],
+        description: b0.description || "", address: b0.address || "", website: b0.website || "", instagram: b0.instagram || "", facebook: b0.facebook || "", email: b0.email || "",
+        days: Array.isArray(b0.days) && b0.days.length === 7 ? b0.days : epDefaultDays(),
+    };
+    const [f, setF] = useState(init);
+    const set = (patch) => setF((p) => ({ ...p, ...patch }));
+    const [avatar, setAvatar] = useState(profile.avatar || null);
+    const [avatarChanged, setAvatarChanged] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+    const [note, setNote] = useState("");
+    const [menu, setMenu] = useState(false);
+    const [cropFile, setCropFile] = useState(null);
+    const [sheet, setSheet] = useState(null); // "cats" | "hours" | "preview"
+    const [learn, setLearn] = useState(false);
+    const galleryRef = useRef(null);
+    const cameraRef = useRef(null);
+    const dirty = avatarChanged || JSON.stringify(f) !== JSON.stringify(init);
+    const flashNote = (m) => { setNote(m); setTimeout(() => setNote(""), 2200); };
+    const back = () => { if (dirty && !window.confirm("Discard your changes?")) return; onBack(); };
+
+    const onFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!file) return;
+        if (!isJpgOrPng(file)) { setError("Please choose a JPG or PNG image."); return; }
+        setError("");
+        setCropFile(file);
+    };
+    const shareLink = async () => {
+        try {
+            const d = await api("/api/v1/me/profile-link", { token });
+            const link = profileLinkFor(d.code);
+            if (navigator.share) { try { await navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+            try { await navigator.clipboard.writeText(link); flashNote("Profile link copied"); } catch (e) { window.prompt("Copy your profile link", link); }
+        } catch (e) { setError(e.message); }
+    };
+    const save = async () => {
+        const site = f.website.trim();
+        const business = {
+            category: f.cats.join(", "), description: f.description.trim(), address: f.address.trim(),
+            website: site && !/^https?:\/\//i.test(site) ? "https://" + site : site,
+            instagram: f.instagram.trim(), facebook: f.facebook.trim(), email: f.email.trim(), days: f.days,
+        };
+        setSaving(true); setError("");
+        try {
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name: f.name, about: f.about, username: f.username.trim(), business, ...(avatarChanged ? { avatar } : {}) } });
+            onSave(user);
+        } catch (e) { setError(e.message); }
+        finally { setSaving(false); }
+    };
+
+    const icon = (I) => ce(I, { size: 22, color: "#9BA7B4" });
+    const inputStyle = { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16, padding: 0 };
+    const rowBox = (key, ico, content, onClick) => ce("div", { key, onClick, style: { display: "flex", alignItems: "flex-start", gap: 22, padding: "14px 18px", cursor: onClick ? "pointer" : "default" } },
+        ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 1 } }, ico), ce("div", { style: { flex: 1, minWidth: 0 } }, content));
+    const head = (t) => ce("div", { style: { padding: "16px 18px 6px", fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, t);
+    const rule = () => ce("div", { style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+    const field = (key, ico, value, key2, placeholder, extra = {}) => rowBox(key, ico, ce("input", { value, placeholder, onChange: (e) => set({ [key2]: extra.clean ? extra.clean(e.target.value) : e.target.value }), maxLength: extra.max, type: extra.type || "text", inputMode: extra.mode, autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }));
+    const toggleCat = (c) => set({ cats: f.cats.includes(c) ? f.cats.filter((x) => x !== c) : f.cats.length >= 3 ? f.cats : [...f.cats, c] });
+    const setDay = (i, patch) => set({ days: f.days.map((d, k) => (k === i ? { ...d, ...patch } : d)) });
+    const sheetWrap = (title, children, onDone) => ce("div", { onClick: () => setSheet(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+        ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "16px 16px 20px", maxHeight: "82%", display: "flex", flexDirection: "column" } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA", marginBottom: 10 } }, title),
+            ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, children),
+            ce("button", { onClick: onDone || (() => setSheet(null)), style: { marginTop: 14, width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, "Done")));
+    const pill = (c) => { const on = f.cats.includes(c); return ce("button", { key: c, onClick: () => toggleCat(c), style: { margin: "0 8px 8px 0", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontFamily: "Inter", fontSize: 14, border: "1px solid " + (on ? "#35D0BA" : "#2B3544"), background: on ? "rgba(53,208,186,.16)" : "#1E2530", color: on ? "#35D0BA" : "#F5F7FA" } }, c); };
+    const timeIn = (v, onChange) => ce("input", { type: "time", value: v, onChange: (e) => onChange(e.target.value), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 8, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, padding: "6px 8px", colorScheme: "dark" } });
+    const hoursSheet = () => sheetWrap("Opening hours", [
+        ce("button", { key: "all", onClick: () => set({ days: f.days.map(() => ({ ...f.days[0] })) }), style: { ...smallBtn, marginBottom: 10 } }, "Copy Sunday to all days"),
+        ...f.days.map((d, i) => ce("div", { key: i, style: { padding: "10px 0", borderBottom: "1px solid #1B212B" } },
+            ce("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } },
+                ce("span", { style: { fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" } }, EP_DAYS[i]),
+                ce("select", { value: d.mode, onChange: (e) => { const m = e.target.value; setDay(i, m === "custom" ? { mode: m, from: d.from || "09:00", to: d.to || "17:00" } : { mode: m }); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 8, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, padding: "7px 8px" } },
+                    ce("option", { value: "24h" }, "Open 24 hours"), ce("option", { value: "closed" }, "Closed"), ce("option", { value: "custom" }, "Set hours"))),
+            d.mode === "custom" && ce("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, justifyContent: "flex-end" } }, timeIn(d.from, (v) => setDay(i, { from: v })), ce("span", { style: { color: "#8891A0", fontFamily: "Inter" } }, "to"), timeIn(d.to, (v) => setDay(i, { to: v })))))]);
+    const catSheet = () => sheetWrap("Categories (up to 3)", ce("div", null, EP_CATEGORIES.map(pill)));
+    const prevLine = (I, t) => t ? ce("div", { key: t, style: { display: "flex", gap: 12, padding: "7px 0", fontFamily: "Inter", fontSize: 14, color: "#C5CDD8" } }, ce(I, { size: 18, color: "#8891A0" }), ce("span", { style: { overflowWrap: "anywhere" } }, t)) : null;
+    const hoursSummary = (() => { const d = f.days; return d.every((x) => x.mode === "24h") ? "Open 24 hours" : "Hours set"; })();
+    const previewSheet = () => sheetWrap("How customers see your profile", ce("div", null,
+        ce("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "6px 0 12px" } },
+            ce(Ring, { size: 84, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true }),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 10 } }, f.name || "Your name"),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, f.about)),
+        prevLine(ShoppingBag, f.cats.join(", ")), prevLine(ClockIcon, hoursSummary), prevLine(EpDoc, f.description), prevLine(MapPin, f.address),
+        prevLine(EpGlobe, f.website), prevLine(EpInstagram, f.instagram), prevLine(EpFacebook, f.facebook), prevLine(EpMail, f.email)));
+
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 18, padding: "14px 16px", flexShrink: 0, background: "#0E1116" } },
+            ce("button", { onClick: back, "aria-label": "Back", style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } }, ce(ArrowLeft, { size: 22 })),
+            ce("div", { style: { flex: 1, fontFamily: "Inter", fontWeight: 500, fontSize: 20, color: "#F5F7FA" } }, "Edit profile"),
+            ce("button", { onClick: shareLink, "aria-label": "Advertise your profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(ToolMegaphone, { size: 22, color: "#F5F7FA" })),
+            ce("button", { onClick: shareLink, "aria-label": "Share profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpShare, { size: 22, color: "#F5F7FA" })),
+            ce("button", { onClick: () => setSheet("preview"), "aria-label": "Preview your profile", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpUserCircle, { size: 24, color: "#F5F7FA" }))),
+        menu && ce(PhotoMenu, { hasPhoto: !!avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => { setAvatar(null); setAvatarChanged(true); } }),
+        cropFile && ce(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); } }),
+        sheet === "cats" && catSheet(), sheet === "hours" && hoursSheet(), sheet === "preview" && previewSheet(),
+        note && ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 84, zIndex: 40, background: "#1B212B", border: "1px solid #262E3A", color: "#F5F7FA", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center" } }, note),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: dirty ? 84 : 24 } },
+            ce("div", { style: { position: "relative", height: 190, background: "linear-gradient(180deg,#1C2429 0%,#151B20 100%)" } },
+                avatar && ce("div", { style: { position: "absolute", inset: 0, overflow: "hidden" } }, ce("div", { style: { position: "absolute", inset: -20, backgroundImage: "url(" + avatar + ")", backgroundSize: "cover", backgroundPosition: "center", filter: "blur(22px) brightness(.45)" } })),
+                ce("button", { onClick: () => setMenu(true), "aria-label": "Change cover and photo", style: { position: "absolute", right: 14, top: 98, width: 32, height: 32, borderRadius: "50%", background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" })),
+                ce("div", { style: { position: "absolute", left: "50%", bottom: -52, transform: "translateX(-50%)", zIndex: 2 } },
+                    ce("div", { style: { position: "relative" } },
+                        ce(Ring, { size: 136, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true, onClick: () => setMenu(true) }),
+                        ce("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: { position: "absolute", bottom: 4, right: 4, width: 36, height: 36, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" }))),
+                    ce("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
+                    ce("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }))),
+            ce("div", { style: { marginTop: 62, textAlign: "center", fontFamily: "Inter", fontSize: 26, color: "#F5F7FA", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 } },
+                ce("span", { style: { overflowWrap: "anywhere" } }, f.name || "Your name"),
+                profile.verified ? ce(VerifiedBadge, { size: 20 }) : ce("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#8891A0", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", style: { flexShrink: 0 } }, ce("circle", { cx: 12, cy: 12, r: 10, strokeDasharray: "3 3" }), ce("path", { d: "m8.5 12.3 2.4 2.4 4.6-5" }))),
+            ce("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "10px 20px 18px" } }, "Your profile is public. ", ce("span", { onClick: () => setLearn(!learn), style: { color: "#35D0BA", fontWeight: 700, cursor: "pointer" } }, "Learn more")),
+            learn && ce("div", { style: { margin: "0 18px 14px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#9BA7B4", lineHeight: 1.45 } }, "People you chat with can see your name, photo, status and the business details you add here. Leave a field empty to keep it private."),
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            rule(),
+            head("Business information"),
+            field("name", icon(User), f.name, "name", "Name", { max: 60 }),
+            rowBox("user", icon(AtSign), ce("div", null,
+                ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "username", onChange: (e) => set({ username: e.target.value.replace(/^@/, "").replace(/[^a-zA-Z0-9_.]/g, "").toLowerCase().slice(0, 20) }), autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, "Username \u00B7 3 to 20 letters, numbers, _ or ."))),
+            rowBox("cat", icon(EpShapes), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: f.cats.length ? "#F5F7FA" : "#5B6673", lineHeight: 1.35 } }, f.cats.length ? f.cats.join(", ") : "Category"), () => setSheet("cats")),
+            ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") },
+                ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 5 } }, icon(ClockIcon)),
+                ce("div", { style: { flex: 1 } }, f.days.map((d, i) => ce("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "5px 0", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, ce("span", null, EP_DAYS[i]), ce("span", null, epDayLabel(d)))))),
+            rowBox("desc", icon(EpDoc), ce("textarea", { value: f.description, placeholder: "Description", rows: 1, maxLength: 256, onChange: (e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; set({ description: e.target.value }); }, style: { ...inputStyle, resize: "none", overflow: "hidden", lineHeight: 1.4 } })),
+            field("addr", icon(MapPin), f.address, "address", "Address", { max: 200 }),
+            rule(),
+            head("Products and services"),
+            rowBox("catalog", icon(Grid3x3), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), onCatalog),
+            rule(),
+            head("Links"),
+            field("web", icon(EpGlobe), f.website, "website", "Website", { max: 200, mode: "url" }),
+            field("ig", icon(EpInstagram), f.instagram, "instagram", "Instagram", { max: 200 }),
+            field("fb", icon(EpFacebook), f.facebook, "facebook", "Facebook", { max: 200 }),
+            rule(),
+            head("Contact information"),
+            field("mail", icon(EpMail), f.email, "email", "Business email", { max: 120, type: "email", mode: "email" }),
+            profile.phone && rowBox("phone", icon(Phone), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "+" + String(profile.phone).replace(/\D/g, ""))),
+            rowBox("about", icon(ToolInfo), ce("input", { value: f.about, placeholder: "Available", maxLength: 139, onChange: (e) => set({ about: e.target.value }), style: inputStyle }))),
+        dirty && ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 16px 14px", background: "linear-gradient(180deg,rgba(14,17,22,0),#0E1116 40%)", zIndex: 30 } },
+            ce("button", { onClick: save, disabled: saving, style: { width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 26, padding: "13px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: saving ? "default" : "pointer" } }, saving ? "Saving\u2026" : "Save changes")));
+}
+// [ISO code, name, dial code]; the first four are shown first
+const COUNTRIES = [
+    ["NG", "Nigeria", "234"], ["GH", "Ghana", "233"], ["KE", "Kenya", "254"], ["ZA", "South Africa", "27"],
+    ["DZ", "Algeria", "213"], ["AO", "Angola", "244"], ["BJ", "Benin", "229"], ["BW", "Botswana", "267"], ["BF", "Burkina Faso", "226"],
+    ["BI", "Burundi", "257"], ["CM", "Cameroon", "237"], ["CV", "Cape Verde", "238"], ["CF", "Central African Republic", "236"],
+    ["TD", "Chad", "235"], ["KM", "Comoros", "269"], ["CG", "Congo", "242"], ["CD", "DR Congo", "243"], ["CI", "Côte d'Ivoire", "225"],
+    ["DJ", "Djibouti", "253"], ["EG", "Egypt", "20"], ["GQ", "Equatorial Guinea", "240"], ["ER", "Eritrea", "291"], ["SZ", "Eswatini", "268"],
+    ["ET", "Ethiopia", "251"], ["GA", "Gabon", "241"], ["GM", "Gambia", "220"], ["GN", "Guinea", "224"], ["GW", "Guinea-Bissau", "245"],
+    ["LS", "Lesotho", "266"], ["LR", "Liberia", "231"], ["LY", "Libya", "218"], ["MG", "Madagascar", "261"], ["MW", "Malawi", "265"],
+    ["ML", "Mali", "223"], ["MR", "Mauritania", "222"], ["MU", "Mauritius", "230"], ["MA", "Morocco", "212"], ["MZ", "Mozambique", "258"],
+    ["NA", "Namibia", "264"], ["NE", "Niger", "227"], ["RW", "Rwanda", "250"], ["ST", "São Tomé and Príncipe", "239"], ["SN", "Senegal", "221"],
+    ["SC", "Seychelles", "248"], ["SL", "Sierra Leone", "232"], ["SO", "Somalia", "252"], ["SS", "South Sudan", "211"], ["SD", "Sudan", "249"],
+    ["TZ", "Tanzania", "255"], ["TG", "Togo", "228"], ["TN", "Tunisia", "216"], ["UG", "Uganda", "256"], ["ZM", "Zambia", "260"], ["ZW", "Zimbabwe", "263"],
+    ["GB", "United Kingdom", "44"], ["US", "United States", "1"], ["CA", "Canada", "1"], ["AE", "United Arab Emirates", "971"],
+    ["FR", "France", "33"], ["DE", "Germany", "49"], ["IN", "India", "91"],
+];
+// 8135351804 -> "81 3535 1804" (2 digits, space, 4 digits, space, the rest)
+const formatNational = (d) => [d.slice(0, 2), d.slice(2, 6), d.slice(6)].filter(Boolean).join(" ");
+const flagOf = (iso) => String.fromCodePoint(...[...iso].map((c) => 127397 + c.charCodeAt(0)));
+function friendlyAuthError(e) {
+    const map = {
+        "auth/invalid-phone-number": "Enter the number with its country code, digits only (e.g. 234801234567).",
+        "auth/invalid-verification-code": "That code is wrong. Check it and try again.",
+        "auth/code-expired": "That code has expired. Go back and request a new one.",
+        "auth/too-many-requests": "Too many attempts. Please wait a while and try again.",
+        "auth/popup-closed-by-user": "Google sign-in was cancelled.",
+        "auth/popup-blocked": "Your browser blocked the Google pop-up. Allow pop-ups for this site and try again.",
+        "auth/unauthorized-domain": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
+        "auth/email-already-in-use": "That email is already registered. Log in instead, or use Google if you signed up with Google.",
+        "auth/invalid-email": "That email address doesn't look right.",
+        "auth/weak-password": "Choose a password with at least 6 characters.",
+        "auth/wrong-password": "Wrong email or password.",
+        "auth/invalid-credential": "Wrong email or password.",
+        "auth/user-not-found": "No account with that email. Tap Create account.",
+        "auth/user-disabled": "This account has been disabled.",
+        "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
+        "auth/network-request-failed": "Network problem. Check your connection and try again.",
+    };
+    if (e && /region/i.test(e.message || ""))
+        return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
+    if (e && /already been rendered/i.test(e.message || ""))
+        return "Please refresh the page and try again.";
+    return map[e && e.code] || (e && e.message) || "Something went wrong.";
+}
+function LoginScreen({ onContinue }) {
+    const [phone, setPhone] = useState(""); // national number only, without the country code
+    const [iso, setIso] = useState(() => { try {
+        return localStorage.getItem("lc-country") || "NG";
+    }
+    catch (e) {
+        return "NG";
+    } });
+    const country = COUNTRIES.find((c) => c[0] === iso) || COUNTRIES[0];
+    const dial = country[2];
+    const cleanPhone = (v) => {
+        let d = String(v).replace(/\D/g, "");
+        if (d.startsWith(dial) && d.length >= dial.length + 8)
+            d = d.slice(dial.length); // pasted with country code
+        return d.replace(/^0+/, ""); // drop the local leading 0 (0813... -> 813...)
+    };
+    const [code, setCode] = useState("");
+    const [name, setName] = useState("");
+    const [confirmation, setConfirmation] = useState(null);
+    const [pendingToken, setPendingToken] = useState(null); // signed in with Firebase, still needs a name
+    const [emailStage, setEmailStage] = useState(null); // null | "form" | "verify"
+    const [isNew, setIsNew] = useState(false);
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [emailName, setEmailName] = useState("");
+    const [emailUser, setEmailUser] = useState(null);
+    const [notice, setNotice] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
+    const run = async (fn) => {
+        setBusy(true);
+        setError("");
+        try {
+            await fn();
+        }
+        catch (e) {
+            setError(friendlyAuthError(e));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    const resetCaptcha = () => { try {
+        window.__rv && window.__rv.clear();
+    }
+    catch (e) { } window.__rv = null; };
+    const finish = async (idToken, nm) => {
+        try {
+            await onContinue(idToken, nm);
+        }
+        catch (e) {
+            if (/Name required/.test(e.message))
+                setPendingToken(idToken);
+            else
+                throw e;
+        }
+    };
+    // A fresh reCAPTCHA element for every attempt (re-using one causes "already been rendered")
+    const makeVerifier = () => {
+        resetCaptcha();
+        const wrap = document.getElementById("recaptcha-wrap");
+        wrap.innerHTML = "";
+        const el = document.createElement("div");
+        wrap.appendChild(el);
+        window.__rv = new firebase.auth.RecaptchaVerifier(el, { size: "invisible" });
+        return window.__rv;
+    };
+    const sendCode = () => run(async () => {
+        try {
+            setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + dial + phone, makeVerifier()));
+        }
+        catch (e) {
+            resetCaptcha();
+            throw e;
+        }
+    });
+    const verify = () => run(async () => {
+        const cred = await confirmation.confirm(code.trim());
+        await finish(await cred.user.getIdToken(), "");
+    });
+    const google = () => run(async () => {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" }); // always show Google's account chooser (never silently reuse the signed-in account)
+        const cred = await firebase.auth().signInWithPopup(provider);
+        await finish(await cred.user.getIdToken(), "");
+    });
+    const createAccount = () => run(() => finish(pendingToken, name.trim()));
+    // ---- email + password ----
+    const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
+    const emailReady = emailOk && password.length >= 6 && (!isNew || !!emailName.trim());
+    const submitEmail = () => run(async () => {
+        setNotice("");
+        const auth = firebase.auth();
+        if (isNew) {
+            const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
+            await cred.user.updateProfile({ displayName: emailName.trim() });
+            await cred.user.sendEmailVerification();
+            setEmailUser(cred.user);
+            setEmailStage("verify");
+            setNotice("Verification email sent. Check your inbox and spam folder.");
+            return;
+        }
+        const cred = await auth.signInWithEmailAndPassword(email.trim(), password);
+        if (!cred.user.emailVerified) {
+            try {
+                await cred.user.sendEmailVerification();
+            }
+            catch (e) { }
+            setEmailUser(cred.user);
+            setEmailStage("verify");
+            setNotice("Please verify your email first. We sent you a link.");
+            return;
+        }
+        await finish(await cred.user.getIdToken(), "");
+    });
+    const checkVerified = () => run(async () => {
+        await emailUser.reload();
+        const u = firebase.auth().currentUser;
+        if (!u || !u.emailVerified)
+            throw new Error("Not verified yet. Open the link in the email, then tap the button again.");
+        await finish(await u.getIdToken(true), isNew ? emailName.trim() : "");
+    });
+    const resendVerification = () => run(async () => {
+        await firebase.auth().currentUser.sendEmailVerification();
+        setNotice("Verification email sent again.");
+    });
+    const forgotPassword = () => run(async () => {
+        if (!emailOk)
+            throw new Error("Type your email address first.");
+        await firebase.auth().sendPasswordResetEmail(email.trim());
+        setNotice("Password reset link sent to " + email.trim() + ".");
+    });
+    const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
+    const box = { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
+    const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
+    const btn = (on) => ({ padding: "15px", borderRadius: 14, border: "none", cursor: busy ? "default" : "pointer", background: on ? "#35D0BA" : "#1E2530", color: on ? "#0E1116" : "#5B6673", fontFamily: "Sora", fontWeight: 700, fontSize: 15, width: "100%" });
+    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" ? "email" : "phone";
+    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
+    const subs = {
+        phone: "We'll text you a verification code. Or continue with Google.",
+        code: "We sent a code to +" + dial + " " + formatNational(phone) + ".",
+        name: "This is what people you chat with will see.",
+        email: "Use your email and a password (6 or more characters).",
+        verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
+    };
+    return (React.createElement("div", { style: { height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
+        React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
+            React.createElement("div", { style: { width: 76, height: 76, borderRadius: 22, margin: "0 auto 20px", background: "conic-gradient(from 120deg, #35D0BA, #F2B84B, #35D0BA)", display: "flex", alignItems: "center", justifyContent: "center" } },
+                React.createElement("div", { style: { width: 66, height: 66, borderRadius: 18, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center" } },
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#35D0BA" } },
+                        "L",
+                        React.createElement("span", { style: { color: "#F2B84B" } }, "A")))),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, letterSpacing: 1, color: "#35D0BA", textTransform: "uppercase", marginBottom: 10 } }, "Letschat Africa"),
+            React.createElement("h1", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" } }, titles[stage]),
+            React.createElement("p", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 } }, subs[stage])),
+        error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
+        notice && React.createElement(Banner, { text: notice, tone: "info", onClose: () => setNotice("") }),
+        stage === "phone" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("div", { style: { position: "relative", flexShrink: 0, display: "flex", alignItems: "center", gap: 6, paddingRight: 10, borderRight: "1px solid #262E3A" } },
+                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap" } },
+                        flagOf(country[0]),
+                        " +",
+                        dial,
+                        " ",
+                        React.createElement("span", { style: { color: "#8891A0", fontSize: 11 } }, "\u25BE")),
+                    React.createElement("select", { value: iso, onChange: e => { setIso(e.target.value); setPhone(""); try {
+                            localStorage.setItem("lc-country", e.target.value);
+                        }
+                        catch (err) { } }, "aria-label": "Country code", style: { position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", fontSize: 16 } }, COUNTRIES.map((c) => React.createElement("option", { key: c[0], value: c[0] },
+                        flagOf(c[0]),
+                        " ",
+                        c[1],
+                        " (+",
+                        c[2],
+                        ")")))),
+                React.createElement("input", { value: formatNational(phone), onChange: e => setPhone(cleanPhone(e.target.value)), onKeyDown: e => e.key === "Enter" && phone.length >= 6 && !busy && sendCode(), placeholder: "81 3535 1804", inputMode: "numeric", autoComplete: "tel-national", style: inputStyle })),
+            React.createElement("button", { disabled: busy || phone.length < 6 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 6 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
+            React.createElement("div", { style: { textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
+            React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Use email and password instead"))),
+        stage === "email" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [["Log in", false], ["Create account", true]].map(([label, v]) => (React.createElement("button", { key: label, onClick: () => { setIsNew(v); setError(""); setNotice(""); }, style: { flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, label)))),
+            isNew && (React.createElement("div", { style: box },
+                React.createElement("input", { value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
+            React.createElement("div", { style: box },
+                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
+            React.createElement("div", { style: box },
+                React.createElement("input", { type: "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password (6+ characters)", autoComplete: isNew ? "new-password" : "current-password", style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailReady, onClick: submitEmail, style: btn(emailReady) }, busy ? "Please wait…" : isNew ? "Create account" : "Log in"),
+            !isNew && React.createElement("button", { onClick: forgotPassword, style: linkBtn }, "Forgot password?"),
+            React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Back to phone or Google"))),
+        stage === "verify" && (React.createElement(React.Fragment, null,
+            React.createElement("button", { disabled: busy, onClick: checkVerified, style: btn(true) }, busy ? "Please wait…" : "I've verified my email"),
+            React.createElement("button", { onClick: resendVerification, style: linkBtn }, "Resend email"),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setEmailUser(null); setNotice(""); try {
+                    firebase.auth().signOut();
+                }
+                catch (e) { } }, style: linkBtn }, "Use a different email"))),
+        stage === "code" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { value: code, onChange: e => setCode(e.target.value.replace(/\D/g, "")), onKeyDown: e => e.key === "Enter" && code.length >= 6 && !busy && verify(), placeholder: "123456", inputMode: "numeric", autoFocus: true, style: { ...inputStyle, letterSpacing: 6, textAlign: "center" } })),
+            React.createElement("button", { disabled: busy || code.length < 6, onClick: verify, style: btn(code.length >= 6) }, busy ? "Please wait…" : "Verify code"),
+            React.createElement("button", { onClick: () => { setConfirmation(null); setCode(""); resetCaptcha(); }, style: { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer" } }, "Use a different number"))),
+        stage === "name" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { value: name, onChange: e => setName(e.target.value), onKeyDown: e => e.key === "Enter" && name.trim() && !busy && createAccount(), placeholder: "Your name", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !name.trim(), onClick: createAccount, style: btn(!!name.trim()) }, busy ? "Please wait…" : "Create account"))),
+        React.createElement("div", { id: "recaptcha-wrap" }),
+        React.createElement("p", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#5B6673", marginTop: 22, lineHeight: 1.6 } }, "Your phone number or Google email is your Letschat Africa ID. You can also pick a username in Edit profile so friends can find you without sharing either.")));
+}
+function App() {
+    const [session, setSession] = useState(() => loadJSON("session", null)); // { token, user }
+    const [conversations, setConversations] = useState(() => {
+        const c = loadJSON("convCache", null), s = loadJSON("session", null);
+        return c && s && s.user && c.uid === s.user.id && Array.isArray(c.list) ? c.list : [];
+    });
+    const [convError, setConvError] = useState("");
+    const [convLoading, setConvLoading] = useState(false);
+    const [presence, setPresence] = useState({});
+    const [tab, setTab] = useState("chats");
+    const [activeConvo, setActiveConvo] = useState(null);
+    const [focusMsg, setFocusMsg] = useState(null); // search result to jump to when a chat opens
+    const [showProfile, setShowProfile] = useState(false);
+    const [showEdit, setShowEdit] = useState(false);
+    const [showNewChat, setShowNewChat] = useState(false);
+    const [showNewGroup, setShowNewGroup] = useState(false);
+    const [newGroupWith, setNewGroupWith] = useState(null); // contact to pre-select when "Create group with…" is tapped on a profile
+    const [lastSeen, setLastSeen] = useState({});
+    const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+    const [toolsView, setToolsView] = useState(null); const [showCatalog, setShowCatalog] = useState(false); // "favs" | "privacy" | "help"
+    const [toast, setToast] = useState("");
+    // group invite link: ?join=CODE is kept until the user is signed in and confirms
+    const [joinCode, setJoinCode] = useState(() => {
+        try {
+            const c = new URLSearchParams(window.location.search).get("join");
+            if (c) {
+                saveJSON("pendingJoin", c);
+                window.history.replaceState(null, "", window.location.pathname);
+            }
+        }
+        catch (e) { }
+        return loadJSON("pendingJoin", null);
+    });
+    // profile link: ?chat=CODE is kept until the user is signed in and confirms
+    const [chatCode, setChatCode] = useState(() => {
+        try {
+            const c = new URLSearchParams(window.location.search).get("chat");
+            if (c) {
+                saveJSON("pendingChat", c);
+                window.history.replaceState(null, "", window.location.pathname);
+            }
+        }
+        catch (e) { }
+        return loadJSON("pendingChat", null);
+    });
+    const closeChatLink = () => { clearJSON("pendingChat"); setChatCode(null); };
+    // call link: ?call=CONVERSATION_ID opens that chat and starts a call once you are signed in
+    const [callLink, setCallLink] = useState(() => {
+        try {
+            const p = new URLSearchParams(window.location.search), c = p.get("call"), o = p.get("open");
+            if (c) {
+                saveJSON("pendingCall", { id: c, video: p.get("v") === "1" });
+                window.history.replaceState(null, "", window.location.pathname);
+            }
+            else if (o) {
+                saveJSON("pendingCall", { id: o, open: true });
+                window.history.replaceState(null, "", window.location.pathname);
+            }
+        }
+        catch (e) { }
+        return loadJSON("pendingCall", null);
+    });
+    const socketRef = useRef(null);
+  window.__lcSocket = () => socketRef.current;
+    const callApi = useRef(null);
+    const startCall = (conversation, video) => { if (callApi.current)
+        callApi.current.start(conversation, video); };
+    useEffect(() => {
+        if (!callLink || !session || !conversations.length)
+            return;
+        const c = conversations.find(x => x.id === callLink.id);
+        clearJSON("pendingCall");
+        setCallLink(null);
+        if (c) {
+            setActiveConvo(c);
+            if (!callLink.open)
+                setTimeout(() => startCall(c, callLink.video), 500);
+        }
+        else {
+            setToast("That link is not for one of your chats");
+            setTimeout(() => setToast(""), 2600);
+        }
+    }, [callLink, session, conversations]);
+    useEffect(() => {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = FONT_LINK;
+        document.head.appendChild(link);
+        return () => document.head.removeChild(link);
+    }, []);
+    const applyPresence = useCallback(({ online, lastSeen: seen }) => {
+        setPresence(Object.fromEntries(online.map(id => [id, true])));
+        setLastSeen(prev => ({ ...prev, ...seen }));
+    }, []);
+    const refreshConversations = useCallback(async () => {
+        if (!session)
+            return false;
+        try {
+            const { conversations } = await api("/api/v1/conversations", { token: session.token });
+            const list = conversations.map(c => normalizeConvo(c, session.user.id));
+            setConversations(list);
+            saveJSON("convCache", { uid: session.user.id, list });
+            if (socketRef.current)
+                socketRef.current.emit("presence:get", applyPresence);
+            setConvError("");
+            return true;
+        }
+        catch (e) {
+            setConvError(e.message);
+            return false;
+        }
+    }, [session]);
+    // connect socket once logged in
+    useEffect(() => {
+        if (!session)
+            return;
+        const socket = io(SOCKET_URL, { auth: { token: session.token }, transports: ["websocket", "polling"] });
+        socketRef.current = socket;
+        if (window.LetschatPush)
+            window.LetschatPush.watch(socket);
+        socket.on("connect", () => { socket.emit("presence:get", applyPresence); refreshConversations(); }); // who is online right now + fresh chat list (also after reconnects)
+        socket.on("presence:update", ({ userId, online, lastSeen: ts }) => {
+            setPresence(prev => ({ ...prev, [userId]: online }));
+            if (ts)
+                setLastSeen(prev => ({ ...prev, [userId]: ts }));
+        });
+        socket.on("message:new", (m) => { refreshConversations(); if (m && m.senderId !== session.user.id && !isMutedChat(mutedRef.current, m.conversationId))
+            alertIncoming(m, convosRef.current.find(c => c.id === m.conversationId), !!(activeRef.current && activeRef.current.id === m.conversationId)); });
+        socket.on("message:updated", () => refreshConversations()); // edited / deleted message: refresh the chat list preview
+        socket.on("conversation:added", () => refreshConversations());
+        socket.on("conversation:update", () => refreshConversations());
+        socket.on("tagged", (d) => { if (d)
+            flash((d.by || "Someone") + " tagged " + (d.group ? "the group " + d.group : "you") + " in a " + (d.kind === "market" ? "market post" : d.kind === "comment" ? "market comment" : "status")); });
+        socket.on("user:update", (u) => {
+            // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
+            setConversations(prev => prev.map(c => c.isGroup
+                ? { ...c, members: c.members.map(m => (m.id === u.id ? { ...m, name: u.name, initials: u.initials, avatar: u.avatar, about: u.about } : m)) }
+                : c.other.id === u.id ? { ...c, other: u } : c));
+            setActiveConvo(prev => (prev && prev.other.id === u.id ? { ...prev, other: u } : prev));
+        });
+        socket.on("connect_error", (err) => { if (/^(unauthorized|unknown user)$/i.test(err.message)) {
+            clearJSON("session");
+            window.location.reload();
+            return;
+        } setConvError("Can't reach the Letschat Africa server: " + err.message); });
+        return () => socket.disconnect();
+    }, [session, refreshConversations]);
+    // fast refresh on start: retry quickly if the server is still waking up, and refresh whenever the app comes back into view
+    useEffect(() => {
+        if (!session)
+            return;
+        let dead = false, tries = 0;
+        setConvLoading(!convosRef.current.length);
+        const go = async () => {
+            const ok = await refreshConversations();
+            if (dead)
+                return;
+            if (!ok && tries < 6) {
+                tries++;
+                setTimeout(go, Math.min(400 * tries, 2500));
+            }
+            else
+                setConvLoading(false);
+        };
+        go();
+        const again = () => { if (!document.hidden)
+            refreshConversations(); };
+        document.addEventListener("visibilitychange", again);
+        window.addEventListener("focus", again);
+        window.addEventListener("online", again);
+        return () => { dead = true; document.removeEventListener("visibilitychange", again); window.removeEventListener("focus", again); window.removeEventListener("online", again); };
+    }, [session, refreshConversations]);
+    useEffect(() => {
+        if (!session) {
+            setSettings(DEFAULT_SETTINGS);
+            setToolsView(null);
+            return;
+        }
+        api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => { });
+        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && !!user.verified !== !!session.user.verified) {
+            const next = { ...session, user: { ...session.user, verified: !!user.verified } };
+            setSession(next);
+            saveJSON("session", next);
+        } }).catch(() => { });
+    }, [session && session.token]);
+    const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
+    const activeRef = useRef(null), convosRef = useRef([]);
+    activeRef.current = activeConvo;
+    const mutedRef = useRef({});
+    mutedRef.current = settings.muted || {};
+    convosRef.current = conversations;
+    const settingsCall = async (path, method, body, okMsg) => {
+        try {
+            const s = await api("/api/v1/me/" + path, { method, token: session.token, body });
+            setSettings(s);
+            if (okMsg)
+                flash(okMsg);
+            return true;
+        }
+        catch (e) {
+            flash(e.message);
+            return false;
+        }
+    };
+    const toggleFavorite = (id) => { const on = !settings.favorites.includes(id); return settingsCall("favorites", "POST", { conversationId: id, favorite: on }, on ? "Added to favourites" : "Removed from favourites"); };
+    const savePrivacy = (patch) => settingsCall("settings", "PATCH", { privacy: patch });
+    const saveBiz = (patch, msg) => settingsCall("settings", "PATCH", { biz: patch }, msg);
+    const setMuted = (id, duration) => settingsCall("muted", "POST", { conversationId: id, duration }, duration === "off" ? "Notifications on" : "Chat muted");
+    const reportChat = async (userId, conversationId) => {
+        try {
+            await api("/api/v1/me/report", { method: "POST", token: session.token, body: { userId, conversationId } });
+            flash("Report sent. Thank you.");
+        }
+        catch (e) {
+            flash(e.message);
+        }
+    };
+    const setBlocked = (userId, blocked) => settingsCall("blocked", "POST", { userId, blocked }, blocked ? "Contact blocked" : "Contact unblocked");
+    const handleLogin = async (idToken, name) => {
+        const { token, user } = await api("/api/v1/auth/firebase", { method: "POST", body: { idToken, name } });
+        saveJSON("session", { token, user });
+        setSession({ token, user });
+    };
+    const handleLogOut = () => {
+        socketRef.current?.disconnect();
+        try {
+            firebase.auth().signOut();
+        }
+        catch (e) { }
+        clearJSON("session");
+        clearJSON("convCache");
+        clearJSON("phonebookMatches");
+        setSession(null);
+        setConversations([]);
+        setActiveConvo(null);
+        setShowProfile(false);
+    };
+    const updateUser = (user) => {
+        const next = { ...session, user };
+        setSession(next);
+        saveJSON("session", next);
+    };
+    const handleNewChatStarted = (conversation) => {
+        setShowNewChat(false);
+        refreshConversations();
+        setActiveConvo({ id: conversation.id, other: conversation.other });
+    };
+    const contacts = conversations.filter(c => !c.isGroup).map(c => c.other);
+    const messageSeller = async (seller) => {
+        const { conversation } = await api("/api/v1/conversations", { method: "POST", token: session.token, body: { userId: seller.id } });
+        setTab("chats");
+        handleNewChatStarted(conversation);
+    };
+    const openGroup = (conversation) => {
+        const c = normalizeConvo(conversation, session.user.id);
+        setConversations(prev => [c, ...prev.filter(x => x.id !== c.id)]);
+        setActiveConvo(c);
+    };
+    const closeJoin = () => { clearJSON("pendingJoin"); setJoinCode(null); };
+    // The app fills the whole screen; a footer bar below it carries the host's badge so it never covers the composer.
+    const frame = {
+        position: "absolute", top: 0, bottom: 0, left: 0, right: 0, width: "100%", maxWidth: 640, margin: "0 auto",
+        background: "#0E1116", overflow: "hidden", display: "flex",
+        flexDirection: "column", fontFamily: "Inter, sans-serif",
+    };
+    let body;
+    if (!session) {
+        body = React.createElement(LoginScreen, { onContinue: handleLogin });
+    }
+    else if (activeConvo) {
+        body = (React.createElement(ChatDetail, { conversations: conversations, onMute: setMuted, onReport: reportChat, onNewGroup: (withId) => { setActiveConvo(null); setNewGroupWith(typeof withId === "string" ? withId : null); setShowNewGroup(true); }, conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, focus: focusMsg, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked, onCall: startCall }));
+    }
+    else if (toolsView === "catalog") {
+        body = React.createElement(CatalogScreen, { token: session.token, onBack: () => setToolsView(null) });
+    }
+    else if (showCatalog) {
+        body = React.createElement(CatalogScreen, { token: session.token, onBack: () => setShowCatalog(false) });
+    }
+    else if (toolsView === "favs") {
+        body = React.createElement(FavouritesScreen, { conversations: conversations, settings: settings, presence: presence, onBack: () => setToolsView(null), onOpenChat: setActiveConvo, onToggleFavorite: toggleFavorite });
+    }
+    else if (toolsView === "privacy") {
+        body = React.createElement(PrivacyScreen, { settings: settings, onBack: () => setToolsView(null), onPrivacy: savePrivacy, onBlock: setBlocked });
+    }
+    else if (toolsView === "communities") {
+        body = React.createElement(CommunitiesScreen, { conversations: conversations, myId: session.user.id, presence: presence, onBack: () => setToolsView(null), onOpenChat: setActiveConvo, onNewGroup: () => { setToolsView(null); setShowNewGroup(true); } });
+    }
+    else if (toolsView === "features") {
+        body = React.createElement(FeaturesScreen, { onBack: () => setToolsView(null) });
+    }
+    else if (toolsView === "notifs") {
+        body = React.createElement(NotificationsScreen, { onBack: () => setToolsView(null) });
+    }
+    else if (toolsView === "greeting" || toolsView === "away") {
+        body = React.createElement(AutoMessageScreen, { key: toolsView, kind: toolsView, settings: settings, onBack: () => setToolsView(null), onSave: saveBiz });
+    }
+    else if (toolsView === "quick") {
+        body = React.createElement(QuickRepliesScreen, { settings: settings, onBack: () => setToolsView(null), onSave: saveBiz });
+    }
+    else if (toolsView === "help") {
+        body = React.createElement(HelpScreen, { user: session.user, onBack: () => setToolsView(null) });
+    }
+    else if (showEdit) {
+        body = React.createElement(EditProfileScreen, { profile: session.user, token: session.token, onCatalog: () => setShowCatalog(true), onBack: () => setShowEdit(false), onSave: (user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); } });
+    }
+    else if (showProfile) {
+        body = React.createElement(ProfileScreen, { profile: session.user, token: session.token, onUserUpdate: updateUser, onBack: () => setShowProfile(false), onEdit: () => setShowEdit(true), onLogOut: handleLogOut });
+    }
+    else {
+        body = (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { flex: 1, overflow: "hidden", position: "relative" } },
+                tab === "chats" && (React.createElement(ChatsScreen, { token: session.token, profile: session.user, conversations: conversations, loading: convLoading, error: convError, presence: presence, onOpenChat: (c, hit) => { setFocusMsg(hit || null); setActiveConvo(c); }, onProfile: () => setShowProfile(true), onNewChat: () => setShowNewChat(true), onNewGroup: () => setShowNewGroup(true), favorites: settings.favorites })),
+                tab === "calls" && React.createElement(CallsScreen, { conversations: conversations, onCall: startCall }),
+                tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
+                React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games") }),
+                tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token, contacts: contacts, onSettings: () => setTab("tools") }),
+                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowEdit(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
+                showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, initialPicked: newGroupWith ? [newGroupWith] : [], onClose: () => { setShowNewGroup(false); setNewGroupWith(null); }, onCreated: (conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); } }),
+                showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
+            React.createElement(TabBar, { active: tab, setActive: setTab })));
+    }
+    return (React.createElement("div", { className: "app-shell", style: { background: "#05070A", display: "flex", flexDirection: "column" } },
+        React.createElement("div", { style: { position: "relative", flex: 1, minHeight: 0 } },
+            React.createElement("div", { style: frame },
+                body,
+                toast && React.createElement("div", { style: { position: "absolute", left: 16, right: 16, bottom: 86, zIndex: 80, background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "11px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 10px 28px rgba(0,0,0,.45)" } }, toast),
+                session && React.createElement(CallLayer, { socket: socketRef.current, apiRef: callApi, notify: flash }),
+                session && chatCode && React.createElement(ChatLinkModal, { code: chatCode, token: session.token, onClose: closeChatLink, onStarted: (conv) => { closeChatLink(); handleNewChatStarted(conv); } }),
+                session && joinCode && React.createElement(JoinGroupModal, { code: joinCode, token: session.token, onClose: closeJoin, onJoined: (conv) => { closeJoin(); openGroup(conv); } }))),
+        React.createElement("div", { className: "app-footer", "aria-hidden": "true" },
+            React.createElement("span", { className: "app-footer-dot" }),
+            React.createElement("span", { className: "app-footer-text" }, "Letschat Africa"))));
+}
+// ---- mount ----
+const rootEl = document.getElementById("root");
+ReactDOM.createRoot(rootEl).render(React.createElement(App));
