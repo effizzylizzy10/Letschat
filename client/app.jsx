@@ -5765,8 +5765,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       </div>
       )}
       {attachOpen && <AttachSheet onClose={() => setAttachOpen(false)} onPick={onPickAttach} />}
-      {pickSheet && <PickSheet title={pickSheet.title} items={pickSheet.items} multi={pickSheet.multi} empty={pickSheet.empty} onClose={() => setPickSheet(null)} onDone={onPickDone} />
-      {pendingMedia && <MediaCaptionSheet file={pendingMedia.file} url={pendingMedia.url} onSend={sendPending} onCancel={cancelPending} />}}
+      {pickSheet && <PickSheet title={pickSheet.title} items={pickSheet.items} multi={pickSheet.multi} empty={pickSheet.empty} onClose={() => setPickSheet(null)} onDone={onPickDone} />}
+      {pendingMedia && <MediaCaptionSheet file={pendingMedia.file} url={pendingMedia.url} onSend={sendPending} onCancel={cancelPending} />}
       {sel && (
         <div onClick={() => { if (Date.now() - openedAt.current > 500) setSel(null); }} style={{ position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" }}>
