@@ -4297,6 +4297,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
             row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile),
             row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")),
             row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")),
+            row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")),
             heading("How to"),
             ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
                 ce("div", { style: { height: 86, background: g.bg, display: "flex", alignItems: "center", justifyContent: "center" } },
@@ -4586,6 +4587,43 @@ const FAQ = [
   ["I changed my photo but it hasn’t updated.", "Pull the app fresh by closing and reopening it. New photos show for everyone after a moment."],
   ["Messages are slow or not sending.", "Check your internet connection. The server can take up to a minute to wake up after a quiet period, then everything speeds up."],
 ];
+
+// ---- Tools > About the developer ----
+function AboutDeveloperScreen({ onBack }) {
+  const PHONE_LOCAL = "08135351804", PHONE_INTL = "2348135351804";
+  const skills = ["Web Apps", "Mobile Apps", "AI Solutions", "Databases", "Cloud & Hosting"];
+  const card = { margin: "14px 16px 0", padding: "16px", background: "#161B22", border: "1px solid #262E3A", borderRadius: 16 };
+  const label = { fontFamily: "Sora", fontWeight: 700, fontSize: 12, letterSpacing: 1, color: "#F5C518", marginBottom: 8 };
+  const body = { fontFamily: "Inter", fontSize: 14, lineHeight: 1.55, color: "#C9D1DA" };
+  const action = (bg, fg, border) => ({ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 10px", borderRadius: 14, border: border || "none", background: bg, color: fg, fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer", textDecoration: "none" });
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+    ce(TopBar, { title: "About the developer", onBack }),
+    ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 28 } },
+      ce("div", { style: { position: "relative", height: 430, overflow: "hidden", background: "#0E1116" } },
+        ce("img", { src: "icons/developer.jpg", alt: "Abdullahi Salawu", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 3%", display: "block" } }),
+        ce("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(to top, #0E1116 4%, rgba(14,17,22,0) 60%)" } }),
+        ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 12 } },
+          ce("span", { style: { display: "inline-block", background: "#F5C518", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 6, marginBottom: 6 } }, "Developer"),
+          ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 28, lineHeight: 1.1, color: "#F5F7FA" } }, "Abdullahi ", ce("span", { style: { color: "#F5C518" } }, "Salawu")))),
+      ce("div", { style: { padding: "12px 16px 0", fontFamily: "Sora", fontWeight: 600, fontSize: 16, lineHeight: 1.4, color: "#F5F7FA" } }, "Building smart apps for a connected and better Africa."),
+      ce("div", { style: card },
+        ce("div", { style: label }, "MY MISSION"),
+        ce("div", { style: body }, "To build innovative, intelligent, and impactful applications that connect people, solve real-world problems, and showcase the power of African technology to the world.")),
+      ce("div", { style: card },
+        ce("div", { style: label }, "WHAT I BUILD"),
+        ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, skills.map((s) => ce("span", { key: s, style: { padding: "6px 12px", borderRadius: 999, border: "1px solid #2B3544", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13 } }, s)))),
+      ce("div", { style: card },
+        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 } },
+          ce(MapPin, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }),
+          ce("div", null, ce("div", { style: label }, "LOCATION"), ce("div", { style: body }, "Okerube, Ikotun, Lagos State, Nigeria."))),
+        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12 } },
+          ce(Phone, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }),
+          ce("div", null, ce("div", { style: label }, "CONTACT"), ce("div", { style: { ...body, fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#F5F7FA" } }, PHONE_LOCAL)))),
+      ce("div", { style: { display: "flex", gap: 10, margin: "14px 16px 0" } },
+        ce("a", { href: "https://wa.me/" + PHONE_INTL, target: "_blank", rel: "noopener noreferrer", style: action("#35D0BA", "#0E1116") }, ce(MessageCircle, { size: 18, color: "#0E1116" }), "WhatsApp"),
+        ce("a", { href: "tel:" + PHONE_LOCAL, style: action("none", "#F5F7FA", "1px solid #2B3544") }, ce(Phone, { size: 18, color: "#F5F7FA" }), "Call")),
+      ce("div", { style: { textAlign: "center", margin: "22px 16px 0", fontFamily: "Sora", fontStyle: "italic", fontWeight: 600, fontSize: 14, color: "#8891A0" } }, "African Technology · Global Impact")));
+}
 
 function HelpScreen({ onBack, user }) {
   const [open, setOpen] = useState(-1);
@@ -5765,8 +5803,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       </div>
       )}
       {attachOpen && <AttachSheet onClose={() => setAttachOpen(false)} onPick={onPickAttach} />}
-      {pickSheet && <PickSheet title={pickSheet.title} items={pickSheet.items} multi={pickSheet.multi} empty={pickSheet.empty} onClose={() => setPickSheet(null)} onDone={onPickDone} />
-      {pendingMedia && <MediaCaptionSheet file={pendingMedia.file} url={pendingMedia.url} onSend={sendPending} onCancel={cancelPending} />}}
+      {pickSheet && <PickSheet title={pickSheet.title} items={pickSheet.items} multi={pickSheet.multi} empty={pickSheet.empty} onClose={() => setPickSheet(null)} onDone={onPickDone} />}
+      {pendingMedia && <MediaCaptionSheet file={pendingMedia.file} url={pendingMedia.url} onSend={sendPending} onCancel={cancelPending} />}
       {sel && (
         <div onClick={() => { if (Date.now() - openedAt.current > 500) setSel(null); }} style={{ position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" }}>
@@ -6502,7 +6540,7 @@ function LoginScreen({ onContinue }) {
                 {COUNTRIES.map((c) => <option key={c[0]} value={c[0]}>{flagOf(c[0])} {c[1]} (+{c[2]})</option>)}
               </select>
             </div>
-            <input value={formatNational(phone)} onChange={e => setPhone(cleanPhone(e.target.value))} onKeyDown={e => e.key === "Enter" && phone.length >= 6 && !busy && sendCode()} placeholder="81 3535 1804" inputMode="numeric" autoComplete="tel-national" style={inputStyle} />
+            <input value={formatNational(phone)} onChange={e => setPhone(cleanPhone(e.target.value))} onKeyDown={e => e.key === "Enter" && phone.length >= 6 && !busy && sendCode()} placeholder="" inputMode="numeric" autoComplete="tel-national" style={inputStyle} />
           </div>
           <button disabled={busy || phone.length < 6 || !FIREBASE_READY} onClick={sendCode} style={btn(phone.length >= 6 && FIREBASE_READY)}>{busy ? "Please wait…" : "Send code"}</button>
           <div style={{ textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 12, margin: "16px 0" }}>or</div>
@@ -6522,7 +6560,7 @@ function LoginScreen({ onContinue }) {
             <div style={box}><input value={emailName} onChange={e => setEmailName(e.target.value)} placeholder="Your name" autoComplete="name" style={inputStyle} /></div>
           )}
           <div style={box}><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" autoComplete="email" inputMode="email" style={inputStyle} /></div>
-          <div style={box}><input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && emailReady && !busy && submitEmail()} placeholder="Password (6+ characters)" autoComplete={isNew ? "new-password" : "current-password"} style={inputStyle} /></div>
+          <div style={box}><input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && emailReady && !busy && submitEmail()} placeholder="" autoComplete={isNew ? "new-password" : "current-password"} style={inputStyle} /></div>
           <button disabled={busy || !emailReady} onClick={submitEmail} style={btn(emailReady)}>{busy ? "Please wait…" : isNew ? "Create account" : "Log in"}</button>
           {!isNew && <button onClick={forgotPassword} style={linkBtn}>Forgot password?</button>}
           <button onClick={() => { setEmailStage(null); setError(""); setNotice(""); }} style={linkBtn}>Back to phone or Google</button>
@@ -6769,6 +6807,55 @@ function App() {
     flexDirection: "column", fontFamily: "Inter, sans-serif",
   };
 
+  // ---- Back / Escape button ----
+  // Press once: close the open chat or screen and land on the chat list. Press again on the chat list: the app minimizes.
+  // Each open layer keeps one history entry, so the system back button (Android / PWA) and Escape (desktop) close it
+  // instead of leaving the app. With nothing open there is no extra entry, so the next press exits normally.
+  const topLayer = !session ? null
+    : activeConvo ? "chat"
+    : (toolsView || showCatalog || showEdit || showProfile) ? "screen"
+    : (showNewGroup || showNewChat) ? "modal"
+    : tab !== "chats" ? "tab"
+    : null;
+  const closeTopRef = useRef(null);
+  closeTopRef.current = () => {
+    if (activeConvo) { setActiveConvo(null); refreshConversations(); }
+    else if (toolsView === "catalog") setToolsView(null);
+    else if (showCatalog) setShowCatalog(false);
+    else if (toolsView) setToolsView(null);
+    else if (showEdit) setShowEdit(false);
+    else if (showProfile) setShowProfile(false);
+    else if (showNewGroup) { setShowNewGroup(false); setNewGroupWith(null); }
+    else if (showNewChat) setShowNewChat(false);
+    else if (tab !== "chats") setTab("chats");
+  };
+  const backEntry = useRef(false), skipPop = useRef(false);
+  useEffect(() => {
+    if (topLayer && !backEntry.current) {
+      try { window.history.pushState({ lcBack: 1 }, ""); backEntry.current = true; } catch (e) {}
+    } else if (!topLayer && backEntry.current) {
+      backEntry.current = false; skipPop.current = true; // closed with the on-screen arrow: drop our entry quietly
+      try { window.history.back(); } catch (e) { skipPop.current = false; }
+    }
+  }, [topLayer]);
+  useEffect(() => {
+    const onPop = () => {
+      if (skipPop.current) { skipPop.current = false; return; }
+      if (!backEntry.current) return;
+      backEntry.current = false; // the browser just consumed our entry
+      closeTopRef.current && closeTopRef.current(); // topLayer changes -> the effect above adds a fresh entry if something is still open
+    };
+    const onKey = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented || !backEntry.current) return;
+      const t = e.target && e.target.tagName;
+      if (/^(input|textarea|select)$/i.test(t || "")) return; // Escape inside a text box keeps its own meaning (e.g. cancel edit)
+      window.history.back();
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("popstate", onPop); window.removeEventListener("keydown", onKey); };
+  }, []);
+
   let body;
   if (!session) {
     body = <LoginScreen onContinue={handleLogin} />;
@@ -6810,6 +6897,8 @@ function App() {
     body = <AutoMessageScreen key={toolsView} kind={toolsView} settings={settings} onBack={() => setToolsView(null)} onSave={saveBiz} />;
   } else if (toolsView === "quick") {
     body = <QuickRepliesScreen settings={settings} onBack={() => setToolsView(null)} onSave={saveBiz} />;
+  } else if (toolsView === "about") {
+    body = <AboutDeveloperScreen onBack={() => setToolsView(null)} />;
   } else if (toolsView === "help") {
     body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
   } else if (showEdit) {
