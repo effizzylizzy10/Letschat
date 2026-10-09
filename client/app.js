@@ -593,12 +593,18 @@ function TabBar({ active, setActive }) {
             React.createElement("span", { style: { fontSize: 11, fontFamily: "Inter", fontWeight: isActive ? 600 : 500 } }, t.label)));
     })));
 }
+function CreditMarquee() {
+    return (React.createElement("div", { className: "lc-credit", "aria-label": "Created by Ayo 08135351804" },
+        React.createElement("span", null, "\u2726 Created by Ayo \u00B7 08135351804 \u2726")));
+}
 function TopBar({ title, onBack, right }) {
-    return (React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 14, flexShrink: 0, background: "#0E1116" } },
-        onBack && (React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
-            React.createElement(ArrowLeft, { size: 22 }))),
-        React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA" } }, title),
-        right));
+    return (React.createElement("div", { style: { flexShrink: 0, background: "#0E1116" } },
+        !onBack && React.createElement(CreditMarquee, null),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 14 } },
+            onBack && (React.createElement("button", { onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 } },
+                React.createElement(ArrowLeft, { size: 22 }))),
+            React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA" } }, title),
+            right)));
 }
 function Banner({ text, tone = "error", onClose }) {
     const colors = tone === "error" ? { bg: "#FF6B5D18", border: "#FF6B5D55", fg: "#FF6B5D" } : { bg: "#35D0BA18", border: "#35D0BA55", fg: "#35D0BA" };
@@ -3463,7 +3469,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     else if (arcade)
         main = gh("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, gh("button", { onClick: () => setArcade(false), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, textAlign: "left", padding: "12px 16px 0", cursor: "pointer" } }, "← Back to Games"), gh("div", { style: { flex: 1, minHeight: 0 } }, gh(GamesScreen, { myId })));
     else
-        main = gh(React.Fragment, null, gh("div", { style: { display: "flex", alignItems: "center", padding: "14px 16px 10px" } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, "Games"), gh("button", { onClick: () => { setBell(true); setUnread(0); }, "aria-label": "Game notifications", style: { position: "relative", background: "rgba(255,255,255,.07)", border: "none", borderRadius: 14, padding: "8px 11px", fontSize: 18, cursor: "pointer" } }, "🔔", unread ? gh("span", { style: { position: "absolute", top: -4, right: -4, background: "#FF4FA3", color: "#fff", borderRadius: 10, fontSize: 10.5, fontFamily: "Sora", fontWeight: 700, padding: "1px 6px" } }, unread) : null)), tabs, gh("div", { style: { flex: 1, overflowY: "auto", padding: "4px 16px 24px", WebkitOverflowScrolling: "touch" } }, sub === "play" ? playTab : sub === "lobby" ? lobbyTab : ranksTab));
+        main = gh(React.Fragment, null, gh(CreditMarquee, null), gh("div", { style: { display: "flex", alignItems: "center", padding: "14px 16px 10px" } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, "Games"), gh("button", { onClick: () => { setBell(true); setUnread(0); }, "aria-label": "Game notifications", style: { position: "relative", background: "rgba(255,255,255,.07)", border: "none", borderRadius: 14, padding: "8px 11px", fontSize: 18, cursor: "pointer" } }, "🔔", unread ? gh("span", { style: { position: "absolute", top: -4, right: -4, background: "#FF4FA3", color: "#fff", borderRadius: 10, fontSize: 10.5, fontFamily: "Sora", fontWeight: 700, padding: "1px 6px" } }, unread) : null)), tabs, gh("div", { style: { flex: 1, overflowY: "auto", padding: "4px 16px 24px", WebkitOverflowScrolling: "touch" } }, sub === "play" ? playTab : sub === "lobby" ? lobbyTab : ranksTab));
     const bellPanel = bell ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 30, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setBell(false) }, gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", overflowY: "auto", background: "#0F141C", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", borderTop: "1px solid rgba(53,208,186,.5)" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Game notifications"), alerts.length ? alerts.map((a) => gh("div", { key: a.id, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, a.icon + " " + a.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, "Challenges, turns and results will show up here."))) : null;
     const searchBox = searching ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 25, background: "rgba(3,5,9,.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 } }, gh("div", { style: { fontSize: 54, animation: "hubPulse 1.2s infinite" } }, "🔎"), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, "Finding a " + hubName(searching.game) + " opponent…"), hubBtn("Cancel", () => { sock().emit("game:cancel"); setSearching(null); refresh(); }, { ghost: true })) : null;
     return gh(React.Fragment, null, gh("style", null, "@keyframes hubUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}@keyframes hubPulse{50%{transform:scale(1.18)}}@keyframes hubFloat{to{transform:translateY(-170px);opacity:0}}@keyframes lcPop{from{opacity:0;transform:scale(.4)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDeal{from{opacity:0;transform:translateY(-14px) scale(.9)}to{opacity:1;transform:none}}@keyframes lcDrop{from{opacity:0;transform:translateY(-60%)}70%{transform:translateY(4%)}to{opacity:1;transform:none}}@keyframes lcGlow{50%{box-shadow:0 0 28px rgba(245,184,61,.9);transform:scale(1.07)}}@keyframes lcWin{from{opacity:0;transform:scale(.7)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDot{50%{opacity:.45;transform:scale(.8)}}.lc-game svg circle,.lc-game svg text{transition:cx .35s ease,cy .35s ease,x .35s ease,y .35s ease,fill .2s,opacity .25s;transform-box:fill-box;transform-origin:center;animation:lcPop .3s ease-out backwards}.lc-game svg g{transform-box:fill-box;transform-origin:center}.lc-mark{display:inline-block;animation:lcPop .28s ease-out backwards}.lc-disc{animation:lcDrop .38s cubic-bezier(.3,.7,.4,1) backwards}.lc-card{animation:lcDeal .28s ease-out backwards}.lc-status{animation:lcFade .25s ease-out backwards}.lc-status.lc-over{animation:lcWin .5s ease-out backwards}button[aria-label='Roll the dice']:not(:disabled){animation:lcGlow 1.4s ease-in-out infinite}.lc-game svg circle[fill='#F5B83D']:not([stroke]){animation:lcDot 1.3s ease-in-out infinite}@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}"), gh("div", { style: { position: "absolute", inset: 0, display: active ? "flex" : "none", flexDirection: "column", background: "radial-gradient(120% 50% at 50% 0%, #1A1240 0%, #0B0F16 55%)" } }, main, sheet, bellPanel, searchBox), popups);
@@ -5872,11 +5878,11 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
     im.onerror = () => ok(null); im.src = dataUrl;
   });
   const postStatus = async (ordered) => {
-    let skipped = 0;
+    let skipped = 0, cap = note.trim().slice(0, 300);
     for (const m of ordered) {
       if (m.file && m.file.data && /^data:image\//.test(m.file.data)) {
         const photo = await toJpeg(m.file.data); if (!photo) { skipped++; continue; }
-        await api("/api/v1/status", { method: "POST", token, body: { photo } });
+        await api("/api/v1/status", { method: "POST", token, body: cap ? { photo, text: cap } : { photo } }); cap = "";
       } else if (!m.audio && !m.file && !m.hasAudio && m.text) {
         const chars = [...String(m.text)];
         for (let i = 0; i < chars.length; i += 300) await api("/api/v1/status", { method: "POST", token, body: { text: chars.slice(i, i + 300).join("") } });
@@ -5889,6 +5895,9 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
     if (chosen.length && !socket) return setErr("Not connected yet. Try again in a moment.");
     setBusy(true); setErr("");
     const ordered = [...msgs].sort((x, y) => x.time - y.time);
+    const isMedia = (m) => m.file && m.file.data && /^data:(image|video)\//.test(m.file.data);
+    let lastMedia = -1; ordered.forEach((m, i) => { if (isMedia(m)) lastMedia = i; });
+    const capNote = note.trim(), noteOnMedia = !!capNote && lastMedia >= 0; // the typed note becomes the caption of the last photo or video
     let failed = "";
     for (const cid of chosen) {
       for (const m of ordered) {
@@ -5897,12 +5906,13 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
         else if (m.file && m.file.data) payload.file = { name: m.file.name, mime: m.file.mime, size: m.file.size, data: m.file.data };
         else if (m.hasAudio || m.file) { failed = "Open the voice note or file once so it loads, then forward it."; continue; }
         else payload.text = m.text;
+        if (noteOnMedia && payload.file && ordered.indexOf(m) === lastMedia) payload.text = capNote.slice(0, 1000);
         await new Promise((resolve) => {
           const t = setTimeout(resolve, 8000);
           socket.emit("message:send", payload, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); });
         });
       }
-      if (note.trim()) await new Promise((resolve) => { const t = setTimeout(resolve, 8000); socket.emit("message:send", { conversationId: cid, text: note.trim() }, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); }); });
+      if (note.trim() && !noteOnMedia) await new Promise((resolve) => { const t = setTimeout(resolve, 8000); socket.emit("message:send", { conversationId: cid, text: note.trim() }, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); }); });
     }
     if (toStatus) {
       try { const skipped = await postStatus(ordered); if (skipped) failed = failed || (skipped + (skipped === 1 ? " message" : " messages") + " could not go to your status (only text and photos can).") ; }
@@ -5938,10 +5948,66 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
       !showStatusRow && !frequent.length && !recent.length && h("div", { style: { padding: 30, textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 14 } }, "No chats found")),
     err && h("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, padding: "6px 16px" } }, err),
     total > 0 && h("div", { style: { flexShrink: 0, padding: "8px 12px 12px", background: "#0B1014", borderTop: "1px solid #1B212B" } },
-      h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }),
+      h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a caption or message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }),
       h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
         h("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "#1B232C", borderRadius: 999, padding: "11px 16px" } }, chosenNames),
         h("button", { "aria-label": "Send", onClick: go, disabled: busy, style: { width: 52, height: 52, borderRadius: 26, border: "none", background: "#21C063", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, busy ? h("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : h(Send, { size: 24, color: "#06210F" })))));
+}
+
+// ---- attachment tray: opens from the paperclip (location, contact, gallery, document, catalogue) ----
+const ContactCard = makeIcon([["r", 3, 4, 18, 16, 2], ["c", 9, 11, 2], ["p", "M15 9h3"], ["p", "M15 13h3"], ["p", "M6 17c.5-1.5 1.8-2 3-2s2.5.5 3 2"]]);
+const GalleryIcon = makeIcon([["r", 3, 3, 18, 18, 2], ["c", 9, 9, 2], ["p", "m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"]]);
+const DocIcon = makeIcon([["p", "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"]]);
+function AttachSheet({ onClose, onPick }) {
+  const items = [
+    { id: "location", label: "Location", Icon: MapPin, color: "#35D0BA" },
+    { id: "contact", label: "Contact", Icon: ContactCard, color: "#F2B84B" },
+    { id: "gallery", label: "Gallery", Icon: GalleryIcon, color: "#7C9CFF" },
+    { id: "document", label: "Document", Icon: DocIcon, color: "#FF8A5D" },
+    { id: "catalogue", label: "Catalogue", Icon: ShoppingBag, color: "#B58CFF" },
+  ];
+  return React.createElement("div", { onClick: onClose, style: { position: "absolute", inset: 0, zIndex: 54, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" } },
+    React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", boxSizing: "border-box", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "20px 14px 24px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px 8px", animation: "lcPop .18s ease-out" } },
+      items.map((it) => React.createElement("button", { key: it.id, onClick: () => onPick(it.id), "aria-label": it.label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: 0 } },
+        React.createElement("span", { style: { width: 58, height: 58, borderRadius: "50%", background: it.color + "22", border: "1.5px solid " + it.color + "66", display: "flex", alignItems: "center", justifyContent: "center" } }, React.createElement(it.Icon, { size: 26, color: it.color })),
+        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DB" } }, it.label)))));
+}
+
+// ---- generic pick list used by the attachment tray (one contact, or several catalogue items) ----
+function PickSheet({ title, items, multi, empty, onClose, onDone }) {
+  const [sel, setSel] = useState([]);
+  const toggle = (id) => setSel((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  return React.createElement("div", { onClick: onClose, style: { position: "absolute", inset: 0, zIndex: 54, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
+    React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", boxSizing: "border-box", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "16px 14px 18px", display: "flex", flexDirection: "column" } },
+      React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", padding: "0 6px 10px" } }, title),
+      React.createElement("div", { style: { overflowY: "auto", flex: 1, minHeight: 60 } },
+        !items.length && React.createElement("div", { style: { padding: "18px 6px", fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, empty || "Nothing to show"),
+        items.map((it) => {
+          const on = sel.includes(it.id);
+          return React.createElement("div", { key: it.id, onClick: () => (multi ? toggle(it.id) : onDone([it.id])), style: { display: "flex", alignItems: "center", gap: 12, padding: "11px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+            React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+              React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 15, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.title),
+              it.sub ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, it.sub) : null),
+            multi && React.createElement("div", { style: { width: 22, height: 22, borderRadius: 6, flexShrink: 0, border: "2px solid " + (on ? "#35D0BA" : "#3A4452"), background: on ? "#35D0BA" : "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#0E1116", fontWeight: 800, fontSize: 14 } }, on ? "\u2713" : ""));
+        })),
+      multi && React.createElement("button", { disabled: !sel.length, onClick: () => onDone(sel), style: { marginTop: 12, width: "100%", padding: "13px", borderRadius: 14, border: "none", background: sel.length ? "#35D0BA" : "#2B3544", color: sel.length ? "#0E1116" : "#6C7A89", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: sel.length ? "pointer" : "default" } }, sel.length ? "Share " + sel.length + (sel.length === 1 ? " item" : " items") : "Select items to share")));
+}
+
+// ---- preview + caption screen shown before any photo or video is sent in a chat ----
+function MediaCaptionSheet({ file, url, onSend, onCancel }) {
+  const [cap, setCap] = useState("");
+  const isVid = /^video\//.test(file.type || "");
+  const go = () => onSend(cap);
+  return React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 62, background: "#05070A", display: "flex", flexDirection: "column" } },
+    React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "12px 10px", flexShrink: 0 } },
+      React.createElement("button", { onClick: onCancel, "aria-label": "Cancel", style: { background: "none", border: "none", padding: 8, cursor: "pointer", display: "flex" } }, React.createElement(X, { size: 26, color: "#F5F7FA" })),
+      React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", marginLeft: 6 } }, isVid ? "Send video" : "Send photo")),
+    React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px" } },
+      isVid ? React.createElement("video", { src: url, controls: true, playsInline: true, style: { maxWidth: "100%", maxHeight: "100%", borderRadius: 12, background: "#000" } })
+            : React.createElement("img", { src: url, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 12 } })),
+    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 12px 16px", flexShrink: 0 } },
+      React.createElement("input", { autoFocus: true, value: cap, maxLength: 1000, onChange: (e) => setCap(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") go(); }, placeholder: "Add a caption\u2026", style: { flex: 1, minWidth: 0, boxSizing: "border-box", background: "#1E2530", border: "none", outline: "none", borderRadius: 999, padding: "14px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }),
+      React.createElement("button", { onClick: go, "aria-label": "Send", style: { width: 50, height: 50, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, React.createElement(Send, { size: 21, color: "#0E1116" }))));
 }
 
 function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, onMute = () => { }, onReport = () => { }, onNewGroup = () => { }, focus = null, pinned = [], onTogglePin = () => { } }) {
@@ -5993,6 +6059,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     const openedAt = useRef(0);
     const fileRef = useRef(null);
     const camRef = useRef(null);
+    const galRef = useRef(null);
+    const docRef = useRef(null);
     const inputRef = useRef(null);
     const endRef = useRef(null);
     const typingTimeout = useRef(null);
@@ -6125,6 +6193,9 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     catch (e) { } }, 250); };
     const pressEnd = () => clearTimeout(pressRef.current);
     const [emojiOpen, setEmojiOpen] = useState(false);
+    const [attachOpen, setAttachOpen] = useState(false);
+    const [pickSheet, setPickSheet] = useState(null);
+    const [pendingMedia, setPendingMedia] = useState(null);
     const [emojiTab, setEmojiTab] = useState(0);
     const insertEmoji = (em) => {
         const el = inputRef.current;
@@ -6300,7 +6371,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                 setError(ack.error);
         });
     };
-    const sendFile = async (file) => {
+    const sendFile = async (file, caption) => {
         if (!file)
             return;
         if (!socket)
@@ -6323,7 +6394,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                 throw new Error("File is too large (max 3 MB)");
             const rid = replyTo ? replyTo.id : undefined;
             setReplyTo(null);
-            socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
+            socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, ...(caption ? { text: caption } : {}), file: { name, mime, size: Math.round(data.length * 0.75), data } }, (ack) => {
                 clearTimeout(done);
                 setSending(false);
                 if (ack && ack.error)
@@ -6338,7 +6409,97 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             setError(e.message || "Could not send that file");
         }
     };
-    const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; sendFile(f); };
+    const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; askMedia(f); };
+    const askMedia = (f) => {
+    if (!f) return;
+    if (/^(image|video)\//.test(f.type || "")) setPendingMedia({ file: f, url: URL.createObjectURL(f) });
+    else sendFile(f);
+  };
+  const sendPending = (caption) => {
+    const p = pendingMedia; setPendingMedia(null); if (!p) return;
+    try { URL.revokeObjectURL(p.url); } catch (e) { }
+    sendFile(p.file, String(caption || "").trim().slice(0, MAX_MSG_CHARS));
+  };
+  const cancelPending = () => { const p = pendingMedia; setPendingMedia(null); if (p) { try { URL.revokeObjectURL(p.url); } catch (e) { } } };
+  
+
+  // ---- paperclip tray actions ----
+  const sendPlain = (text) => {
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    const rid = replyTo ? replyTo.id : undefined; setReplyTo(null);
+    playSound("send");
+    socket.emit("message:send", { conversationId: conversation.id, text: String(text).slice(0, MAX_MSG_CHARS), replyTo: rid }, (ack) => { if (ack && ack.error) setError(ack.error); });
+  };
+  const shareLocation = () => {
+    if (!navigator.geolocation) return setError("Location is not supported on this device");
+    setSending(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setSending(false); sendPlain("\uD83D\uDCCD My location\nhttps://www.google.com/maps?q=" + pos.coords.latitude.toFixed(6) + "," + pos.coords.longitude.toFixed(6)); },
+      () => { setSending(false); setError("Allow location access to share your location"); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+  };
+  const shareContact = async () => {
+    // one contact only: the phone's own picker when it has one, otherwise a list of the person's contacts
+    try {
+      if (navigator.contacts && navigator.contacts.select) {
+        const r = await navigator.contacts.select(["name", "tel"], { multiple: false });
+        if (!r || !r.length) return;
+        const name = (r[0].name && r[0].name[0]) || "Contact", tel = (r[0].tel && r[0].tel[0]) || "";
+        if (!tel) return setError("That contact has no phone number");
+        return sendPlain("\uD83D\uDC64 Contact\n" + name + "\n" + tel);
+      }
+    } catch (e) { if (e && e.name === "AbortError") return; }
+    const list = (contacts || []).filter((u) => u && u.name);
+    if (!list.length) return setError("You have no contacts to share yet");
+    const fmt = (p) => (p ? (/^\d+$/.test(String(p)) ? "+" + p : String(p)) : "");
+    setPickSheet({ kind: "contact", title: "Share a contact", multi: false, empty: "You have no contacts yet", raw: list, items: list.map((u) => ({ id: u.id, title: u.name, sub: fmt(u.phone) })) });
+  };
+  const shareCatalogue = async () => {
+    setSending(true);
+    try {
+      const d = await api("/api/v1/catalog/me", { token });
+      const items = (d && d.items) || [];
+      setSending(false);
+      if (!items.length) return setError("Your catalogue is empty. Add items in Tools > Catalog first.");
+      setPickSheet({ kind: "catalogue", title: "Share from your catalogue", multi: true, empty: "Your catalogue is empty", raw: items, items: items.map((it) => ({ id: it.id, title: it.name, sub: it.price ? String(it.price) : "" })) });
+    } catch (e) { setSending(false); setError(e.message || "Could not load your catalogue"); }
+  };
+  const onPickDone = (ids) => {
+    const ps = pickSheet; setPickSheet(null);
+    if (!ps || !ids || !ids.length) return;
+    if (ps.kind === "contact") {
+      const u = ps.raw.find((x) => x.id === ids[0]); if (!u) return;
+      const tel = u.phone ? (/^\d+$/.test(String(u.phone)) ? "+" + u.phone : String(u.phone)) : "";
+      if (!tel) return setError("That contact has no phone number saved");
+      return sendPlain("\uD83D\uDC64 Contact\n" + u.name + "\n" + tel);
+    }
+    if (ps.kind === "catalogue") {
+      const chosen = ps.raw.filter((it) => ids.includes(it.id));
+      sendPlain(chosen.map((it) => "\u2022 " + it.name + (it.price ? " \u2014 " + it.price : "")).join("\n"));
+    }
+  };
+  const pickGallery = (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+    if (!/^(image|video)\//.test(f.type || "")) return setError("Gallery can only share photos and videos");
+    if (/^video\//.test(f.type) && f.size > MAX_FILE) return setError("Video is too large (max 3 MB)");
+    askMedia(f);
+  };
+  const pickDoc = (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+    const okExt = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf|odt)$/i.test(f.name || "");
+    const okMime = /^(application\/pdf|text\/plain|text\/csv|application\/msword|application\/rtf|application\/vnd\.(openxmlformats-officedocument|ms-|oasis\.opendocument))/.test(f.type || "");
+    if (!okExt && !okMime) return setError("Document can only share documents and PDF files");
+    sendFile(f);
+  };
+  const onPickAttach = (id) => {
+    setAttachOpen(false);
+    if (id === "location") shareLocation();
+    else if (id === "contact") shareContact();
+    else if (id === "gallery") galRef.current && galRef.current.click();
+    else if (id === "document") docRef.current && docRef.current.click();
+    else if (id === "catalogue") shareCatalogue();
+  };
+
     const startRec = async () => {
         if (!featOn("voiceNotes"))
             return setError("Voice notes are turned off. Turn them on in Tools > Sounds & features.");
@@ -6527,6 +6688,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                         m.deleted ? React.createElement("div", { style: { fontStyle: "italic", color: "#B9C2CC" } }, m.text)
                             : m.audio ? React.createElement("audio", { controls: true, preload: "none", src: m.audio, style: { height: 36, width: 210, maxWidth: "100%" } })
                                 : m.file && m.file.data && /^data:image\//.test(m.file.data) ? React.createElement("img", { loading: "lazy", decoding: "async", src: m.file.data, alt: m.file.name, onClick: () => setViewer(m.file.data), style: { display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" } })
+                                : m.file && m.file.data && /^data:video\//.test(m.file.data) ? React.createElement("video", { controls: true, playsInline: true, preload: "metadata", src: m.file.data, style: { display: "block", width: 230, maxWidth: "100%", maxHeight: 300, borderRadius: 10, background: "#000" } })
                                     : m.file && m.file.data ? (React.createElement("a", { href: m.file.data, download: m.file.name, style: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 } },
                                         React.createElement("span", { style: { width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
                                             React.createElement(Paperclip, { size: 17, color: "#35D0BA" })),
@@ -6535,7 +6697,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                                             React.createElement("span", { style: { display: "block", fontSize: 11.5, color: "#B9C2CC" } },
                                                 fmtSize(m.file.size),
                                                 " \u00B7 tap to download")))) : React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, withLinks(richText(m.text))),
-                        window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine),
+                        m.file && m.file.data && /^data:(image|video)\//.test(m.file.data) && m.text && !/^(\uD83D\uDCF7 Photo|\uD83D\uDCCE )/.test(m.text) && React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 6 } }, withLinks(richText(m.text))),
+                            window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine),
                         React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 } },
                             m.edited && !m.deleted && React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" } }, "edited"),
                             React.createElement("span", { style: { fontSize: 10.5, color: "#B9C2CC" } }, msgTime(m.time)),
@@ -6585,6 +6748,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             React.createElement("button", { onClick: () => onBlock(conversation.other.id, false), style: smallBtn }, "Unblock"))) : (React.createElement("div", { style: { padding: "6px 10px 10px", background: chatBar, flexShrink: 0 } },
             React.createElement("input", { ref: fileRef, type: "file", onChange: pickFile, style: { display: "none" } }),
             React.createElement("input", { ref: camRef, type: "file", accept: "image/*", capture: "environment", onChange: pickFile, style: { display: "none" } }),
+            React.createElement("input", { ref: galRef, type: "file", accept: "image/*,video/*", onChange: pickGallery, style: { display: "none" } }),
+            React.createElement("input", { ref: docRef, type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,application/pdf", onChange: pickDoc, style: { display: "none" } }),
             React.createElement("div", { style: { background: "#1E2530", borderRadius: 28, padding: "12px 10px 8px 18px", display: "flex", flexDirection: "column", gap: 4 } },
                 React.createElement("textarea", { ref: inputRef, rows: 1, onFocus: () => setEmojiOpen(false), value: draft, maxLength: MAX_MSG_CHARS, className: "lc-plain", onChange: e => { typingChangeSound(e, draft); setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => { typingKeySound(e); if (e.key === "Escape" && editing)
                         cancelEdit(); }, placeholder: editing ? "Edit message" : "Message", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "26px", minHeight: 26, padding: "2px 8px 2px 0", margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } }),
@@ -6597,7 +6762,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                         React.createElement("div", { style: { flex: 1 } }),
                         React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: ib },
                             React.createElement(Smile, { size: 25, color: emojiOpen ? "#35D0BA" : "#9BA7B4" })),
-                        !editing && React.createElement("button", { "aria-label": "Attach file", onClick: () => fileRef.current && fileRef.current.click(), style: ib },
+                        !editing && React.createElement("button", { "aria-label": "Attach file", onClick: () => setAttachOpen(true), style: ib },
                             React.createElement(Paperclip, { size: 24, color: "#9BA7B4" })),
                         !editing && React.createElement("button", { "aria-label": "Take photo", onClick: () => camRef.current && camRef.current.click(), style: ib },
                             React.createElement(Camera, { size: 24, color: "#9BA7B4" })),
@@ -6610,6 +6775,9 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                             else if (inputRef.current)
                                 inputRef.current.focus(); }, style: { width: 50, height: 50, borderRadius: "50%", border: "none", background: rec ? "#FF6B5D" : "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginLeft: 6, boxShadow: "0 4px 14px #35D0BA33" } }, micMode ? React.createElement(Mic, { size: 23, color: "#0E1116" }) : React.createElement(Send, { size: 21, color: "#0E1116" }))));
                 })()))),
+        attachOpen && React.createElement(AttachSheet, { onClose: () => setAttachOpen(false), onPick: onPickAttach }),
+        pickSheet && React.createElement(PickSheet, { title: pickSheet.title, items: pickSheet.items, multi: pickSheet.multi, empty: pickSheet.empty, onClose: () => setPickSheet(null), onDone: onPickDone }),
+        pendingMedia && React.createElement(MediaCaptionSheet, { file: pendingMedia.file, url: pendingMedia.url, onSend: sendPending, onCancel: cancelPending }),
         sel && (React.createElement("div", { onClick: () => { if (Date.now() - openedAt.current > 500)
                 setSel(null); }, style: { position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
             React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" } },
@@ -7160,6 +7328,37 @@ function friendlyAuthError(e) {
         return "Please refresh the page and try again.";
     return map[e && e.code] || (e && e.message) || "Something went wrong.";
 }
+// Flipping, glowing logo: front = logo, back = credit. Flips back after FLIP_BACK_MS; animation pauses after PAUSE_MS (tap the logo to flip / resume).
+const FLIP_FRONT_MS = 30000, FLIP_BACK_MS = 30000, PAUSE_MS = 20 * 60 * 1000;
+function LogoFlip() {
+    const [flipped, setFlipped] = useState(false);
+    const [paused, setPaused] = useState(false);
+    const [run, setRun] = useState(0); // bump to restart the 20 minute clock
+    useEffect(() => {
+        const stop = setTimeout(() => { setFlipped(false); setPaused(true); }, PAUSE_MS);
+        return () => clearTimeout(stop);
+    }, [run]);
+    useEffect(() => {
+        if (paused)
+            return;
+        const t = setTimeout(() => setFlipped((f) => !f), flipped ? FLIP_BACK_MS : FLIP_FRONT_MS);
+        return () => clearTimeout(t);
+    }, [flipped, paused, run]);
+    const tap = () => { if (paused) {
+        setPaused(false);
+        setRun((r) => r + 1);
+    }
+    else
+        setFlipped((f) => !f); };
+    return (React.createElement("div", { className: "lc-flip" + (flipped ? " flipped" : "") + (paused ? " paused" : ""), onClick: tap, role: "button", "aria-label": "Letschat Africa logo" },
+        React.createElement("div", { className: "lc-flip-inner" },
+            React.createElement("img", { className: "lc-flip-face", src: "icons/icon-192.png", alt: "Letschat Africa", width: 84, height: 84 }),
+            React.createElement("div", { className: "lc-flip-face lc-flip-back" },
+                React.createElement("span", null, "Created by"),
+                React.createElement("b", null, "Smart Ayo"),
+                React.createElement("span", null, "08135351804")))));
+}
+
 function LoginScreen({ onContinue }) {
     const [phone, setPhone] = useState(""); // national number only, without the country code
     const [iso, setIso] = useState(() => { try {
@@ -7307,11 +7506,7 @@ function LoginScreen({ onContinue }) {
     };
     return (React.createElement("div", { style: { height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
         React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
-            React.createElement("div", { style: { width: 76, height: 76, borderRadius: 22, margin: "0 auto 20px", background: "conic-gradient(from 120deg, #35D0BA, #F2B84B, #35D0BA)", display: "flex", alignItems: "center", justifyContent: "center" } },
-                React.createElement("div", { style: { width: 66, height: 66, borderRadius: 18, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center" } },
-                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#35D0BA" } },
-                        "L",
-                        React.createElement("span", { style: { color: "#F2B84B" } }, "A")))),
+            React.createElement(LogoFlip, null),
             React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, letterSpacing: 1, color: "#35D0BA", textTransform: "uppercase", marginBottom: 10 } }, "Letschat Africa"),
             React.createElement("h1", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" } }, titles[stage]),
             React.createElement("p", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 } }, subs[stage])),

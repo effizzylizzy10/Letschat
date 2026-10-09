@@ -3,9 +3,9 @@
 //   the newest version is fetched quietly in the background, so a deploy shows up the next time you open the app.
 // - Keeps the pinned library files (React, Firebase, Socket.IO) on the device so they never hit the network again.
 // - Never touches API / socket traffic (other origins, /socket.io, POSTs, audio/video range requests).
-const CACHE = "letschat-shell-v17"; // bump this (v14, v15...) to force every device to drop the old copy
+const CACHE = "letschat-shell-v23"; // bump this (v14, v15...) to force every device to drop the old copy
 const LIBS = "letschat-libs-v1";    // pinned versions never change, so this cache is kept across updates
-const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./push.js", "./reactions.js", "./manifest.json"];
+const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./push.js", "./reactions.js", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png"];
 const EXTRAS = ["./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]; // best effort, never blocks install
 // Third-party files whose URL contains an exact version number: safe to cache forever.
 const PINNED = [
