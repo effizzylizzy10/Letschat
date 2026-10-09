@@ -6,8 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
-    "build": "tsc app.jsx --allowJs --jsx react --target es2020 --alwaysStrict --skipLibCheck --noEmitOnError --outDir ."
+    "dev": "nodemon server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -21,8 +20,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "typescript": "^6.0.3"
+    "nodemon": "^3.1.0"
   },
   "engines": {
     "node": ">=18"
