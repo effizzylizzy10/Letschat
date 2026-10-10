@@ -1256,6 +1256,17 @@ function useSwipe(ref, onSwipe) {
         return () => { el.removeEventListener("touchstart", ts); el.removeEventListener("touchend", te); el.removeEventListener("touchmove", tm); };
     }, []);
 }
+// ---- Escape / back layers INSIDE a tab (an open game, a post form, a status viewer...) ----
+// A tab calls useInnerBack(isOpen, closeFn) while it has an operation open. Escape / the system back button then
+// close that operation first and stay on the tab; only when nothing is open does it go back to the chat list.
+let innerBackReg = null;
+function useInnerBack(open, close) {
+  const cb = useRef(close); cb.current = close;
+  useEffect(() => {
+    if (!open || !innerBackReg) return;
+    return innerBackReg(() => { cb.current && cb.current(); });
+  }, [!!open]);
+}
 const ARROWS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 function useArrowKeys(onDir) {
     const cb = useRef(onDir);
@@ -3429,6 +3440,13 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     const respond = (iv, accept) => { sock().emit("game:respond", { id: iv.id, accept }); setInvites((v) => v.filter((i) => i.id !== iv.id)); };
     const exitRoom = () => { const r = roomRef.current; if (r && r.mode === "online" && sock())
         sock().emit("game:leave"); setRoom(null); refresh(); };
+    useInnerBack(active && !!(searching || bell || setup || room || arcade), () => {
+      if (searching) { const sk2 = sock(); if (sk2) sk2.emit("game:cancel"); setSearching(null); refresh(); }
+      else if (bell) setBell(false);
+      else if (setup) setSetup(null);
+      else if (room) exitRoom();
+      else if (arcade) setArcade(false);
+    });
     const dmOf = (id) => conversations.find((x) => !x.isGroup && x.other && x.other.id === id);
     const others = lobby.players;
     const section = (title, list, empty) => gh("div", { style: { marginBottom: 18 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, title + " (" + list.length + ")"), list.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, list.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ mode: "friend", player: p, kind: "invite" }), onChallenge: () => go({ mode: "friend", player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", padding: "2px 2px" } }, empty));
@@ -3868,6 +3886,12 @@ function MarketScreen({ token, myId, onMessageSeller }) {
     const [commentsFor, setCommentsFor] = useState(null);
     const [ratingFor, setRatingFor] = useState(null);
     const load = useCallback(() => api("/api/v1/market?q=" + encodeURIComponent(q), { token }).then(d => { setItems(d.listings); setError(""); }).catch(e => setError(e.message)), [q, token]);
+  useInnerBack(!!(posting || zoom || commentsFor || ratingFor), () => {
+    if (ratingFor) setRatingFor(null);
+    else if (commentsFor) setCommentsFor(null);
+    else if (zoom) setZoom(null);
+    else if (posting) setPosting(false);
+  });
     useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
     const act = (id, path, method = "POST") => api("/api/v1/market/" + id + path, { method, token }).then(load).catch(e => setError(e.message));
     const note = { padding: "40px 20px", textAlign: "center", color: "#5B6673", fontFamily: "Inter", fontSize: 13 };
@@ -5355,6 +5379,13 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
         return () => { dead = true; };
     }, [data.mine.map((s) => s.id).join(","), prefs.archive]);
     const mineGroup = { mine: true, user: profile, items: data.mine };
+    useInnerBack(!!(view || composer || searching || menu || sub), () => {
+      if (view) { setView(null); load(); }
+      else if (composer) setComposer(false);
+      else if (menu) setMenu(false);
+      else if (searching) { setSearching(false); setQ(""); }
+      else if (sub) setSub(null);
+    });
     const open = (groups, start) => setView({ groups, start });
     const addTap = (m) => { if (!F.status) return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setMode(m || null); setComposer(true); };
     const feed = data.feed.filter((gr) => !prefs.muted.includes(gr.user.id)).slice().sort((a, b) => (a.allSeen === b.allSeen ? b.latest - a.latest : a.allSeen ? 1 : -1));
@@ -8191,13 +8222,23 @@ function App() {
     // Press once: close the open chat or screen and land on the chat list. Press again on the chat list: the app minimizes.
     // Each open layer keeps one history entry, so the system back button (Android / PWA) and Escape (desktop) close it
     // instead of leaving the app. With nothing open there is no extra entry, so the next press exits normally.
-    const topLayer = !session ? null
+    const innerStack = useRef([]);
+const [innerN, setInnerN] = useState(0);
+const registerInner = useCallback((fn) => {
+  const entry = { fn };
+  innerStack.current.push(entry); setInnerN((n) => n + 1);
+  return () => { innerStack.current = innerStack.current.filter((x) => x !== entry); setInnerN((n) => n + 1); };
+}, []);
+innerBackReg = registerInner;
+const topLayer = !session ? null
       : activeConvo ? "chat"
       : (toolsView || showCatalog || showEdit || showProfile) ? "screen"
       : (showNewGroup || showNewChat) ? "modal"
-      : tab !== "chats" ? "tab"
+      : innerStack.current.length ? "inner" + innerStack.current.length
+    : tab !== "chats" ? "tab"
       : null;
-    const closeTopRef = useRef(null);
+    const closeTopRef = useRef(null), topLayerRef = useRef(null);
+    topLayerRef.current = topLayer;
     closeTopRef.current = () => {
       if (activeConvo) { setActiveConvo(null); refreshConversations(); }
       else if (toolsView === "catalog") setToolsView(null);
@@ -8207,7 +8248,8 @@ function App() {
       else if (showProfile) setShowProfile(false);
       else if (showNewGroup) { setShowNewGroup(false); setNewGroupWith(null); }
       else if (showNewChat) setShowNewChat(false);
-      else if (tab !== "chats") setTab("chats");
+      else if (innerStack.current.length) innerStack.current[innerStack.current.length - 1].fn();
+    else if (tab !== "chats") setTab("chats");
     };
     const backEntry = useRef(false), skipPop = useRef(false);
     useEffect(() => {
@@ -8228,7 +8270,7 @@ function App() {
       const onKey = (e) => {
         if (e.key !== "Escape" || e.defaultPrevented || !backEntry.current) return;
         const t = e.target && e.target.tagName;
-        if (/^(input|textarea|select)$/i.test(t || "")) return; // Escape inside a text box keeps its own meaning (e.g. cancel edit)
+        if (/^(input|textarea|select)$/i.test(t || "") && !/^inner/.test(topLayerRef.current || "")) return; // Escape inside a text box keeps its own meaning (e.g. cancel edit), unless an operation is open
         window.history.back();
       };
       window.addEventListener("popstate", onPop);
