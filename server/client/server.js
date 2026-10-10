@@ -50,6 +50,7 @@ const table = (c) => "lc_" + c;
 let cache = null;
 const saved = new Map(); // "collection/id" -> JSON last written
 let flushChain = Promise.resolve();
+const pendingDeletes = []; // { c, id }: rows removed from memory (expired messages) that must also leave Supabase
 
 function emptyDB() { return { users: [], conversations: [], messages: [], listings: [], statuses: [] }; }
 function fileRead() {
@@ -75,6 +76,15 @@ async function persist() {
       const { error } = await supabase.from(table(c)).upsert(chunk.map((o) => o.row));
       if (error) throw new Error(error.message);
       for (const o of chunk) saved.set(o.key, o.json);
+    }
+  }
+  while (pendingDeletes.length) { // expired disappearing messages: delete their rows so they never come back after a restart
+    const batch = pendingDeletes.splice(0, 100), byC = {};
+    for (const d of batch) (byC[d.c] || (byC[d.c] = [])).push(d.id);
+    for (const c in byC) {
+      const { error } = await supabase.from(table(c)).delete().in("id", byC[c]);
+      if (error) { pendingDeletes.unshift(...byC[c].map((id) => ({ c, id }))); throw new Error(error.message); }
+      for (const id of byC[c]) saved.delete(c + "/" + id);
     }
   }
   // listings and statuses are cleared every 24h: delete their rows too, otherwise they would come back on restart
@@ -180,18 +190,26 @@ function publicUser(u) {
 }
 // Group members only see each other's name/photo/about, never phone numbers or emails.
 const memberView = (u, withContact) => (u ? { id: u.id, verified: isVerified(u), name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
-function groupView(db, c, uid) {
-  const msgs = db.messages.filter((m) => m.conversationId === c.id);
+function groupView(db, c, uid, preMsgs) {
+  const msgs = preMsgs || db.messages.filter((m) => m.conversationId === c.id);
   return {
     id: c.id, isGroup: true, name: c.name, adminId: c.adminId, description: c.description || "",
     avatar: c.avatar ? `/api/v1/groups/${c.id}/avatar?v=${c.avatarVersion || 1}` : null,
     dmRequests: (c.dmRequests || []).filter((r) => (c.adminId === uid ? r.status === "pending" : r.from === uid)),
     members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
     inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
+    disappearAfter: c.disappearAfter || 0,
+    pinnedMsgs: livePins(c, msgs),
     lastMessage: lite(msgs[msgs.length - 1]) || null,
     unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
     updatedAt: c.updatedAt || c.createdAt,
   };
+}
+// pinned messages (max 3 per chat): only the ones that still exist are shown, so deleted/expired messages unpin themselves
+function livePins(c, msgs) {
+  const pins = c.pinnedMsgs || [];
+  if (!pins.length) return [];
+  return pins.filter((p) => msgs.some((m) => m.id === p.id && !m.deleted));
 }
 // Chat lists only need a preview, never the audio/file bytes.
 function lite(m) {
@@ -220,6 +238,8 @@ function colorFor(id) {
 const app = express();
 app.use(require("./compress")()); // Brotli/gzip for JSON replies (no extra package needed)
 app.use(cors({ origin: CLIENT_ORIGIN === "*" ? "*" : CLIENT_ORIGIN.split(",") }));
+// gzip/brotli-style compression for JSON and text responses (chat history is mostly text, so it shrinks a lot); skipped quietly if the package is missing
+try { app.use(require("compression")()); } catch (e) { console.warn("compression not installed: responses are sent uncompressed"); }
 app.use(express.json({ limit: "10mb" })); // Increased for larger avatar images
 
 
@@ -714,17 +734,23 @@ app.get("/api/users/lookup", authMiddleware, (req, res) => {
 
 app.get("/api/conversations", authMiddleware, (req, res) => {
   const db = readDB();
+  if (purgeExpiredMessages(db)) writeDB(db);
   const mine = db.conversations.filter((c) => c.participantIds.includes(req.user.id));
+  // one pass over the messages instead of one pass per chat (this endpoint runs after every incoming message)
+  const mineIds = new Set(mine.map((c) => c.id)), byConv = new Map();
+  for (const m of db.messages) if (mineIds.has(m.conversationId)) { let a = byConv.get(m.conversationId); if (!a) byConv.set(m.conversationId, (a = [])); a.push(m); }
   const enriched = mine
     .map((c) => {
-      if (c.isGroup) return groupView(db, c, req.user.id);
+      if (c.isGroup) return groupView(db, c, req.user.id, byConv.get(c.id) || []);
       const otherId = c.participantIds.find((id) => id !== req.user.id);
       const other = db.users.find((u) => u.id === otherId);
-      const msgs = db.messages.filter((m) => m.conversationId === c.id);
+      const msgs = byConv.get(c.id) || [];
       const last = msgs[msgs.length - 1] || null;
       return {
         id: c.id,
         other: other ? publicUser(other) : { id: otherId, name: "Unknown", initials: "?", color: "#5B6673" },
+        disappearAfter: c.disappearAfter || 0,
+        pinnedMsgs: livePins(c, msgs),
         lastMessage: lite(last),
         unread: msgs.filter((m) => m.senderId !== req.user.id && !m.read).length,
         updatedAt: c.updatedAt || c.createdAt,
@@ -769,8 +795,9 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   if (!convo || !convo.participantIds.includes(req.user.id)) {
     return res.status(404).json({ error: "Conversation not found" });
   }
+  const swept = purgeExpiredMessages(db);
   const all = db.messages.filter((m) => m.conversationId === req.params.id);
-  let changed = false;
+  let changed = swept > 0;
   for (const m of all) {
     if (m.senderId === req.user.id) continue;
     if (convo.isGroup) {
@@ -784,7 +811,7 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const since = Number(req.query.since) || 0; // ?since=<ms>: the first `limit` messages from that moment on (jump to an old search result)
   const older = all.filter((m) => m.time < before);
   const page = since ? all.filter((m) => m.time >= since).slice(0, limit) : older.slice(-limit);
-  res.json({ messages: page.map((m) => receiptView(db, m, req.user, convo)), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
+  res.json({ messages: page.map((m) => stripViewOnce(receiptView(db, m, req.user, convo))), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
 });
 
 // ---- search: keyword suggestions + matching messages from your chats and groups ----
@@ -933,6 +960,57 @@ setInterval(() => {
   try { const db = readDB(); if (purgeExpiredListings(db)) writeDB(db); } catch (e) { console.error("Market cleanup failed:", e.message); }
 }, 60 * 60 * 1000).unref();
 setTimeout(() => { try { const db = readDB(); const a = purgeExpiredListings(db), b = purgeExpiredStatuses(db); if (a || b) writeDB(db); } catch (e) {} }, 10000).unref();
+// ---- disappearing messages + view-once media ----
+// A chat can have a timer (convo.disappearAfter, in seconds): new messages get expiresAt and are removed for good when it passes.
+// View-once photos/videos are never sent to the recipient's list or live feed: they open through "message:view-once",
+// which hands the bytes over once per person and then forgets them.
+const DISAPPEAR_CHOICES = [0, 3600, 86400, 604800]; // off, 1 hour, 24 hours, 7 days
+const VIEW_ONCE_TTL_MS = 14 * 24 * 60 * 60 * 1000;   // unopened view-once media is dropped after 14 days
+function stripViewOnce(m) {
+  if (!m || !m.viewOnce || !m.file || typeof m.file.data !== "string") return m;
+  return { ...m, file: { name: m.file.name, mime: m.file.mime, size: m.file.size, hidden: true } };
+}
+function purgeExpiredMessages(db) {
+  const now = Date.now(), list = db.messages, gone = [];
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].expiresAt && list[i].expiresAt <= now) { gone.push(list[i]); if (USE_DB) pendingDeletes.push({ c: "messages", id: list[i].id }); list.splice(i, 1); }
+  if (!gone.length) return 0;
+  const seen = new Set();
+  for (const m of gone) {
+    try { io.to(`conv:${m.conversationId}`).emit("message:expired", { conversationId: m.conversationId, messageId: m.id }); } catch (e) {}
+    if (!seen.has(m.conversationId)) { seen.add(m.conversationId); try { io.to(`conv:${m.conversationId}`).emit("conversation:update", { id: m.conversationId }); } catch (e) {} }
+  }
+  return gone.length;
+}
+setInterval(() => {
+  try { const db = readDB(); if (purgeExpiredMessages(db)) writeDB(db); } catch (e) { console.error("Message expiry sweep failed:", e.message); }
+}, 15000).unref();
+// ---- scheduled messages: send whatever has come due (every 10 seconds) ----
+function sendDueScheduled() {
+  const db = readDB(), now = Date.now();
+  let changed = false;
+  for (const u of db.users) {
+    if (!u.scheduled || !u.scheduled.length) continue;
+    const due = u.scheduled.filter((x) => x.sendAt <= now);
+    if (!due.length) continue;
+    u.scheduled = u.scheduled.filter((x) => x.sendAt > now); changed = true;
+    for (const x of due) {
+      const convo = db.conversations.find((c) => c.id === x.conversationId);
+      if (!convo || !convo.participantIds.includes(u.id)) continue;
+      if (!convo.isGroup) {
+        const otherId = convo.participantIds.find((id) => id !== u.id), other = db.users.find((o) => o.id === otherId);
+        if ((u.blocked || []).includes(otherId) || (other && (other.blocked || []).includes(u.id))) continue;
+      }
+      const t = Date.now();
+      const message = { id: nanoid(14), conversationId: convo.id, senderId: u.id, text: x.text, time: t, read: false, ...(convo.disappearAfter ? { expiresAt: t + convo.disappearAfter * 1000 } : {}) };
+      db.messages.push(message);
+      convo.updatedAt = t;
+      try { io.to(`conv:${convo.id}`).emit("message:new", message); } catch (e) {}
+      try { pushMessage(db, convo, message, u.id); } catch (e) { console.error("push failed", e.message); }
+    }
+  }
+  if (changed) writeDB(db);
+}
+setInterval(() => { try { sendDueScheduled(); } catch (e) { console.error("Scheduled send failed:", e.message); } }, 10000).unref();
 function canDM(db, me, other) { // messaging by user id: sellers with a live listing, or a group admin
   if (listingsOf(db).some((l) => !l.removed && l.sellerId === other)) return true;
   return db.conversations.some((c) => c.isGroup && c.participantIds.includes(me) && c.participantIds.includes(other) && (c.adminId === me || c.adminId === other));
@@ -1259,7 +1337,7 @@ function autoReply(db, convo, incoming) {
     }
   }
   if (!text) return;
-  const reply = { id: nanoid(14), conversationId: convo.id, senderId: owner.id, text, auto: true, time: Date.now() + 1, read: false };
+  const reply = { id: nanoid(14), conversationId: convo.id, senderId: owner.id, text, auto: true, time: Date.now() + 1, read: false, ...(convo.disappearAfter ? { expiresAt: Date.now() + convo.disappearAfter * 1000 } : {}) };
   db.messages.push(reply);
   convo.updatedAt = Date.now();
   writeDB(db);
@@ -1808,7 +1886,7 @@ io.on("connection", (socket) => {
     }
   }
 
-  socket.on("message:send", ({ conversationId, text, audio, duration, file, replyTo, forwarded }, ack) => {
+  socket.on("message:send", ({ conversationId, text, audio, duration, file, replyTo, forwarded, viewOnce, poll }, ack) => {
     const fail = (error) => { if (ack) ack({ error }); };
     const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
     if (audio && !voice) return fail("Voice note is too long or not supported (max about 1 minute)");
@@ -1826,8 +1904,20 @@ io.on("connection", (socket) => {
       const name = String(file.name || "file").replace(/[\\/<>:"|?*\x00-\x1f]/g, "_").slice(0, 120) || "file";
       att = { name, mime, size: Math.max(0, Math.round(Number(file.size)) || 0), data: file.data };
       if (!text || !String(text).trim()) text = mime.startsWith("image/") ? "📷 Photo" : "📎 " + name;
+      if (viewOnce === true && /^(image|video)\//.test(mime)) { att.viewOnce = true; if (!/\S/.test(String(file.caption || "")) && (text === "📷 Photo" || text === "📎 " + name)) text = mime.startsWith("video/") ? "🎥 View once video" : "📷 View once photo"; }
     }
 
+    // poll: a question with 2-6 options; people vote with "poll:vote"
+    let pollData = null;
+    if (poll && typeof poll === "object" && !voice && !att) {
+      const q = String(poll.question || "").trim().slice(0, 200);
+      const opts = (Array.isArray(poll.options) ? poll.options : []).map((o) => String(o || "").trim().slice(0, 80)).filter(Boolean).slice(0, 6);
+      if (!q) return fail("Add a question for the poll");
+      if (opts.length < 2) return fail("A poll needs at least 2 options");
+      if (new Set(opts.map((o) => o.toLowerCase())).size !== opts.length) return fail("Poll options must be different");
+      pollData = { question: q, multi: poll.multi === true, options: opts.map((t, i) => ({ id: "o" + i, text: t })), votes: {} };
+      text = "\uD83D\uDCCA " + q;
+    }
     if (!text || !text.trim()) return fail("Message text required");
     if (text.length > 15000) return fail("Message is too long (max 15000 characters)");
     const db = readDB();
@@ -1863,17 +1953,25 @@ io.on("connection", (socket) => {
       ...(reply ? { replyTo: reply } : {}),
       ...(forwarded === true ? { forwarded: true } : {}),
       ...(voice ? { audio, duration: Math.min(Math.round(Number(duration)) || 0, 120) } : {}),
-      ...(att ? { file: att } : {}),
+      ...(att ? { file: { name: att.name, mime: att.mime, size: att.size, data: att.data } } : {}),
+      ...(att && att.viewOnce ? { viewOnce: true, viewedBy: [] } : {}),
+      ...(pollData ? { poll: pollData } : {}),
       time: Date.now(),
       read: false,
     };
+    {
+      const ttl = Number(convo.disappearAfter) || 0, now = Date.now();
+      let exp = ttl ? now + ttl * 1000 : 0;
+      if (message.viewOnce) exp = exp ? Math.min(exp, now + VIEW_ONCE_TTL_MS) : now + VIEW_ONCE_TTL_MS;
+      if (exp) message.expiresAt = exp;
+    }
     db.messages.push(message);
     convo.updatedAt = Date.now();
     writeDB(db);
 
-    io.to(`conv:${conversationId}`).emit("message:new", message);
+    io.to(`conv:${conversationId}`).emit("message:new", stripViewOnce(message));
     try { pushMessage(db, convo, message, userId); } catch (e) { console.error("push failed", e.message); }
-    if (ack) ack({ message });
+    if (ack) ack({ message: stripViewOnce(message) });
     try { autoReply(db, convo, message); } catch (e) { console.error("auto reply failed", e.message); }
   });
 
@@ -1916,12 +2014,124 @@ io.on("connection", (socket) => {
     if (typeof ack === "function") ack({ reactions });
   });
 
+  // ---- disappearing messages: set the chat timer (anyone in a private chat; only the admin in a group) ----
+  socket.on("conversation:disappearing", ({ conversationId, seconds } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const db = readDB();
+    const convo = db.conversations.find((c) => c.id === conversationId);
+    if (!convo || !convo.participantIds.includes(userId)) return fail("Conversation not found");
+    if (convo.isGroup && convo.adminId !== userId) return fail("Only the group admin can change this");
+    const s = Number(seconds) || 0;
+    if (!DISAPPEAR_CHOICES.includes(s)) return fail("Choose a valid timer");
+    if ((convo.disappearAfter || 0) !== s) {
+      if (s) convo.disappearAfter = s; else delete convo.disappearAfter;
+      writeDB(db);
+      io.to(`conv:${convo.id}`).emit("conversation:disappearing", { conversationId: convo.id, disappearAfter: s, by: userId });
+      io.to(`conv:${convo.id}`).emit("conversation:update", { id: convo.id });
+    }
+    if (typeof ack === "function") ack({ disappearAfter: s });
+  });
+  // ---- view-once: hand the photo/video to this person one time, then forget it ----
+  socket.on("message:view-once", ({ messageId } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const db = readDB();
+    const m = db.messages.find((x) => x.id === messageId);
+    const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+    if (!m || !convo || !convo.participantIds.includes(userId)) return fail("Message not found");
+    if (!m.viewOnce || m.deleted) return fail("This can't be opened");
+    if (m.senderId === userId) return fail("You can't open your own view once media");
+    if ((m.viewedBy || []).includes(userId)) return fail("You already opened this");
+    if (!m.file || typeof m.file.data !== "string") return fail("This media is no longer available");
+    const { data, mime, name, size } = m.file;
+    (m.viewedBy || (m.viewedBy = [])).push(userId);
+    const everyone = convo.participantIds.filter((id) => id !== m.senderId);
+    if (everyone.every((id) => m.viewedBy.includes(id))) m.file = { name, mime, size, gone: true }; // last viewer: the bytes are deleted for good
+    writeDB(db);
+    io.to(`conv:${convo.id}`).emit("message:updated", stripViewOnce(m));
+    if (typeof ack === "function") ack({ file: { data, mime, name } });
+  });
+
+  // ---- polls: tap an option to vote, tap it again to take the vote back (single-choice polls move your vote) ----
+  socket.on("poll:vote", ({ messageId, optionId } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const db = readDB();
+    const m = db.messages.find((x) => x.id === messageId);
+    const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+    if (!m || !convo || !convo.participantIds.includes(userId)) return fail("Poll not found");
+    if (!m.poll || m.deleted) return fail("Poll not found");
+    if (!m.poll.options.some((o) => o.id === optionId)) return fail("Choose one of the options");
+    const votes = m.poll.votes || (m.poll.votes = {});
+    const had = (votes[optionId] || []).includes(userId);
+    if (!m.poll.multi) for (const k of Object.keys(votes)) votes[k] = (votes[k] || []).filter((id) => id !== userId);
+    if (!had) votes[optionId] = [...(votes[optionId] || []).filter((id) => id !== userId), userId];
+    else votes[optionId] = (votes[optionId] || []).filter((id) => id !== userId);
+    writeDB(db);
+    io.to(`conv:${convo.id}`).emit("message:updated", m);
+    if (typeof ack === "function") ack({ poll: m.poll });
+  });
+  // ---- scheduled messages: text sent later (kept on your account, so it still goes out if you are offline) ----
+  const SCHEDULE_MAX_MS = 30 * 24 * 60 * 60 * 1000, SCHEDULE_MAX_PENDING = 20;
+  socket.on("message:schedule", ({ conversationId, text, sendAt } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const t = String(text || "").trim(), at = Number(sendAt);
+    if (!t) return fail("Type the message to schedule");
+    if (t.length > 15000) return fail("Message is too long (max 15000 characters)");
+    if (!at || at < Date.now() + 5000) return fail("Pick a time in the future");
+    if (at > Date.now() + SCHEDULE_MAX_MS) return fail("You can schedule up to 30 days ahead");
+    const db = readDB();
+    const convo = db.conversations.find((c) => c.id === conversationId);
+    const me = db.users.find((u) => u.id === userId);
+    if (!convo || !me || !convo.participantIds.includes(userId)) return fail("Conversation not found");
+    if (!convo.isGroup) {
+      const otherId = convo.participantIds.find((id) => id !== userId), other = db.users.find((u) => u.id === otherId);
+      if ((me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
+      if (other && (other.blocked || []).includes(userId)) return fail("This message couldn't be delivered.");
+    }
+    me.scheduled = me.scheduled || [];
+    if (me.scheduled.length >= SCHEDULE_MAX_PENDING) return fail("You can have up to 20 scheduled messages");
+    const item = { id: nanoid(10), conversationId, text: t, sendAt: at, createdAt: Date.now() };
+    me.scheduled.push(item);
+    writeDB(db);
+    if (typeof ack === "function") ack({ item });
+  });
+  socket.on("message:scheduled:list", ({ conversationId } = {}, ack) => {
+    const me = readDB().users.find((u) => u.id === userId);
+    const items = ((me && me.scheduled) || []).filter((x) => x.conversationId === conversationId).sort((a, b) => a.sendAt - b.sendAt);
+    if (typeof ack === "function") ack({ items });
+  });
+  socket.on("message:schedule:cancel", ({ id } = {}, ack) => {
+    const db = readDB(), me = db.users.find((u) => u.id === userId);
+    if (me && me.scheduled && me.scheduled.some((x) => x.id === id)) { me.scheduled = me.scheduled.filter((x) => x.id !== id); writeDB(db); }
+    if (typeof ack === "function") ack({ ok: true });
+  });
+
+  // ---- pin a message to the top of the chat (up to 3; the oldest pin drops off when a 4th is added) ----
+  socket.on("message:pin", ({ messageId, pin } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const db = readDB();
+    const m = db.messages.find((x) => x.id === messageId);
+    const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+    if (!m || !convo || !convo.participantIds.includes(userId)) return fail("Message not found");
+    if (m.deleted) return fail("This message was deleted");
+    if (m.viewOnce) return fail("View once media can't be pinned");
+    let list = (convo.pinnedMsgs || []).filter((x) => x.id !== m.id);
+    if (pin !== false) {
+      const text = m.audio ? "🎤 Voice note" : m.file ? (String(m.file.mime).startsWith("image/") ? "📷 Photo" : "📎 " + m.file.name) : String(m.text || "").slice(0, 100);
+      list.push({ id: m.id, senderId: m.senderId, text, at: Date.now(), by: userId });
+      while (list.length > 3) list.shift();
+    }
+    if (list.length) convo.pinnedMsgs = list; else delete convo.pinnedMsgs;
+    writeDB(db);
+    io.to(`conv:${convo.id}`).emit("conversation:pinned", { conversationId: convo.id, pinnedMsgs: list, by: userId });
+    io.to(`conv:${convo.id}`).emit("conversation:update", { id: convo.id });
+    if (typeof ack === "function") ack({ pinnedMsgs: list });
+  });
   socket.on("message:edit", ({ messageId, text } = {}, ack) => {
     const fail = (error) => { if (typeof ack === "function") ack({ error }); };
     const o = ownMessage(messageId, fail); if (!o) return;
     const { db, m } = o;
     if (m.deleted) return fail("This message was deleted");
-    if (m.audio || m.file) return fail("Only text messages can be edited");
+    if (m.audio || m.file || m.poll) return fail("Only text messages can be edited");
     if (EDIT_WINDOW_MS && Date.now() - m.time > EDIT_WINDOW_MS) return fail("Messages can only be edited for 15 minutes after sending");
     const t = String(text || "").trim();
     if (!t) return fail("Message text required");
@@ -1939,7 +2149,7 @@ io.on("connection", (socket) => {
     const { db, m } = o;
     if (!m.deleted) {
       // keep the row (so the chat shows "This message was deleted") but drop the content, audio and file bytes for good
-      delete m.audio; delete m.duration; delete m.file; delete m.edited; delete m.editedAt;
+      delete m.audio; delete m.duration; delete m.file; delete m.poll; delete m.edited; delete m.editedAt;
       m.text = "🚫 This message was deleted"; m.deleted = true; m.deletedAt = Date.now();
       writeDB(db);
       io.to(`conv:${m.conversationId}`).emit("message:updated", m);
