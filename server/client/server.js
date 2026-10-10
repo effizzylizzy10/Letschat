@@ -1281,6 +1281,70 @@ function endCall(callId, reason) {
   if (userCall.get(c.to) === callId) userCall.delete(c.to);
   for (const id of [c.from, c.to]) io.to(`user:${id}`).emit("call:ended", { callId, reason });
 }
+
+// ---- push alert for a call: wakes the other phone even when the app is closed (short TTL so a stale ring never shows later) ----
+function pushCall(toId, fromUser, label, tag) {
+  if (!PUSH_ON) return;
+  const db = readDB(), u = db.users.find((x) => x.id === toId);
+  if (!u || !(u.pushSubs || []).length) return;
+  for (const sub of u.pushSubs) {
+    webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title: (fromUser && fromUser.name) || "Letschat Africa", body: label, tag, url: "./", call: true }), { TTL: 45, urgency: "high" })
+      .catch((err) => {
+        if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+          const d2 = readDB(), u2 = d2.users.find((x) => x.id === toId);
+          if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
+        }
+      });
+  }
+}
+// a 1:1 call whose other person was offline when it started: hand it over the moment they open the app
+function deliverPendingCall(userId) {
+  const callId = userCall.get(userId), c = callId && activeCalls.get(callId);
+  if (!c || c.to !== userId || c.state !== "ringing") return;
+  const send = () => {
+    const cur = activeCalls.get(callId);
+    if (!cur || cur.state !== "ringing" || !userSockets.has(userId)) return;
+    const db = readDB(), me = db.users.find((u) => u.id === cur.from);
+    io.to(`user:${userId}`).emit("call:incoming", { callId, conversationId: cur.conversationId, video: cur.video, from: memberView(me) });
+    if (cur.offline) { cur.offline = false; io.to(`user:${cur.from}`).emit("call:reached", { callId }); } // caller's screen: "Connecting…" becomes "Ringing…"
+  };
+  setTimeout(send, 1500); // give the app a moment to finish starting before it rings
+  setTimeout(send, 4500); // second try in case the first landed before the app was listening (the app ignores a repeat)
+}
+
+// ---- group voice / video calls: everyone connects to everyone (peer to peer); the server only keeps the room and passes the signals ----
+const groupCalls = new Map();    // callId -> { id, conversationId, video, host, started, members: Map(userId -> joinedAt) }
+const convGroupCall = new Map(); // conversationId -> callId (one live call per group)
+const GC_MAX = { video: 4, voice: 8 }; // everyone sends to everyone, so video is kept small to suit mobile data
+function gcView(g) {
+  const db = readDB(), convo = db.conversations.find((c) => c.id === g.conversationId);
+  return {
+    conversationId: g.conversationId, callId: g.id, video: g.video, count: g.members.size, started: g.started, age: Date.now() - g.started,
+    name: (convo && convo.name) || "Group",
+    avatar: convo && convo.avatar ? `/api/v1/groups/${convo.id}/avatar?v=${convo.avatarVersion || 1}` : null,
+    host: memberView(db.users.find((u) => u.id === g.host)),
+  };
+}
+function gcTell(conversationId, g) { // tell every member of the group whether a call is running (or not any more)
+  const convo = readDB().conversations.find((c) => c.id === conversationId);
+  if (!convo) return;
+  const st = g ? gcView(g) : { conversationId, callId: null };
+  for (const id of convo.participantIds) io.to(`user:${id}`).emit("gcall:state", st);
+}
+function gcLeave(userId, callId) {
+  const g = groupCalls.get(callId);
+  if (!g || !g.members.has(userId)) return;
+  g.members.delete(userId);
+  if (userCall.get(userId) === callId) userCall.delete(userId);
+  for (const id of g.members.keys()) io.to(`user:${id}`).emit("gcall:left", { callId, userId });
+  if (g.members.size === 0) {
+    groupCalls.delete(callId);
+    if (convGroupCall.get(g.conversationId) === callId) convGroupCall.delete(g.conversationId);
+    gcTell(g.conversationId, null);
+  } else gcTell(g.conversationId, g);
+}
+function gcLeaveAll(userId) { for (const [id, g] of groupCalls) if (g.members.has(userId)) gcLeave(userId, id); }
+
 const lastSeen = new Map(); // userId -> when they last went offline (in memory)
 
 // Online/offline for everyone who shares a chat or group with this user.
@@ -1724,6 +1788,7 @@ io.on("connection", (socket) => {
   if (!userSockets.has(userId)) userSockets.set(userId, new Set());
   userSockets.get(userId).add(socket.id);
   socket.join(`user:${userId}`);
+  deliverPendingCall(userId);
   socket.on("presence:get", (ack) => { if (typeof ack === "function") ack(presenceSnapshot(userId)); });
   socket.data.visible = true;
   socket.on("app:visible", (v) => { socket.data.visible = !!v; }); // lets the server know when the app is in the background, so it sends a push instead
@@ -1892,15 +1957,17 @@ io.on("connection", (socket) => {
     if ((other.blocked || []).includes(userId)) return fail("This call couldn't be connected.");
     if (userCall.has(userId)) return fail("You are already in a call");
     const first = String(other.name || "They").split(" ")[0];
-    if (!userSockets.has(to)) return fail(first + " is offline right now");
     if (userCall.has(to)) return fail(first + " is on another call");
+    // an offline person is not turned away any more: the caller hears ringing and sees "Connecting…" while their phone gets a push alert
+    const offline = !userSockets.has(to);
     const id = nanoid(12);
-    const call = { id, from: userId, to, conversationId, video: !!video, state: "ringing", timer: setTimeout(() => endCall(id, "missed"), RING_MS) };
+    const call = { id, from: userId, to, conversationId, video: !!video, state: "ringing", offline, timer: setTimeout(() => endCall(id, "missed"), RING_MS) };
     activeCalls.set(id, call);
     userCall.set(userId, id);
     userCall.set(to, id);
-    io.to(`user:${to}`).emit("call:incoming", { callId: id, conversationId, video: !!video, from: memberView(me) });
-    if (typeof ack === "function") ack({ callId: id });
+    if (!offline) io.to(`user:${to}`).emit("call:incoming", { callId: id, conversationId, video: !!video, from: memberView(me) });
+    if (offline || !userIsActive(to)) pushCall(to, me, "Incoming " + (video ? "video" : "voice") + " call", "call-" + id);
+    if (typeof ack === "function") ack({ callId: id, offline });
   });
   socket.on("call:answer", ({ callId, accept, reason } = {}) => {
     const c = activeCalls.get(callId);
@@ -1921,6 +1988,72 @@ io.on("connection", (socket) => {
     if (c && (c.from === userId || c.to === userId)) endCall(callId, "ended");
   });
 
+  // ---- group calls ----
+  socket.on("gcall:start", ({ conversationId, video } = {}, ack) => {
+    const fail = (error, extra) => { if (typeof ack === "function") ack({ error, ...(extra || {}) }); };
+    const db = readDB();
+    const convo = db.conversations.find((c) => c.id === conversationId && c.isGroup && c.participantIds.includes(userId));
+    const me = db.users.find((u) => u.id === userId);
+    if (!convo || !me) return fail("You can only call groups you are in");
+    if (convGroupCall.has(conversationId)) return fail("A call is already going on in this group", { joinCallId: convGroupCall.get(conversationId) });
+    if (userCall.has(userId)) return fail("You are already in a call");
+    const id = nanoid(12);
+    const g = { id, conversationId, video: !!video, host: userId, started: Date.now(), members: new Map([[userId, Date.now()]]) };
+    groupCalls.set(id, g);
+    convGroupCall.set(conversationId, id);
+    userCall.set(userId, id);
+    const label = "Group " + (video ? "video" : "voice") + " call \u00B7 " + (convo.name || "Group");
+    const payload = { callId: id, conversationId, video: !!video, groupName: convo.name || "Group", groupAvatar: convo.avatar ? `/api/v1/groups/${convo.id}/avatar?v=${convo.avatarVersion || 1}` : null, from: memberView(me) };
+    for (const pid of convo.participantIds) {
+      if (pid === userId) continue;
+      const u = db.users.find((x) => x.id === pid);
+      if (!u || (u.blocked || []).includes(userId)) continue;
+      if (userSockets.has(pid)) io.to(`user:${pid}`).emit("gcall:incoming", payload);
+      if (!userIsActive(pid)) pushCall(pid, me, label, "gcall-" + id);
+    }
+    gcTell(conversationId, g);
+    if (typeof ack === "function") ack({ callId: id, video: !!video });
+  });
+  socket.on("gcall:join", ({ callId } = {}, ack) => {
+    const fail = (error) => { if (typeof ack === "function") ack({ error }); };
+    const g = groupCalls.get(callId);
+    if (!g) return fail("This call has ended");
+    const db = readDB();
+    const convo = db.conversations.find((c) => c.id === g.conversationId && c.isGroup && c.participantIds.includes(userId));
+    const me = db.users.find((u) => u.id === userId);
+    if (!convo || !me) return fail("You are not in this group");
+    if (g.members.has(userId)) { // same person coming back (a dropped connection): clear their old place, keep the room open
+      g.members.delete(userId);
+      for (const id of g.members.keys()) io.to(`user:${id}`).emit("gcall:left", { callId, userId });
+    }
+    const live = g;
+    if (userCall.has(userId) && userCall.get(userId) !== callId) return fail("You are already in a call");
+    const max = live.video ? GC_MAX.video : GC_MAX.voice;
+    if (live.members.size >= max) return fail("This call is full (" + max + " people at most)");
+    const peers = [...live.members.keys()].map((id) => memberView(db.users.find((u) => u.id === id))).filter(Boolean);
+    live.members.set(userId, Date.now());
+    userCall.set(userId, callId);
+    for (const id of peers.map((p) => p.id)) io.to(`user:${id}`).emit("gcall:joined", { callId, user: memberView(me) });
+    gcTell(live.conversationId, live);
+    if (typeof ack === "function") ack({ callId, video: live.video, peers, started: live.started });
+  });
+  socket.on("gcall:signal", ({ callId, to, data } = {}) => {
+    const g = groupCalls.get(callId);
+    if (!g || !g.members.has(userId) || !g.members.has(to) || !data || typeof data !== "object") return;
+    if (JSON.stringify(data).length > 20000) return;
+    io.to(`user:${to}`).emit("gcall:signal", { callId, from: userId, data });
+  });
+  socket.on("gcall:leave", ({ callId } = {}) => gcLeave(userId, callId));
+  socket.on("gcall:sync", (ack) => { // which of my groups have a call running right now
+    if (typeof ack !== "function") return;
+    const out = [];
+    for (const g of groupCalls.values()) {
+      const convo = readDB().conversations.find((c) => c.id === g.conversationId);
+      if (convo && convo.participantIds.includes(userId)) out.push(gcView(g));
+    }
+    ack(out);
+  });
+
   registerGames(socket);
 
   socket.on("typing", ({ conversationId, typing }) => {
@@ -1935,6 +2068,7 @@ io.on("connection", (socket) => {
         userSockets.delete(userId);
         lastSeen.set(userId, Date.now());
         if (userCall.has(userId)) endCall(userCall.get(userId), "failed");
+        gcLeaveAll(userId);
         if (!hidesPresence(readDB().users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: false, lastSeen: lastSeen.get(userId) });
       }
     }
