@@ -1,13 +1,16 @@
-// Static-site "build": copies the ready-to-serve app files into dist/ for Netlify.
-// (app.js is already compiled from app.jsx, so there is nothing to bundle.)
+// Static build for Netlify: Letschat has no bundler. app.js is already compiled from app.jsx,
+// so "build" just copies the site files into dist/ (Netlify publishes client/dist).
 const fs = require("fs");
 const path = require("path");
+const SKIP = new Set(["node_modules", "dist", "package.json", "package-lock.json", "build.js", "app.jsx", "vercel.json", ".git"]);
 const out = path.join(__dirname, "dist");
-const skip = new Set(["dist", "node_modules", "build.js", "package.json", "package-lock.json", "app.jsx", "vercel.json", ".gitkeep"]);
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
+let n = 0;
 for (const name of fs.readdirSync(__dirname)) {
-  if (skip.has(name)) continue;
+  if (SKIP.has(name)) continue;
   fs.cpSync(path.join(__dirname, name), path.join(out, name), { recursive: true });
+  n++;
 }
-console.log("Built static site into dist/:", fs.readdirSync(out).join(", "));
+if (!fs.existsSync(path.join(out, "index.html"))) { console.error("index.html missing from dist"); process.exit(1); }
+console.log("Built Letschat: copied " + n + " items to client/dist");
