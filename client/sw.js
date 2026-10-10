@@ -3,9 +3,9 @@
 //   the newest version is fetched quietly in the background, so a deploy shows up the next time you open the app.
 // - Keeps the pinned library files (React, Firebase, Socket.IO) on the device so they never hit the network again.
 // - Never touches API / socket traffic (other origins, /socket.io, POSTs, audio/video range requests).
-const CACHE = "letschat-shell-v29"; // bump this (v14, v15...) to force every device to drop the old copy
+const CACHE = "letschat-shell-v38"; // bump this (v14, v15...) to force every device to drop the old copy
 const LIBS = "letschat-libs-v1";    // pinned versions never change, so this cache is kept across updates
-const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./push.js", "./reactions.js", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png"];
+const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./push.js", "./reactions.js", "./manifest.json", "./icons/icon-192.png?v=2", "./icons/icon-512.png?v=2"];
 const EXTRAS = ["./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]; // best effort, never blocks install
 // Third-party files whose URL contains an exact version number: safe to cache forever.
 const PINNED = [
@@ -80,8 +80,8 @@ self.addEventListener("push", (e) => {
     renotify: true,
     requireInteraction: !!d.call,                          // a call alert stays on screen until it is tapped or dismissed
     vibrate: d.call ? [400, 200, 400, 200, 400] : undefined,
-    icon: "icons/icon-192.png",
-    badge: "icons/icon-192.png",
+    icon: "icons/icon-192.png?v=2",
+    badge: "icons/badge-96.png?v=2",                       // white-on-transparent version of the logo: Android draws only its outline in the status bar
     data: { url: d.url || "./" },
   }));
 });

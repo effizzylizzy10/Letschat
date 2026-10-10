@@ -2,8 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Letschat Africa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="description" content="Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://letschatafric.netlify.app/" />
+  <meta name="application-name" content="Letschat Africa" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Letschat" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="format-detection" content="telephone=no" />
+  <!-- Sharing: how a Letschat link looks in WhatsApp, Facebook, X and search results -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Letschat Africa" />
+  <meta property="og:title" content="Letschat Africa: Fast Chat, Calls, Status, Market &amp; Games" />
+  <meta property="og:description" content="Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone." />
+  <meta property="og:url" content="https://letschatafric.netlify.app/" />
+  <meta property="og:image" content="https://letschatafric.netlify.app/icons/icon-512.png" />
+  <meta property="og:image:width" content="512" />
+  <meta property="og:image:height" content="512" />
+  <meta property="og:image:alt" content="Letschat Africa logo" />
+  <meta property="og:locale" content="en_NG" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Letschat Africa: Fast Chat, Calls, Status, Market &amp; Games" />
+  <meta name="twitter:description" content="Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone." />
+  <meta name="twitter:image" content="https://letschatafric.netlify.app/icons/icon-512.png" />
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Letschat Africa",
+  "url": "https://letschatafric.netlify.app/",
+  "description": "Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone.",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Any (web browser, installable app)",
+  "browserRequirements": "Requires JavaScript",
+  "inLanguage": "en",
+  "image": "https://letschatafric.netlify.app/icons/icon-512.png",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "featureList": [
+    "Private and group chat",
+    "Voice and video calls",
+    "Status updates",
+    "Marketplace",
+    "Games",
+    "Disappearing messages",
+    "Polls",
+    "Scheduled messages"
+  ]
+}
+  </script>
+  <title>Letschat Africa: Fast Chat, Calls, Status, Market &amp; Games</title>
   <!-- Speed: open connections to the third-party hosts early, before the scripts are requested -->
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
@@ -19,8 +73,14 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" /></noscript>
   <link rel="manifest" href="./manifest.json" />
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <!-- Icons: the Letschat "LA" logo. favicon.ico also answers requests for /favicon.ico (browsers, Google, APK builders).
+       "?v=2" makes browsers and phones drop the old cached copy of each icon. -->
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png?v=2" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png?v=2" />
+  <link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png?v=2" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=2" />
+  <link rel="shortcut icon" href="favicon.ico?v=2" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=2" />
   <meta name="theme-color" content="#0E1116" />
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #05070A; overflow: hidden; }
@@ -43,7 +103,7 @@
       opacity: 0.8;
     }
     .app-footer-dot { width: 8px; height: 8px; border-radius: 50%; background: #35D0BA; box-shadow: 0 0 10px #35D0BA; margin-right: 10px; }
-    .app-footer-text { font: 600 12px Sora, Inter, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: #6C7A89; }
+    .app-footer-text { font: 600 12px Sora, Inter, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: #8A96A5; }
 
     /* every scrolling list (chats, messages, contacts, group info, profile, market) scrolls smoothly inside its own box */
     div[style*="overflow-y: auto"] { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #2B3544 transparent; }
@@ -86,15 +146,20 @@
     input:focus, textarea:focus, select:focus { border-color: #35D0BA !important; box-shadow: 0 0 0 3px rgba(53,208,186,.18), 0 0 14px rgba(53,208,186,.35) !important; }
     button:focus-visible, [role="tab"]:focus-visible, [role="button"]:focus-visible { outline: 2px solid #35D0BA; outline-offset: 2px; box-shadow: 0 0 12px rgba(53,208,186,.5); }
     @media (hover: hover) { button:not(:disabled):hover { filter: brightness(1.12) drop-shadow(0 0 6px rgba(53,208,186,.25)); } }
-    div[style*="width: 13px"][style*="height: 13px"][style*="border-radius: 50%"] { animation: lcBreathe 2.4s ease-in-out infinite; }
+    div[style*="width: 13px"][style*="height: 13px"][style*="border-radius: 50%"] { animation: lcBreathe 2.4s ease-in-out 3; }
     svg { transition: filter .2s ease; }
     img { transition: opacity .3s ease; }
     a { transition: color .2s ease, opacity .2s ease; }
     @media (prefers-reduced-motion: reduce) { .lc-tab svg, input, textarea { transition: none !important; } }
     @keyframes lcGlowText { 50% { text-shadow: 0 0 10px #35D0BA, 0 0 22px #35D0BA, 0 0 34px rgba(53,208,186,.8); } }
     .lc-glow { animation: lcGlowText 2s ease-in-out infinite; }
+    [tabindex]:focus-visible, [data-lc-kb]:focus-visible { outline: 2px solid #35D0BA; outline-offset: 2px; }
     .lc-plain:focus { box-shadow: none !important; border-color: transparent !important; }
-    #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding-top: 40vh; }
+    /* stay put: no pull-to-refresh reload, no sideways bounce, no tap delay, steady text size when the phone turns */
+    html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; }
+    /* phone on its side: slimmer footer so the chat gets the room */
+    @media (max-height: 460px) and (orientation: landscape) { .app-footer { height: calc(34px + env(safe-area-inset-bottom, 0px)); } .app-footer-text { font-size: 10px; } }
+    #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding: 34vh 16px 0; }
     #error-box {
       display: none; position: fixed; inset: 0; background: #1a0000; color: #ff8080;
       font-family: monospace; font-size: 13px; padding: 16px; white-space: pre-wrap;
@@ -106,14 +171,16 @@
   <script>
     function showErr(msg) {
       var b = document.getElementById("error-box");
-      if (b) { b.style.display = "block"; b.textContent = msg; }
+      if (b) { b.style.display = "block"; b.textContent = msg; var r = document.createElement("button"); r.textContent = "Reload app"; r.style.cssText = "display:block;margin:16px 0 0;padding:12px 18px;font:600 15px sans-serif;border:0;border-radius:10px;background:#35D0BA;color:#05070A"; r.onclick = function () { location.reload(); }; b.appendChild(r); }
     }
     // capture phase (true) is required to see <script> load failures
     window.addEventListener("error", function (e) {
       if (e.target && e.target.tagName === "SCRIPT") { showErr("FAILED TO LOAD SCRIPT:\n" + e.target.src); return; }
+      if (!document.getElementById("boot") || /ResizeObserver/.test(e.message || "")) { try { console.warn(e.message); } catch (x) {} return; }
       showErr("ERROR:\n" + e.message + "\n\nFile: " + e.filename + "\nLine: " + e.lineno + ":" + e.colno + "\n\n" + (e.error && e.error.stack ? e.error.stack : ""));
     }, true);
     window.addEventListener("unhandledrejection", function (e) {
+      if (!document.getElementById("boot")) { try { console.warn(e.reason); } catch (x) {} return; }
       showErr("PROMISE ERROR:\n" + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
     });
   </script>
@@ -140,8 +207,62 @@
   <script defer src="reactions.js"></script>
 </head>
 <body>
-  <div id="root"><div id="boot">Loading Letschat Africa…</div></div>
+  <main id="root"><div id="boot" role="status"><h1 style="font:700 20px Sora,Inter,sans-serif;color:#F5F7FA;margin:0 0 8px">Letschat Africa</h1><p style="margin:0 auto 14px;max-width:340px;line-height:1.5">Fast realtime chat, voice and video calls, status, market and games.</p><p style="margin:0">Loading…</p></div></main>
+  <noscript><p style="color:#9BA7B4;font-family:sans-serif;text-align:center;padding:20px">Letschat Africa needs JavaScript. Please turn it on and reload.</p></noscript>
   <div id="error-box"></div>
+
+
+  <!-- Accessibility: gives unlabelled fields/icons a name for screen readers, as they appear on screen -->
+  <script>
+    (function () {
+      var SEL = "input,textarea,select,button,[role=button],[role=tab],img,svg,[style*=\"cursor: pointer\"]", q = [], timer = 0;
+      function fix(el) {
+        var tag = el.localName;
+        if (tag === "svg") { if (!el.hasAttribute("aria-label") && !el.hasAttribute("aria-hidden") && !el.hasAttribute("role") && !el.querySelector("title")) el.setAttribute("aria-hidden", "true"); return; }
+        if (tag === "img") { if (!el.hasAttribute("alt")) el.setAttribute("alt", ""); return; }
+        if (el.style && el.style.cursor === "pointer" && !/^(button|a|input|textarea|select|label|summary|option)$/.test(tag) && !el.hasAttribute("role") && !el.hasAttribute("tabindex")) {
+          var st = el.style, backdrop = (st.position === "fixed" || st.position === "absolute") && (st.inset === "0px" || (st.top === "0px" && st.bottom === "0px" && st.left === "0px" && st.right === "0px"));
+          var nested = el.parentElement && el.parentElement.closest("button,a[href],[role=button]");
+          var label = (el.textContent || "").trim() || el.getAttribute("title") || el.getAttribute("aria-label");
+          if (!backdrop && !nested && label && !el.querySelector("button,a[href],input,select,textarea,[tabindex]")) {
+            el.setAttribute("role", "button"); el.setAttribute("tabindex", "0"); el.setAttribute("data-lc-kb", "1");
+            if (!(el.textContent || "").trim() && !el.hasAttribute("aria-label")) el.setAttribute("aria-label", label);
+          }
+          return;
+        }
+        if (el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby")) return;
+        if (tag === "input" || tag === "textarea" || tag === "select") {
+          if (el.type === "hidden" || el.closest("label")) return;
+          if (el.id && document.querySelector('label[for="' + el.id + '"]')) return;
+          var name = el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name") || (el.type === "file" ? "Choose file" : el.type === "search" ? "Search" : "");
+          if (name) el.setAttribute("aria-label", name);
+          return;
+        }
+        var title = el.getAttribute("title");
+        if (title && !(el.textContent || "").trim()) el.setAttribute("aria-label", title);
+      }
+      document.addEventListener("keydown", function (e) {
+        var t = e.target;
+        if ((e.key === "Enter" || e.key === " ") && t && t.getAttribute && t.getAttribute("data-lc-kb") && t === document.activeElement) { e.preventDefault(); t.click(); }
+      }, true);
+      function run() {
+        timer = 0; var list = q; q = [];
+        for (var i = 0; i < list.length; i++) {
+          var n = list[i]; if (!n.isConnected) continue;
+          fix(n); var kids = n.querySelectorAll ? n.querySelectorAll(SEL) : [];
+          for (var j = 0; j < kids.length; j++) fix(kids[j]);
+        }
+      }
+      function start() {
+        q.push(document.body); run();
+        new MutationObserver(function (ms) {
+          for (var i = 0; i < ms.length; i++) for (var j = 0; j < ms[i].addedNodes.length; j++) if (ms[i].addedNodes[j].nodeType === 1) q.push(ms[i].addedNodes[j]);
+          if (q.length && !timer) timer = setTimeout(run, 80);
+        }).observe(document.body, { childList: true, subtree: true });
+      }
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+    })();
+  </script>
 
   <!-- Your app, precompiled from app.jsx -->
   <script defer src="app.js"></script>

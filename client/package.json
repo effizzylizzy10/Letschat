@@ -6,6 +6,9 @@
   "scripts": {
     "build": "node build.js"
   },
+  "dependencies": {
+    "terser": "^5.31.0"
+  },
   "engines": {
     "node": ">=18"
   }
