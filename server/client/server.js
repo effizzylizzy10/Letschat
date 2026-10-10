@@ -586,7 +586,7 @@ app.patch("/api/me/settings", authMiddleware, (req, res) => {
 let webpush = null;
 try { webpush = require("web-push"); } catch { console.warn("web-push is not installed: run `npm install` to enable push notifications."); }
 const PUSH_ON = !!(webpush && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-if (PUSH_ON) webpush.setVapidDetails(process.env.VAPID_SUBJECT || "https://letschat-taupe.vercel.app", process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+if (PUSH_ON) webpush.setVapidDetails(process.env.VAPID_SUBJECT || "https://letschatafric.netlify.app", process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
 else console.warn("Push notifications are OFF: set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.");
 
 app.get("/api/push/key", (req, res) => {
