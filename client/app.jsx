@@ -3149,7 +3149,7 @@ function MarketScreen({ token, myId, onMessageSeller }) {
 const ce = React.createElement;
 
 // ---- feature switches, stored on this device ("Notification sound" lives in the notifs settings: notifs.sound) ----
-const DEFAULT_FEATURES = { sound: true, typingSound: true, sendSound: true, status: true, videoCalls: true, voiceCalls: true, clearVoice: true, voiceNotes: true };
+const DEFAULT_FEATURES = { pingTone: "classic", msgPing: true, onlineSound: true, callSound: true, sound: true, typingSound: true, sendSound: true, status: true, videoCalls: true, voiceCalls: true, clearVoice: true, voiceNotes: true };
 const getFeatures = () => ({ ...DEFAULT_FEATURES, ...loadJSON("features", {}) });
 const featOn = (k) => getFeatures()[k] !== false;
 
@@ -3317,7 +3317,8 @@ function CallLayer({ socket, apiRef, notify }) {
         pc.onconnectionstatechange = () => {
             const s = pc.connectionState, cur = callRef.current;
             if (!cur || cur.id !== c.id) return;
-            if (s === "connected" && cur.phase !== "active") { stopRing(); upd({ phase: "active", t0: Date.now() }); }
+            if (s === "connected" && cur.phase !== "active") { stopRing(); upd({ phase: "active", t0: Date.now() });
+                playPing("call"); }
             else if (s === "failed") { socket.emit("call:end", { callId: c.id }); finish(cur.phase === "active" ? "completed" : "failed", "The call lost its connection"); }
         };
         return pc;
@@ -3342,10 +3343,12 @@ function CallLayer({ socket, apiRef, notify }) {
 
     // calls made from a chat or the Calls tab
     useEffect(() => {
+        window.__lcCallBusy = () => !!callRef.current;
         apiRef.current = {
             start: async (conversation, video) => {
                 if (!socket) return notify("Not connected yet. Try again in a moment.");
-                if (callRef.current) return notify("You are already in a call");
+                if (callRef.current || (window.__lcGroupBusy && window.__lcGroupBusy()))
+                    return notify("You are already in a call");
                 const peer = conversation.other;
                 begin({ id: null, peer, conversationId: conversation.id, video: !!video, dir: "out", phase: "calling", muted: false, camOff: false });
                 let stream;
@@ -3356,7 +3359,7 @@ function CallLayer({ socket, apiRef, notify }) {
                 socket.emit("call:invite", { to: peer.id, conversationId: conversation.id, video: !!video }, (ack) => {
                     if (!callRef.current) { if (ack && ack.callId) socket.emit("call:end", { callId: ack.callId }); return; }
                     if (!ack || ack.error) { teardown(); return notify((ack && ack.error) || "Could not start the call"); }
-                    upd({ id: ack.callId, phase: "ringing" });
+                    upd({ id: ack.callId, phase: "ringing", offline: !!ack.offline });
                     stopRing(); ringRef.current = startRing(true);
                 });
             },
@@ -3368,11 +3371,14 @@ function CallLayer({ socket, apiRef, notify }) {
         if (!socket) return;
         const onIncoming = ({ callId, conversationId, video, from }) => {
             const off = video ? !featOn("videoCalls") : !featOn("voiceCalls");
-            if (callRef.current || off) { socket.emit("call:answer", { callId, accept: false, reason: "unavailable" }); return; }
+            if (callRef.current && callRef.current.id === callId)
+                return; // a repeat of the same ring
+            if (callRef.current || off || (window.__lcGroupBusy && window.__lcGroupBusy())) { socket.emit("call:answer", { callId, accept: false, reason: "unavailable" }); return; }
             begin({ id: callId, peer: from, conversationId, video: !!video, dir: "in", phase: "ringing", muted: false, camOff: false });
             stopRing(); ringRef.current = startRing(false);
             try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification(from.name, { body: "Incoming " + (video ? "video" : "voice") + " call", tag: "call-" + callId }); } catch { }
         };
+        const onReached = ({ callId }) => { const c = callRef.current; if (c && c.id === callId) upd({ offline: false }); }; // their phone came online: "Connecting…" becomes "Ringing…"
         const onAccepted = async ({ callId }) => {
             const c = callRef.current;
             if (!c || c.id !== callId || c.dir !== "out" || !localRef.current) return;
@@ -3399,11 +3405,12 @@ function CallLayer({ socket, apiRef, notify }) {
             const notes = { declined: first + " declined the call", unavailable: first + " can't take " + (c.video ? "video" : "voice") + " calls right now", missed: first + " didn't answer", failed: "The call was disconnected", ended: "Call ended" };
             finish(reason === "missed" ? "unanswered" : reason, notes[reason]);
         };
+        socket.on("call:reached", onReached);
         socket.on("call:incoming", onIncoming);
         socket.on("call:accepted", onAccepted);
         socket.on("call:signal", onSignal);
         socket.on("call:ended", onEnded);
-        return () => { socket.off("call:incoming", onIncoming); socket.off("call:accepted", onAccepted); socket.off("call:signal", onSignal); socket.off("call:ended", onEnded); };
+        return () => { socket.off("call:reached", onReached); socket.off("call:incoming", onIncoming); socket.off("call:accepted", onAccepted); socket.off("call:signal", onSignal); socket.off("call:ended", onEnded); };
     }, [socket]);
 
     useEffect(() => { // call timer
@@ -3440,7 +3447,7 @@ function CallLayer({ socket, apiRef, notify }) {
 
     if (!call) return null;
     const peer = call.peer, vid = call.video, active = call.phase === "active";
-    const status = call.phase === "calling" ? "Calling…" : call.phase === "ringing" ? (call.dir === "in" ? "Incoming " + (vid ? "video" : "voice") + " call" : "Ringing…") : call.phase === "connecting" ? "Connecting…" : fmtDur(secs);
+    const status = call.phase === "calling" ? "Calling…" : call.phase === "ringing" ? (call.dir === "in" ? "Incoming " + (vid ? "video" : "voice") + " call" : (call.offline ? "Connecting…" : "Ringing…")) : call.phase === "connecting" ? "Connecting…" : (call.t0 && Date.now() - call.t0 < 2000 ? "Connected" : fmtDur(secs));
     const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
     const showRemoteVideo = vid && active && remoteStream;
     return ce("div", { style: { position: "absolute", inset: 0, zIndex: 95, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" } },
@@ -3458,6 +3465,261 @@ function CallLayer({ socket, apiRef, notify }) {
                 : [ce("div", { key: "m", style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.muted ? "Unmute" : "Mute")),
                     vid && ce("div", { key: "c", style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.camOff ? "Camera on" : "Camera off")),
                     ce("div", { key: "e", style: { textAlign: "center" } }, round("#FF6B5D", hangUp, "End call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.phase === "calling" || call.phase === "ringing" ? "Cancel" : "End"))]));
+}
+
+// ---- group voice / video calls: everyone connects to everyone (peer to peer); the server only keeps the room and passes the signals ----
+function gcMedia(video) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) return Promise.reject({ name: "Unsupported" });
+    const clear = featOn("clearVoice");
+    return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } } : false });
+}
+function GCTile({ user, stream, local, video, media, state }) {
+    const u = user || {}, showVid = !!(video && stream && !(media && media.camOff));
+    return ce("div", { style: { position: "relative", background: "#141A22", borderRadius: 14, overflow: "hidden", minHeight: 0, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1E2530" } },
+        stream && ce("video", { ref: (el) => { if (el && el.srcObject !== stream) el.srcObject = stream; }, autoPlay: true, playsInline: true, muted: !!local, style: showVid ? { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", transform: local ? "scaleX(-1)" : "none" } : { position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" } }),
+        !showVid && ce(Ring, { size: 68, color: u.color || "#35D0BA", initials: u.initials || "?", photo: u.avatar }),
+        ce("div", { style: { position: "absolute", left: 8, right: 8, bottom: 6, display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12.5, color: "#F5F7FA", textShadow: "0 1px 6px rgba(0,0,0,.9)" } },
+            ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, local ? "You" : String(u.name || "").split(" ")[0]),
+            media && media.muted && ce("span", { style: { background: "rgba(255,107,93,.92)", borderRadius: 8, padding: "1px 6px", fontSize: 11, flexShrink: 0 } }, "Muted"),
+            !local && state && state !== "connected" && ce("span", { style: { color: "#F2B84B", fontSize: 11.5, flexShrink: 0 } }, state === "lost" ? "Lost connection" : "Connecting\u2026")));
+}
+function GroupCallLayer({ socket, apiRef, notify, me }) {
+    const [call, setCall] = useState(null);
+    const [tiles, setTiles] = useState([]);
+    const [localStream, setLocalStream] = useState(null);
+    const [secs, setSecs] = useState(0);
+    const [live, setLive] = useState({}); // conversationId -> the call running there right now
+    const callRef = useRef(null), localRef = useRef(null), pcs = useRef({}), cands = useRef({}), ringRef = useRef(null), ringTimer = useRef(null), tilesRef = useRef([]), metRef = useRef(false);
+    const begin = (c) => { callRef.current = c; metRef.current = false; setCall(c); };
+    const upd = (patch) => { if (!callRef.current) return; callRef.current = { ...callRef.current, ...patch }; setCall(callRef.current); };
+    const setT = (fn) => { tilesRef.current = fn(tilesRef.current); setTiles(tilesRef.current); };
+    const patchTile = (id, patch) => setT((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const addTile = (user) => { if (!user) return; metRef.current = true; setT((t) => (t.some((x) => x.id === user.id) ? t : [...t, { id: user.id, user, stream: null, media: {}, state: "connecting" }])); };
+    const stopRing = () => { if (ringRef.current) { ringRef.current(); ringRef.current = null; } clearTimeout(ringTimer.current); };
+    const closePeer = (uid) => { const pc = pcs.current[uid]; if (pc) { try { pc.close(); } catch { } } delete pcs.current[uid]; delete cands.current[uid]; };
+    const closeAll = () => { Object.keys(pcs.current).forEach(closePeer); };
+    const teardown = () => {
+        const c = callRef.current;
+        stopRing(); closeAll();
+        if (localRef.current) { localRef.current.getTracks().forEach((t) => t.stop()); localRef.current = null; }
+        callRef.current = null; tilesRef.current = [];
+        setCall(null); setTiles([]); setLocalStream(null); setSecs(0);
+        return c;
+    };
+    const finish = (outcome, note) => {
+        const c = teardown();
+        if (!c) return;
+        addCallLog({ id: c.id || String(Date.now()), peer: { id: c.conversationId, name: c.name, initials: c.initials, color: c.color, avatar: c.avatar || null }, conversationId: c.conversationId, video: c.video, dir: c.dir === "out" ? "out" : "in", outcome, dur: c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0, time: Date.now() });
+        if (note) notify(note);
+    };
+    const sendTo = (uid, data) => { const c = callRef.current; if (c && c.id && socket) socket.emit("gcall:signal", { callId: c.id, to: uid, data }); };
+    const mediaState = () => { const c = callRef.current || {}; return { muted: !!c.muted, camOff: !!c.camOff }; };
+    const tellMedia = () => { Object.keys(pcs.current).forEach((uid) => sendTo(uid, { media: mediaState() })); };
+    const makePeer = (uid) => {
+        closePeer(uid);
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        pcs.current[uid] = pc;
+        localRef.current.getTracks().forEach((t) => pc.addTrack(t, localRef.current));
+        pc.onicecandidate = (e) => { if (e.candidate) sendTo(uid, { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
+        pc.ontrack = (e) => patchTile(uid, { stream: e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]) });
+        pc.onconnectionstatechange = () => {
+            if (pcs.current[uid] !== pc) return;
+            const s = pc.connectionState;
+            if (s === "connected") { const was = tilesRef.current.find((x) => x.id === uid); patchTile(uid, { state: "connected" }); if (!was || was.state !== "connected") { if (callRef.current && !callRef.current.connectedAt) upd({ connectedAt: Date.now() }); playPing("call"); } }
+            else if (s === "failed") patchTile(uid, { state: "lost" });
+            else if (s === "disconnected") patchTile(uid, { state: "connecting" });
+        };
+        return pc;
+    };
+    // the person who joins makes the offer to everyone already in the room, so two people never offer at once
+    const offerTo = async (uid) => {
+        try {
+            const pc = makePeer(uid);
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            sendTo(uid, { sdp: { type: offer.type, sdp: offer.sdp } });
+            sendTo(uid, { media: mediaState() });
+        } catch (e) { patchTile(uid, { state: "lost" }); }
+    };
+    const enterRoom = (callId, onFail) => {
+        socket.emit("gcall:join", { callId }, (ack) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId) { if (ack && !ack.error) socket.emit("gcall:leave", { callId }); return; }
+            if (!ack || ack.error) return onFail((ack && ack.error) || "Could not join the call");
+            closeAll(); setT(() => []);
+            upd({ phase: "active", t0: c.t0 || Date.now(), video: !!ack.video });
+            (ack.peers || []).forEach((u) => addTile(u));
+            (ack.peers || []).forEach((u) => offerTo(u.id));
+        });
+    };
+    const incoming = ({ callId, conversationId, video, groupName, groupAvatar, from }) => {
+        const off = video ? !featOn("videoCalls") : !featOn("voiceCalls");
+        if (callRef.current && callRef.current.id === callId) return; // a repeat of the same ring
+        if (off || callRef.current || (window.__lcCallBusy && window.__lcCallBusy())) return; // busy: it still shows as a "Join" bar
+        begin({ id: callId, conversationId, name: groupName || "Group", initials: String(groupName || "G").slice(0, 1).toUpperCase(), color: "#8B5CF6", avatar: groupAvatar || null, video: !!video, dir: "in", phase: "ringing", from, muted: false, camOff: false });
+        stopRing(); ringRef.current = startRing(false);
+        ringTimer.current = setTimeout(() => { const c = callRef.current; if (c && c.id === callId && c.phase === "ringing") finish("missed"); }, 45000);
+        try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification((groupName || "Group") + " \u00B7 " + (from && from.name), { body: "Group " + (video ? "video" : "voice") + " call", tag: "gcall-" + callId }); } catch { }
+    };
+
+    useEffect(() => {
+        apiRef.current = {
+            busy: () => !!callRef.current,
+            start: async (conversation, video) => {
+                if (!socket) return notify("Not connected yet. Try again in a moment.");
+                if (callRef.current || (window.__lcCallBusy && window.__lcCallBusy())) return notify("You are already in a call");
+                const g = conversation.other || {};
+                begin({ id: null, conversationId: conversation.id, name: conversation.name || g.name || "Group", initials: g.initials || String(conversation.name || "G").slice(0, 1).toUpperCase(), color: g.color || "#8B5CF6", avatar: g.avatar || null, video: !!video, dir: "out", phase: "joining", muted: false, camOff: false });
+                let stream;
+                try { stream = await gcMedia(!!video); }
+                catch (e) { teardown(); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, video)); }
+                if (!callRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+                localRef.current = stream; setLocalStream(stream);
+                socket.emit("gcall:start", { conversationId: conversation.id, video: !!video }, (ack) => {
+                    if (!callRef.current) { if (ack && ack.callId) socket.emit("gcall:leave", { callId: ack.callId }); return; }
+                    if (ack && ack.joinCallId) { upd({ id: ack.joinCallId, dir: "in" }); return enterRoom(ack.joinCallId, (m) => finish("failed", m)); } // a call is already running here: join it
+                    if (!ack || ack.error) { teardown(); return notify((ack && ack.error) || "Could not start the call"); }
+                    upd({ id: ack.callId, phase: "active", t0: Date.now() });
+                });
+            },
+        };
+        window.__lcGroupBusy = () => !!callRef.current;
+    });
+
+    useEffect(() => {
+        if (!socket) return;
+        const sync = () => socket.emit("gcall:sync", (list) => {
+            if (!Array.isArray(list)) return;
+            const n = {}; list.forEach((st) => { n[st.conversationId] = st; }); setLive(n);
+            // opened from a "calling you" alert a few seconds after the call began: ring now
+            list.forEach((st) => { if (st.host && me && st.host.id !== me.id && st.age < 40000 && !callRef.current) incoming({ callId: st.callId, conversationId: st.conversationId, video: st.video, groupName: st.name, groupAvatar: st.avatar, from: st.host }); });
+        });
+        const onState = (st) => {
+            setLive((p) => { const n = { ...p }; if (st.callId) n[st.conversationId] = st; else delete n[st.conversationId]; return n; });
+            const c = callRef.current;
+            if (c && c.phase === "ringing" && c.conversationId === st.conversationId && !st.callId) finish("missed");
+        };
+        const onJoined = ({ callId, user }) => { const c = callRef.current; if (c && c.id === callId && c.phase === "active") addTile(user); };
+        const onLeft = ({ callId, userId }) => { const c = callRef.current; if (!c || c.id !== callId) return; closePeer(userId); setT((t) => t.filter((x) => x.id !== userId)); };
+        const onSignal = async ({ callId, from, data }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || !data || !from || c.phase !== "active" || !localRef.current) return;
+            if (data.media) patchTile(from, { media: data.media });
+            try {
+                if (data.sdp) {
+                    let pc = pcs.current[from];
+                    if (data.sdp.type === "offer") pc = makePeer(from); // the one already in the room answers on a fresh connection
+                    if (!pc) return;
+                    await pc.setRemoteDescription({ type: data.sdp.type, sdp: data.sdp.sdp });
+                    const q = cands.current[from] || []; cands.current[from] = [];
+                    for (const cand of q) { try { await pc.addIceCandidate(cand); } catch { } }
+                    if (data.sdp.type === "offer") {
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        sendTo(from, { sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+                        sendTo(from, { media: mediaState() });
+                    }
+                } else if (data.candidate) {
+                    const pc = pcs.current[from];
+                    if (pc && pc.remoteDescription) { try { await pc.addIceCandidate(data.candidate); } catch { } }
+                    else (cands.current[from] = cands.current[from] || []).push(data.candidate);
+                }
+            } catch (e) { console.warn("group call signal failed", e); }
+        };
+        // the phone lost its connection to the server and got it back: step into the room again
+        const onConnect = () => {
+            sync();
+            const c = callRef.current;
+            if (c && c.phase === "active" && c.id && localRef.current) enterRoom(c.id, () => finish("completed", "The call ended"));
+        };
+        socket.on("gcall:incoming", incoming);
+        socket.on("gcall:state", onState);
+        socket.on("gcall:joined", onJoined);
+        socket.on("gcall:left", onLeft);
+        socket.on("gcall:signal", onSignal);
+        socket.on("connect", onConnect);
+        if (socket.connected) sync();
+        return () => { socket.off("gcall:incoming", incoming); socket.off("gcall:state", onState); socket.off("gcall:joined", onJoined); socket.off("gcall:left", onLeft); socket.off("gcall:signal", onSignal); socket.off("connect", onConnect); };
+    }, [socket]);
+
+    useEffect(() => {
+        if (!call || call.phase !== "active") return;
+        const t = setInterval(() => { const c = callRef.current; if (c && c.t0) setSecs(Math.round((Date.now() - c.t0) / 1000)); }, 1000);
+        return () => clearInterval(t);
+    }, [call && call.phase]);
+    useEffect(() => () => { teardown(); }, []);
+
+    const accept = async () => {
+        const c = callRef.current;
+        if (!c || !c.id || c.phase === "active") return;
+        stopRing();
+        upd({ phase: "joining" });
+        let stream;
+        try { stream = await gcMedia(c.video); }
+        catch (e) { finish("failed"); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, c.video)); }
+        if (!callRef.current || callRef.current.id !== c.id) { stream.getTracks().forEach((t) => t.stop()); return; }
+        localRef.current = stream; setLocalStream(stream);
+        enterRoom(c.id, (m) => finish("failed", m));
+    };
+    const decline = () => finish("declined");
+    const joinLive = (st) => {
+        if (callRef.current || (window.__lcCallBusy && window.__lcCallBusy())) return notify("You are already in a call");
+        begin({ id: st.callId, conversationId: st.conversationId, name: st.name, initials: String(st.name || "G").slice(0, 1).toUpperCase(), color: "#8B5CF6", avatar: st.avatar || null, video: !!st.video, dir: "in", phase: "ringing", muted: false, camOff: false });
+        accept();
+    };
+    const leave = () => {
+        const c = callRef.current;
+        if (!c) return;
+        if (c.id) socket.emit("gcall:leave", { callId: c.id });
+        finish(c.phase === "active" && (metRef.current || c.dir !== "out") ? "completed" : c.dir === "out" ? "unanswered" : "completed");
+    };
+    const toggleMute = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getAudioTracks().forEach((t) => { t.enabled = c.muted; }); upd({ muted: !c.muted }); tellMedia(); };
+    const toggleCam = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getVideoTracks().forEach((t) => { t.enabled = c.camOff; }); upd({ camOff: !c.camOff }); tellMedia(); };
+
+    const running = Object.values(live).filter((st) => st && st.callId && st.count > 0);
+    if (!call) {
+        const st = running[0];
+        if (!st) return null;
+        return ce("div", { style: { position: "absolute", top: 62, left: 10, right: 10, zIndex: 90, display: "flex", alignItems: "center", gap: 10, background: "#10211D", border: "1px solid #1E8677", borderRadius: 14, padding: "9px 12px", boxShadow: "0 6px 18px rgba(0,0,0,.45)" } },
+            st.video ? ce(Video, { size: 20, color: "#35D0BA" }) : ce(Phone, { size: 20, color: "#35D0BA" }),
+            ce("div", { style: { flex: 1, minWidth: 0 } },
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, st.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, "Group " + (st.video ? "video" : "voice") + " call \u00B7 " + st.count + " in the call")),
+            ce("button", { onClick: () => joinLive(st), style: { background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 999, padding: "8px 18px", fontFamily: "Inter", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Join"));
+    }
+    const vid = call.video, active = call.phase === "active", ringing = call.phase === "ringing";
+    const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
+    const cap = (t) => ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, t);
+    const shell = { position: "absolute", inset: 0, zIndex: 96, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" };
+    if (!active) {
+        const who = call.from && call.from.name ? String(call.from.name).split(" ")[0] : "Someone";
+        const status = ringing ? who + " is calling the group" : "Connecting\u2026";
+        return ce("div", { style: shell },
+            ce("div", { style: { marginTop: "16%", textAlign: "center", padding: "0 20px" } },
+                ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: call.color, initials: call.initials || "G", photo: call.avatar, ring: true })),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA" } }, call.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: "#35D0BA", marginTop: 6 } }, "Group " + (vid ? "video" : "voice") + " call"),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginTop: 4 } }, status)),
+            ce("div", { style: { flex: 1 } }),
+            ce("div", { style: { display: "flex", gap: 26, alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
+                ringing
+                    ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Decline")),
+                        ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Join call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), cap("Join"))]
+                    : ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Cancel", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Cancel"))));
+    }
+    const people = [{ id: "me", user: me, stream: localStream, local: true, media: { muted: call.muted, camOff: call.camOff }, state: "connected" }, ...tiles];
+    const n = people.length, cols = n <= 1 ? 1 : n === 2 ? (vid ? 1 : 1) : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
+    const sub = tiles.length === 0 ? "Waiting for others to join\u2026" : !call.connectedAt ? "Connecting\u2026" : Date.now() - call.connectedAt < 2000 ? "Connected" : fmtDur(secs) + " \u00B7 " + n + " in the call";
+    return ce("div", { style: shell },
+        ce("div", { style: { width: "100%", textAlign: "center", padding: "16px 16px 8px", flexShrink: 0 } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, call.name),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#35D0BA", marginTop: 3 } }, sub)),
+        ce("div", { style: { flex: 1, minHeight: 0, width: "100%", padding: "6px 10px", boxSizing: "border-box", display: "grid", gap: 8, gridTemplateColumns: "repeat(" + cols + ", minmax(0, 1fr))", gridTemplateRows: "repeat(" + rows + ", minmax(0, 1fr))" } },
+            people.map((p) => ce(GCTile, { key: p.id, user: p.user, stream: p.stream, local: p.local, video: vid, media: p.media, state: p.state }))),
+        ce("div", { style: { display: "flex", gap: 26, alignItems: "center", justifyContent: "center", padding: "14px 20px 36px", flexShrink: 0 } },
+            ce("div", { style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), cap(call.muted ? "Unmute" : "Mute")),
+            vid && ce("div", { style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), cap(call.camOff ? "Camera on" : "Camera off")),
+            ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Leave call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Leave"))));
 }
 
 function CallsScreen({ conversations = [], onCall = () => { } }) {
@@ -3478,7 +3740,7 @@ function CallsScreen({ conversations = [], onCall = () => { } }) {
                 ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No calls yet"),
                 ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#5B6673" } }, "Open a chat and tap the phone or video icon at the top to call someone.")),
             log.map((e) => {
-                const convo = conversations.find((c) => c.id === e.conversationId && !c.isGroup);
+                const convo = conversations.find((c) => c.id === e.conversationId);
                 return ce("div", { key: e.id + e.time, style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", borderBottom: "1px solid #1B212B" } },
                     ce(Ring, { size: 46, color: e.peer.color || "#5B6673", initials: e.peer.initials || "?", photo: e.peer.avatar }),
                     ce("div", { style: { flex: 1, minWidth: 0 } },
@@ -4188,10 +4450,14 @@ function FeaturesScreen({ onBack }) {
         ce(TopBar, { title: "Sounds & features", onBack }),
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
             head("Sounds"),
-            row("Sound", "Turn every app sound on or off.", f.sound, (v) => { setFeat({ sound: v }); if (v) setTimeout(() => playSound("send"), 30); }),
+            row("All sounds", "Turn every sound on or off: pings, ringing, typing and send sounds.", f.sound, (v) => { setFeat({ sound: v }); if (v) setTimeout(() => playSound("send"), 30); }),
             row("Typing sound", "A soft keyboard tick while you type.", f.typingSound, (v) => { setFeat({ typingSound: v }); if (v && f.sound) setTimeout(() => playSound("typing"), 30); }, quiet),
             row("Send sound", "A whoosh when your message is sent.", f.sendSound, (v) => { setFeat({ sendSound: v }); if (v && f.sound) setTimeout(() => playSound("send"), 30); }, quiet),
-            row("Notification sound", "A tone when a new message arrives.", notifs.sound, (v) => { setNotif({ sound: v }); if (v && f.sound) playPing(); }, quiet),
+            row("Notification sound", "A ping when a message arrives in another chat.", notifs.sound, (v) => { setNotif({ sound: v }); if (v && f.sound) playPing(); }, quiet),
+            row("Message ping", "A ping when someone sends a message in the chat you are looking at.", f.msgPing, (v) => { setFeat({ msgPing: v }); if (v && f.sound) setTimeout(() => playPing("message"), 30); }, quiet),
+            row("Online ping", "A ping when one of your contacts comes online.", f.onlineSound, (v) => { setFeat({ onlineSound: v }); if (v && f.sound) setTimeout(() => playPing("online"), 30); }, quiet),
+            row("Call connected ping", "A ping when a call connects.", f.callSound, (v) => { setFeat({ callSound: v }); if (v && f.sound) setTimeout(() => playPing("call"), 30); }, quiet),
+            ce(PingTonePicker, { f, setFeat, quiet }),
             head("Status"),
             row("Status upload", "Post photo and text updates that disappear after 24 hours.", f.status, (v) => setFeat({ status: v })),
             head("Calls"),
@@ -4467,29 +4733,84 @@ function PrivacyScreen({ settings, onBack, onPrivacy, onBlock }) {
 const DEFAULT_NOTIFS = { sound: true, vibrate: true, banner: true, preview: true, groups: true };
 const getNotifs = () => ({ ...DEFAULT_NOTIFS, ...loadJSON("notifs", {}) });
 let _audioCtx = null;
-function playPing() {
+// ---- ping sounds: pick one of several tones; used for new messages, contacts coming online and connected calls ----
+const PING_TONES = [
+    { id: "classic", name: "Classic", hint: "Two quick rising notes" },
+    { id: "bubble", name: "Bubble", hint: "A soft pop" },
+    { id: "chime", name: "Chime", hint: "Three bright bell notes" },
+    { id: "marimba", name: "Marimba", hint: "A warm wooden tap" },
+    { id: "drop", name: "Water drop", hint: "A falling droplet" },
+    { id: "sparkle", name: "Sparkle", hint: "A quick high twinkle" },
+    { id: "bell", name: "Soft bell", hint: "One long gentle bell" },
+    { id: "retro", name: "Retro", hint: "Game-style blips" },
+    { id: "double", name: "Double tap", hint: "Two short taps" },
+];
+function pingNote(ctx, t, o) { // one soft note: o.f start Hz, o.to end Hz (optional), o.d seconds, o.v volume, o.type wave
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = o.type || "sine";
+    osc.frequency.setValueAtTime(o.f, t);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t + o.d * 0.8);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(o.v || 0.2, t + (o.a || 0.012));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + o.d);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(t); osc.stop(t + o.d + 0.03);
+}
+const PING_SYNTH = {
+    classic: (c, t) => { pingNote(c, t, { f: 880, d: 0.14, v: 0.25 }); pingNote(c, t + 0.12, { f: 1175, d: 0.3, v: 0.25 }); },
+    bubble: (c, t) => pingNote(c, t, { f: 420, to: 1100, d: 0.16, v: 0.3 }),
+    chime: (c, t) => [1047, 1319, 1568].forEach((f, i) => pingNote(c, t + i * 0.11, { f, d: 0.45, v: 0.18, type: "triangle" })),
+    marimba: (c, t) => { pingNote(c, t, { f: 660, d: 0.35, v: 0.3, a: 0.004 }); pingNote(c, t, { f: 1980, d: 0.12, v: 0.08, a: 0.002 }); pingNote(c, t + 0.14, { f: 880, d: 0.35, v: 0.3, a: 0.004 }); },
+    drop: (c, t) => pingNote(c, t, { f: 1500, to: 520, d: 0.22, v: 0.3 }),
+    sparkle: (c, t) => [1568, 1976, 2349, 2637].forEach((f, i) => pingNote(c, t + i * 0.07, { f, d: 0.2, v: 0.12 })),
+    bell: (c, t) => { pingNote(c, t, { f: 784, d: 0.9, v: 0.22 }); pingNote(c, t, { f: 1568, d: 0.5, v: 0.07 }); pingNote(c, t, { f: 2093, d: 0.3, v: 0.04 }); },
+    retro: (c, t) => [523, 659, 784].forEach((f, i) => pingNote(c, t + i * 0.07, { f, d: 0.09, v: 0.09, type: "square" })),
+    double: (c, t) => { pingNote(c, t, { f: 1000, d: 0.08, v: 0.25 }); pingNote(c, t + 0.13, { f: 1000, d: 0.08, v: 0.25 }); },
+};
+// kind: "message" | "online" | "call" | "test" (nothing = a plain message alert). force: previews in settings. toneId: preview one tone.
+function playPing(kind, force, toneId) {
     try {
-        const A = window.AudioContext || window.webkitAudioContext;
-        if (!A) return;
-        _audioCtx = _audioCtx || new A();
-        const ctx = _audioCtx;
-        if (ctx.state === "suspended") ctx.resume();
-        const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = "sine";
-        o.frequency.setValueAtTime(880, t);
-        o.frequency.setValueAtTime(1175, t + 0.12);
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
-        o.connect(g); g.connect(ctx.destination);
-        o.start(t); o.stop(t + 0.36);
+        if (!force) {
+            if (!featOn("sound")) return; // the "All sounds" switch silences every ping
+            if (kind === "message" && !featOn("msgPing")) return;
+            if (kind === "online" && !featOn("onlineSound")) return;
+            if (kind === "call" && !featOn("callSound")) return;
+        }
+        const ctx = audioCtx();
+        if (!ctx) return;
+        const id = toneId || getFeatures().pingTone;
+        (PING_SYNTH[id] || PING_SYNTH.classic)(ctx, ctx.currentTime);
     } catch { }
+}
+// a contact came online: ping once (and at most once a minute per person), only for people you chat with and not for muted chats
+let _onlineAt = {};
+function alertOnline(userId, convos, muted) {
+    try {
+        const c = (convos || []).find((x) => !x.isGroup && x.other && x.other.id === userId);
+        if (!c || (muted && isMutedChat(muted, c.id))) return;
+        const now = Date.now();
+        if (now - (_onlineAt[userId] || 0) < 60000) return;
+        _onlineAt[userId] = now;
+        playPing("online");
+    } catch { }
+}
+function PingTonePicker({ f, setFeat, quiet }) {
+    const sel = PING_SYNTH[f.pingTone] ? f.pingTone : "classic";
+    return ce("div", { style: { opacity: quiet ? 0.45 : 1 } },
+        ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, "Ping sound"),
+        ce("div", { style: { padding: "0 16px 8px", fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, "Used for new messages, contacts coming online and connected calls. Tap one to pick it and hear it."),
+        PING_TONES.map((t) => ce("div", { key: t.id, role: "radio", "aria-checked": sel === t.id, onClick: () => { if (quiet) return; setFeat({ pingTone: t.id }); setTimeout(() => playPing("test", true, t.id), 30); }, style: { ...settingRow, cursor: quiet ? "default" : "pointer" } },
+            ce("div", { style: { flex: 1 } },
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, t.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, t.hint)),
+            ce("span", { style: { width: 22, height: 22, borderRadius: "50%", border: "2px solid " + (sel === t.id ? "#35D0BA" : "#3A4452"), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+                sel === t.id && ce("span", { style: { width: 10, height: 10, borderRadius: "50%", background: "#35D0BA" } })))));
 }
 function alertIncoming(m, convo, viewingThis) {
     const n = getNotifs();
     if (convo && convo.isGroup && !n.groups) return;
     const hidden = document.hidden;
-    if (viewingThis && !hidden) return;
+    if (viewingThis && !hidden) { playPing("message"); return; }
     if (n.sound && featOn("sound")) playPing();
     if (n.vibrate) { try { navigator.vibrate && navigator.vibrate(200); } catch { } }
     if (n.banner && hidden && "Notification" in window && Notification.permission === "granted") {
@@ -4550,7 +4871,7 @@ function NotificationsScreen({ onBack }) {
             React.createElement(PushRow, null), row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"),
             row("Show message preview", "Include the message text in background alerts.", prefs.preview, (v) => set({ preview: v })),
             React.createElement("div", { style: { padding: "18px 16px" } },
-                React.createElement("button", { onClick: playPing, style: smallBtn }, "Play test sound")))));
+                React.createElement("button", { onClick: () => playPing("test", true), style: smallBtn }, "Play test sound")))));
 }
 function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, onNewGroup }) {
     const groups = conversations.filter(c => c.isGroup);
@@ -5599,14 +5920,14 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
           <div style={{ fontFamily: "Inter", fontWeight: 500, fontSize: 19, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}{conversation.other.verified && <VerifiedBadge />}</div>
           {peerTyping && <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA" }}>typing…</div>}
         </div>
-        {!isGroup && (featOn("voiceCalls") || featOn("videoCalls")) && (
+        {(featOn("voiceCalls") || featOn("videoCalls")) && (
           <button aria-label="Call options" aria-haspopup="menu" aria-expanded={callMenu} onClick={() => { setMenu(false); setCallMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
             <Phone size={24} color="#9BA7B4" />
             <svg width="11" height="7" viewBox="0 0 10 6" style={{ transform: callMenu ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M0 0h10L5 6z" fill="#9BA7B4" /></svg>
           </button>
         )}
         <button aria-label="More options" onClick={() => { setCallMenu(false); setMenuPage("main"); setMenu(m => !m); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 4px", display: "flex", flexShrink: 0 }}><MoreVertical size={22} color="#F5F7FA" /></button>
-        {callMenu && !isGroup && (
+        {callMenu && (
           <>
             <div onClick={() => setCallMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
             <div role="menu" style={{ position: "absolute", top: 58, right: 40, zIndex: 41, minWidth: 220, background: "#171C24", border: "1px solid #232B37", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
@@ -6653,7 +6974,8 @@ function App() {
   const socketRef = useRef(null);
   window.__lcSocket = () => socketRef.current;
   const callApi = useRef(null);
-  const startCall = (conversation, video) => { if (callApi.current) callApi.current.start(conversation, video); };
+  const groupCallApi = useRef(null);
+    const startCall = (conversation, video) => { const api = conversation && conversation.isGroup ? groupCallApi : callApi; if (api.current) api.current.start(conversation, video); };
   useEffect(() => {
     if (!callLink || !session || !conversations.length) return;
     const c = conversations.find(x => x.id === callLink.id);
@@ -6697,6 +7019,7 @@ function App() {
     socketRef.current = socket; if (window.LetschatPush) window.LetschatPush.watch(socket);
     socket.on("connect", () => { socket.emit("presence:get", applyPresence); refreshConversations(); }); // who is online right now + fresh chat list (also after reconnects)
     socket.on("presence:update", ({ userId, online, lastSeen: ts }) => {
+      if (online && userId !== session.user.id) alertOnline(userId, convosRef.current, mutedRef.current);
       setPresence(prev => ({ ...prev, [userId]: online }));
       if (ts) setLastSeen(prev => ({ ...prev, [userId]: ts }));
     });
@@ -6948,6 +7271,7 @@ function App() {
           {body}
           {toast && <div style={{ position: "absolute", left: 16, right: 16, bottom: 86, zIndex: 80, background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "11px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 10px 28px rgba(0,0,0,.45)" }}>{toast}</div>}
           {session && <CallLayer socket={socketRef.current} apiRef={callApi} notify={flash} />}
+          {session && <GroupCallLayer socket={socketRef.current} apiRef={groupCallApi} notify={flash} me={session.user} />}
           {session && chatCode && <ChatLinkModal code={chatCode} token={session.token} onClose={closeChatLink} onStarted={(conv) => { closeChatLink(); handleNewChatStarted(conv); }} />}
           {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
         </div>

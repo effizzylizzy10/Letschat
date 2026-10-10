@@ -3,7 +3,7 @@
 //   the newest version is fetched quietly in the background, so a deploy shows up the next time you open the app.
 // - Keeps the pinned library files (React, Firebase, Socket.IO) on the device so they never hit the network again.
 // - Never touches API / socket traffic (other origins, /socket.io, POSTs, audio/video range requests).
-const CACHE = "letschat-shell-v27"; // bump this (v14, v15...) to force every device to drop the old copy
+const CACHE = "letschat-shell-v29"; // bump this (v14, v15...) to force every device to drop the old copy
 const LIBS = "letschat-libs-v1";    // pinned versions never change, so this cache is kept across updates
 const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./push.js", "./reactions.js", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png"];
 const EXTRAS = ["./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]; // best effort, never blocks install
@@ -78,6 +78,8 @@ self.addEventListener("push", (e) => {
     body: d.body || "New message",
     tag: d.tag || "letschat",       // same chat = one notification, updated
     renotify: true,
+    requireInteraction: !!d.call,                          // a call alert stays on screen until it is tapped or dismissed
+    vibrate: d.call ? [400, 200, 400, 200, 400] : undefined,
     icon: "icons/icon-192.png",
     badge: "icons/icon-192.png",
     data: { url: d.url || "./" },
