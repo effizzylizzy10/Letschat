@@ -173,11 +173,16 @@ function avatarUrl(u) {
 // Blue verification badge: set VERIFIED_USERS on the server to a comma-separated list of emails,
 // phone numbers (with country code) or user ids, e.g. VERIFIED_USERS=you@gmail.com,2348012345678
 const VERIFIED_LIST = (process.env.VERIFIED_USERS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-const isVerified = (u) => !!u && VERIFIED_LIST.some((v) => v === String(u.id).toLowerCase() || (u.email && v === String(u.email).toLowerCase()) || (!v.includes("@") && u.phone && v.replace(/\D/g, "") && v.replace(/\D/g, "") === normalizePhone(u.phone)));
+// Creator/owner: set CREATOR_EMAILS on the server (comma-separated). Only an email that Firebase has
+// verified (e.g. Google sign-in) can ever match, so typing someone's email is never enough.
+const CREATOR_LIST = (process.env.CREATOR_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+const isCreator = (u) => !!u && !!u.email && CREATOR_LIST.includes(String(u.email).toLowerCase());
+const isVerified = (u) => !!u && (isCreator(u) || !!u.verifiedByCreator || VERIFIED_LIST.some((v) => v === String(u.id).toLowerCase() || (u.email && v === String(u.email).toLowerCase()) || (!v.includes("@") && u.phone && v.replace(/\D/g, "") && v.replace(/\D/g, "") === normalizePhone(u.phone))));
 function publicUser(u) {
   return {
     id: u.id,
     verified: isVerified(u),
+    creator: isCreator(u),
     name: u.name,
     phone: u.phone || null, email: u.email || null,
     username: u.username || null,
@@ -348,6 +353,7 @@ function authMiddleware(req, res, next) {
     const db = readDB();
     const user = db.users.find((u) => u.id === payload.sub);
     if (!user) return res.status(401).json({ error: "Unknown user" });
+    if (user.suspended) return res.status(403).json({ error: "This account has been suspended" });
     req.user = user;
     next();
   } catch {
@@ -399,11 +405,76 @@ app.post("/api/auth/firebase", async (req, res) => {
     if (email && !user.email) { user.email = email; changed = true; }
     if (changed) writeDB(db);
   }
+  if (user.suspended) return res.status(403).json({ error: "This account has been suspended" });
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
 app.get("/api/me", authMiddleware, (req, res) => {
   res.json({ user: publicUser(req.user) });
+});
+
+// ---- creator tools: only accounts whose Firebase-verified email is in CREATOR_EMAILS ----
+function creatorOnly(req, res, next) {
+  if (!isCreator(req.user)) return res.status(403).json({ error: "Creator access only" });
+  next();
+}
+const adminView = (u) => ({ ...publicUser(u), suspended: !!u.suspended, verifiedByCreator: !!u.verifiedByCreator, createdAt: u.createdAt || null });
+app.get("/api/creator/users", authMiddleware, creatorOnly, (req, res) => {
+  const q = String(req.query.q || "").toLowerCase();
+  const users = readDB().users
+    .filter((u) => !q || [u.name, u.username, u.email, u.phone].some((v) => v && String(v).toLowerCase().includes(q)))
+    .slice(0, 200).map(adminView);
+  res.json({ users });
+});
+function setUserFlag(flag, value) {
+  return (req, res) => {
+    const db = readDB();
+    const u = db.users.find((x) => x.id === req.params.id);
+    if (!u) return res.status(404).json({ error: "User not found" });
+    if (isCreator(u) && flag === "suspended") return res.status(400).json({ error: "You can't suspend the creator account" });
+    u[flag] = value;
+    writeDB(db);
+    res.json({ user: adminView(u) });
+  };
+}
+app.post("/api/creator/users/:id/suspend", authMiddleware, creatorOnly, setUserFlag("suspended", true));
+app.post("/api/creator/users/:id/unsuspend", authMiddleware, creatorOnly, setUserFlag("suspended", false));
+app.post("/api/creator/users/:id/verify", authMiddleware, creatorOnly, setUserFlag("verifiedByCreator", true));
+app.post("/api/creator/users/:id/unverify", authMiddleware, creatorOnly, setUserFlag("verifiedByCreator", false));
+
+// ---- creator moderation: listings + announcements ----
+app.get("/api/creator/listings", authMiddleware, creatorOnly, (req, res) => {
+  const db = readDB(); const q = String(req.query.q || "").toLowerCase();
+  const listings = listingsOf(db)
+    .filter((l) => !q || (String(l.title || "") + " " + String(l.description || "")).toLowerCase().includes(q))
+    .sort((a, b) => b.time - a.time).slice(0, 100)
+    .map((l) => { const s = db.users.find((u) => u.id === l.sellerId); return { id: l.id, title: l.title, price: l.price, seller: s ? s.name : "Unknown", removed: !!l.removed, time: l.time }; });
+  res.json({ listings });
+});
+function setListingRemoved(value) {
+  return (req, res) => {
+    const db = readDB(); const l = listingsOf(db).find((x) => x.id === req.params.id);
+    if (!l) return res.status(404).json({ error: "Listing not found" });
+    l.removed = value; writeDB(db);
+    res.json({ id: l.id, removed: !!l.removed });
+  };
+}
+app.post("/api/creator/listings/:id/remove", authMiddleware, creatorOnly, setListingRemoved(true));
+app.post("/api/creator/listings/:id/restore", authMiddleware, creatorOnly, setListingRemoved(false));
+// Announcement = push notification to every device that has notifications on (needs the VAPID keys on the server).
+app.post("/api/creator/announce", authMiddleware, creatorOnly, async (req, res) => {
+  const title = String((req.body && req.body.title) || "").trim().slice(0, 80);
+  const body = String((req.body && req.body.body) || "").trim().slice(0, 300);
+  if (!title || !body) return res.status(400).json({ error: "Title and message are required" });
+  if (!PUSH_ON) return res.status(400).json({ error: "Push notifications are not set up yet (add the VAPID keys on the server)" });
+  const db = readDB(); let sent = 0, failed = 0;
+  for (const u of db.users) {
+    for (const sub of (u.pushSubs || [])) {
+      if (sent + failed >= 500) break;
+      try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "announce", url: "./" }), { TTL: 86400 }); sent++; } catch (e) { failed++; }
+    }
+  }
+  res.json({ sent, failed });
 });
 
 const AVATAR_RE = /^data:image\/(jpeg|png);base64,/;
