@@ -295,7 +295,7 @@ async function api(path, { method = "GET", token, body } = {}) {
   });
   const payload = await res.json().catch(() => ({}));
     // expired / rejected login: sign out so the person lands on the login screen instead of seeing errors
-    if (res.status === 401 && token && /invalid token|unknown user|missing token/i.test((payload.error && payload.error.message) || "")) {
+    if ((res.status === 401 || res.status === 403) && token && /invalid token|unknown user|missing token|suspended/i.test((payload.error && payload.error.message) || "")) {
         clearJSON("session");
         window.location.reload();
         return new Promise(() => { });
@@ -4563,7 +4563,7 @@ const ToolTrash = makeIcon([["p", "M3 6h18"], ["p", "M8 6V4h8v2"], ["p", "M19 6l
 const DEFAULT_BIZ = { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] };
 const bizOfSettings = (s) => ({ ...DEFAULT_BIZ, ...((s && s.biz) || {}) });
 
-function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, settings = DEFAULT_SETTINGS, token, conversations = [] }) {
+function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, settings = DEFAULT_SETTINGS, token, conversations = [], isCreator = false }) {
     const ce = React.createElement;
     const [menu, setMenu] = useState(false);
     const [info, setInfo] = useState(false);
@@ -4635,7 +4635,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
             heading("Manage your account"),
             row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile),
             row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")),
-            row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")),
+            row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(Users, "Creator panel", "Manage users, badges and suspensions", () => onOpen("creator")),
             row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")),
             heading("How to"),
             ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
@@ -5017,6 +5017,90 @@ function AboutDeveloperScreen({ onBack }) {
         ce("a", { href: "https://wa.me/" + PHONE_INTL, target: "_blank", rel: "noopener noreferrer", style: action("#35D0BA", "#0E1116") }, ce(MessageCircle, { size: 18, color: "#0E1116" }), "WhatsApp"),
         ce("a", { href: "tel:" + PHONE_LOCAL, style: action("none", "#F5F7FA", "1px solid #2B3544") }, ce(Phone, { size: 18, color: "#F5F7FA" }), "Call")),
       ce("div", { style: { textAlign: "center", margin: "22px 16px 0", fontFamily: "Sora", fontStyle: "italic", fontWeight: 600, fontSize: 14, color: "#8891A0" } }, "African Technology · Global Impact")));
+}
+
+// ---- Creator panel: only shown to the creator account (server re-checks every request) ----
+function CreatorScreen({ onBack, token }) {
+  const ce = React.createElement;
+  const [tab, setTab] = useState("users"); // users | listings | announce
+  const [q, setQ] = useState("");
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState("");
+  const [note, setNote] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [ann, setAnn] = useState({ title: "", body: "" });
+  const load = useCallback(async (which, term) => {
+    try {
+      setErr("");
+      const d = await api("/api/v1/creator/" + which + "?q=" + encodeURIComponent(term || ""), { token });
+      setItems(d[which] || []);
+    } catch (e) { setErr(e.message); setItems([]); }
+  }, [token]);
+  useEffect(() => {
+    if (tab === "announce") return;
+    setItems(null);
+    const t = setTimeout(() => load(tab, q), 300);
+    return () => clearTimeout(t);
+  }, [tab, q, load]);
+  const act = async (u, action) => {
+    if (action === "suspend" && !window.confirm("Suspend " + u.name + "? They will be logged out and blocked.")) return;
+    setBusyId(u.id); setErr("");
+    try {
+      const d = await api("/api/v1/creator/users/" + u.id + "/" + action, { method: "POST", token });
+      setItems((list) => (list || []).map((x) => (x.id === u.id ? d.user : x)));
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const actListing = async (l, action) => {
+    if (action === "remove" && !window.confirm("Remove this listing from the marketplace?")) return;
+    setBusyId(l.id); setErr("");
+    try {
+      const d = await api("/api/v1/creator/listings/" + l.id + "/" + action, { method: "POST", token });
+      setItems((list) => (list || []).map((x) => (x.id === l.id ? { ...x, removed: d.removed } : x)));
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const send = async () => {
+    if (!window.confirm("Send this announcement to everyone with notifications on?")) return;
+    setBusyId("announce"); setErr(""); setNote("");
+    try {
+      const d = await api("/api/v1/creator/announce", { method: "POST", token, body: { title: ann.title, body: ann.body } });
+      setNote("Sent to " + d.sent + " device" + (d.sent === 1 ? "" : "s") + (d.failed ? " (" + d.failed + " failed)" : "") + ".");
+      setAnn({ title: "", body: "" });
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const btn = (label, onClick, color, disabled) => ce("button", { key: label, disabled, onClick, style: { background: "none", border: "1px solid " + color, color, borderRadius: 18, padding: "6px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 12.5, cursor: "pointer", opacity: disabled ? 0.5 : 1 } }, label);
+  const input = { width: "100%", boxSizing: "border-box", background: "#161B22", border: "1px solid #262E3A", borderRadius: 12, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" };
+  const tabs = ce("div", { style: { display: "flex", gap: 8, padding: "8px 16px 0" } },
+    [["users", "Users"], ["listings", "Listings"], ["announce", "Announce"]].map(([k, label]) => ce("button", { key: k, onClick: () => { setTab(k); setQ(""); setErr(""); setNote(""); }, style: { flex: 1, padding: "9px 0", borderRadius: 12, border: "1px solid " + (tab === k ? "#35D0BA" : "#262E3A"), background: tab === k ? "#35D0BA22" : "none", color: tab === k ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } }, label)));
+  const errBox = err && ce("div", { style: { color: "#FF6B6B", fontFamily: "Inter", fontSize: 13, margin: "8px 16px 0" } }, err);
+  let body;
+  if (tab === "announce") {
+    const ready = ann.title.trim() && ann.body.trim() && busyId !== "announce";
+    body = ce("div", { style: { padding: "12px 16px" } },
+      ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 10, lineHeight: 1.45 } }, "Sends a push notification to every device that has notifications turned on."),
+      ce("input", { value: ann.title, maxLength: 80, onChange: (e) => setAnn({ ...ann, title: e.target.value }), placeholder: "Title", style: { ...input, marginBottom: 10 } }),
+      ce("textarea", { value: ann.body, maxLength: 300, rows: 4, onChange: (e) => setAnn({ ...ann, body: e.target.value }), placeholder: "Message (max 300 characters)", style: { ...input, resize: "none" } }),
+      ce("button", { disabled: !ready, onClick: send, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "announce" ? "Sending..." : "Send announcement"),
+      note && ce("div", { style: { color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, marginTop: 10 } }, note));
+  } else {
+    const empty = items && items.length === 0 && !err && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, tab === "users" ? "No users found." : "No listings found.");
+    const rows = (items || []).map((it) => tab === "users"
+      ? ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.suspended ? 0.6 : 1 } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 6, fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.name, it.verified && ce(VerifiedBadge, {}), it.creator && ce("span", { style: { fontSize: 11, color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 8, padding: "1px 6px" } }, "Creator"), it.suspended && ce("span", { style: { fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Suspended")),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, [it.email, it.phone ? "+" + String(it.phone).replace(/\D/g, "") : null].filter(Boolean).join(" · ") || "No contact info"),
+        !it.creator && ce("div", { style: { display: "flex", gap: 8, marginTop: 10 } },
+          btn(it.verifiedByCreator ? "Remove badge" : "Verify", () => act(it, it.verifiedByCreator ? "unverify" : "verify"), "#35D0BA", busyId === it.id),
+          btn(it.suspended ? "Unsuspend" : "Suspend", () => act(it, it.suspended ? "unsuspend" : "suspend"), it.suspended ? "#35D0BA" : "#FF6B6B", busyId === it.id)))
+      : ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.removed ? 0.6 : 1 } },
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.title, it.removed && ce("span", { style: { marginLeft: 8, fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Removed")),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "By " + it.seller + (it.price ? " · " + it.price : "")),
+        ce("div", { style: { marginTop: 10 } }, btn(it.removed ? "Restore" : "Remove", () => actListing(it, it.removed ? "restore" : "remove"), it.removed ? "#35D0BA" : "#FF6B6B", busyId === it.id))));
+    body = ce("div", null,
+      ce("div", { style: { padding: "10px 16px 0" } }, ce("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: tab === "users" ? "Search name, email or phone" : "Search listings", style: input })),
+      items === null && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, "Loading..."), empty, rows);
+  }
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+    ce(TopBar, { title: "Creator panel", onBack }), tabs, errBox,
+    ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, body));
 }
 
 function HelpScreen({ onBack, user }) {
@@ -7362,7 +7446,7 @@ function LoginScreen({ onContinue }) {
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState(null);
   const [pendingToken, setPendingToken] = useState(null); // signed in with Firebase, still needs a name
-  const [emailStage, setEmailStage] = useState(null); // null | "form" | "verify"
+  const [emailStage, setEmailStage] = useState("form"); // null | "form" | "verify"; email + password is the default login
   const [isNew, setIsNew] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -7489,7 +7573,7 @@ function LoginScreen({ onContinue }) {
           <button disabled={busy || phone.length < 6 || !FIREBASE_READY} onClick={sendCode} style={btn(phone.length >= 6 && FIREBASE_READY)}>{busy ? "Please wait…" : "Send code"}</button>
           <div style={{ textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" }}>or</div>
           <button disabled={busy || !FIREBASE_READY} onClick={google} style={{ ...btn(false), background: "#F5F7FA", color: "#0E1116" }}>Continue with Google</button>
-          <button onClick={() => { setEmailStage("form"); setError(""); setNotice(""); }} style={linkBtn}>Use email and password instead</button>
+          <button onClick={() => { setEmailStage("form"); setError(""); setNotice(""); }} style={linkBtn}>Log in with email and password</button>
         </>
       )}
 
@@ -7504,10 +7588,10 @@ function LoginScreen({ onContinue }) {
             <div style={box}><input value={emailName} onChange={e => setEmailName(e.target.value)} placeholder="Your name" autoComplete="name" style={inputStyle} /></div>
           )}
           <div style={box}><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" autoComplete="email" inputMode="email" style={inputStyle} /></div>
-          <div style={box}><input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && emailReady && !busy && submitEmail()} placeholder="" autoComplete={isNew ? "new-password" : "current-password"} style={inputStyle} /></div>
+          <div style={box}><input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && emailReady && !busy && submitEmail()} placeholder="Password" autoComplete={isNew ? "new-password" : "current-password"} style={inputStyle} /></div>
           <button disabled={busy || !emailReady} onClick={submitEmail} style={btn(emailReady)}>{busy ? "Please wait…" : isNew ? "Create account" : "Log in"}</button>
           {!isNew && <button onClick={forgotPassword} style={linkBtn}>Forgot password?</button>}
-          <button onClick={() => { setEmailStage(null); setError(""); setNotice(""); }} style={linkBtn}>Back to phone or Google</button>
+          <button onClick={() => { setEmailStage(null); setError(""); setNotice(""); }} style={linkBtn}>Use phone or Google instead</button>
         </>
       )}
 
@@ -7695,7 +7779,7 @@ useEffect(() => {
   useEffect(() => {
     if (!session) { setSettings(DEFAULT_SETTINGS); setToolsView(null); return; }
     api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => {});
-        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && !!user.verified !== !!session.user.verified) { const next = { ...session, user: { ...session.user, verified: !!user.verified } }; setSession(next); saveJSON("session", next); } }).catch(() => { });
+        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && (!!user.verified !== !!session.user.verified || !!user.creator !== !!session.user.creator)) { const next = { ...session, user: { ...session.user, verified: !!user.verified, creator: !!user.creator } }; setSession(next); saveJSON("session", next); } }).catch(() => { });
   }, [session && session.token]);
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
   const activeRef = useRef(null), convosRef = useRef([]);
@@ -7869,6 +7953,8 @@ const topLayer = !session ? null
     body = <QuickRepliesScreen settings={settings} onBack={() => setToolsView(null)} onSave={saveBiz} />;
   } else if (toolsView === "about") {
     body = <AboutDeveloperScreen onBack={() => setToolsView(null)} />;
+  } else if (toolsView === "creator" && session.user.creator) {
+    body = <CreatorScreen token={session.token} onBack={() => setToolsView(null)} />;
   } else if (toolsView === "help") {
     body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
   } else if (showEdit) {
@@ -7902,7 +7988,7 @@ const topLayer = !session ? null
           {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
           <GamesHub active={tab === "games"} myId={session.user.id} me={session.user} socketRef={socketRef} conversations={conversations} onCall={startCall} goGames={() => setTab("games")} />
           {tab === "status" && <StatusScreen profile={session.user} token={session.token} contacts={contacts} onSettings={() => setTab("tools")} onChat={messageSeller} />}
-          {tab === "tools" && <ToolsScreen onProfile={() => setShowEdit(true)} onOpen={setToolsView} onTab={setTab} settings={settings} token={session.token} conversations={conversations} />}
+          {tab === "tools" && <ToolsScreen isCreator={!!session.user.creator} onProfile={() => setShowEdit(true)} onOpen={setToolsView} onTab={setTab} settings={settings} token={session.token} conversations={conversations} />}
           {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} initialPicked={newGroupWith ? [newGroupWith] : []} onClose={() => { setShowNewGroup(false); setNewGroupWith(null); }} onCreated={(conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); }} />}
           {showNewChat && <NewChatModal token={session.token} onClose={() => setShowNewChat(false)} onStarted={handleNewChatStarted} />}
         </div>

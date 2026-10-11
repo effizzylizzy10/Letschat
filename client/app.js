@@ -338,7 +338,7 @@ async function api(path, { method = "GET", token, body } = {}) {
     });
     const payload = await res.json().catch(() => ({}));
     // expired / rejected login: sign out so the person lands on the login screen instead of seeing errors
-    if (res.status === 401 && token && /invalid token|unknown user|missing token/i.test((payload.error && payload.error.message) || "")) {
+    if ((res.status === 401 || res.status === 403) && token && /invalid token|unknown user|missing token|suspended/i.test((payload.error && payload.error.message) || "")) {
         clearJSON("session");
         window.location.reload();
         return new Promise(() => { });
@@ -5636,7 +5636,7 @@ const ToolPlay = makeIcon([["p", "m6 3 14 9-14 9z"]]);
 const ToolTrash = makeIcon([["p", "M3 6h18"], ["p", "M8 6V4h8v2"], ["p", "M19 6l-1 14H6L5 6"]]);
 const DEFAULT_BIZ = { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] };
 const bizOfSettings = (s) => ({ ...DEFAULT_BIZ, ...((s && s.biz) || {}) });
-function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, settings = DEFAULT_SETTINGS, token, conversations = [] }) {
+function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, settings = DEFAULT_SETTINGS, token, conversations = [], isCreator = false }) {
     const ce = React.createElement;
     const [menu, setMenu] = useState(false);
     const [info, setInfo] = useState(false);
@@ -5668,7 +5668,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
         { title: "Reach out with status", bg: "linear-gradient(135deg,#243B6B,#6E8BFF)", body: "Status updates reach your contacts for 24 hours.\n\n1. Open the Updates tab.\n2. Tap the green camera button and post a photo, or the pencil for a text update.\n3. Come back to Tools to see how many people viewed it.", go: "Open Status", act: () => onTab("status") },
     ];
     const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
-    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }), menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 20 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } }, menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } }, "Last 7 days performance", ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))), info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."), ce("div", { style: { display: "flex", gap: 10, padding: "0 16px" } }, stat(ToolMsg, String(started), "Conversations started"), stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"), stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")), !promoOff && heading("For you"), !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } }, ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })), ce("div", { style: { display: "flex", gap: 14, paddingRight: 24 } }, ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })), ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))), ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")), heading("Grow your business"), row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")), row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile), row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")), heading("Organize your chats"), row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")), row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")), row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")), row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")), heading("Manage your account"), row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile), row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")), row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")), heading("How to"), ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } }, ce("div", { style: { height: 86, background: g.bg, display: "flex", alignItems: "center", justifyContent: "center" } }, ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))), ce("div", { style: { padding: "10px 10px 12px", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5, color: "#F5F7FA", lineHeight: 1.3 } }, g.title))))), howTo && ce("div", { onClick: () => setHowTo(null), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 30, display: "flex", alignItems: "flex-end" } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderRadius: "20px 20px 0 0", padding: "20px 18px 22px", maxHeight: "75%", overflowY: "auto" } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, howTo.title), ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#C5CDD8", lineHeight: 1.55, whiteSpace: "pre-line" } }, howTo.body), ce("div", { style: { display: "flex", gap: 10, marginTop: 18 } }, ce("button", { onClick: () => { const a = howTo.act; setHowTo(null); a(); }, style: { flex: 1, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "11px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, howTo.go), ce("button", { onClick: () => setHowTo(null), style: { ...smallBtn, borderRadius: 22, padding: "11px 20px" } }, "Close")))));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }), menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 20 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } }, menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } }, "Last 7 days performance", ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))), info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."), ce("div", { style: { display: "flex", gap: 10, padding: "0 16px" } }, stat(ToolMsg, String(started), "Conversations started"), stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"), stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")), !promoOff && heading("For you"), !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } }, ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })), ce("div", { style: { display: "flex", gap: 14, paddingRight: 24 } }, ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })), ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))), ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")), heading("Grow your business"), row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")), row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile), row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")), heading("Organize your chats"), row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")), row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")), row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")), row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")), heading("Manage your account"), row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile), row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")), row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(Users, "Creator panel", "Manage users, badges and suspensions", () => onOpen("creator")), row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")), heading("How to"), ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } }, ce("div", { style: { height: 86, background: g.bg, display: "flex", alignItems: "center", justifyContent: "center" } }, ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))), ce("div", { style: { padding: "10px 10px 12px", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5, color: "#F5F7FA", lineHeight: 1.3 } }, g.title))))), howTo && ce("div", { onClick: () => setHowTo(null), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 30, display: "flex", alignItems: "flex-end" } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderRadius: "20px 20px 0 0", padding: "20px 18px 22px", maxHeight: "75%", overflowY: "auto" } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, howTo.title), ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#C5CDD8", lineHeight: 1.55, whiteSpace: "pre-line" } }, howTo.body), ce("div", { style: { display: "flex", gap: 10, marginTop: 18 } }, ce("button", { onClick: () => { const a = howTo.act; setHowTo(null); a(); }, style: { flex: 1, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "11px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, howTo.go), ce("button", { onClick: () => setHowTo(null), style: { ...smallBtn, borderRadius: 22, padding: "11px 20px" } }, "Close")))));
 }
 // Greeting message and Away message share one screen (saved on your account; the server sends them).
 function AutoMessageScreen({ kind, settings, onBack, onSave }) {
@@ -5978,6 +5978,90 @@ function AboutDeveloperScreen({ onBack }) {
     const action = (bg, fg, border) => ({ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 10px", borderRadius: 14, border: border || "none", background: bg, color: fg, fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer", textDecoration: "none" });
     return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "About the developer", onBack }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 28 } }, ce("div", { style: { position: "relative", height: 430, overflow: "hidden", background: "#0E1116" } }, ce("img", { src: "icons/developer.jpg", alt: "Abdullahi Salawu", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 3%", display: "block" } }), ce("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(to top, #0E1116 4%, rgba(14,17,22,0) 60%)" } }), ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 12 } }, ce("span", { style: { display: "inline-block", background: "#F5C518", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 6, marginBottom: 6 } }, "Developer"), ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 28, lineHeight: 1.1, color: "#F5F7FA" } }, "Abdullahi ", ce("span", { style: { color: "#F5C518" } }, "Salawu")))), ce("div", { style: { padding: "12px 16px 0", fontFamily: "Sora", fontWeight: 600, fontSize: 16, lineHeight: 1.4, color: "#F5F7FA" } }, "Building smart apps for a connected and better Africa."), ce("div", { style: card }, ce("div", { style: label }, "MY MISSION"), ce("div", { style: body }, "To build innovative, intelligent, and impactful applications that connect people, solve real-world problems, and showcase the power of African technology to the world.")), ce("div", { style: card }, ce("div", { style: label }, "WHAT I BUILD"), ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, skills.map((s) => ce("span", { key: s, style: { padding: "6px 12px", borderRadius: 999, border: "1px solid #2B3544", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13 } }, s)))), ce("div", { style: card }, ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 } }, ce(MapPin, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }), ce("div", null, ce("div", { style: label }, "LOCATION"), ce("div", { style: body }, "Okerube, Ikotun, Lagos State, Nigeria."))), ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12 } }, ce(Phone, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }), ce("div", null, ce("div", { style: label }, "CONTACT"), ce("div", { style: { ...body, fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#F5F7FA" } }, PHONE_LOCAL)))), ce("div", { style: { display: "flex", gap: 10, margin: "14px 16px 0" } }, ce("a", { href: "https://wa.me/" + PHONE_INTL, target: "_blank", rel: "noopener noreferrer", style: action("#35D0BA", "#0E1116") }, ce(MessageCircle, { size: 18, color: "#0E1116" }), "WhatsApp"), ce("a", { href: "tel:" + PHONE_LOCAL, style: action("none", "#F5F7FA", "1px solid #2B3544") }, ce(Phone, { size: 18, color: "#F5F7FA" }), "Call")), ce("div", { style: { textAlign: "center", margin: "22px 16px 0", fontFamily: "Sora", fontStyle: "italic", fontWeight: 600, fontSize: 14, color: "#8891A0" } }, "African Technology · Global Impact")));
 }
+// ---- Creator panel: only shown to the creator account (server re-checks every request) ----
+function CreatorScreen({ onBack, token }) {
+  const ce = React.createElement;
+  const [tab, setTab] = useState("users"); // users | listings | announce
+  const [q, setQ] = useState("");
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState("");
+  const [note, setNote] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [ann, setAnn] = useState({ title: "", body: "" });
+  const load = useCallback(async (which, term) => {
+    try {
+      setErr("");
+      const d = await api("/api/v1/creator/" + which + "?q=" + encodeURIComponent(term || ""), { token });
+      setItems(d[which] || []);
+    } catch (e) { setErr(e.message); setItems([]); }
+  }, [token]);
+  useEffect(() => {
+    if (tab === "announce") return;
+    setItems(null);
+    const t = setTimeout(() => load(tab, q), 300);
+    return () => clearTimeout(t);
+  }, [tab, q, load]);
+  const act = async (u, action) => {
+    if (action === "suspend" && !window.confirm("Suspend " + u.name + "? They will be logged out and blocked.")) return;
+    setBusyId(u.id); setErr("");
+    try {
+      const d = await api("/api/v1/creator/users/" + u.id + "/" + action, { method: "POST", token });
+      setItems((list) => (list || []).map((x) => (x.id === u.id ? d.user : x)));
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const actListing = async (l, action) => {
+    if (action === "remove" && !window.confirm("Remove this listing from the marketplace?")) return;
+    setBusyId(l.id); setErr("");
+    try {
+      const d = await api("/api/v1/creator/listings/" + l.id + "/" + action, { method: "POST", token });
+      setItems((list) => (list || []).map((x) => (x.id === l.id ? { ...x, removed: d.removed } : x)));
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const send = async () => {
+    if (!window.confirm("Send this announcement to everyone with notifications on?")) return;
+    setBusyId("announce"); setErr(""); setNote("");
+    try {
+      const d = await api("/api/v1/creator/announce", { method: "POST", token, body: { title: ann.title, body: ann.body } });
+      setNote("Sent to " + d.sent + " device" + (d.sent === 1 ? "" : "s") + (d.failed ? " (" + d.failed + " failed)" : "") + ".");
+      setAnn({ title: "", body: "" });
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const btn = (label, onClick, color, disabled) => ce("button", { key: label, disabled, onClick, style: { background: "none", border: "1px solid " + color, color, borderRadius: 18, padding: "6px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 12.5, cursor: "pointer", opacity: disabled ? 0.5 : 1 } }, label);
+  const input = { width: "100%", boxSizing: "border-box", background: "#161B22", border: "1px solid #262E3A", borderRadius: 12, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" };
+  const tabs = ce("div", { style: { display: "flex", gap: 8, padding: "8px 16px 0" } },
+    [["users", "Users"], ["listings", "Listings"], ["announce", "Announce"]].map(([k, label]) => ce("button", { key: k, onClick: () => { setTab(k); setQ(""); setErr(""); setNote(""); }, style: { flex: 1, padding: "9px 0", borderRadius: 12, border: "1px solid " + (tab === k ? "#35D0BA" : "#262E3A"), background: tab === k ? "#35D0BA22" : "none", color: tab === k ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } }, label)));
+  const errBox = err && ce("div", { style: { color: "#FF6B6B", fontFamily: "Inter", fontSize: 13, margin: "8px 16px 0" } }, err);
+  let body;
+  if (tab === "announce") {
+    const ready = ann.title.trim() && ann.body.trim() && busyId !== "announce";
+    body = ce("div", { style: { padding: "12px 16px" } },
+      ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 10, lineHeight: 1.45 } }, "Sends a push notification to every device that has notifications turned on."),
+      ce("input", { value: ann.title, maxLength: 80, onChange: (e) => setAnn({ ...ann, title: e.target.value }), placeholder: "Title", style: { ...input, marginBottom: 10 } }),
+      ce("textarea", { value: ann.body, maxLength: 300, rows: 4, onChange: (e) => setAnn({ ...ann, body: e.target.value }), placeholder: "Message (max 300 characters)", style: { ...input, resize: "none" } }),
+      ce("button", { disabled: !ready, onClick: send, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "announce" ? "Sending..." : "Send announcement"),
+      note && ce("div", { style: { color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, marginTop: 10 } }, note));
+  } else {
+    const empty = items && items.length === 0 && !err && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, tab === "users" ? "No users found." : "No listings found.");
+    const rows = (items || []).map((it) => tab === "users"
+      ? ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.suspended ? 0.6 : 1 } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 6, fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.name, it.verified && ce(VerifiedBadge, {}), it.creator && ce("span", { style: { fontSize: 11, color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 8, padding: "1px 6px" } }, "Creator"), it.suspended && ce("span", { style: { fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Suspended")),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, [it.email, it.phone ? "+" + String(it.phone).replace(/\D/g, "") : null].filter(Boolean).join(" · ") || "No contact info"),
+        !it.creator && ce("div", { style: { display: "flex", gap: 8, marginTop: 10 } },
+          btn(it.verifiedByCreator ? "Remove badge" : "Verify", () => act(it, it.verifiedByCreator ? "unverify" : "verify"), "#35D0BA", busyId === it.id),
+          btn(it.suspended ? "Unsuspend" : "Suspend", () => act(it, it.suspended ? "unsuspend" : "suspend"), it.suspended ? "#35D0BA" : "#FF6B6B", busyId === it.id)))
+      : ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.removed ? 0.6 : 1 } },
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.title, it.removed && ce("span", { style: { marginLeft: 8, fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Removed")),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "By " + it.seller + (it.price ? " · " + it.price : "")),
+        ce("div", { style: { marginTop: 10 } }, btn(it.removed ? "Restore" : "Remove", () => actListing(it, it.removed ? "restore" : "remove"), it.removed ? "#35D0BA" : "#FF6B6B", busyId === it.id))));
+    body = ce("div", null,
+      ce("div", { style: { padding: "10px 16px 0" } }, ce("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: tab === "users" ? "Search name, email or phone" : "Search listings", style: input })),
+      items === null && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, "Loading..."), empty, rows);
+  }
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+    ce(TopBar, { title: "Creator panel", onBack }), tabs, errBox,
+    ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, body));
+}
+
 function HelpScreen({ onBack, user }) {
     const [open, setOpen] = useState(-1);
     const [copied, setCopied] = useState(false);
@@ -8568,7 +8652,7 @@ function LoginScreen({ onContinue }) {
     const [name, setName] = useState("");
     const [confirmation, setConfirmation] = useState(null);
     const [pendingToken, setPendingToken] = useState(null); // signed in with Firebase, still needs a name
-    const [emailStage, setEmailStage] = useState(null); // null | "form" | "verify"
+    const [emailStage, setEmailStage] = useState("form"); // null | "form" | "verify"; email + password is the default login
     const [isNew, setIsNew] = useState(false);
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -8724,7 +8808,7 @@ function LoginScreen({ onContinue }) {
             React.createElement("button", { disabled: busy || phone.length < 6 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 6 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
             React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
             React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"),
-            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Use email and password instead"))),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Log in with email and password"))),
         stage === "email" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [["Log in", false], ["Create account", true]].map(([label, v]) => (React.createElement("button", { key: label, onClick: () => { setIsNew(v); setError(""); setNotice(""); }, style: { flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, label)))),
             isNew && (React.createElement("div", { style: box },
@@ -8732,10 +8816,10 @@ function LoginScreen({ onContinue }) {
             React.createElement("div", { style: box },
                 React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
             React.createElement("div", { style: box },
-                React.createElement("input", { type: "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "", autoComplete: isNew ? "new-password" : "current-password", style: inputStyle })),
+                React.createElement("input", { type: "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password", autoComplete: isNew ? "new-password" : "current-password", style: inputStyle })),
             React.createElement("button", { disabled: busy || !emailReady, onClick: submitEmail, style: btn(emailReady) }, busy ? "Please wait…" : isNew ? "Create account" : "Log in"),
             !isNew && React.createElement("button", { onClick: forgotPassword, style: linkBtn }, "Forgot password?"),
-            React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Back to phone or Google"))),
+            React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead"))),
         stage === "verify" && (React.createElement(React.Fragment, null,
             React.createElement("button", { disabled: busy, onClick: checkVerified, style: btn(true) }, busy ? "Please wait…" : "I've verified my email"),
             React.createElement("button", { onClick: resendVerification, style: linkBtn }, "Resend email"),
@@ -8969,8 +9053,8 @@ function App() {
             return;
         }
         api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => { });
-        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && !!user.verified !== !!session.user.verified) {
-            const next = { ...session, user: { ...session.user, verified: !!user.verified } };
+        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && (!!user.verified !== !!session.user.verified || !!user.creator !== !!session.user.creator)) {
+            const next = { ...session, user: { ...session.user, verified: !!user.verified, creator: !!user.creator } };
             setSession(next);
             saveJSON("session", next);
         } }).catch(() => { });
@@ -9186,6 +9270,9 @@ function App() {
     else if (toolsView === "about") {
         body = React.createElement(AboutDeveloperScreen, { onBack: () => setToolsView(null) });
     }
+    else if (toolsView === "creator" && session.user.creator) {
+        body = React.createElement(CreatorScreen, { token: session.token, onBack: () => setToolsView(null) });
+    }
     else if (toolsView === "help") {
         body = React.createElement(HelpScreen, { user: session.user, onBack: () => setToolsView(null) });
     }
@@ -9203,7 +9290,7 @@ function App() {
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
                 React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games") }),
                 tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token, contacts: contacts, onSettings: () => setTab("tools"), onChat: messageSeller }),
-                tab === "tools" && React.createElement(ToolsScreen, { onProfile: () => setShowEdit(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
+                tab === "tools" && React.createElement(ToolsScreen, { isCreator: !!session.user.creator, onProfile: () => setShowEdit(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations }),
                 showNewGroup && React.createElement(NewGroupModal, { token: session.token, contacts: contacts, presence: presence, lastSeen: lastSeen, initialPicked: newGroupWith ? [newGroupWith] : [], onClose: () => { setShowNewGroup(false); setNewGroupWith(null); }, onCreated: (conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); } }),
                 showNewChat && React.createElement(NewChatModal, { token: session.token, onClose: () => setShowNewChat(false), onStarted: handleNewChatStarted })),
             React.createElement(TabBar, { active: tab, setActive: setTab })));
