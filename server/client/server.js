@@ -200,7 +200,7 @@ function groupView(db, c, uid, preMsgs) {
     inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
     disappearAfter: c.disappearAfter || 0,
     pinnedMsgs: livePins(c, msgs),
-    lastMessage: lite(msgs[msgs.length - 1]) || null,
+    lastMessage: lite(receiptView(db, msgs[msgs.length - 1], db.users.find((u) => u.id === uid) || { id: uid }, c)) || null,
     unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
     updatedAt: c.updatedAt || c.createdAt,
   };
@@ -216,6 +216,14 @@ function lite(m) {
   if (!m || (!m.audio && !m.file)) return m;
   const { audio, file, ...rest } = m;
   return { ...rest, ...(audio ? { hasAudio: true } : {}), ...(file ? { file: { name: file.name, mime: file.mime, size: file.size } } : {}) };
+}
+// Tell everyone in the chat that messages were just read, so ticks turn green live (only if the reader keeps read receipts on).
+function announceRead(db, convo, readerId, ids) {
+  if (!ids.length) return;
+  const reader = db.users.find((u) => u.id === readerId);
+  if (reader && !privacyOf(reader).readReceipts) return;
+  io.to(`conv:${convo.id}`).emit("message:read", { conversationId: convo.id, by: readerId, ids, at: Date.now() });
+  io.to(`conv:${convo.id}`).emit("conversation:update", { id: convo.id });
 }
 // A sender only sees "read" ticks if both sides keep read receipts on.
 function receiptView(db, m, viewer, convo) {
@@ -631,7 +639,8 @@ function pushMessage(db, convo, message, senderId) {
     if (mutedOf(db, u)[convo.id] !== undefined) continue; // this chat is muted for that person
     for (const sub of u.pushSubs) {
       if (convo.isGroup && sub.groups === false) continue;
-      const body = sub.preview === false ? "New message" : String(message.text || "New message").slice(0, 140);
+      const mentioned = (message.mentions || []).includes(id);
+      const body = sub.preview === false ? (mentioned ? "Mentioned you" : "New message") : (mentioned ? "\uD83D\uDCE3 Mentioned you: " : "") + String(message.text || "New message").slice(0, 140);
       webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "conv-" + convo.id, url: "./" }), { TTL: 86400, urgency: "high" })
         .catch((err) => {
           if (err && (err.statusCode === 404 || err.statusCode === 410)) { // device unsubscribed: forget it
@@ -751,7 +760,7 @@ app.get("/api/conversations", authMiddleware, (req, res) => {
         other: other ? publicUser(other) : { id: otherId, name: "Unknown", initials: "?", color: "#5B6673" },
         disappearAfter: c.disappearAfter || 0,
         pinnedMsgs: livePins(c, msgs),
-        lastMessage: lite(last),
+        lastMessage: lite(receiptView(db, last, req.user, c)),
         unread: msgs.filter((m) => m.senderId !== req.user.id && !m.read).length,
         updatedAt: c.updatedAt || c.createdAt,
         createdAt: c.createdAt || 0,
@@ -798,13 +807,15 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const swept = purgeExpiredMessages(db);
   const all = db.messages.filter((m) => m.conversationId === req.params.id);
   let changed = swept > 0;
+  const newlyRead = [];
   for (const m of all) {
     if (m.senderId === req.user.id) continue;
     if (convo.isGroup) {
-      if (!(m.readBy || (m.readBy = [])).includes(req.user.id)) { m.readBy.push(req.user.id); (m.readTimes || (m.readTimes = {}))[req.user.id] = Date.now(); changed = true; }
-    } else if (!m.read) { m.read = true; m.readAt = Date.now(); changed = true; }
+      if (!(m.readBy || (m.readBy = [])).includes(req.user.id)) { m.readBy.push(req.user.id); (m.readTimes || (m.readTimes = {}))[req.user.id] = Date.now(); changed = true; newlyRead.push(m.id); }
+    } else if (!m.read) { m.read = true; m.readAt = Date.now(); changed = true; newlyRead.push(m.id); }
   }
   if (changed) writeDB(db);
+  if (newlyRead.length) announceRead(db, convo, req.user.id, newlyRead);
   // pagination: ?limit=1..500 (default 200) and ?before=<timestamp ms> for older pages
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
   const before = Number(req.query.before) || Infinity;
@@ -812,6 +823,94 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const older = all.filter((m) => m.time < before);
   const page = since ? all.filter((m) => m.time >= since).slice(0, limit) : older.slice(-limit);
   res.json({ messages: page.map((m) => stripViewOnce(receiptView(db, m, req.user, convo))), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
+});
+
+// ---- link previews: title, description and picture of a web page that was pasted into a chat ----
+// The server fetches the page (never the phone), so the sender's address is not leaked to the site. Private and internal
+// addresses are refused at connect time (so redirects and DNS tricks cannot reach them), pages are size/time limited, results cached 1 hour.
+const dns = require("dns");
+const net = require("net");
+const https = require("https");
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 168 || (b === 0 && ip.startsWith("192.0.0.")))) || (a === 198 && (b === 18 || b === 19));
+  }
+  const v = ip.toLowerCase();
+  if (v === "::" || v === "::1") return true;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v);
+  if (mapped) return isPrivateIp(mapped[1]);
+  return /^(fc|fd|fe[89ab])/.test(v) || v.startsWith("ff");
+}
+function safeLookup(hostname, opts, cb) {
+  if (typeof opts === "function") { cb = opts; opts = {}; }
+  dns.lookup(hostname, { all: true }, (err, addrs) => {
+    if (err) return cb(err);
+    if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) return cb(new Error("blocked address"));
+    if (opts && opts.all) return cb(null, addrs);
+    cb(null, addrs[0].address, addrs[0].family);
+  });
+}
+function fetchPage(urlStr, hops = 0) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try { u = new URL(urlStr); } catch (e) { return reject(new Error("bad url")); }
+    if (!/^https?:$/.test(u.protocol) || u.username || u.password) return reject(new Error("bad url"));
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    if (/^localhost$|\.(local|internal|localdomain)$/i.test(host) || (net.isIP(host) && isPrivateIp(host))) return reject(new Error("blocked address"));
+    const lib = u.protocol === "https:" ? https : http;
+    let done = false;
+    const finish = (fn, v) => { if (!done) { done = true; clearTimeout(timer); fn(v); } };
+    const req = lib.get(u, { lookup: safeLookup, headers: { "User-Agent": "Mozilla/5.0 (compatible; LetschatLinkPreview/1.0)", Accept: "text/html,application/xhtml+xml", "Accept-Language": "en" } }, (res) => {
+      const code = res.statusCode || 0;
+      if (code >= 300 && code < 400 && res.headers.location) {
+        res.resume();
+        if (hops >= 3) return finish(reject, new Error("too many redirects"));
+        let next; try { next = new URL(res.headers.location, u).href; } catch (e) { return finish(reject, new Error("bad redirect")); }
+        return fetchPage(next, hops + 1).then((r) => finish(resolve, r), (e) => finish(reject, e));
+      }
+      if (code < 200 || code >= 300 || !/html/i.test(String(res.headers["content-type"] || ""))) { res.resume(); return finish(reject, new Error("not a web page")); }
+      res.setEncoding("utf8");
+      let html = "";
+      res.on("data", (chunk) => { html += chunk; if (html.length > 300000) { res.destroy(); finish(resolve, { url: u.href, html }); } });
+      res.on("end", () => finish(resolve, { url: u.href, html }));
+      res.on("error", (e) => (html ? finish(resolve, { url: u.href, html }) : finish(reject, e)));
+    });
+    const timer = setTimeout(() => { req.destroy(); finish(reject, new Error("timeout")); }, 6000);
+    req.on("error", (e) => finish(reject, e));
+  });
+}
+const decodeEntities = (t) => String(t || "").replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi, (m, e) => {
+  const k = e.toLowerCase();
+  if (k === "amp") return "&"; if (k === "lt") return "<"; if (k === "gt") return ">"; if (k === "quot") return '"'; if (k === "apos") return "'"; if (k === "nbsp") return " ";
+  const n = k[1] === "x" ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+  return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : m;
+}).replace(/\s+/g, " ").trim();
+function pageMeta(html, pageUrl) {
+  const head = html.slice(0, 200000), meta = {};
+  for (const tag of head.match(/<meta\b[^>]*>/gi) || []) {
+    const k = /(?:property|name)\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(tag), c = /content\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    if (k && c) { const key = (k[1] || k[2]).toLowerCase(); if (!(key in meta)) meta[key] = decodeEntities(c[1] !== undefined ? c[1] : c[2]); }
+  }
+  const t = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(head);
+  const title = (meta["og:title"] || meta["twitter:title"] || (t && decodeEntities(t[1])) || "").slice(0, 140);
+  const description = (meta["og:description"] || meta["twitter:description"] || meta.description || "").slice(0, 240);
+  let image = meta["og:image"] || meta["og:image:url"] || meta["twitter:image"] || "";
+  try { image = image ? new URL(image, pageUrl).href : ""; if (!/^https?:\/\//.test(image)) image = ""; } catch (e) { image = ""; }
+  const site = (meta["og:site_name"] || new URL(pageUrl).hostname.replace(/^www\./, "")).slice(0, 60);
+  return title || description ? { url: pageUrl, title, description, image, site } : null;
+}
+const previewCache = new Map(); // url -> { at, data }
+app.get("/api/link-preview", authMiddleware, rateLimit({ windowMs: 60000, max: 40 }), async (req, res) => {
+  const raw = String(req.query.url || "").trim().slice(0, 2000);
+  if (!/^https?:\/\//i.test(raw)) return res.status(400).json({ error: "A web link is required" });
+  const hit = previewCache.get(raw);
+  if (hit && Date.now() - hit.at < 3600000) return res.json({ preview: hit.data });
+  let data = null;
+  try { const page = await fetchPage(raw); data = pageMeta(page.html, page.url); } catch (e) { data = null; }
+  if (previewCache.size > 500) previewCache.delete(previewCache.keys().next().value);
+  previewCache.set(raw, { at: Date.now(), data });
+  res.json({ preview: data });
 });
 
 // ---- search: keyword suggestions + matching messages from your chats and groups ----
@@ -1874,6 +1973,15 @@ io.on("connection", (socket) => {
   const db = readDB();
   const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
   for (const c of myConvos) socket.join(`conv:${c.id}`);
+  // messages that were waiting for this person are delivered now: tell the senders so their ticks update
+  try {
+    if ((userSockets.get(userId) || new Set()).size <= 1) {
+      const dmIds = new Set(myConvos.filter((c) => !c.isGroup).map((c) => c.id)), got = {};
+      for (const m of db.messages) if (dmIds.has(m.conversationId) && m.senderId !== userId && !m.delivered && !m.read && !m.deleted) { m.delivered = true; (got[m.conversationId] || (got[m.conversationId] = [])).push(m.id); }
+      const cids = Object.keys(got);
+      if (cids.length) { writeDB(db); for (const cid of cids) io.to(`conv:${cid}`).emit("message:delivered", { conversationId: cid, ids: got[cid] }); }
+    }
+  } catch (e) { console.error("delivery marking failed", e.message); }
 
   if (!hidesPresence(db.users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: true });
   // Games: tell everyone else a player just came online (first device only, and at most once a minute per player so reconnects don't spam)
@@ -1886,7 +1994,7 @@ io.on("connection", (socket) => {
     }
   }
 
-  socket.on("message:send", ({ conversationId, text, audio, duration, file, replyTo, forwarded, viewOnce, poll }, ack) => {
+  socket.on("message:send", ({ conversationId, text, audio, duration, file, replyTo, forwarded, viewOnce, poll, mentions }, ack) => {
     const fail = (error) => { if (ack) ack({ error }); };
     const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
     if (audio && !voice) return fail("Voice note is too long or not supported (max about 1 minute)");
@@ -1933,6 +2041,8 @@ io.on("connection", (socket) => {
       if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
       if (other && (other.blocked || []).includes(userId)) return fail("This message couldn't be delivered.");
     }
+    // @mentions (groups only): only current members, never yourself, at most 20
+    const mentionIds = convo.isGroup && Array.isArray(mentions) ? [...new Set(mentions.filter((id) => typeof id === "string" && id !== userId && convo.participantIds.includes(id)))].slice(0, 20) : [];
     // reply: keep a small snapshot of the quoted message so the quote still shows if the original is deleted later
     let reply = null;
     if (typeof replyTo === "string" && replyTo) {
@@ -1952,6 +2062,7 @@ io.on("connection", (socket) => {
       text: text.trim(),
       ...(reply ? { replyTo: reply } : {}),
       ...(forwarded === true ? { forwarded: true } : {}),
+      ...(mentionIds.length ? { mentions: mentionIds } : {}),
       ...(voice ? { audio, duration: Math.min(Math.round(Number(duration)) || 0, 120) } : {}),
       ...(att ? { file: { name: att.name, mime: att.mime, size: att.size, data: att.data } } : {}),
       ...(att && att.viewOnce ? { viewOnce: true, viewedBy: [] } : {}),
@@ -1965,6 +2076,8 @@ io.on("connection", (socket) => {
       if (message.viewOnce) exp = exp ? Math.min(exp, now + VIEW_ONCE_TTL_MS) : now + VIEW_ONCE_TTL_MS;
       if (exp) message.expiresAt = exp;
     }
+    // delivered = the other person's app is online right now (groups: no ticks for this)
+    if (!convo.isGroup) { const otherId = convo.participantIds.find((id) => id !== userId); const live = otherId && userSockets.get(otherId); if (live && live.size) message.delivered = true; }
     db.messages.push(message);
     convo.updatedAt = Date.now();
     writeDB(db);
@@ -2266,8 +2379,23 @@ io.on("connection", (socket) => {
 
   registerGames(socket);
 
-  socket.on("typing", ({ conversationId, typing }) => {
-    socket.to(`conv:${conversationId}`).emit("typing", { conversationId, userId, typing: !!typing });
+  // typing = writing a message; "recording" = voice note; "photo" / "file" = sending an attachment
+  const TYPING_KINDS = new Set(["typing", "recording", "photo", "file"]);
+  // the open chat tells us new messages were seen (so the sender's ticks turn green)
+  socket.on("messages:read", ({ conversationId } = {}) => {
+    const db2 = readDB(), convo = db2.conversations.find((c) => c.id === conversationId);
+    if (!convo || !convo.participantIds.includes(userId)) return;
+    const ids = [];
+    for (const m of db2.messages) {
+      if (m.conversationId !== conversationId || m.senderId === userId || m.deleted) continue;
+      if (convo.isGroup) { if (!(m.readBy || (m.readBy = [])).includes(userId)) { m.readBy.push(userId); (m.readTimes || (m.readTimes = {}))[userId] = Date.now(); ids.push(m.id); } }
+      else if (!m.read) { m.read = true; m.readAt = Date.now(); ids.push(m.id); }
+    }
+    if (ids.length) { writeDB(db2); announceRead(db2, convo, userId, ids); }
+  });
+  socket.on("typing", ({ conversationId, typing, kind } = {}) => {
+    if (typeof conversationId !== "string" || !socket.rooms.has(`conv:${conversationId}`)) return;
+    socket.to(`conv:${conversationId}`).emit("typing", { conversationId, userId, typing: !!typing, kind: TYPING_KINDS.has(kind) ? kind : "typing" });
   });
 
   socket.on("disconnect", () => {
