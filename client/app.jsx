@@ -2946,7 +2946,8 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>
-                  {LCX.preview(c, c.lastMessage ? senderPrefix(c) + stripRich(c.lastMessage.text) : "Say hello 👋")}
+                  {c.lastMessage && c.lastMessage.senderId === c.myId && !c.lastMessage.deleted && !LCX.locked(c.id) && !LCX.draft(c.id) && <><Tick state={tickState(c.lastMessage)} size={13} /><span style={{ display: "inline-block", width: 5 }} /></>}
+                  {LCX.preview(c, c.lastMessage ? (c.lastMessage.senderId === c.myId && !c.isGroup ? "" : senderPrefix(c)) + stripRich(c.lastMessage.text) : "Say hello 👋")}
                 </span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   {isMutedChat(muted, c.id) && <BellOff size={15} color="#8891A0" aria-label="Muted" />}
@@ -3199,7 +3200,7 @@ function MarketScreen({ token, myId, onMessageSeller }) {
 const ce = React.createElement;
 
 // ---- feature switches, stored on this device ("Notification sound" lives in the notifs settings: notifs.sound) ----
-const DEFAULT_FEATURES = { pingTone: "classic", msgPing: true, onlineSound: true, callSound: true, sound: true, typingSound: true, sendSound: true, status: true, videoCalls: true, voiceCalls: true, clearVoice: true, voiceNotes: true, disappearing: true, viewOnce: true, pinMessages: true, chatLock: true, polls: true, scheduling: true };
+const DEFAULT_FEATURES = { pingTone: "classic", msgPing: true, onlineSound: true, callSound: true, sound: true, typingSound: true, sendSound: true, status: true, videoCalls: true, voiceCalls: true, clearVoice: true, voiceNotes: true, disappearing: true, viewOnce: true, pinMessages: true, chatLock: true, polls: true, scheduling: true, linkPreviews: true, typingStatus: true, msgEffects: true };
 const getFeatures = () => ({ ...DEFAULT_FEATURES, ...loadJSON("features", {}) });
 const featOn = (k) => getFeatures()[k] !== false;
 
@@ -4528,6 +4529,10 @@ function FeaturesScreen({ onBack }) {
             ce(PingTonePicker, { f, setFeat, quiet }),
             head("Status"),
             row("Status upload", "Post photo and text updates that disappear after 24 hours.", f.status, (v) => setFeat({ status: v })),
+            head("Chat extras"),
+            row("Link previews", "Show a title, picture and summary under web links in chats. The preview is fetched by our server, so the site never sees your phone.", f.linkPreviews, (v) => setFeat({ linkPreviews: v })),
+            row("Message effects", "Confetti for \uD83C\uDF89 and congratulations, floating hearts for \u2764\uFE0F, and a heart burst when you double-tap a message.", f.msgEffects, (v) => setFeat({ msgEffects: v })),
+            row("Share typing status", "Let people in a chat see when you are typing, recording a voice note or sending a photo.", f.typingStatus, (v) => setFeat({ typingStatus: v })),
             head("Calls"),
             row("Voice calling", "Make and receive voice calls. When off, incoming voice calls are declined.", f.voiceCalls, (v) => setFeat({ voiceCalls: v })),
             row("Video calling", "Make and receive video calls. When off, incoming video calls are declined.", f.videoCalls, (v) => setFeat({ videoCalls: v })),
@@ -5243,8 +5248,8 @@ const CHAT_THEMES = [
 ];
 function SheetFrame({ title, onClose, children, tall }) {
   return (
-    <div style={{ ...sheet, zIndex: 65 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ ...card, ...(tall ? { height: "80%" } : {}) }}>
+    <div className="lc-sheet" style={{ ...sheet, zIndex: 65 }} onClick={onClose}>
+      <div className="lc-sheet-card" onClick={e => e.stopPropagation()} style={{ ...card, ...(tall ? { height: "80%" } : {}) }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
           <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" }}>{title}</div>
           <button aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><X size={20} color="#8891A0" /></button>
@@ -5403,6 +5408,146 @@ function ScheduleSheet({ conversationId, socket, onClose }) {
           React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "\u23F0 " + new Date(x.sendAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))),
         React.createElement("button", { onClick: () => cancel(x.id), "aria-label": "Cancel scheduled message", style: { background: "none", border: "1px solid #3A4656", borderRadius: 999, color: "#FF8A7D", fontFamily: "Inter", fontSize: 12.5, padding: "6px 12px", cursor: "pointer" } }, "Cancel")))));
 }
+// ---- link previews: a small card (picture, title, summary) under web links; the server fetches the page ----
+const _lpCache = new Map();
+function firstPreviewUrl(text) {
+  if (typeof text !== "string" || text.indexOf("http") < 0) return null;
+  const m = /https?:\/\/[^\s<>"]+/i.exec(text);
+  if (!m) return null;
+  const url = m[0].replace(/[).,!?;:'"\]]+$/, "");
+  try { const u = new URL(url); if (u.origin === window.location.origin || /[?&](call|open)=/.test(u.search)) return null; } catch (e) { return null; }
+  return url;
+}
+function LinkPreview({ url, token }) {
+  const [p, setP] = useState(() => (_lpCache.has(url) ? _lpCache.get(url) : undefined));
+  const [imgOk, setImgOk] = useState(true);
+  useEffect(() => {
+    if (!url) return;
+    if (_lpCache.has(url)) { setP(_lpCache.get(url)); return; }
+    let live = true;
+    api("/api/v1/link-preview?url=" + encodeURIComponent(url), { token })
+      .then((d) => { const v = (d && d.preview) || null; _lpCache.set(url, v); if (live) setP(v); })
+      .catch(() => { if (live) setP(null); });
+    return () => { live = false; };
+  }, [url]);
+  if (!p || (!p.title && !p.description)) return null;
+  const clamp = (n) => ({ display: "-webkit-box", WebkitLineClamp: n, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" });
+  return (
+    <a href={p.url || url} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none", marginTop: 6, minWidth: 200, background: "rgba(0,0,0,0.22)", borderLeft: "4px solid #35D0BA", borderRadius: 10, overflow: "hidden", color: "#F5F7FA" }}>
+      {p.image && imgOk && <img src={p.image} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setImgOk(false)} style={{ display: "block", width: "100%", maxHeight: 150, objectFit: "cover", background: "#0E1116" }} />}
+      <div style={{ padding: "7px 10px 8px" }}>
+        <div style={{ fontSize: 11.5, color: "#9BA7B4", marginBottom: 2 }}>{p.site}</div>
+        {p.title && <div style={{ fontWeight: 700, fontSize: 13.5, ...clamp(2) }}>{p.title}</div>}
+        {p.description && <div style={{ fontSize: 12.5, color: "#C5CDD8", marginTop: 2, ...clamp(3) }}>{p.description}</div>}
+      </div>
+    </a>
+  );
+}
+
+// ---- @mentions in groups: "@Name" in the text; the ids are stored on the message so the person is notified ----
+function mentionIdsIn(text, members, myId) {
+  if (typeof text !== "string" || text.indexOf("@") < 0) return [];
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (members || []).filter((u) => {
+    if (!u || u.id === myId || !u.name) return false;
+    try { return new RegExp("(^|\\s)@" + esc(u.name) + "(?![\\p{L}\\p{N}_])", "iu").test(text); } catch (e) { return false; }
+  }).map((u) => u.id).slice(0, 20);
+}
+function withMentions(node, list) {
+  if (!list || !list.length) return node;
+  if (Array.isArray(node)) return node.map((n, i) => (typeof n === "string" ? <React.Fragment key={"m" + i}>{withMentions(n, list)}</React.Fragment> : React.isValidElement(n) && n.props && n.props.children != null ? React.cloneElement(n, undefined, withMentions(n.props.children, list)) : n));
+  if (typeof node !== "string" || node.indexOf("@") < 0) return node;
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("(^|\\s)@(" + list.map((x) => esc(x.name)).sort((a, b) => b.length - a.length).join("|") + ")(?![\\p{L}\\p{N}_])", "giu");
+  const out = []; let last = 0, k = 0, m;
+  while ((m = re.exec(node))) {
+    const start = m.index + m[1].length;
+    if (start > last) out.push(node.slice(last, start));
+    const hit = list.find((x) => x.name.toLowerCase() === m[2].toLowerCase());
+    out.push(<span key={"mn" + k++} style={{ color: hit && hit.me ? "#FFD479" : "#7FE3D3", fontWeight: 700, background: hit && hit.me ? "rgba(242,184,75,.2)" : "transparent", borderRadius: 4, padding: "0 2px" }}>{"@" + m[2]}</span>);
+    last = re.lastIndex;
+  }
+  if (last < node.length) out.push(node.slice(last));
+  return out;
+}
+
+// ---- message effects: confetti / floating hearts, and big emoji-only messages ----
+function fxKindOf(t) {
+  if (typeof t !== "string" || t.length > 200) return null;
+  const s = t.toLowerCase();
+  if (/🎉|🥳|congrat|happy birthday|well done|\bhbd\b/.test(s)) return "confetti";
+  if (/^(\s*(❤️?|😍|💖|💕|💗|🥰)\s*)+$/.test(t) || /i love you|\bilu\b/.test(s)) return "hearts";
+  return null;
+}
+const EMOJI_ONLY_RE = /^(?:\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}])*\s*){1,3}$/u;
+const bigEmoji = (t) => typeof t === "string" && t.length <= 40 && EMOJI_ONLY_RE.test(t.trim());
+const reducedMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+function MsgFx({ kind, onDone }) {
+  useEffect(() => { const t = setTimeout(onDone, 3600); return () => clearTimeout(t); }, []);
+  const colors = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#4FA8E0", "#FFFFFF"], hearts = ["❤️", "💖", "💕", "😍"];
+  const items = useRef(Array.from({ length: kind === "confetti" ? 36 : 14 }, (_, i) => ({ left: Math.random() * 100, dx: (Math.random() - 0.5) * 160, d: Math.random() * 0.5, t: 1.8 + Math.random() * 1.2, rot: 360 + Math.random() * 540, c: colors[i % colors.length], e: hearts[i % hearts.length] }))).current;
+  return (
+    <div className={"lc-fx " + (kind === "confetti" ? "lc-confetti" : "lc-hearts")} aria-hidden="true">
+      {items.map((x, i) => <i key={i} style={{ left: x.left + "%", "--dx": x.dx + "px", "--d": x.d + "s", "--t": x.t + "s", "--rot": x.rot + "deg", background: kind === "confetti" ? x.c : undefined }}>{kind === "hearts" ? x.e : null}</i>)}
+    </div>
+  );
+}
+
+// ---- message ticks (WhatsApp style): one grey tick = sent, two grey = delivered, two GREEN = read ----
+function Tick({ state, size = 15, onBubble }) {
+  const col = state === "read" ? (onBubble ? "#62E58C" : "#25D366") : (onBubble ? "#C3CBD3" : "#8E99A6");
+  const w = Math.round(size * 17.5 / 11 * 10) / 10;
+  return (
+    <svg key={state} className={state === "read" ? "lc-chip-pop" : undefined} width={w} height={size} viewBox="0 0 17.5 11" fill="none" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={state === "read" ? "Read" : state === "delivered" ? "Delivered" : "Sent"} style={{ flexShrink: 0, transition: "stroke .3s ease", verticalAlign: "-2px" }}>
+      <path d="M1.1 6.2 4.4 9.5 10.6 1.6" />
+      {state !== "sent" && <path d="M8.1 8.5 9 9.5 16 1.6" />}
+    </svg>
+  );
+}
+const tickState = (m) => (!m ? null : m.read || (m.readBy && m.readBy.length) ? "read" : m.delivered ? "delivered" : "sent");
+
+// ---- delete dialog (like the Android one): Delete for everyone / Delete for me / Cancel ----
+function DeleteDialog({ count, canEveryone, onEveryone, onMe, onClose }) {
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, []);
+  const btn = { background: "none", border: "none", cursor: "pointer", color: "#C6D03C", fontFamily: "Inter", fontWeight: 500, fontSize: 18, padding: "13px 4px", textAlign: "right", width: "100%" };
+  return (
+    <div className="lc-sheet" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 22px" }}>
+      <div role="alertdialog" aria-label="Delete message" className="lc-pop" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 400, background: "#111A22", borderRadius: 28, padding: "24px 26px 14px", boxShadow: "0 18px 50px rgba(0,0,0,.6)" }}>
+        <div style={{ fontFamily: "Inter", fontSize: 19, color: "#C5CDD8", marginBottom: 18 }}>{count > 1 ? "Delete " + count + " messages?" : "Delete message?"}</div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+          {canEveryone && <button onClick={onEveryone} style={btn}>Delete for everyone</button>}
+          <button onClick={onMe} style={btn}>Delete for me</button>
+          <button onClick={onClose} style={btn}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- starred messages (kept on this device, per chat) ----
+function StarredSheet({ stars, conversation, myId, onJump, onUnstar, onClose }) {
+  const list = Object.values(stars || {}).sort((a, b) => b.time - a.time);
+  const who = (id) => (id === myId ? "You" : ((conversation.members || []).find((u) => u.id === id) || (conversation.other && conversation.other.id === id ? conversation.other : null) || {}).name || "Former member");
+  return (
+    <SheetFrame title="Starred messages" onClose={onClose} tall>
+      {list.length === 0 && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", padding: "18px 4px", lineHeight: 1.5 }}>Nothing starred yet. Long-press a message, tap the ⋮ menu and choose Star to keep it here.</div>}
+      {list.map((x) => (
+        <div key={x.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 4px", borderBottom: "1px solid #1B212B" }}>
+          <div onClick={() => onJump(x.id)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA", fontWeight: 600 }}>{who(x.senderId)} · {new Date(x.time).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", marginTop: 3, ...{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }}>{x.text}</div>
+          </div>
+          <button aria-label="Remove star" onClick={() => onUnstar(x.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 6, fontSize: 18 }}>⭐</button>
+        </div>
+      ))}
+    </SheetFrame>
+  );
+}
+
 function PinnedBar({ pins, idx, onOpen }) {
   const pn = [...pins].reverse(), i = idx % pn.length, p = pn[i];
   return React.createElement("div", { role: "button", tabIndex: 0, "aria-label": "Pinned message: " + p.text, onClick: onOpen, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", cursor: "pointer", flexShrink: 0 } },
@@ -5729,7 +5874,43 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
   const [draft, setDraft] = useState(() => LCX.draft(conversation.id));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [peerTyping, setPeerTyping] = useState(false);
+  const [peerAct, setPeerAct] = useState({});   // who is typing / recording / sending right now: { userId: kind }
+  const actTimers = useRef({});
+  const peerTyping = Object.keys(peerAct).length > 0;
+  const actLabel = (() => {
+    const ids = Object.keys(peerAct); if (!ids.length) return "";
+    const verb = { typing: "typing\u2026", recording: "recording a voice note\u2026", photo: "sending a photo\u2026", file: "sending a file\u2026" };
+    if (!conversation.isGroup) return verb[peerAct[ids[0]]] || verb.typing;
+    const nm = (id) => String(((conversation.members || []).find(u => u.id === id) || {}).name || "Someone").split(" ")[0];
+    if (ids.length === 1) return nm(ids[0]) + " is " + (verb[peerAct[ids[0]]] || verb.typing);
+    if (ids.length === 2) return nm(ids[0]) + " and " + nm(ids[1]) + " are typing\u2026";
+    return ids.length + " people are typing\u2026";
+  })();
+  useEffect(() => () => { Object.values(actTimers.current).forEach(clearTimeout); }, []);
+  const [atBottom, setAtBottom] = useState(true);   // is the list scrolled to the newest message?
+  const atBottomRef = useRef(true);
+  const [unseenN, setUnseenN] = useState(0);        // new messages that arrived while scrolled up
+  const prevLen = useRef(0);
+  const divEl = useRef(null);
+  const divDone = useRef(false);
+  const seenAt = useRef(null);                      // when this chat was last open (for the "unread messages" divider)
+  if (seenAt.current === null) seenAt.current = (LCX.get("lcx:seen", {}))[conversation.id] || 0;
+  const [unreadDiv, setUnreadDiv] = useState(null); // { id, count } of the first unread message
+  const [stars, setStars] = useState(() => LCX.get("lcx:stars:" + conversation.id, {}));
+  const [swipe, setSwipe] = useState(null);         // swipe-right-to-reply in progress: { id, dx }
+  const swRef = useRef(null);
+  const liveIds = useRef(new Set());                // messages that arrived while this chat was open (they get the entrance animation)
+  const [fx, setFx] = useState(null);               // { kind, n } full-screen confetti / hearts
+  const [burst, setBurst] = useState(null);         // message id showing the double-tap heart
+  const lastTap = useRef({ id: null, t: 0 });
+  const [delDlg, setDelDlg] = useState(null);       // messages the Delete dialog is open for
+  const [conn, setConn] = useState(() => (typeof navigator === "undefined" || navigator.onLine !== false) && (!socket || socket.connected !== false)); // false = waiting for the network
+  useEffect(() => {
+    const up = () => setConn(!socket || socket.connected !== false), down = () => setConn(false);
+    window.addEventListener("online", up); window.addEventListener("offline", down);
+    if (socket) { socket.on("connect", up); socket.on("disconnect", down); socket.on("connect_error", down); }
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); if (socket) { socket.off("connect", up); socket.off("disconnect", down); socket.off("connect_error", down); } };
+  }, [socket]);
   const [zoomed, setZoomed] = useState(false);
   const [info, setInfo] = useState(false);
   const [peerInfo, setPeerInfo] = useState(false); // 1:1 contact profile sheet
@@ -5786,6 +5967,41 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
   const myQuick = bizOfSettings(settings).quickReplies;
   const qMatch = /^\/([\w-]*)$/.exec(draft);
   const qHits = qMatch ? myQuick.filter(q => q.shortcut.startsWith(qMatch[1].toLowerCase())).slice(0, 8) : [];
+  const mMatch = conversation.isGroup && !editing ? /(^|\s)@([^\s@]{0,30})$/.exec(draft) : null;
+  const mHits = mMatch ? (conversation.members || []).filter(u => u.id !== myId && u.name && u.name.toLowerCase().includes(mMatch[2].toLowerCase())).slice(0, 8) : [];
+  const pickMention = (u) => { setDraft(d => d.replace(/@[^\s@]*$/, "@" + u.name + " ")); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+  const lpIds = new Set(); // the newest few messages with a web link get a preview card
+  if (featOn("linkPreviews")) for (let i = msgs.length - 1; i >= 0 && lpIds.size < 8; i--) { const x = msgs[i]; if (!x.deleted && !x.audio && !x.hasAudio && !x.poll && !x.viewOnce && !(x.file && x.file.data) && firstPreviewUrl(x.text)) lpIds.add(x.id); }
+  const starSnap = (m) => ({ id: m.id, senderId: m.senderId, time: m.time, text: m.audio || m.hasAudio ? "\uD83C\uDFA4 Voice note" : m.file ? (String(m.file.mime || "").startsWith("image/") || /^data:image\//.test(m.file.data || "") ? "\uD83D\uDCF7 Photo" : "\uD83D\uDCCE " + (m.file.name || "file")) : String(m.text || "").slice(0, 300) });
+  const toggleStars = (list) => {
+    const all = list.length > 0 && list.every(x => stars[x.id]); const next = { ...stars };
+    list.forEach(x => { if (all) delete next[x.id]; else next[x.id] = starSnap(x); });
+    setStars(next); LCX.put("lcx:stars:" + conversation.id, next); flashNote(all ? "Removed from starred" : "Starred \u2B50");
+  };
+  const unstarId = (id) => { const next = { ...stars }; delete next[id]; setStars(next); LCX.put("lcx:stars:" + conversation.id, next); };
+  const heartMsg = (m) => {
+    const had = (m.reactions || {})[myId] === "\u2764\uFE0F";
+    reactTo(m, "\u2764\uFE0F");
+    if (!had && featOn("msgEffects") && !reducedMotion()) { setBurst(m.id); setTimeout(() => setBurst(b => (b === m.id ? null : b)), 950); }
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) { }
+  };
+  const tapMsg = (e, m) => {
+    if (picking || m.deleted || m.pending || m.failed || (e.target.closest && e.target.closest("a,button,audio,video,input,textarea"))) return;
+    const now = Date.now();
+    if (lastTap.current.id === m.id && now - lastTap.current.t < 320) { lastTap.current = { id: null, t: 0 }; heartMsg(m); }
+    else lastTap.current = { id: m.id, t: now };
+  };
+  const swStart = (e, m) => { const t = e.touches && e.touches[0]; swRef.current = !t || picking || m.deleted || t.clientX < 24 ? null : { id: m.id, x: t.clientX, y: t.clientY, on: false }; };
+  const swMove = (e, m) => {
+    const s = swRef.current; if (!s || s.id !== m.id) return;
+    const t = e.touches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (!s.on) { if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { swRef.current = null; return; } if (dx > 14 && dx > Math.abs(dy) * 1.5) s.on = true; else return; }
+    setSwipe({ id: m.id, dx: Math.min(80, Math.max(0, dx)) });
+  };
+  const swEnd = (m) => {
+    const s = swRef.current, cur = swipe; swRef.current = null; setSwipe(null);
+    if (s && s.on && cur && cur.id === m.id && cur.dx >= 56) { setReplyTo(m); setEditing(null); try { if (navigator.vibrate) navigator.vibrate(10); } catch (e) { } setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }
+  };
   const useQuick = (q) => { setDraft(q.text); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
   const applyTypo = (fix) => { if (!typoHit) return; setDraft(typoApply(draft, typoHit, fix)); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
   const ignoreTypo = () => { if (!typoHit) return; const next = typoIgnored.concat(typoHit.word.toLowerCase()); setTypoIgnored(next); typoSaveIgnored(next); };
@@ -5803,6 +6019,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         if (focusId && !list.some(x => x.id === focusId)) pendingFocus.current = null; // result no longer exists: just open at the bottom
         const clearedAt = loadJSON("chatCleared:" + conversation.id, 0);
         if (clearedAt) list = list.filter(x => x.time > clearedAt);
+        const hid = LCX.get("lcx:hidden:" + conversation.id, []); if (hid.length) { const hs = new Set(hid); list = list.filter(x => !hs.has(x.id)); } // "delete for me" messages stay hidden
+        if (seenAt.current) { const nu = list.filter(x => x.senderId !== myId && !x.deleted && x.time > seenAt.current); if (!cancelled) setUnreadDiv(nu.length ? { id: nu[0].id, count: nu.length } : null); }
         if (!cancelled) { setMsgs(list); if (focusId) { setHl(focusId); setTimeout(() => setHl(null), 2800); } }
       })
       .catch(e => setError(e.message))
@@ -5810,14 +6028,32 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     return () => { cancelled = true; };
   }, [conversation.id]);
 
+  useEffect(() => { // remember when this chat was last open
+    const id = conversation.id;
+    const save = () => { const d = { ...LCX.get("lcx:seen", {}) }; d[id] = Date.now(); const ks = Object.keys(d); if (ks.length > 300) delete d[ks[0]]; LCX.put("lcx:seen", d); };
+    const onHide = () => { if (document.visibilityState === "hidden") save(); };
+    document.addEventListener("visibilitychange", onHide); window.addEventListener("pagehide", save);
+    return () => { document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", save); save(); };
+  }, [conversation.id]);
+
   useEffect(() => {
     if (!socket) return;
+    const clearAct = (uid) => { clearTimeout(actTimers.current[uid]); delete actTimers.current[uid]; setPeerAct(p => { if (!(uid in p)) return p; const n = { ...p }; delete n[uid]; return n; }); };
     const onNew = (m) => {
       if (m.conversationId !== conversation.id) return;
-      setMsgs(prev => [...prev, m]);
+      clearAct(m.senderId);
+      if (m.senderId !== myId && document.visibilityState === "visible") socket.emit("messages:read", { conversationId: conversation.id });
+      liveIds.current.add(m.id);
+      if (m.senderId === myId) setMsgs(prev => { const i = prev.findIndex(x => x.pending && x.text === m.text); return i < 0 ? prev : prev.filter((_, k) => k !== i); }); // the real copy arrived: drop the "sending" one
+      if (featOn("msgEffects") && !reducedMotion() && !m.deleted) { const k = fxKindOf(m.text); if (k) setFx({ kind: k, n: Date.now() }); }
+      setMsgs(prev => (prev.some(x => x.id === m.id) ? prev : [...prev, m]));
     };
-    const onTyping = ({ conversationId, userId, typing }) => {
-      if (conversationId === conversation.id && userId !== myId) setPeerTyping(typing);
+    const onTyping = ({ conversationId, userId, typing, kind }) => {
+      if (conversationId !== conversation.id || userId === myId) return;
+      if (!typing) return clearAct(userId);
+      setPeerAct(p => (p[userId] === (kind || "typing") ? p : { ...p, [userId]: kind || "typing" }));
+      clearTimeout(actTimers.current[userId]);
+      actTimers.current[userId] = setTimeout(() => clearAct(userId), 8000); // in case the "stopped" message never arrives
     };
     const onExpired = ({ conversationId, messageId }) => { if (conversationId === conversation.id) setMsgs(prev => prev.filter(x => x.id !== messageId)); };
     const onTimer = ({ conversationId, disappearAfter, by }) => { if (conversationId === conversation.id) flashNote(disappearAfter ? "Disappearing messages: " + disappearLabel(disappearAfter) + (by === myId ? " (set by you)" : "") : "Disappearing messages turned off"); };
@@ -5832,24 +6068,37 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       }));
       if (m.deleted) { setEditing(e => (e && e.id === m.id ? null : e)); setSel(s => (s && s.id === m.id ? null : s)); }
     };
+    const onRead = ({ conversationId, by, ids, at }) => {
+      if (conversationId !== conversation.id || by === myId || !Array.isArray(ids) || (settings.privacy || {}).readReceipts === false) return;
+      setMsgs(prev => prev.map(x => (!ids.includes(x.id) ? x : conversation.isGroup ? { ...x, readBy: Array.from(new Set([...(x.readBy || []), by])), readTimes: { ...(x.readTimes || {}), [by]: at } } : { ...x, read: true, readAt: at })));
+    };
+    socket.on("message:read", onRead);
+    const onDelivered = ({ conversationId, ids }) => { if (conversationId === conversation.id && Array.isArray(ids)) setMsgs(prev => prev.map(x => (ids.includes(x.id) && !x.delivered ? { ...x, delivered: true } : x))); };
+    socket.on("message:delivered", onDelivered);
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
     socket.on("typing", onTyping); socket.on("message:expired", onExpired); socket.on("conversation:disappearing", onTimer);
-    return () => { socket.off("message:new", onNew); socket.off("message:updated", onUpdated); socket.off("typing", onTyping); socket.off("message:expired", onExpired); socket.off("conversation:disappearing", onTimer); };
+    return () => { socket.off("message:read", onRead); socket.off("message:delivered", onDelivered); socket.off("message:new", onNew); socket.off("message:updated", onUpdated); socket.off("typing", onTyping); socket.off("message:expired", onExpired); socket.off("conversation:disappearing", onTimer); };
   }, [socket, conversation.id, myId]);
 
   useEffect(() => {
     if (pendingFocus.current && focusEl.current) { focusEl.current.scrollIntoView({ block: "center" }); pendingFocus.current = null; return; }
-    if (!pendingFocus.current) endRef.current?.scrollIntoView();
+    const grew = msgs.length - prevLen.current; prevLen.current = msgs.length;
+    if (pendingFocus.current) return;
+    if (!divDone.current && msgs.length) { divDone.current = true; if (divEl.current) { divEl.current.scrollIntoView({ block: "start" }); return; } } // open at the first unread message
+    const last = msgs[msgs.length - 1];
+    if (!atBottomRef.current && !(last && last.senderId === myId)) { if (grew > 0) setUnseenN(n => n + grew); return; } // reading older messages: don't yank the list down
+    endRef.current?.scrollIntoView();
   }, [msgs, peerTyping]);
   useEffect(() => { onLocalUpdate(conversation.id, msgs); }, [msgs]);
 
   const notifyTyping = (isTyping) => {
-    if (!socket) return;
-    socket.emit("typing", { conversationId: conversation.id, typing: isTyping });
+    if (!socket || !featOn("typingStatus")) return;
+    socket.emit("typing", { conversationId: conversation.id, typing: isTyping, kind: "typing" });
     clearTimeout(typingTimeout.current);
-    if (isTyping) typingTimeout.current = setTimeout(() => socket.emit("typing", { conversationId: conversation.id, typing: false }), 1500);
+    if (isTyping) typingTimeout.current = setTimeout(() => socket.emit("typing", { conversationId: conversation.id, typing: false, kind: "typing" }), 1500);
   };
+  const notifyAct = (kind, on) => { if (socket && featOn("typingStatus")) socket.emit("typing", { conversationId: conversation.id, typing: !!on, kind }); }; // "recording" | "photo" | "file"
 
   const EDIT_WINDOW_MS = 15 * 60 * 1000; // keep in step with the server
   const canEdit = (m) => !!m && !m.deleted && !m.audio && !m.hasAudio && !m.file && Date.now() - m.time <= EDIT_WINDOW_MS;
@@ -5860,12 +6109,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
   };
   const cancelEdit = () => { setEditing(null); setDraft(""); };
-  const removeMsg = (m) => {
-    setSel(null);
-    if (!socket) return setError("Not connected yet. Try again in a moment.");
-    if (!window.confirm("Delete this " + (m.audio || m.hasAudio ? "voice note" : "message") + " for everyone?")) return;
-    socket.emit("message:delete", { messageId: m.id }, (ack) => { if (ack && ack.error) setError(ack.error); });
-  };
+  const removeMsg = (m) => { setSel(null); setDelDlg([m]); };
   const reactTo = (m, emoji) => { setSel(null); setPicked([]); if (!socket) return setError("Not connected yet. Try again in a moment."); socket.emit("message:react", { messageId: m.id, emoji }, (ack) => { if (ack && ack.error) setError(ack.error); }); };
   if (window.LCReactions) window.LCReactions.useLive(socket, conversation.id, setMsgs);
   const openMenu = (m) => { if (m.senderId === myId && !m.deleted) { openedAt.current = Date.now(); setSel(m); } };
@@ -5892,7 +6136,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
   const pickAt = useRef(0);
   const pickedMsgs = msgs.filter(x => !x.deleted && picked.includes(x.id));
   const picking = pickedMsgs.length > 0;
-  const startPick = (m) => { if (!m || m.deleted) return; pickAt.current = Date.now(); setSel(null); setPicked(p => (p.includes(m.id) ? p : [...p, m.id])); };
+  const startPick = (m) => { if (!m || m.deleted || m.pending) return; pickAt.current = Date.now(); setSel(null); setPicked(p => (p.includes(m.id) ? p : [...p, m.id])); };
   const togglePick = (m) => { if (Date.now() - pickAt.current < 500) return; setPicked(p => (p.includes(m.id) ? p.filter(id => id !== m.id) : [...p, m.id])); };
   const muteUntil = conversation && isMutedChat(settings.muted, conversation.id);
   const exportChat = () => {
@@ -5964,13 +6208,14 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     try { await navigator.clipboard.writeText(text); } catch (e) { window.prompt("Copy these messages", text); }
     clearPick();
   };
-  const deletePicked = () => {
-    const mine = pickedMsgs.filter(x => x.senderId === myId);
-    if (!mine.length) return;
-    if (!socket) return setError("Not connected yet. Try again in a moment.");
-    if (!window.confirm("Delete " + (mine.length === 1 ? "this message" : mine.length + " messages") + " for everyone?")) return;
-    mine.forEach(x => socket.emit("message:delete", { messageId: x.id }, (ack) => { if (ack && ack.error) setError(ack.error); }));
-    clearPick();
+  const deletePicked = () => { if (pickedMsgs.length) setDelDlg(pickedMsgs); };
+  const deleteEveryone = (list) => {
+    setDelDlg(null); clearPick();
+    list.filter(x => x.senderId === myId).forEach(x => {
+      if (String(x.id).startsWith("tmp-")) { setMsgs(prev => prev.filter(y => y.id !== x.id)); return; } // never reached the server
+      if (!socket) return setError("Not connected yet. Try again in a moment.");
+      socket.emit("message:delete", { messageId: x.id }, (ack) => { if (ack && ack.error) setError(ack.error); });
+    });
   };
 
 
@@ -5982,6 +6227,25 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     el.style.height = el.scrollHeight + "px";
   }, [draft]);
 
+  // Text goes onto the screen at once as "sending" and is sent in the background; if the network is down it
+  // waits and goes out by itself when the connection returns. If the server refuses it, it shows "Not sent" with a Retry.
+  const sendText = (text, rid, snap) => {
+    const tmpId = "tmp-" + Date.now() + Math.random().toString(36).slice(2, 6);
+    const mn = conversation.isGroup ? mentionIdsIn(text, conversation.members, myId) : [];
+    setMsgs(prev => [...prev, { id: tmpId, conversationId: conversation.id, senderId: myId, text, time: Date.now(), pending: true, ...(snap ? { replyTo: snap } : {}), ...(mn.length ? { mentions: mn } : {}) }]);
+    socket.emit("message:send", { conversationId: conversation.id, text, replyTo: rid, ...(mn.length ? { mentions: mn } : {}) }, (ack) => {
+      if (ack && ack.error) { setMsgs(prev => prev.map(x => (x.id === tmpId ? { ...x, pending: false, failed: true, error: ack.error, _rid: rid } : x))); return; }
+      setMsgs(prev => { const rest = prev.filter(x => x.id !== tmpId); return ack && ack.message && !rest.some(x => x.id === ack.message.id) ? [...rest, ack.message] : rest; });
+    });
+  };
+  const retrySend = (m) => { if (!socket) return; setMsgs(prev => prev.filter(x => x.id !== m.id)); sendText(m.text, m._rid, m.replyTo || null); };
+  const deleteForMe = (list) => {
+    setDelDlg(null);
+    if (!list.length) return;
+    const ids = list.map(x => x.id), real = ids.filter(id => !String(id).startsWith("tmp-"));
+    if (real.length) { const cur = LCX.get("lcx:hidden:" + conversation.id, []); LCX.put("lcx:hidden:" + conversation.id, [...new Set([...cur, ...real])].slice(-2000)); }
+    setMsgs(prev => prev.filter(x => !ids.includes(x.id))); clearPick(); flashNote("Deleted for you");
+  };
   const send = () => {
     if (!draft.trim() || !socket) return;
     const text = draft.trim();
@@ -5999,16 +6263,16 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     playSound("send");
     const rid = replyTo ? replyTo.id : undefined;
     setReplyTo(null);
-    socket.emit("message:send", { conversationId: conversation.id, text, replyTo: rid }, (ack) => {
-      if (ack?.error) setError(ack.error);
-    });
+    const snap = replyTo ? { id: replyTo.id, senderId: replyTo.senderId, name: replyTo.senderId === myId ? "You" : ((conversation.members || []).find(u => u.id === replyTo.senderId) || conversation.other || {}).name || "", text: String(replyTo.text || "").slice(0, 140) } : null;
+    sendText(text, rid, snap);
   };
 
   const sendFile = async (file, caption, viewOnce) => {
     if (!file) return;
     if (!socket) return setError("Not connected yet. Try again in a moment.");
     setSending(true);
-    const done = setTimeout(() => setSending(false), 20000);
+    const actKind = /^image\//.test(file.type || "") ? "photo" : "file"; notifyAct(actKind, true);
+    const done = setTimeout(() => { setSending(false); notifyAct(actKind, false); }, 20000);
     try {
       let data, mime = file.type || "application/octet-stream", name = file.name || "file";
       if (/^image\/(jpeg|png|webp)$/.test(mime)) { data = await compressImage(file); mime = "image/jpeg"; name = name.replace(/\.\w+$/, "") + ".jpg"; }
@@ -6016,10 +6280,10 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       if (data.length > 4000000) throw new Error("File is too large (max 3 MB)");
       const rid = replyTo ? replyTo.id : undefined; setReplyTo(null);
       socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, ...(caption ? { text: caption } : {}), file: { name, mime, size: Math.round(data.length * 0.75), data }, ...(viewOnce && featOn("viewOnce") ? { viewOnce: true } : {}) }, (ack) => {
-        clearTimeout(done); setSending(false);
+        clearTimeout(done); setSending(false); notifyAct(actKind, false);
         if (ack && ack.error) setError(ack.error); else playSound("send");
       });
-    } catch (e) { clearTimeout(done); setSending(false); setError(e.message || "Could not send that file"); }
+    } catch (e) { clearTimeout(done); setSending(false); notifyAct(actKind, false); setError(e.message || "Could not send that file"); }
   };
   const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; askMedia(f); };
   const askMedia = (f) => {
@@ -6138,10 +6402,15 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         fr.readAsDataURL(new Blob(r.chunks, { type: mr.mimeType || "audio/webm" }));
       };
       mr.start();
-      setRecSec(0); setRec(r);
+      setRecSec(0); setRec(r); notifyAct("recording", true);
     } catch (e) { setError("Allow microphone access to record voice notes"); }
   };
   const stopRec = (cancel) => { if (!rec) return; rec.cancel = !!cancel; if (rec.mr.state !== "inactive") rec.mr.stop(); setRec(null); };
+  useEffect(() => { // keep telling the other side we are recording; say "stopped" when done
+    if (!rec) return;
+    const t = setInterval(() => notifyAct("recording", true), 3000);
+    return () => { clearInterval(t); notifyAct("recording", false); };
+  }, [rec]);
   useEffect(() => {
     if (!rec) return;
     const t = setInterval(() => setRecSec(x => { if (x >= 59) stopRec(false); return x + 1; }), 1000);
@@ -6155,7 +6424,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
   const iBlocked = !isGroup && settings.blocked.some(b => b.id === conversation.other.id);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div onDragOver={e => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) e.preventDefault(); }} onDrop={e => { const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f && !iBlocked) { e.preventDefault(); askMedia(f); } }} style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 8px 12px 10px", background: "#080B0F", position: "relative", flexShrink: 0 }}>
         {picking && (() => {
           const one = pickedMsgs.length === 1 ? pickedMsgs[0] : null;
@@ -6166,7 +6435,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
               <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 21, color: "#F5F7FA", paddingLeft: 10 }}>{pickedMsgs.length}</div>
               {one && <button aria-label="Reply" onClick={replyPicked} style={ib}><ReplyIcon size={22} color="#F5F7FA" /></button>}
               {one && <button aria-label="Message info" onClick={infoPicked} style={ib}><InfoIcon size={22} color="#F5F7FA" /></button>}
-              {allMinePicked && <button aria-label="Delete selected messages" onClick={deletePicked} style={ib}><Trash2 size={22} color="#F5F7FA" /></button>}
+              {picking && <button aria-label="Delete selected messages" onClick={deletePicked} style={ib}><Trash2 size={22} color="#F5F7FA" /></button>}
               <button aria-label="Copy" onClick={copyPicked} style={ib}><CopyIcon size={22} color="#F5F7FA" /></button>
               <button aria-label="Forward" onClick={forwardPicked} style={ib}><ForwardIcon size={22} color="#F5F7FA" /></button>
               <button aria-label="More" onClick={() => setPickMenu(v => !v)} style={ib}><MoreVertical size={22} color="#F5F7FA" /></button>
@@ -6177,6 +6446,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                     {[
                       ...(one && one.senderId === myId && canEdit(one) ? [{ label: "Edit", run: () => { startEdit(one); clearPick(); } }] : []),
                       ...(one && !one.viewOnce && featOn("pinMessages") ? [{ label: (conversation.pinnedMsgs || []).some(p => p.id === one.id) ? "Unpin message" : "Pin message", run: () => { pinMsg(one); clearPick(); setPickMenu(false); } }] : []),
+                      { label: pickedMsgs.every(x => stars[x.id]) ? "Unstar" : "Star", run: () => { toggleStars(pickedMsgs); clearPick(); } },
                       { label: "Select all", run: () => { setPicked(msgs.filter(x => !x.deleted).map(x => x.id)); setPickMenu(false); } },
                     ].map(it => (
                       <div key={it.label} onClick={it.run} style={{ padding: "11px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: "#F5F7FA" }}>{it.label}</div>
@@ -6205,6 +6475,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             ...(featOn("disappearing") && (!conversation.isGroup || conversation.adminId === myId) ? [{ label: "Disappearing messages", run: () => { close(); setSheetName("timer"); } }] : []),
             ...(featOn("chatLock") ? [{ label: LCX.locked(conversation.id) ? "Unlock chat" : "Lock chat", run: () => { close(); lockToggle(); } }] : []),
             { label: "Chat theme", run: () => { close(); setSheetName("theme"); } },
+            { label: "Starred messages", run: () => { close(); setSheetName("starred"); } },
             { label: "Media, links, and docs", run: () => { close(); setSheetName("media"); } },
             { label: "Clear chat", run: () => { close(); clearChat(); } },
             { label: "Export chat", run: () => { close(); exportChat(); } },
@@ -6231,7 +6502,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         <div onClick={isGroup ? () => setInfo(true) : () => setPeerInfo(true)} style={{ flex: 1, minWidth: 0, cursor: "pointer", paddingLeft: 2 }}>
           <div style={{ fontFamily: "Inter", fontWeight: 500, fontSize: 19, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}{conversation.other.verified && <VerifiedBadge />}</div>
           {conversation.disappearAfter ? <div style={{ fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" }}>{"\u23F1 Disappearing: " + disappearLabel(conversation.disappearAfter)}</div> : null}
-          {peerTyping && <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA" }}>typing…</div>}
+          {peerTyping && <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{actLabel}</div>}
         </div>
         {(featOn("voiceCalls") || featOn("videoCalls")) && (
           <button aria-label="Call options" aria-haspopup="menu" aria-expanded={callMenu} onClick={() => { setMenu(false); setCallMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
@@ -6266,7 +6537,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
           <button aria-label="Close search" onClick={() => { setFText(null); setFIdx(0); }} style={iconBtnStyle}><X size={20} color="#9BA7B4" /></button>
         </div>
       )}
-      <div ref={listEl} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: chatBg }}>
+      {!conn && <div className="lc-strip" role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", background: "#2A2110", borderBottom: "1px solid #3D3015", fontFamily: "Inter", fontSize: 12.5, color: "#F2B84B", flexShrink: 0 }}><span className="lc-dots"><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /></span>Waiting for network. Your messages will send when you are back online.</div>}
+      <div ref={listEl} onScroll={(e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; setAtBottom(nb); if (nb) setUnseenN(0); }} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: chatBg }}>
         {loading && <div style={{ margin: "auto", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 }}>Loading conversation…</div>}
         {error && <Banner text={error} onClose={() => setError("")} />}
         {!loading && msgs.length === 0 && (
@@ -6277,22 +6549,27 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         {msgs.flatMap((m, mIdx) => { const sepEl = dayDivider(msgs, mIdx); const bubbleEl = (() => {
           const mine = m.senderId === myId;
           const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
+          const prevM = mIdx > 0 ? msgs[mIdx - 1] : null;
+          const cont = !!prevM && !sepEl && !(unreadDiv && unreadDiv.id === m.id) && prevM.senderId === m.senderId && !prevM.deleted && !!m.time && m.time - prevM.time < 120000; // same sender within 2 minutes: tuck closer
+          const mnList = m.mentions && m.mentions.length ? m.mentions.map(id => { const u = (conversation.members || []).find(x => x.id === id); return u && u.name ? { name: u.name, me: id === myId } : null; }).filter(Boolean) : [];
           return (
             <div key={m.id} ref={(el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }}
               onContextMenu={!m.deleted ? (e) => { e.preventDefault(); startPick(m); } : undefined}
               onClickCapture={picking ? (e) => { if (e.target.closest && e.target.closest("[data-lcpill]")) return; e.preventDefault(); e.stopPropagation(); if (!m.deleted) togglePick(m); } : undefined}
-              onTouchStart={!m.deleted ? () => pressStart(m) : undefined} onTouchEnd={pressEnd} onTouchMove={pressEnd} onTouchCancel={pressEnd}
-              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignSelf: "stretch", position: "relative", padding: "4px 12px", margin: "-4px -12px", zIndex: picking && picked.includes(m.id) ? 5 : undefined, background: picking && picked.includes(m.id) && !m.deleted ? "rgba(168,160,60,0.30)" : "transparent", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" }}>
+              onTouchStart={!m.deleted ? (e) => { pressStart(m); swStart(e, m); } : undefined} onTouchEnd={() => { pressEnd(); swEnd(m); }} onTouchMove={(e) => { pressEnd(); swMove(e, m); }} onTouchCancel={() => { pressEnd(); swRef.current = null; setSwipe(null); }}
+              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignSelf: "stretch", position: "relative", padding: "4px 12px", margin: (cont ? "-9px" : "-4px") + " -12px -4px", zIndex: picking && picked.includes(m.id) ? 5 : undefined, background: picking && picked.includes(m.id) && !m.deleted ? "rgba(168,160,60,0.30)" : "transparent", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" }}>
             {picking && pickedMsgs.length === 1 && picked[0] === m.id && window.LCReactions && window.LCReactions.pill(m, myId, reactTo, mine, pillBelow)}
-            <div style={{
-              WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: "box-shadow .4s",
+            {swipe && swipe.id === m.id && swipe.dx > 20 && <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", opacity: Math.min(1, swipe.dx / 56) }}><ReplyIcon size={20} color="#35D0BA" /></div>}
+            <div className={liveIds.current.has(m.id) ? (mine ? "lc-msg-mine" : "lc-msg-theirs") : undefined} onClick={(e) => tapMsg(e, m)} style={{
+              WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: swipe && swipe.id === m.id ? "none" : "box-shadow .4s, transform .18s", transform: swipe && swipe.id === m.id ? "translateX(" + swipe.dx + "px)" : undefined,
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%", position: "relative",
               marginBottom: !mine && window.LCReactions && window.LCReactions.has(m) ? 14 : 0,
               background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
               borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
               padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
             }}>
-              {isGroup && !mine && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
+              {burst === m.id && <span className="lc-heart-burst" aria-hidden="true">{"\u2764\uFE0F"}</span>}
+              {isGroup && !mine && !cont && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
               {m.forwarded && !m.deleted && <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 14.5, fontStyle: "italic", color: "rgba(225,232,232,0.72)", marginBottom: 5 }}><ForwardIcon size={16} strokeWidth={1.8} color="rgba(225,232,232,0.72)" />Forwarded</div>}
               {m.replyTo && !m.deleted && (
                 <div onClick={() => jumpTo(m.replyTo.id)} style={{ background: mine ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.06)", borderLeft: "4px solid " + (m.replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), borderRadius: 8, padding: "5px 9px", marginBottom: 6, cursor: "pointer", minWidth: 120 }}>
@@ -6314,23 +6591,35 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                       <span style={{ display: "block", fontSize: 11.5, color: "#B9C2CC" }}>{fmtSize(m.file.size)} · tap to download</span>
                     </span>
                   </a>
-                ) : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{withLinks(richText(m.text))}</div>}
+                ) : bigEmoji(m.text) ? <div className={"lc-bigemoji" + (liveIds.current.has(m.id) ? " live" : "")} style={{ fontSize: 44 }}>{m.text.trim()}</div>
+                : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{withLinks(withMentions(richText(m.text), mnList))}</div>}
               {m.file && m.file.data && /^data:(image|video)\//.test(m.file.data) && m.text && !/^(\uD83D\uDCF7 Photo|\uD83D\uDCCE )/.test(m.text) && <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 6 }}>{withLinks(richText(m.text))}</div>}
+              {m.failed && <div onClick={() => retrySend(m)} role="button" style={{ marginTop: 4, fontSize: 12, color: "#FF9B91", fontWeight: 600, cursor: "pointer" }}>Not sent · Tap to retry</div>}
+              {!m.deleted && lpIds.has(m.id) && <LinkPreview url={firstPreviewUrl(m.text)} token={token} />}
               {window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine)}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
+                {stars[m.id] && !m.deleted && <span aria-label="Starred" className="lc-chip-pop" style={{ fontSize: 10.5 }}>{"\u2B50"}</span>}
                 {m.edited && !m.deleted && <span style={{ fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" }}>edited</span>}
                 {m.expiresAt && !m.deleted && <ExpiryTag at={m.expiresAt} />}
                 <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{msgTime(m.time)}</span>
                 {mine && !m.deleted && <button aria-label="Message options" onClick={() => openMenu(m)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" }}><ChevronDown size={14} color="#B9C2CC" /></button>}
-                {mine && (m.read || (m.readBy && m.readBy.length) ? <CheckCheck size={13} color="#35D0BA" /> : <Check size={13} color="#B9C2CC" />)}
+                {mine && (m.pending ? <ClockIcon size={12} color="#B9C2CC" /> : m.failed ? <AlertCircle size={13} color="#FF6B5D" /> : <Tick state={tickState(m)} size={12} onBubble />)}
               </div>
             </div>
             </div>
           );
-        })(); return sepEl ? [sepEl, bubbleEl] : [bubbleEl]; })}
+        })(); const divElm = unreadDiv && unreadDiv.id === m.id ? (<div key={"new-" + m.id} ref={divEl} style={{ alignSelf: "stretch", textAlign: "center", background: "rgba(53,208,186,.14)", color: "#7FE3D3", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, padding: "5px 12px", borderRadius: 10, margin: "4px 0" }}>{unreadDiv.count === 1 ? "1 unread message" : unreadDiv.count + " unread messages"}</div>) : null; return [sepEl, divElm, bubbleEl].filter(Boolean); })}
         {peerTyping && (
           <div style={{ alignSelf: "flex-start", background: "#1E2530", borderRadius: 14, borderBottomLeftRadius: 3, padding: "9px 13px", color: "#8891A0", fontFamily: "Inter", fontSize: 13 }}>
-            typing…
+            <span className="lc-dots" style={{ marginRight: 8 }}><i /><i /><i /></span>{actLabel.replace(/\u2026$/, "")}
+          </div>
+        )}
+        {!atBottom && !loading && (
+          <div style={{ position: "sticky", bottom: 6, alignSelf: "flex-end", height: 0, zIndex: 4 }}>
+            <button className="lc-pop" aria-label="Scroll to latest message" onClick={() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); setUnseenN(0); }} style={{ position: "absolute", right: 0, bottom: 0, width: 42, height: 42, borderRadius: 21, background: "#1E2530", border: "1px solid #2B3544", boxShadow: "0 4px 14px rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+              <ChevronDown size={22} color="#F5F7FA" />
+              {unseenN > 0 && <span style={{ position: "absolute", top: -7, right: -4, minWidth: 20, height: 20, borderRadius: 10, padding: "0 5px", boxSizing: "border-box", background: "#35D0BA", color: "#0E1116", fontFamily: "Inter", fontWeight: 700, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{unseenN > 99 ? "99+" : unseenN}</span>}
+            </button>
           </div>
         )}
         <div ref={endRef} />
@@ -6338,7 +6627,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
 
       {(rec || sending) && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" }} />
+          <span className={rec ? "lc-rec-dot" : undefined} style={{ width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" }} />
           <span style={{ flex: 1 }}>{rec ? "Recording " + Math.floor(recSec / 60) + ":" + String(recSec % 60).padStart(2, "0") + " · tap send to finish" : "Sending file…"}</span>
           {rec && <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>}
         </div>
@@ -6359,8 +6648,15 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
           <button aria-label="Cancel editing" onClick={cancelEdit} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}><X size={18} color="#8891A0" /></button>
         </div>
       )}
+      {!iBlocked && !rec && !editing && mHits.length > 0 && (
+        <div className="lc-strip" role="group" aria-label="Mention a member" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
+          {mHits.map(u => (
+            <button key={u.id} onMouseDown={e => e.preventDefault()} onClick={() => pickMention(u)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "6px 14px", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", color: u.color || "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 14 }}>@{u.name}</button>
+          ))}
+        </div>
+      )}
       {!iBlocked && !rec && !editing && qHits.length > 0 && (
-        <div role="group" aria-label="Your quick replies" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
+        <div className="lc-strip" role="group" aria-label="Your quick replies" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
           {qHits.map(q => (
             <button key={q.id} onMouseDown={e => e.preventDefault()} onClick={() => useQuick(q)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 12px", textAlign: "left", cursor: "pointer", flexShrink: 0, maxWidth: 240 }}>
               <div style={{ color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 13 }}>/{q.shortcut}</div>
@@ -6370,7 +6666,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         </div>
       )}
       {!iBlocked && !rec && typoHit && (
-        <div role="group" aria-label="Spelling suggestions" style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" }}>
+        <div className="lc-strip" role="group" aria-label="Spelling suggestions" style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" }}>
           <span style={{ color: "#8891A0", flexShrink: 0, whiteSpace: "nowrap" }}><s style={{ color: "#FF6B5D" }}>{typoHit.word}</s> →</span>
           {typoHit.options.map(o => (
             <button key={o} onMouseDown={e => e.preventDefault()} onClick={() => applyTypo(o)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "5px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{o}</button>
@@ -6379,7 +6675,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         </div>
       )}
       {sugOpen && !iBlocked && !rec && !editing && (
-        <div role="group" aria-label="Quick replies" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0B0E13", flexShrink: 0, overflowX: "auto" }}>
+        <div className="lc-strip" role="group" aria-label="Quick replies" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0B0E13", flexShrink: 0, overflowX: "auto" }}>
           {quickReplies(msgs, myId).map(t => (
             <button key={t} onMouseDown={e => e.preventDefault()} onClick={() => pickSuggestion(t)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "8px 15px", color: "#F5F7FA", fontFamily: "Inter", fontWeight: 500, fontSize: 14, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{t}</button>
           ))}
@@ -6417,6 +6713,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             className="lc-plain"
             onChange={e => { typingChangeSound(e, draft); setDraft(e.target.value); notifyTyping(true); }}
             onKeyDown={e => { typingKeySound(e); if (e.key === "Escape" && editing) cancelEdit(); }}
+            onPaste={e => { const it = Array.from((e.clipboardData && e.clipboardData.items) || []).find(i => i.kind === "file" && /^image\//.test(i.type)); const f = it && it.getAsFile(); if (f) { e.preventDefault(); askMedia(f); } }}
             placeholder={editing ? "Edit message" : "Message"} style={{ width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "26px", minHeight: 26, padding: "2px 8px 2px 0", margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 }} />
           {(() => {
             const hasText = draft.trim().length > 0;
@@ -6440,6 +6737,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         </div>
       </div>
       )}
+      {delDlg && <DeleteDialog count={delDlg.length} canEveryone={delDlg.every(x => x.senderId === myId)} onEveryone={() => deleteEveryone(delDlg)} onMe={() => deleteForMe(delDlg)} onClose={() => setDelDlg(null)} />}
+      {fx && <MsgFx key={fx.n} kind={fx.kind} onDone={() => setFx(null)} />}
       {attachOpen && <AttachSheet onClose={() => setAttachOpen(false)} onPick={onPickAttach} />}
       {pickSheet && <PickSheet title={pickSheet.title} items={pickSheet.items} multi={pickSheet.multi} empty={pickSheet.empty} onClose={() => setPickSheet(null)} onDone={onPickDone} />}
       {pendingMedia && <MediaCaptionSheet file={pendingMedia.file} url={pendingMedia.url} onSend={sendPending} onCancel={cancelPending} />}
@@ -6452,7 +6751,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             {canEdit(sel) && (
               <div onClick={() => startEdit(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Pencil size={18} color="#35D0BA" />Edit message</div>
             )}
-            <div onClick={() => removeMsg(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#FF6B5D" }}><Trash2 size={18} color="#FF6B5D" />Delete for everyone</div>
+            <div onClick={() => removeMsg(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#FF6B5D" }}><Trash2 size={18} color="#FF6B5D" />Delete</div>
             <div onClick={() => setSel(null)} style={{ padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#9BA7B4", textAlign: "center" }}>Cancel</div>
           </div>
         </div>
@@ -6465,6 +6764,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       )}
       {note && <div style={{ position: "absolute", left: 16, right: 16, bottom: 150, zIndex: 70, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>{note}</div>}
       {sheetName === "theme" && <ChatThemeSheet current={themeId} onPick={(id) => { setThemeId(id); saveJSON("chatTheme:" + conversation.id, id); setSheetName(null); }} onClose={() => setSheetName(null)} />}
+      {sheetName === "starred" && <StarredSheet stars={stars} conversation={conversation} myId={myId} onUnstar={unstarId} onClose={() => setSheetName(null)} onJump={(id) => { setSheetName(null); if (fEls.current[id]) setTimeout(() => jumpTo(id), 60); else flashNote("That message is older. Scroll up to load it."); }} />}
       {sheetName === "media" && <MediaDocsSheet msgs={msgs} conversation={conversation} myId={myId} onOpenImage={setViewer} onClose={() => setSheetName(null)} />}
       {sheetName === "poll" && <PollSheet onSend={sendPoll} onClose={() => setSheetName(null)} />}
       {sheetName === "schedule" && <ScheduleSheet conversationId={conversation.id} socket={socket} onClose={() => setSheetName(null)} />}
@@ -7041,7 +7341,7 @@ function LogoFlip() {
   return (
     <div className={"lc-flip" + (flipped ? " flipped" : "") + (paused ? " paused" : "")} onClick={tap} role="button" aria-label="Letschat Africa logo">
       <div className="lc-flip-inner">
-        <img className="lc-flip-face" src="icons/icon-192.png?v=2" alt="Letschat Africa" width={84} height={84} />
+        <img className="lc-flip-face" src="icons/icon-192.png" alt="Letschat Africa" width={84} height={84} />
         <div className="lc-flip-face lc-flip-back"><span>Created by</span><b>Smart Ayo</b><span>08135351804</span></div>
       </div>
     </div>
