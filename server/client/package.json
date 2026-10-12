@@ -1,6 +1,6 @@
 {
   "name": "loop-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Realtime chat backend for the Loop app",
   "main": "server.js",
   "type": "commonjs",

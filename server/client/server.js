@@ -177,13 +177,15 @@ const VERIFIED_LIST = (process.env.VERIFIED_USERS || "").split(",").map((x) => x
 // verified (e.g. Google sign-in) can ever match, so typing someone's email is never enough.
 const CREATOR_LIST = (process.env.CREATOR_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
 const isCreator = (u) => !!u && !!u.email && CREATOR_LIST.includes(String(u.email).toLowerCase());
+const YT_RE = /(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/i; // only the creator may share YouTube links
+const YT_MSG = "Only the creator can share YouTube links";
 const isVerified = (u) => !!u && (isCreator(u) || !!u.verifiedByCreator || VERIFIED_LIST.some((v) => v === String(u.id).toLowerCase() || (u.email && v === String(u.email).toLowerCase()) || (!v.includes("@") && u.phone && v.replace(/\D/g, "") && v.replace(/\D/g, "") === normalizePhone(u.phone))));
 function publicUser(u) {
   return {
     id: u.id,
     verified: isVerified(u),
     creator: isCreator(u),
-    name: u.name,
+    name: isCreator(u) ? "letschatafrica" : u.name,
     phone: u.phone || null, email: u.email || null,
     username: u.username || null,
     about: u.about,
@@ -194,7 +196,7 @@ function publicUser(u) {
   };
 }
 // Group members only see each other's name/photo/about, never phone numbers or emails.
-const memberView = (u, withContact) => (u ? { id: u.id, verified: isVerified(u), name: u.name, initials: u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
+const memberView = (u, withContact) => (u ? { id: u.id, verified: isVerified(u), name: isCreator(u) ? "letschatafrica" : u.name, initials: isCreator(u) ? "LA" : u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
 function groupView(db, c, uid, preMsgs) {
   const msgs = preMsgs || db.messages.filter((m) => m.conversationId === c.id);
   return {
@@ -475,6 +477,110 @@ app.post("/api/creator/announce", authMiddleware, creatorOnly, async (req, res) 
     }
   }
   res.json({ sent, failed });
+});
+
+
+// ---- Letschat Creator: broadcast, rules (added by creator-loader.js) ----
+const DEFAULT_RULES = "1. Be respectful to everyone.\n2. No hate speech, harassment or threats.\n3. No spam, scams or fake accounts.\n4. No adult or violent content.\n5. Only the creator may share YouTube links.\nBreaking these rules can get your account blocked.";
+app.get("/api/rules", authMiddleware, (req, res) => {
+  const c = readDB().users.find((u) => isCreator(u));
+  res.json({ rules: (c && c.rulesText) || DEFAULT_RULES });
+});
+app.put("/api/creator/rules", authMiddleware, creatorOnly, (req, res) => {
+  const text = String((req.body && req.body.rules) || "").trim().slice(0, 4000);
+  if (!text) return res.status(400).json({ error: "Rules can't be empty" });
+  const db = readDB(); const me = db.users.find((u) => u.id === req.user.id);
+  me.rulesText = text; writeDB(db);
+  res.json({ rules: text });
+});
+// In-app broadcast: lands as a chat message from the creator in every member's inbox.
+app.post("/api/creator/broadcast", authMiddleware, creatorOnly, (req, res) => {
+  const text = String((req.body && req.body.text) || "").trim();
+  if (!text) return res.status(400).json({ error: "Write a message to broadcast" });
+  if (text.length > 4000) return res.status(400).json({ error: "Broadcast is too long (max 4000 characters)" });
+  const db = readDB(); const me = db.users.find((u) => u.id === req.user.id);
+  const sent = []; let n = 0;
+  const dm = new Map(); // existing private chats with the creator, looked up once instead of once per member
+  for (const c of db.conversations) if (!c.isGroup && c.participantIds.includes(me.id)) dm.set(c.participantIds.find((x) => x !== me.id), c);
+  for (const u of db.users.slice(0, 5000)) {
+    if (u.id === me.id || u.suspended || (u.blocked || []).includes(me.id)) continue;
+    const convo = dm.get(u.id) || ensureDM(db, me.id, u.id);
+    const live = userSockets.get(u.id);
+    const message = { id: nanoid(14), conversationId: convo.id, senderId: me.id, text, time: Date.now(), read: false, broadcast: true, ...(live && live.size ? { delivered: true } : {}) };
+    db.messages.push(message); convo.updatedAt = Date.now(); sent.push([convo, message]); n++;
+  }
+  writeDB(db);
+  res.json({ sent: n });
+  // deliver in small batches so a big broadcast never freezes chats for everyone else
+  let i = 0;
+  const step = () => {
+    for (const end = Math.min(i + 100, sent.length); i < end; i++) {
+      const [convo, message] = sent[i];
+      io.to("conv:" + convo.id).emit("message:new", stripViewOnce(message));
+      try { pushMessage(db, convo, message, me.id); } catch (e) { /* push is best effort */ }
+    }
+    if (i < sent.length) setImmediate(step);
+  };
+  step();
+});
+
+// ---- restore from a backup file: puts back the messages YOU sent that are missing (never other people's words) ----
+app.post("/api/me/restore", authMiddleware, rateLimit({ windowMs: 60000, max: 60 }), (req, res) => {
+  const list = Array.isArray(req.body && req.body.conversations) ? req.body.conversations.slice(0, 30) : [];
+  const db = readDB(); const me = req.user.id; const meUser = db.users.find((u) => u.id === me);
+  const have = new Set(db.messages.map((m) => m.id));
+  let restored = 0, skipped = 0;
+  for (const c of list) {
+    const msgs = Array.isArray(c && c.messages) ? c.messages.slice(0, 600) : [];
+    let convo = db.conversations.find((x) => x.id === (c && c.id) && x.participantIds.includes(me));
+    if (!convo && c && !c.isGroup) { // the private chat is gone: recreate it with the one other person in it
+      const others = [...new Set(msgs.map((m) => m && m.senderId).filter((id) => id && id !== me))];
+      const other = others.length === 1 ? db.users.find((u) => u.id === others[0]) : null;
+      if (other && !isBlockedEither(meUser, other)) convo = ensureDM(db, me, other.id);
+    }
+    if (!convo || Number(convo.disappearAfter)) { skipped += msgs.length; continue; }
+    for (const m of msgs) {
+      const text = m ? String(m.text || "").slice(0, 15000) : "";
+      if (!m || m.senderId !== me || m.deleted || !/^[\w-]{6,40}$/.test(String(m.id)) || have.has(m.id) || !text.trim() || (YT_RE.test(text) && !isCreator(meUser))) { skipped++; continue; }
+      const msg = { id: m.id, conversationId: convo.id, senderId: me, text, time: Math.min(Number(m.time) || Date.now(), Date.now()), read: true, restored: true };
+      const f = m.file;
+      if (f && typeof f === "object" && typeof f.data === "string") {
+        const mm = /^data:([\w.+-]+\/[\w.+-]+)?(?:;[\w=.+-]+)*;base64,/.exec(f.data);
+        const mime = mm ? (mm[1] || "application/octet-stream").toLowerCase() : "";
+        if (!mm || f.data.length > 4200000 || /^(text\/html|image\/svg|application\/xhtml|text\/javascript|application\/javascript|application\/x-msdownload)/.test(mime)) { skipped++; continue; }
+        msg.file = { name: String(f.name || "file").replace(/[\\/<>:"|?*\x00-\x1f]/g, "_").slice(0, 120) || "file", mime, size: Math.max(0, Math.round(Number(f.size)) || 0), data: f.data };
+      }
+      if (typeof m.audio === "string" && m.audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(m.audio)) { msg.audio = m.audio; msg.duration = Math.min(Math.round(Number(m.duration)) || 0, 120); }
+      db.messages.push(msg); have.add(msg.id); restored++;
+    }
+  }
+  if (restored) { db.messages.sort((a, b) => a.time - b.time); writeDB(db); }
+  res.json({ restored, skipped });
+});
+
+// ---- delete my account (Google Play requires this): removes my profile, chats and messages ----
+app.delete("/api/me", authMiddleware, rateLimit({ windowMs: 60000, max: 5 }), (req, res) => {
+  if (String((req.body && req.body.confirm) || "") !== "DELETE") return res.status(400).json({ error: "Confirm the deletion" });
+  const db = readDB(); const me = req.user.id;
+  const user = db.users.find((u) => u.id === me);
+  if (!user) return res.status(404).json({ error: "Account not found" });
+  if (isCreator(user)) return res.status(400).json({ error: "The creator account can't be deleted here" });
+  const removeWhere = (arr, pred, c) => { for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) { if (USE_DB && c) pendingDeletes.push({ c, id: arr[i].id }); arr.splice(i, 1); } };
+  const goneConvos = new Set();
+  for (const c of db.conversations) {
+    if (!c.participantIds.includes(me)) continue;
+    if (!c.isGroup) { goneConvos.add(c.id); continue; }
+    c.participantIds = c.participantIds.filter((id) => id !== me);
+    if (!c.participantIds.length) goneConvos.add(c.id); else if (c.adminId === me) c.adminId = c.participantIds[0];
+  }
+  removeWhere(db.messages, (m) => goneConvos.has(m.conversationId) || m.senderId === me, "messages");
+  removeWhere(db.conversations, (c) => goneConvos.has(c.id), "conversations");
+  removeWhere(statusesOf(db), (s) => s.userId === me);
+  removeWhere(listingsOf(db), (l) => l.sellerId === me);
+  removeWhere(db.users, (u) => u.id === me, "users");
+  writeDB(db);
+  try { io.to("user:" + me).disconnectSockets(true); } catch (e) { /* already offline */ }
+  res.json({ ok: true });
 });
 
 const AVATAR_RE = /^data:image\/(jpeg|png);base64,/;
@@ -1389,6 +1495,7 @@ app.delete("/api/catalog/:id", authMiddleware, (req, res) => {
 });
 
 function canSeeStatusItem(db, viewerId, s) { // contacts, plus anyone (or any group member) the post tags
+  { const ow = db.users.find((u) => u.id === s.userId), vw = db.users.find((u) => u.id === viewerId); if (ow && vw && isCreator(ow) && !isBlockedEither(vw, ow)) return true; } // creator posts reach everyone
   if (canSeeStatus(db, viewerId, s.userId)) return true;
   const owner = db.users.find((u) => u.id === s.userId), viewer = db.users.find((u) => u.id === viewerId);
   if (!owner || !viewer || isBlockedEither(viewer, owner)) return false;
@@ -1420,6 +1527,7 @@ app.post("/api/status", authMiddleware, (req, res) => {
   const photo = req.body && req.body.photo;
   const bg = /^#[0-9a-f]{6}$/i.test(String((req.body && req.body.bg) || "")) ? req.body.bg : "#1E8677";
   if (!text && !photo) return res.status(400).json({ error: "Add some text or a photo" });
+  if (YT_RE.test(text) && !isCreator(req.user)) return res.status(400).json({ error: YT_MSG });
   if ([...text].length > 300) return res.status(400).json({ error: "Status text can be up to 300 characters" });
   if (photo && (typeof photo !== "string" || !AVATAR_RE.test(photo) || !looksLikeImage(photo) || photo.length > 1500000)) return res.status(400).json({ error: "Photo must be a JPG or PNG under about 1 MB" });
   const list = statusesOf(db);
@@ -2100,6 +2208,7 @@ io.on("connection", (socket) => {
     if (!text || !text.trim()) return fail("Message text required");
     if (text.length > 15000) return fail("Message is too long (max 15000 characters)");
     const db = readDB();
+    if (YT_RE.test(String(text || "")) && !isCreator(db.users.find((u) => u.id === userId))) return fail(YT_MSG);
     const convo = db.conversations.find((c) => c.id === conversationId);
     if (!convo || !convo.participantIds.includes(userId)) {
       if (ack) ack({ error: "Not a participant of this conversation" });
@@ -2266,6 +2375,7 @@ io.on("connection", (socket) => {
     const convo = db.conversations.find((c) => c.id === conversationId);
     const me = db.users.find((u) => u.id === userId);
     if (!convo || !me || !convo.participantIds.includes(userId)) return fail("Conversation not found");
+    if (YT_RE.test(t) && !isCreator(me)) return fail(YT_MSG);
     if (!convo.isGroup) {
       const otherId = convo.participantIds.find((id) => id !== userId), other = db.users.find((u) => u.id === otherId);
       if ((me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
@@ -2319,6 +2429,7 @@ io.on("connection", (socket) => {
     if (EDIT_WINDOW_MS && Date.now() - m.time > EDIT_WINDOW_MS) return fail("Messages can only be edited for 15 minutes after sending");
     const t = String(text || "").trim();
     if (!t) return fail("Message text required");
+    if (YT_RE.test(t) && !isCreator(db.users.find((u) => u.id === userId))) return fail(YT_MSG);
     if (t.length > 15000) return fail("Message is too long (max 15000 characters)");
     if (t !== m.text) {
       m.text = t; m.edited = true; m.editedAt = Date.now();
