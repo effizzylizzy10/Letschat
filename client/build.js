@@ -19,7 +19,7 @@ console.log("Copied " + n + " items to client/dist");
 (async () => {
   let terser;
   try { terser = require("terser"); } catch (e) { console.log("terser not installed: shipping JavaScript unminified"); return; }
-  for (const f of ["app.js", "push.js", "reactions.js", "config.js"]) {
+  for (const f of ["app.js", "push.js", "reactions.js", "config.js", "device.js"]) {
     const file = path.join(out, f);
     if (!fs.existsSync(file)) continue;
     try {

@@ -35,6 +35,7 @@
     }
   ],
   "id": "./",
+  "prefer_related_applications": false,
   "lang": "en",
   "dir": "ltr",
   "categories": [

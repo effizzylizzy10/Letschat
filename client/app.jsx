@@ -4635,7 +4635,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
             heading("Manage your account"),
             row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile),
             row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")),
-            row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(Users, "Creator panel", "Manage users, badges and suspensions", () => onOpen("creator")),
+            row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()),
             row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")),
             heading("How to"),
             ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
@@ -5029,6 +5029,18 @@ function CreatorScreen({ onBack, token }) {
   const [note, setNote] = useState("");
   const [busyId, setBusyId] = useState("");
   const [ann, setAnn] = useState({ title: "", body: "" });
+  const [bc, setBc] = useState("");
+  const [rulesTxt, setRulesTxt] = useState(null);
+  useEffect(() => { if (tab !== "rules") return; api("/api/v1/rules", { token }).then((d) => setRulesTxt(d.rules)).catch((e) => setErr(e.message)); }, [tab, token]);
+  const sendBroadcast = async () => {
+    if (!window.confirm("Send this message to ALL members?")) return;
+    setBusyId("bc"); setErr(""); setNote("");
+    try { const d = await api("/api/v1/creator/broadcast", { method: "POST", token, body: { text: bc } }); setNote("Sent to " + d.sent + " member" + (d.sent === 1 ? "" : "s") + "."); setBc(""); } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const saveRules = async () => {
+    setBusyId("rules"); setErr(""); setNote("");
+    try { await api("/api/v1/creator/rules", { method: "PUT", token, body: { rules: rulesTxt } }); setNote("Rules saved."); } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
   const load = useCallback(async (which, term) => {
     try {
       setErr("");
@@ -5037,7 +5049,7 @@ function CreatorScreen({ onBack, token }) {
     } catch (e) { setErr(e.message); setItems([]); }
   }, [token]);
   useEffect(() => {
-    if (tab === "announce") return;
+    if (tab === "announce" || tab === "broadcast" || tab === "rules") return;
     setItems(null);
     const t = setTimeout(() => load(tab, q), 300);
     return () => clearTimeout(t);
@@ -5070,13 +5082,24 @@ function CreatorScreen({ onBack, token }) {
   const btn = (label, onClick, color, disabled) => ce("button", { key: label, disabled, onClick, style: { background: "none", border: "1px solid " + color, color, borderRadius: 18, padding: "6px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 12.5, cursor: "pointer", opacity: disabled ? 0.5 : 1 } }, label);
   const input = { width: "100%", boxSizing: "border-box", background: "#161B22", border: "1px solid #262E3A", borderRadius: 12, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" };
   const tabs = ce("div", { style: { display: "flex", gap: 8, padding: "8px 16px 0" } },
-    [["users", "Users"], ["listings", "Listings"], ["announce", "Announce"]].map(([k, label]) => ce("button", { key: k, onClick: () => { setTab(k); setQ(""); setErr(""); setNote(""); }, style: { flex: 1, padding: "9px 0", borderRadius: 12, border: "1px solid " + (tab === k ? "#35D0BA" : "#262E3A"), background: tab === k ? "#35D0BA22" : "none", color: tab === k ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } }, label)));
+    [["users", "Members"], ["listings", "Listings"], ["broadcast", "Broadcast"], ["rules", "Rules"], ["announce", "Push"]].map(([k, label]) => ce("button", { key: k, onClick: () => { setTab(k); setQ(""); setErr(""); setNote(""); }, style: { flex: 1, padding: "9px 0", borderRadius: 12, border: "1px solid " + (tab === k ? "#35D0BA" : "#262E3A"), background: tab === k ? "#35D0BA22" : "none", color: tab === k ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } }, label)));
   const errBox = err && ce("div", { style: { color: "#FF6B6B", fontFamily: "Inter", fontSize: 13, margin: "8px 16px 0" } }, err);
   let body;
-  if (tab === "announce") {
+  if (tab === "broadcast") {
+    const ready = bc.trim() && busyId !== "bc";
+    body = ce("div", { style: { padding: "12px 16px" } },
+      ce("textarea", { value: bc, maxLength: 4000, rows: 6, onChange: (e) => setBc(e.target.value), placeholder: "Write your message to all members", style: { ...input, resize: "none" } }),
+      ce("button", { disabled: !ready, onClick: sendBroadcast, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "bc" ? "Sending..." : "Send to all members"),
+      note && ce("div", { style: { color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, marginTop: 10 } }, note));
+  } else if (tab === "rules") {
+    const ready = rulesTxt !== null && rulesTxt.trim() && busyId !== "rules";
+    body = ce("div", { style: { padding: "12px 16px" } },
+      ce("textarea", { value: rulesTxt === null ? "Loading..." : rulesTxt, maxLength: 4000, rows: 12, onChange: (e) => setRulesTxt(e.target.value), style: { ...input, resize: "none" } }),
+      ce("button", { disabled: !ready, onClick: saveRules, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "rules" ? "Saving..." : "Save rules"),
+      note && ce("div", { style: { color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, marginTop: 10 } }, note));
+  } else if (tab === "announce") {
     const ready = ann.title.trim() && ann.body.trim() && busyId !== "announce";
     body = ce("div", { style: { padding: "12px 16px" } },
-      ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 10, lineHeight: 1.45 } }, "Sends a push notification to every device that has notifications turned on."),
       ce("input", { value: ann.title, maxLength: 80, onChange: (e) => setAnn({ ...ann, title: e.target.value }), placeholder: "Title", style: { ...input, marginBottom: 10 } }),
       ce("textarea", { value: ann.body, maxLength: 300, rows: 4, onChange: (e) => setAnn({ ...ann, body: e.target.value }), placeholder: "Message (max 300 characters)", style: { ...input, resize: "none" } }),
       ce("button", { disabled: !ready, onClick: send, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "announce" ? "Sending..." : "Send announcement"),
@@ -5098,9 +5121,21 @@ function CreatorScreen({ onBack, token }) {
       ce("div", { style: { padding: "10px 16px 0" } }, ce("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: tab === "users" ? "Search name, email or phone" : "Search listings", style: input })),
       items === null && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, "Loading..."), empty, rows);
   }
-  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
-    ce(TopBar, { title: "Creator panel", onBack }), tabs, errBox,
-    ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, body));
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", animation: "lcFadeUp .18s ease-out" } },
+    ce(TopBar, { title: "Letschat Creator", onBack }), tabs, errBox,
+    ce("div", { key: tab, style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24, animation: "lcFade .2s ease-out" } }, body));
+}
+
+function TrashIcon({ size = 21, color = "#9BA7B4" }) { return React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, React.createElement("path", { d: "M3 6h18" }), React.createElement("path", { d: "M8 6V4h8v2" }), React.createElement("path", { d: "M6 6l1 14h10l1-14" })); }
+function BackupIcon({ size = 21, color = "#9BA7B4" }) { return React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, React.createElement("path", { d: "M12 3v12" }), React.createElement("path", { d: "M7 10l5 5 5-5" }), React.createElement("path", { d: "M4 20h16" })); }
+function CreatorLogo({ size = 21 }) { return React.createElement("img", { src: "icons/icon-192.png", alt: "", width: size, height: size, style: { borderRadius: 6, display: "block" } }); }
+function RulesScreen({ onBack, token }) {
+  const ce = React.createElement;
+  const [text, setText] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { api("/api/v1/rules", { token }).then((d) => setText(d.rules)).catch((e) => setErr(e.message)); }, [token]);
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", animation: "lcFadeUp .18s ease-out" } }, ce(TopBar, { title: "Rules & guidelines", onBack }),
+    ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "16px", fontFamily: "Inter", fontSize: 14.5, lineHeight: 1.6, color: "#DDE3EA", whiteSpace: "pre-wrap" } }, err || (text === null ? "Loading..." : text)));
 }
 
 function HelpScreen({ onBack, user }) {
@@ -7955,6 +7990,8 @@ const topLayer = !session ? null
     body = <AboutDeveloperScreen onBack={() => setToolsView(null)} />;
   } else if (toolsView === "creator" && session.user.creator) {
     body = <CreatorScreen token={session.token} onBack={() => setToolsView(null)} />;
+  } else if (toolsView === "rules") {
+    body = React.createElement(RulesScreen, { token: session.token, onBack: () => setToolsView(null) });
   } else if (toolsView === "help") {
     body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
   } else if (showEdit) {

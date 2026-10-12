@@ -1,6 +1,6 @@
 {
   "name": "letschat-client",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Letschat Africa web client (static site, no bundler)",
   "scripts": {
