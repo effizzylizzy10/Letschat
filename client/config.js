@@ -16,3 +16,10 @@ window.LETSCHAT_CONFIG = {
   SUPPORT_WHATSAPP: "",
   SUPPORT_EMAIL: "",
 };
+
+// Letschat Creator tool (only shows for the creator account)
+document.addEventListener("DOMContentLoaded", function () {
+  var s = document.createElement("script");
+  s.src = "creator-tool.js";
+  document.body.appendChild(s);
+});
