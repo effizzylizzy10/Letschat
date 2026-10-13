@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!-- Browsers with JavaScript switched off go straight to Letschat Lite (plain pages that need no scripts) -->
+  <noscript><meta http-equiv="refresh" content="0;url=https://letschat-9tw4.onrender.com/lite" /></noscript>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="description" content="Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone." />
   <meta name="color-scheme" content="dark" />
@@ -62,15 +64,12 @@
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://cdn.socket.io" crossorigin />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="dns-prefetch" href="https://letschat-9tw4.onrender.com" />
   <!-- Speed: start downloading the libraries and the app right away (they are run later, in order) -->
   <link rel="preload" as="script" href="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" />
   <link rel="preload" as="script" href="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" />
   <link rel="preload" as="script" href="app.js" />
-  <!-- Speed: fonts load without blocking the first paint (swap = text shows at once in a fallback font) -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'" />
+  <!-- Fonts, push and reactions are added by responsive.js on normal phones; small / keypad phones skip them (faster, chat only) -->
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" /></noscript>
   <link rel="manifest" href="./manifest.json" />
   <!-- Icons: the Letschat "LA" logo. favicon.ico also answers requests for /favicon.ico (browsers, Google, APK builders).
@@ -87,7 +86,7 @@
     #root { height: 100%; }
 
     /* App fills the whole screen; the footer bar sits under it, touching both edges, and carries the host badge */
-    .app-shell { position: fixed; inset: 0; height: 100vh; height: 100dvh; }
+    .app-shell { position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; height: 100vh; height: 100dvh; }
     .app-footer {
       position: relative; flex: 0 0 auto; width: 100%; box-sizing: border-box;
       height: calc(64px + env(safe-area-inset-bottom, 0px));
@@ -128,7 +127,7 @@
     /* ---- logo (login screen): static, no glow and no flip ---- */
     .lc-flip { width: 84px; height: 84px; margin: 0 auto 20px; pointer-events: none; }
     .lc-flip-inner { position: relative; width: 100%; height: 100%; }
-    .lc-flip-face { position: absolute; inset: 0; width: 84px; height: 84px; border-radius: 22px; box-sizing: border-box; animation: none; box-shadow: none; }
+    .lc-flip-face { position: absolute; top: 0; left: 0; inset: 0; width: 84px; height: 84px; border-radius: 22px; box-sizing: border-box; animation: none; box-shadow: none; }
     .lc-flip-back { display: none; }
     /* ---- "Created by" marquee on top of every main bar: slides sideways, fades out at the edges, loops by itself ---- */
     .lc-credit { overflow: hidden; white-space: nowrap; padding: 8px 0 0; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%); }
@@ -161,11 +160,13 @@
     @media (max-height: 460px) and (orientation: landscape) { .app-footer { height: calc(34px + env(safe-area-inset-bottom, 0px)); } .app-footer-text { font-size: 10px; } }
     #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding: 34vh 16px 0; }
     #error-box {
-      display: none; position: fixed; inset: 0; background: #1a0000; color: #ff8080;
+      display: none; position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: #1a0000; color: #ff8080;
       font-family: monospace; font-size: 13px; padding: 16px; white-space: pre-wrap;
       overflow: auto; z-index: 9999;
     }
   </style>
+  <!-- Responsive layer: every screen size, iPhone Safari, Phoenix, small keypad phones (no effects at 320 px and under) -->
+  <link rel="stylesheet" href="responsive.css" />
 
   <!-- Shows ANY problem on screen (script failed to load, runtime error, promise error) -->
   <script>
@@ -185,11 +186,25 @@
     });
   </script>
 
+  <!-- Old-phone support (must run before everything else) -->
+  <script src="polyfills.js"></script>
+  <script src="compat.js"></script>
+  <script src="responsive.js"></script>
+
   <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
   <script defer crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script defer crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-  <script defer crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script defer crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script>
+    // Firebase 10 needs a recent browser; older phones (Chrome < 87, Safari < 14.5, e.g. iPhone 6 on iOS 12) get Firebase 8, same API
+    (function () {
+      var modern = false;
+      try { modern = window.CSS && CSS.supports && CSS.supports("inset", "0"); } catch (e) {}
+      var base = "https://www.gstatic.com/firebasejs/", files = modern
+        ? [base + "10.12.2/firebase-app-compat.js", base + "10.12.2/firebase-auth-compat.js"]
+        : [base + "8.10.1/firebase-app.js", base + "8.10.1/firebase-auth.js"];
+      for (var i = 0; i < files.length; i++) document.write('<script defer crossorigin="anonymous" src="' + files[i] + '"><\/script>');
+    })();
+  </script>
   <script defer crossorigin="anonymous" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
   <!-- Your server config (single source of truth: config.js; must load before the app) -->
@@ -203,11 +218,9 @@
       } catch (e) {}
     })();
   </script>
-  <script defer src="push.js"></script>
-  <script defer src="reactions.js"></script>
 </head>
 <body>
-  <main id="root"><div id="boot" role="status"><h1 style="font:700 20px Sora,Inter,sans-serif;color:#F5F7FA;margin:0 0 8px">Letschat Africa</h1><p style="margin:0">Loading…</p></div></main>
+  <main id="root"><div id="boot" role="status"><h1 style="font:700 20px Sora,Inter,sans-serif;color:#F5F7FA;margin:0 0 8px">Letschat Africa</h1><p style="margin:0">Loading…</p><p style="margin:14px 0 0;font-size:13px">Slow or basic phone? <a href="https://letschat-9tw4.onrender.com/lite" style="color:#35D0BA">Open Letschat Lite</a></p></div></main>
   <noscript><p style="color:#9BA7B4;font-family:sans-serif;text-align:center;padding:20px">Letschat Africa needs JavaScript. Please turn it on and reload.</p></noscript>
   <div id="error-box"></div>
 
@@ -265,8 +278,7 @@
   </script>
 
   <!-- Your app, precompiled from app.jsx -->
-  <script defer src="app.js"></script>
-  <script defer src="device.js"></script>
+  <!-- app.js and device.js are started by responsive.js once React, Socket.IO and Firebase are ready (backup hosts are used when one is blocked) -->
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
@@ -282,7 +294,7 @@
           b.onclick = function () { window.location.reload(); };
           document.body.appendChild(b);
         });
-        navigator.serviceWorker.register("./sw.js").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js" + (window.__lcLite ? "?lite=1" : "")).then(function (reg) {
           var check = function () { reg.update().catch(function () {}); };
           document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
           setInterval(check, 60 * 60 * 1000);

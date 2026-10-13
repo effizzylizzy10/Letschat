@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b141a">
+<title>Letschat AI agent</title>
+<style>
+  :root { --bg:#0b141a; --panel:#111b21; --bubble:#1f2c33; --mine:#144d37; --text:#e9edef; --dim:#8696a0; --green:#25d366; --line:#233138; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0); padding-bottom: env(safe-area-inset-bottom, 0); }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header a { color: var(--text); text-decoration: none; font-size: 22px; padding: 0 6px; }
+  .av { width: 38px; height: 38px; border-radius: 50%; background: var(--green); color: #06281a; display: grid; place-items: center; font-weight: 700; }
+  header .t b { display: block; } header .t small { color: var(--dim); }
+  nav { display: flex; background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav button { flex: 1; padding: 11px 4px; background: none; border: 0; color: var(--dim); font: inherit; border-bottom: 2px solid transparent; }
+  nav button.on { color: var(--green); border-color: var(--green); }
+  main { flex: 1; overflow-y: auto; padding: 12px; }
+  .row { display: flex; margin: 6px 0; } .row.me { justify-content: flex-end; }
+  .b { max-width: 86%; padding: 8px 11px; border-radius: 10px; background: var(--bubble); white-space: pre-wrap; word-wrap: break-word; }
+  .me .b { background: var(--mine); }
+  .btn { display: block; margin-top: 8px; padding: 9px; text-align: center; color: var(--green); border-top: 1px solid var(--line); cursor: pointer; font-weight: 600; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-size: 14px; color: var(--green); text-transform: uppercase; letter-spacing: .04em; }
+  .item { display: flex; gap: 8px; align-items: flex-start; padding: 7px 0; border-top: 1px solid var(--line); }
+  .item:first-of-type { border-top: 0; } .item span { flex: 1; } .item button { background: none; border: 0; color: #f15c6d; font-size: 16px; }
+  .dim { color: var(--dim); font-size: 13px; }
+  footer { display: flex; gap: 8px; padding: 8px; background: var(--panel); border-top: 1px solid var(--line); }
+  footer input { flex: 1; padding: 11px 14px; border-radius: 22px; border: 0; background: var(--bubble); color: var(--text); font: inherit; outline: none; }
+  footer button { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--green); color: #06281a; font-size: 18px; }
+  .hint { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .hint button { background: var(--bubble); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 6px 10px; font: inherit; font-size: 13px; }
+</style>
+</head>
+<body>
+<header><a href="./" aria-label="Back">←</a><div class="av">AI</div><div class="t"><b>Letschat AI agent</b><small id="sub">Your AI agent</small></div></header>
+<nav><button data-tab="chat" class="on">Chat</button><button data-tab="instr">Instructions</button><button data-tab="know">Knowledge</button></nav>
+<main id="main"></main>
+<footer><input id="in" placeholder="Message" autocomplete="off" enterkeyhint="send"><button id="go" aria-label="Send">➤</button></footer>
+<script src="config.js"></script>
+<script>
+(function () {
+  var API = ((window.LETSCHAT_CONFIG || {}).API_URL || "").replace(/\/$/, "");
+  var main = document.getElementById("main"), input = document.getElementById("in"), sub = document.getElementById("sub");
+  var tab = "chat", state = null, busy = false;
+  function findToken() {
+    var JWT = /eyJ[\w-]+\.[\w-]+\.[\w-]+/;
+    try { for (var s of [localStorage, sessionStorage]) for (var i = 0; i < s.length; i++) { var m = JWT.exec(s.getItem(s.key(i)) || ""); if (m) return m[0]; } } catch (e) {}
+    return "";
+  }
+  var token = findToken();
+  function api(path, body) {
+    return fetch(API + path, { method: body ? "POST" : "GET", headers: Object.assign({ Authorization: "Bearer " + token }, body ? { "Content-Type": "application/json" } : {}), body: body ? JSON.stringify(body) : undefined })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "Error"); return j; }); });
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function setTab(t) { tab = t; document.querySelectorAll("nav button").forEach(function (b) { b.classList.toggle("on", b.dataset.tab === t); }); render(); }
+  document.querySelectorAll("nav button").forEach(function (b) { b.onclick = function () { setTab(b.dataset.tab); }; });
+  function list(card, kind, items) {
+    items.forEach(function (x, i) {
+      var r = el("div", "item"); r.appendChild(el("span", "", x));
+      var d = el("button", "", "✕"); d.setAttribute("aria-label", "Remove"); d.onclick = function () { api("/api/me/ai/agent/remove", { kind: kind, index: i }).then(function (s) { state = s; render(); }); };
+      r.appendChild(d); card.appendChild(r);
+    });
+    if (!items.length) card.appendChild(el("div", "dim", "Nothing yet. Type it in the Chat tab and I will save it."));
+  }
+  function render() {
+    main.textContent = "";
+    if (!state) return;
+    sub.textContent = state.on ? "Your AI agent" : "Switch the AI assistant on in Tools to let me reply for you";
+    if (tab === "chat") {
+      if (!state.inbox.length) {
+        main.appendChild(el("div", "dim", "Tell me how to talk to your customers and what to know. Try one of these:"));
+        var h = el("div", "hint");
+        ["Always be kind, polite and humble", "Our shop address is ...", "Source related information online so you give accurate answers", "Source for properties in Lagos, Ibadan and Abuja", "What is the weather in Lagos?"].forEach(function (t) { var b = el("button", "", t); b.onclick = function () { input.value = t; input.focus(); }; h.appendChild(b); });
+        main.appendChild(h);
+      }
+      var t = state.today; if (t && t.replies) main.appendChild(el("div", "dim", "Today I replied to " + t.chats + " chat" + (t.chats === 1 ? "" : "s") + " (" + t.replies + " message" + (t.replies === 1 ? "" : "s") + ")."));
+      state.inbox.forEach(function (m) {
+        var row = el("div", "row" + (m.from === "me" ? " me" : "")), b = el("div", "b", m.text);
+        (m.buttons || []).forEach(function (name) { var a = el("div", "btn", name); a.onclick = function () { setTab(/Instruction/.test(name) ? "instr" : "know"); }; b.appendChild(a); });
+        row.appendChild(b); main.appendChild(row);
+      });
+      main.scrollTop = main.scrollHeight;
+    } else if (tab === "instr") {
+      var c = el("div", "card"); c.appendChild(el("h3", "", "Instructions")); list(c, "instructions", state.instructions); main.appendChild(c);
+      var c2 = el("div", "card"); c2.appendChild(el("h3", "", "Sourcing")); c2.appendChild(el("div", "", state.online ? "Looks up answers online by itself (Wikipedia, news, weather, exchange rates and more)." : "Online lookup is off. I answer only from my Knowledge."));
+      c2.appendChild(el("div", "dim", state.llm ? "Free AI engine connected: answers read naturally." : "Using free online sources directly. Add a free GROQ_API_KEY or GEMINI_API_KEY on the server for more natural answers.")); main.appendChild(c2);
+    } else {
+      var k = el("div", "card"); k.appendChild(el("h3", "", "What you taught me")); list(k, "facts", state.facts); main.appendChild(k);
+      var a = el("div", "card"); a.appendChild(el("h3", "", "Learned by itself")); a.appendChild(el("div", "dim", "From your profile, business items and Market posts."));
+      (state.auto || []).forEach(function (x) { a.appendChild(el("div", "item", x)); }); if (!(state.auto || []).length) a.appendChild(el("div", "dim", "Add business items or Market posts and I will learn them.")); main.appendChild(a);
+    }
+  }
+  function send() {
+    var text = input.value.trim(); if (!text || busy) return; busy = true; input.value = "";
+    state.inbox.push({ from: "me", text: text }); setTab("chat");
+    api("/api/me/ai/agent", { text: text }).then(function (s) { state = s; }).catch(function (e) { state.inbox.push({ from: "ai", text: "Sorry, " + e.message + "." }); }).then(function () { busy = false; render(); });
+  }
+  document.getElementById("go").onclick = send;
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter") send(); });
+  if (!API || !token) { main.appendChild(el("div", "card", "Open Letschat Africa and sign in first, then open this page again.")); return; }
+  api("/api/me/ai/agent").then(function (s) { state = s; render(); }).catch(function (e) { main.appendChild(el("div", "card", "Could not load the agent: " + e.message + ". Open Letschat Africa and sign in first.")); });
+})();
+</script>
+</body>
+</html>

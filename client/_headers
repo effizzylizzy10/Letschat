@@ -19,6 +19,12 @@
   Cache-Control: public, max-age=3600
 /device.js
   Cache-Control: public, max-age=0, must-revalidate
+/responsive.js
+  Cache-Control: public, max-age=0, must-revalidate
+/responsive.css
+  Cache-Control: public, max-age=0, must-revalidate
+/compat.js
+  Cache-Control: public, max-age=0, must-revalidate
 
 # Logo files: always check for a newer copy, so a changed logo shows up straight away (the files are tiny)
 /icons/*

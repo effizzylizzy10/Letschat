@@ -1,0 +1,95 @@
+/* Letschat responsive layer: loads after the inline styles in index.html, so it can refine them.
+   Goals: same neat layout on every phone (keypad to tablet), iPhone Safari, Android Chrome and Phoenix browser. */
+
+/* ---------- 1. every screen ---------- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+#root, .app-shell { max-width: 100%; }
+.app-shell {
+  box-sizing: border-box; overflow: hidden;
+  height: 100vh; height: -webkit-fill-available; height: 100dvh;   /* older Safari / Phoenix fall back one step at a time */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+/* long words, links and names wrap instead of pushing the screen wider */
+p, span, div, a, h1, h2, h3, h4 { overflow-wrap: break-word; word-wrap: break-word; }
+img, video, canvas { max-width: 100%; }
+input, textarea, select, button { max-width: 100%; box-sizing: border-box; font-family: inherit; }
+input, textarea, select { -webkit-appearance: none; appearance: none; border-radius: 0; }
+input[type="checkbox"], input[type="radio"] { -webkit-appearance: auto; appearance: auto; }
+button { -webkit-appearance: none; appearance: none; }
+
+/* iPhone Safari zooms the page when a field under 16px gets focus: keep fields at 16px there (not on keypad-size screens) */
+html.lc-ios:not(.lc-small) input, html.lc-ios:not(.lc-small) textarea, html.lc-ios:not(.lc-small) select { font-size: 16px !important; }
+
+/* ---------- 2. phone turned on its side: give the chat the room ---------- */
+@media (max-height: 400px) { .lc-credit { display: none !important; } }
+
+/* ---------- 3. tablets and computers: a centred, phone-shaped app instead of a stretched one ---------- */
+@media (min-width: 820px) and (min-height: 500px) {
+  html, body { background: #05070A; }
+  .app-shell {
+    left: 0; right: 0; margin: 0 auto; max-width: 760px;
+    -webkit-transform: translateZ(0); transform: translateZ(0);   /* pop-ups and sheets stay inside the app column */
+    border-left: 1px solid #1F2733; border-right: 1px solid #1F2733;
+  }
+}
+
+/* ---------- 4. small phones and keypad phones (128 to 320 px wide): plain, compact, no effects ---------- */
+html.lc-small *, html.lc-small *::before, html.lc-small *::after {
+  -webkit-animation: none !important; animation: none !important;
+  -webkit-transition: none !important; transition: none !important;
+  -webkit-box-shadow: none !important; box-shadow: none !important;
+  text-shadow: none !important;
+  -webkit-filter: none !important; filter: none !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+  -webkit-mask-image: none !important; mask-image: none !important;
+  will-change: auto !important; scroll-behavior: auto !important;
+}
+html.lc-small *:active { -webkit-transform: none !important; transform: none !important; }
+html.lc-small .lc-tab svg, html.lc-small .lc-tab.on svg { -webkit-transform: none !important; transform: none !important; }
+html.lc-small .lc-glow, html.lc-small .app-footer::before { display: none !important; }
+html.lc-small .lc-flip { width: 56px; height: 56px; margin-bottom: 10px; }
+html.lc-small .lc-flip-face { width: 56px; height: 56px; border-radius: 16px; }
+
+/* one screen-wide column: nothing wider than the screen, nothing sideways */
+html.lc-small, html.lc-small body, html.lc-small #root, html.lc-small .app-shell { overflow-x: hidden; }
+html.lc-small * { max-width: 100%; box-sizing: border-box; }
+html.lc-small svg { max-width: none; }
+html.lc-small [style*="min-width"] { min-width: 0 !important; }
+html.lc-small .app-footer, html.lc-small .lc-credit { display: none !important; }
+
+/* tighter padding so the content gets the room (bars, cards, rows, pop-ups) */
+html.lc-small [style*="padding: 12px"], html.lc-small [style*="padding: 14px"], html.lc-small [style*="padding: 16px"],
+html.lc-small [style*="padding: 18px"], html.lc-small [style*="padding: 20px"], html.lc-small [style*="padding: 24px"],
+html.lc-small [style*="padding: 28px"], html.lc-small [style*="padding: 32px"] { padding: 8px !important; }
+html.lc-small [style*="margin: 0px 20px"], html.lc-small [style*="margin: 0px 16px"] { margin-left: 8px !important; margin-right: 8px !important; }
+
+/* bottom tab bar: equal slots, short labels, no overflow */
+html.lc-small .lc-tab { min-width: 0; overflow: hidden; padding: 4px 0 !important; }
+html.lc-small .lc-tab span { font-size: 10px !important; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.lc-tiny .lc-tab span { display: none !important; }
+html.lc-tiny .lc-tab.on span { display: block !important; }
+
+/* 176 px and under: smallest comfortable spacing */
+html.lc-micro [style*="padding: 8px"] { padding: 5px !important; }
+html.lc-micro .lc-tab svg { width: 18px; height: 18px; }
+
+/* ---------- 5. chat-only (lite) mode: keypad phones and screens up to 320 px ---------- */
+/* keep Chats and Tools (settings / sign out); Calls, Updates, Market and Games are hidden so the bar stays short and tidy */
+html.lc-lite .lc-tab:nth-child(n+2):nth-child(-n+5) { display: none !important; }
+html.lc-lite .lc-tab { -webkit-box-flex: 1; flex: 1 1 0; }
+html.lc-lite .lc-flip, html.lc-lite .lc-credit { display: none !important; }
+
+/* ---------- 6. effects removed on every screen: nothing glows, flickers, slides or blurs ---------- */
+#root > *, div[style*="overflow-y: auto"] > *, .lc-glow, .lc-credit span, div[style*="width: 13px"][style*="border-radius: 50%"] {
+  -webkit-animation: none !important; animation: none !important;
+}
+.lc-credit { -webkit-mask-image: none !important; mask-image: none !important; text-align: center; }
+.lc-credit span { padding-left: 0 !important; }
+svg, button:hover { -webkit-filter: none !important; filter: none !important; }
+.lc-tab svg, .lc-tab.on svg { -webkit-transform: none !important; transform: none !important; }
+.lc-tab.on span { text-shadow: none !important; }
+.app-footer { -webkit-box-shadow: none !important; box-shadow: none !important; }
+.app-footer::before { display: none !important; }

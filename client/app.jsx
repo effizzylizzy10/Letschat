@@ -391,7 +391,7 @@ function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
   return (
     <div onClick={onClick} style={{ position: "relative", width: size, height: size, flexShrink: 0, cursor: onClick ? "pointer" : "default" }}>
       {ring && (
-        <div style={{ position: "absolute", inset: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` }} />
+        <div style={{ position: "absolute", top: -3, right: -3, bottom: -3, left: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` }} />
       )}
       {photo ? (
         <img loading="lazy" decoding="async"
@@ -400,7 +400,7 @@ function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
           onContextMenu={e => e.preventDefault()}
           draggable={false}
           style={{
-            position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+            position: "absolute", top: ring ? 3 : 0, right: ring ? 3 : 0, bottom: ring ? 3 : 0, left: ring ? 3 : 0, borderRadius: "50%",
             width: `calc(100% - ${ring ? 6 : 0}px)`, height: `calc(100% - ${ring ? 6 : 0}px)`,
             objectFit: "cover", border: `1px solid ${color}55`,
             userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
@@ -408,7 +408,7 @@ function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
         />
       ) : (
         <div style={{
-          position: "absolute", inset: ring ? 3 : 0, borderRadius: "50%",
+          position: "absolute", top: ring ? 3 : 0, right: ring ? 3 : 0, bottom: ring ? 3 : 0, left: ring ? 3 : 0, borderRadius: "50%",
           background: color + "26", color, display: "flex", alignItems: "center",
           justifyContent: "center", fontFamily: "Sora", fontWeight: 700,
           fontSize: size * 0.34, border: `1px solid ${color}55`,
@@ -477,7 +477,7 @@ function ImageZoomModal({ photo, initials, color, onClose }) {
 
   return (
     <div onClick={onClose} style={{
-      position: "absolute", inset: 0, background: "#000000F2", zIndex: 30,
+      position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000F2", zIndex: 30,
       display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column",
     }}>
       <button onClick={onClose} aria-label="Close" style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", zIndex: 2 }}>
@@ -490,7 +490,7 @@ function ImageZoomModal({ photo, initials, color, onClose }) {
             onClick={(e) => e.stopPropagation()}
             onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
             onWheel={(e) => setT((c) => clamp({ ...c, s: c.s - e.deltaY * 0.003 }))}
-            style={{ width: "100%", aspectRatio: "1 / 1", overflow: "hidden", touchAction: "none", cursor: t.s > 1 ? "grab" : "zoom-in" }}
+            style={{ width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", overflow: "hidden", touchAction: "none", cursor: t.s > 1 ? "grab" : "zoom-in" }}
           >
             <img loading="lazy" decoding="async"
               src={photo}
@@ -520,7 +520,7 @@ const isJpgOrPng = (file) => /^image\/(jpe?g|png)$/i.test(file.type);
 function PhotoMenu({ hasPhoto, onGallery, onCamera, onRemove, onClose }) {
   const items = [["Choose from gallery", onGallery, false], ["Take a photo", onCamera, false], hasPhoto ? ["Remove photo", onRemove, true] : null].filter(Boolean);
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div onClick={onClose} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" }}>
         <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 2 }}>Profile photo</div>
         <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5", textAlign: "center", marginBottom: 12 }}>JPG or PNG</div>
@@ -585,7 +585,7 @@ function TabBar({ active, setActive }) {
         return (
           <button key={t.id} className={isActive ? "lc-tab on" : "lc-tab"} onClick={() => setActive(t.id)} style={{
             flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
-            alignItems: "center", gap: 4, cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
+            alignItems: "center", gap: 4, counterIncrement: "lcgap-4", cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
           }}>
             <Icon size={22} strokeWidth={isActive ? 2.4 : 1.8} />
             <span style={{ fontSize: 11, fontFamily: "Inter", fontWeight: isActive ? 600 : 500 }}>{t.label}</span>
@@ -608,7 +608,7 @@ function TopBar({ title, onBack, right }) {
   return (
     <div style={{ flexShrink: 0, background: "#0E1116" }}>
       {!onBack && <CreditMarquee />}
-      <div style={{ display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 14, counterIncrement: "lcgap-14" }}>
         {onBack && (
           <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}>
             <ArrowLeft size={22} />
@@ -627,7 +627,7 @@ function Banner({ text, tone = "error", onClose }) {
     <div style={{
       margin: "0 16px 10px", padding: "10px 12px", borderRadius: 10, background: colors.bg,
       border: `1px solid ${colors.border}`, color: colors.fg, fontFamily: "Inter", fontSize: 13,
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8",
     }}>
       <AlertCircle size={15} style={{ flexShrink: 0 }} />
       <span style={{ flex: 1 }}>{text}</span>
@@ -747,13 +747,13 @@ function PhonebookView({ token, onBack, onStarted }) {
 
   return (
     <div style={{ ...card, height: "88%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", marginBottom: 12 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
         <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" }}>From your phonebook</div>
         {book.length > 0 && <button onClick={clearBook} style={{ ...smallBtn, color: "#FF6B5D" }}>Remove</button>}
       </div>
       {error && <Banner text={error} onClose={() => setError("")} />}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 12 }}>
         {canPickContacts() && <button onClick={pick} style={{ ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }}>{book.length ? "Add more contacts" : "Choose contacts"}</button>}
         <button onClick={() => vcfRef.current && vcfRef.current.click()} style={{ ...(canPickContacts() ? smallBtn : { ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }) }}>Import .vcf</button>
         <input ref={vcfRef} type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={onVcf} style={{ display: "none" }} />
@@ -813,7 +813,7 @@ function NewChatModal({ token, onClose, onStarted }) {
 
   return (
     <div style={{
-      position: "absolute", inset: 0, background: "#000000B0", display: "flex",
+      position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000B0", display: "flex",
       alignItems: "flex-end", zIndex: 20,
     }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
@@ -826,7 +826,7 @@ function NewChatModal({ token, onClose, onStarted }) {
           Enter the username, email or phone number (with country code) of the person you want to message. They need to have signed in to Letschat Africa at least once.
         </div>
         {error && <Banner text={error} />}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
           <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }}
             placeholder="@username, email or phone" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
         </div>
@@ -857,9 +857,9 @@ const senderPrefix = (c) => {
   const who = c.isGroup && c.members.find(x => x.id === m.senderId);
   return who ? who.name.split(" ")[0] + ": " : "";
 };
-const sheet = { position: "absolute", inset: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 20 };
+const sheet = { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 20 };
 const card = { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "88%", display: "flex", flexDirection: "column" };
-const inputBox = { display: "flex", alignItems: "center", gap: 10, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 };
+const inputBox = { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 };
 const inputEl = { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 };
 const primaryBtn = (busy) => ({ width: "100%", padding: 13, borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1 });
 const smallBtn = { background: "#1E2530", border: "1px solid #262E3A", color: "#35D0BA", borderRadius: 10, padding: "7px 12px", fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, cursor: "pointer", flexShrink: 0 };
@@ -872,7 +872,7 @@ function VerifiedBadge({ size = 15 }) {
 }
 function PersonRow({ u, online, status, right, onClick }) {
   return (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", cursor: onClick ? "pointer" : "default" }}>
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "8px 0", cursor: onClick ? "pointer" : "default" }}>
       <Ring size={40} color={u.color} initials={u.initials} photo={u.avatar} online={online} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}{u.verified && <VerifiedBadge />}</div>
@@ -1008,30 +1008,30 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
   const goMembers = () => { setSearching(true); setTimeout(() => { const s = scrollRef.current, m = memRef.current; if (s && m) s.scrollTo({ top: m.offsetTop - GI_BAR, behavior: "smooth" }); }, 30); };
 
   const ico = (I) => ce(I, { size: 22, color: "#8891A0" });
-  const row = (key, icon, title, sub, o = {}) => ce("div", { key, onClick: o.onClick, style: { display: "flex", alignItems: "center", gap: 22, padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" } },
+  const row = (key, icon, title, sub, o = {}) => ce("div", { key, onClick: o.onClick, style: { display: "flex", alignItems: "center", gap: 22, counterIncrement: "lcgap-22", padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" } },
     ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
     ce("div", { style: { flex: 1, minWidth: 0 } },
       ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" } }, title),
       sub && ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, sub)),
     o.right);
   const line = (k) => ce("div", { key: k, style: { height: 1, background: "#1B212B", margin: "6px 0" } });
-  const pill = (label, Icon, fn, off) => ce("button", { key: label, onClick: off ? undefined : fn, disabled: !!off, style: { background: "none", border: "none", padding: 0, cursor: off ? "default" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, opacity: off ? 0.45 : 1 } },
+  const pill = (label, Icon, fn, off) => ce("button", { key: label, onClick: off ? undefined : fn, disabled: !!off, style: { background: "none", border: "none", padding: 0, cursor: off ? "default" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, counterIncrement: "lcgap-7", opacity: off ? 0.45 : 1 } },
     ce("span", { style: { width: 68, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Icon, { size: 20, color: "#F5F7FA" })),
     ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" } }, label));
   const greenDot = (Icon) => ce("span", { style: { width: 44, height: 44, borderRadius: "50%", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", margin: "-10px 0" } }, ce(Icon, { size: 22, color: "#06210F" }));
   const checkbox = (on) => ce("div", { style: { width: 20, height: 20, borderRadius: 4, border: "2px solid " + (on ? "#21C063" : "#8891A0"), background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && ce(Check, { size: 14, color: "#06210F", strokeWidth: 3 }));
-  const gsheet = (title, children) => ce("div", { onClick: () => setSheet(null), style: { position: "absolute", inset: 0, zIndex: 30, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end" } },
+  const gsheet = (title, children) => ce("div", { onClick: () => setSheet(null), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 30, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end" } },
     ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "88%", background: "#12161C", borderTopLeftRadius: 22, borderTopRightRadius: 22, display: "flex", flexDirection: "column", padding: "10px 0 14px", boxSizing: "border-box", animation: "lcStUp .25s ease-out" } },
       ce("div", { style: { width: 40, height: 4, borderRadius: 2, background: "#3A4452", margin: "0 auto 12px" } }),
       ce("div", { style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, title),
       ce("div", { style: { overflowY: "auto", flex: 1, minHeight: 0 } }, children)));
-  const listRow = (key, icon, name, on, fn) => ce("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 18, padding: "13px 24px", cursor: "pointer" } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, icon), ce("div", { style: { flex: 1, fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, name), checkbox(on));
+  const listRow = (key, icon, name, on, fn) => ce("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "13px 24px", cursor: "pointer" } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, icon), ce("div", { style: { flex: 1, fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, name), checkbox(on));
   const dot = (color) => ce("span", { style: { width: 13, height: 13, borderRadius: "50%", background: color, display: "block" } });
   const subHead = (t) => ce("div", { key: t, style: { padding: "14px 24px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, t);
   const badge = ce("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", background: "#1E2530", borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap", flexShrink: 0 } }, "Group Admin");
   const memberRow = (m) => {
     const online = m.id === myId || !!presence[m.id];
-    return ce("div", { key: m.id, onClick: () => setProfile(m), style: { display: "flex", alignItems: "center", gap: 16, padding: "8px 22px", cursor: "pointer" } },
+    return ce("div", { key: m.id, onClick: () => setProfile(m), style: { display: "flex", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "8px 22px", cursor: "pointer" } },
       ce(Ring, { size: 44, color: m.color, initials: m.initials, photo: m.avatar, online }),
       ce("div", { style: { flex: 1, minWidth: 0 } },
         ce("div", { style: { fontFamily: "Inter", fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, m.id === myId ? "You" : m.name, m.verified && ce(VerifiedBadge, {})),
@@ -1049,7 +1049,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
   const longDesc = (c.description || "").length > 48;
   const descShown = c.description ? (longDesc && !descOpen ? c.description.slice(0, 48).trim() + "… " : c.description + (longDesc ? " " : "")) : "";
 
-  return ce("div", { style: { position: "absolute", inset: 0, background: "#0E1116", zIndex: 20, display: "flex", flexDirection: "column", overflow: "hidden" } },
+  return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#0E1116", zIndex: 20, display: "flex", flexDirection: "column", overflow: "hidden" } },
     ce("style", null, "@keyframes lcStUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}"),
     // collapsing header
     ce("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: hH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" } }),
@@ -1063,7 +1063,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
       c.avatar ? ce("img", { src: photoSrc(c.avatar), alt: "", draggable: false, onContextMenu: (e) => e.preventDefault(), style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })
         : ce("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: GROUP_COLOR, fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 } }, c.other.initials)),
     ce("input", { ref: fileRef, type: "file", accept: "image/jpeg,image/png", style: { display: "none" }, onChange: pickPhoto }),
-    menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 8 } },
+    menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 8 } },
       ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: GI_BAR - 8, right: 10, minWidth: 200, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)", animation: "lcStUp .15s ease-out" } },
         menuItems.map(([label, fn]) => ce("div", { key: label, onClick: () => { setMenu(false); fn(); }, style: { padding: "13px 20px", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", cursor: "pointer" } }, label)))),
 
@@ -1074,7 +1074,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
         ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginTop: 4 } }, "Group · ", ce("span", { style: { color: "#21C063" } }, c.members.length + (c.members.length === 1 ? " member" : " members"))),
         c.description ? ce("div", { style: { fontFamily: "Inter", fontSize: 15.5, color: "#9BA7B4", marginTop: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.4 } }, descShown, longDesc && ce("span", { onClick: () => setDescOpen((v) => !v), style: { color: "#21C063", cursor: "pointer" } }, descOpen ? "Show less" : "Read more"))
           : isAdmin ? ce("div", { onClick: () => { setDesc(""); setSheet("desc"); }, style: { fontFamily: "Inter", fontSize: 15, color: "#21C063", marginTop: 12, cursor: "pointer" } }, "Add group description") : null,
-        ce("div", { style: { display: "flex", justifyContent: "center", gap: 18, margin: "20px 0 18px" } },
+        ce("div", { style: { display: "flex", justifyContent: "center", gap: 18, counterIncrement: "lcgap-18", margin: "20px 0 18px" } },
           pill("Voice chat", Mic, null, true),
           pill("Add", GiUserPlus, () => (isAdmin ? setSheet("add") : needAdmin())),
           pill("Search", Search, goMembers))),
@@ -1085,9 +1085,9 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
         ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Media, links, and docs"),
         ce("span", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 } }, total),
         ce(ChevronRight, { size: 18, color: "#8891A0" })),
-      (tiles.length > 0 || docs.length > 0) && ce("div", { style: { display: "flex", gap: 4, overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
+      (tiles.length > 0 || docs.length > 0) && ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
         tiles.map((m) => ce("img", { key: m.id, src: m.file.data, alt: m.file.name, onClick: () => onOpenImage && onOpenImage(m.file.data), style: { width: 100, height: 100, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } })),
-        tiles.length === 0 && docs.slice(-6).reverse().map((m) => ce("div", { key: m.id, onClick: onOpenMedia, style: { width: 100, height: 100, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 6, boxSizing: "border-box", cursor: "pointer" } },
+        tiles.length === 0 && docs.slice(-6).reverse().map((m) => ce("div", { key: m.id, onClick: onOpenMedia, style: { width: 100, height: 100, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", padding: 6, boxSizing: "border-box", cursor: "pointer" } },
           ce(Paperclip, { size: 20, color: "#35D0BA" }), ce("span", { style: { fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.file.name)))),
       row("storage", ico(FolderIcon), "Manage storage", bytes ? fmtSize(bytes) : "0 KB", { onClick: onOpenMedia }),
       row("notif", ico(Bell), "Notifications", muted ? "Muted" : "On", { onClick: onNotifications }),
@@ -1095,7 +1095,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
       ce("div", { ref: memRef, style: { display: "flex", alignItems: "center", padding: "12px 22px 6px" } },
         ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, c.members.length + (c.members.length === 1 ? " member" : " members")),
         ce("button", { "aria-label": "Search members", onClick: () => { setSearching((v) => !v); setQ(""); }, style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 2 } }, ce(Search, { size: 20, color: "#8891A0" }))),
-      searching && ce("div", { style: { margin: "0 22px 8px", display: "flex", alignItems: "center", gap: 10, background: "#1E2530", borderRadius: 999, padding: "9px 14px" } },
+      searching && ce("div", { style: { margin: "0 22px 8px", display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", borderRadius: 999, padding: "9px 14px" } },
         ce(Search, { size: 17, color: "#8A96A5" }), ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search members", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } })),
       !needle && isAdmin && row("addm", greenDot(GiUserPlus), "Add members", null, { onClick: () => setSheet("add") }),
       !needle && isAdmin && row("invite", greenDot(LinkIcon), "Invite via link or QR code", null, { onClick: () => setSheet("link") }),
@@ -1106,7 +1106,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
         ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: "10px 0 6px" } }, "Private chat requests"),
         c.dmRequests.map((r) => {
           const f = c.members.find((m) => m.id === r.from), t = c.members.find((m) => m.id === r.to);
-          return ce("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } },
+          return ce("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 0", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } },
             ce("div", { style: { flex: 1 } }, f ? f.name : "?", " ", ce("span", { style: { color: "#8A96A5" } }, "wants to chat with"), " ", t ? t.name : "?"),
             ce("button", { onClick: () => call(r.id, "dm-requests/" + r.id, { approve: true }), style: smallBtn }, "Approve"),
             ce("button", { onClick: () => call(r.id, "dm-requests/" + r.id, { approve: false }), style: { ...smallBtn, color: "#FF6B5D" } }, "Decline"));
@@ -1119,7 +1119,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
       c.createdAt ? ce("div", { style: { padding: "14px 22px 6px", fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Created on " + new Date(c.createdAt).toLocaleDateString()) : null),
 
     sheet === "lists" && gsheet("Choose list", [
-      ce("div", { key: "new", onClick: newList, style: { display: "flex", alignItems: "center", gap: 18, padding: "10px 24px", cursor: "pointer", color: "#21C063", fontFamily: "Inter", fontSize: 16 } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, ce(Plus, { size: 20, color: "#21C063" })), "New list"),
+      ce("div", { key: "new", onClick: newList, style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "10px 24px", cursor: "pointer", color: "#21C063", fontFamily: "Inter", fontSize: 16 } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, ce(Plus, { size: 20, color: "#21C063" })), "New list"),
       subHead("Your lists"),
       listRow("fav", ce(GiHeart, { size: 20, color: "#F5F7FA" }), "Favorites", !!isFav, () => onToggleFavorite && onToggleFavorite()),
       lists.map((l) => listRow(l.id, dot(l.color), l.name, inList(l), () => toggleList(l))),
@@ -1135,7 +1135,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
       row("reset", ico(GiRefresh), "Reset link", null, { color: "#FF6B5D", onClick: () => window.confirm("Reset the link? The old link will stop working.") && call("reset", "invite/reset", {}) })]),
 
     sheet === "add" && gsheet("Add members", [
-      ce("div", { key: "ph", style: { display: "flex", gap: 8, alignItems: "center", padding: "0 20px 8px" } },
+      ce("div", { key: "ph", style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", alignItems: "center", padding: "0 20px 8px" } },
         ce("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } }, ce("input", { value: phone, onChange: (e) => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@username, email or phone", style: { ...inputEl, fontSize: 13.5 } })),
         ce("button", { onClick: addByPhone, disabled: busy === "phone" || !phone.trim(), style: smallBtn }, busy === "phone" ? "…" : "Add")),
       error && ce("div", { key: "er", style: { padding: "0 4px" } }, ce(Banner, { text: error, onClose: () => setError("") })),
@@ -1251,10 +1251,10 @@ class ErrorBoundary extends React.Component {
   render() {
     if (!this.state.err) return this.props.children;
     const b = { padding: "12px 20px", borderRadius: 12, border: "none", fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 15, cursor: "pointer" };
-    return React.createElement("div", { role: "alert", style: { position: "fixed", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 24, textAlign: "center", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter, sans-serif" } },
+    return React.createElement("div", { role: "alert", style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: 24, textAlign: "center", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter, sans-serif" } },
       React.createElement("div", { style: { fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 18 } }, "Something hiccuped"),
       React.createElement("div", { style: { color: "#9BA7B4", fontSize: 14, maxWidth: 320 } }, "Your chats are safe. Tap below to carry on."),
-      React.createElement("div", { style: { display: "flex", gap: 10 } },
+      React.createElement("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
         React.createElement("button", { onClick: () => this.setState({ err: null, tries: 0 }), style: { ...b, background: "#35D0BA", color: "#05070A" } }, "Try again"),
         React.createElement("button", { onClick: () => location.reload(), style: { ...b, background: "#1E2530", color: "#F5F7FA" } }, "Reload")));
   }
@@ -1324,18 +1324,18 @@ function TicTacToeGame({ stats, onResult }) {
   const msg = result ? (result.who === "X" ? "You win! 🎉" : result.who === "O" ? "Computer wins" : "It's a draw") : turn === "X" ? "Your turn (X)" : "Computer is thinking…";
   const s = stats || { w: 0, d: 0, l: 0 };
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "10px 20px 24px" }}>
-      <div style={{ display: "flex", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8" }}>
         {[["easy", "Easy"], ["normal", "Normal"], ["hard", "Hard"]].map(([id, label]) => (
           <button key={id} onClick={() => setLevel(id)} style={{ ...gameBtn, padding: "7px 14px", fontSize: 13, background: level === id ? "#35D0BA" : "#1E2530", color: level === id ? "#0E1116" : "#F5F7FA" }}>{label}</button>
         ))}
       </div>
       <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", minHeight: 24 }}>{msg}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, width: "100%", maxWidth: 300 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, counterIncrement: "lcgap-8", width: "100%", maxWidth: 300 }}>
         {board.map((v, i) => {
           const win = result && result.line.includes(i);
           return (
-            <button key={i} aria-label={"Square " + (i + 1)} onClick={() => play(i)} style={{ aspectRatio: "1 / 1", borderRadius: 14, border: win ? "2px solid #35D0BA" : "1px solid #2B3544", background: win ? "#35D0BA22" : "#161B22", fontFamily: "Sora", fontWeight: 800, fontSize: 42, color: v === "X" ? "#35D0BA" : "#F2B84B", cursor: v || result ? "default" : "pointer", padding: 0 }}>{v}</button>
+            <button key={i} aria-label={"Square " + (i + 1)} onClick={() => play(i)} style={{ aspectRatio: "1 / 1", counterReset: "lcar-1-1", borderRadius: 14, border: win ? "2px solid #35D0BA" : "1px solid #2B3544", background: win ? "#35D0BA22" : "#161B22", fontFamily: "Sora", fontWeight: 800, fontSize: 42, color: v === "X" ? "#35D0BA" : "#F2B84B", cursor: v || result ? "default" : "pointer", padding: 0 }}>{v}</button>
           );
         })}
       </div>
@@ -1370,17 +1370,17 @@ function MemoryGame({ best, onScore }) {
     }
   };
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "10px 20px 24px" }}>
-      <div style={{ display: "flex", gap: 22, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 22, counterIncrement: "lcgap-22", fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
         <span>Moves <b style={{ color: "#F5F7FA" }}>{moves}</b></span>
         <span>Time <b style={{ color: "#F5F7FA" }}>{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}</b></span>
         <span>Best <b style={{ color: "#F2B84B" }}>{best || "–"}</b></span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, width: "100%", maxWidth: 340 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, counterIncrement: "lcgap-8", width: "100%", maxWidth: 340 }}>
         {cards.map((e, i) => {
           const up = open.includes(i) || done.includes(i);
           return (
-            <button key={i} aria-label={up ? e : "Hidden card"} onClick={() => flip(i)} style={{ aspectRatio: "1 / 1", borderRadius: 12, border: done.includes(i) ? "2px solid #35D0BA" : "1px solid #2B3544", background: up ? "#161B22" : "#1E8677", fontSize: 32, padding: 0, cursor: up ? "default" : "pointer", opacity: done.includes(i) ? 0.75 : 1 }}>{up ? e : ""}</button>
+            <button key={i} aria-label={up ? e : "Hidden card"} onClick={() => flip(i)} style={{ aspectRatio: "1 / 1", counterReset: "lcar-1-1", borderRadius: 12, border: done.includes(i) ? "2px solid #35D0BA" : "1px solid #2B3544", background: up ? "#161B22" : "#1E8677", fontSize: 32, padding: 0, cursor: up ? "default" : "pointer", opacity: done.includes(i) ? 0.75 : 1 }}>{up ? e : ""}</button>
           );
         })}
       </div>
@@ -1446,22 +1446,22 @@ function SnakeGame({ best, onScore }) {
   useArrowKeys(turn);
   const pad = { width: 62, height: 52, borderRadius: 14, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", fontSize: 22, cursor: "pointer", padding: 0 };
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "10px 20px 24px" }}>
-      <div style={{ display: "flex", gap: 24, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 24, counterIncrement: "lcgap-24", fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
         <span>Score <b style={{ color: "#F5F7FA" }}>{score}</b></span>
         <span>Best <b style={{ color: "#F2B84B" }}>{Math.max(best || 0, status === "over" ? score : 0)}</b></span>
       </div>
       <div style={{ position: "relative", width: "100%", maxWidth: 340 }}>
-        <canvas ref={canvasRef} width={SNAKE_N * SNAKE_CELL} height={SNAKE_N * SNAKE_CELL} style={{ width: "100%", aspectRatio: "1 / 1", display: "block", borderRadius: 14, border: "1px solid #2B3544", touchAction: "none" }} />
+        <canvas ref={canvasRef} width={SNAKE_N * SNAKE_CELL} height={SNAKE_N * SNAKE_CELL} style={{ width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", display: "block", borderRadius: 14, border: "1px solid #2B3544", touchAction: "none" }} />
         {status !== "playing" && (
-          <div style={{ position: "absolute", inset: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12" }}>
             <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" }}>{status === "over" ? "Game over · " + score : "Snake 🐍"}</div>
             <button onClick={start} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>{status === "over" ? "Try again" : "Start"}</button>
             <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8891A0" }}>Swipe or use the arrows to steer</div>
           </div>
         )}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 62px)", gap: 6, justifyContent: "center" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 62px)", gap: 6, counterIncrement: "lcgap-6", justifyContent: "center" }}>
         <span /><button aria-label="Up" onClick={() => turn("up")} style={pad}>▲</button><span />
         <button aria-label="Left" onClick={() => turn("left")} style={pad}>◀</button>
         <button aria-label="Down" onClick={() => turn("down")} style={pad}>▼</button>
@@ -1520,20 +1520,20 @@ function Game2048({ best, onScore }) {
   useSwipe(boardRef, move);
   useArrowKeys(move);
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "10px 20px 24px" }}>
-      <div style={{ display: "flex", gap: 24, fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 24, counterIncrement: "lcgap-24", fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
         <span>Score <b style={{ color: "#F5F7FA" }}>{score}</b></span>
         <span>Best <b style={{ color: "#F2B84B" }}>{Math.max(best || 0, score)}</b></span>
       </div>
       <div ref={boardRef} style={{ position: "relative", width: "100%", maxWidth: 340, touchAction: "none", background: "#10151C", borderRadius: 14, padding: 8, border: "1px solid #2B3544", boxSizing: "border-box" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, counterIncrement: "lcgap-8" }}>
           {grid.flat().map((v, i) => {
             const [bg, fg] = TILE_COLORS[v] || ["#F5F7FA", "#0E1116"];
-            return <div key={i} style={{ aspectRatio: "1 / 1", borderRadius: 10, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 800, fontSize: v >= 1024 ? 20 : v >= 128 ? 24 : 28 }}>{v || ""}</div>;
+            return <div key={i} style={{ aspectRatio: "1 / 1", counterReset: "lcar-1-1", borderRadius: 10, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 800, fontSize: v >= 1024 ? 20 : v >= 128 ? 24 : 28 }}>{v || ""}</div>;
           })}
         </div>
         {(over || won) && (
-          <div style={{ position: "absolute", inset: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, counterIncrement: "lcgap-10" }}>
             <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" }}>{over ? "No more moves" : "You made 2048! 🎉"}</div>
             {over ? <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Score {score} · tap ↻ for a new game</div> : <button onClick={() => setWon(false)} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>Keep going</button>}
           </div>
@@ -1575,7 +1575,7 @@ function GamesScreen({ myId }) {
     const best = scores[playing] && scores[playing].best;
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "14px 16px", flexShrink: 0 }}>
           <button aria-label="Back to games" onClick={() => setPlaying(null)} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
           <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA" }}>{game.emoji} {game.name}</div>
           <button aria-label="Restart" onClick={() => setRound(r => r + 1)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><RotateCcw size={20} color="#9BA7B4" /></button>
@@ -1594,7 +1594,7 @@ function GamesScreen({ myId }) {
       <TopBar title="Games" />
       <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 20px" }}>
         <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 14 }}>Pick a game. Your best scores are saved on this device.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, counterIncrement: "lcgap-12" }}>
           {GAME_LIST.map(gm => (
             <div key={gm.id} onClick={() => { setRound(0); setPlaying(gm.id); }} style={{ background: "#161B22", border: "1px solid #262E3A", borderRadius: 18, padding: "16px 14px", cursor: "pointer" }}>
               <div style={{ width: 52, height: 52, borderRadius: 16, background: gm.color + "26", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 12 }}>{gm.emoji}</div>
@@ -1966,7 +1966,7 @@ const RULES_TEXT = {
 };
 function RulesSheet({ game, color, onClose }) {
   const g = HUB_GAMES.find((x) => x.id === game) || {};
-  return gh("div", { onClick: onClose, style: { position: "absolute", inset: 6, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(7,10,16,.86)", borderRadius: 18 } },
+  return gh("div", { onClick: onClose, style: { position: "absolute", top: 6, right: 6, bottom: 6, left: 6, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(7,10,16,.86)", borderRadius: 18 } },
     gh("div", { onClick: (e) => e.stopPropagation(), style: { ...GLASS, borderRadius: 18, padding: "16px 18px", maxWidth: 320, border: "1px solid " + color, boxShadow: "0 0 24px " + color + "55", textAlign: "center" } },
       gh("div", { style: { fontSize: 30 } }, g.emoji),
       gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: "#F5F7FA", marginTop: 2 } }, (g.name || "Game") + " rules"),
@@ -1974,7 +1974,7 @@ function RulesSheet({ game, color, onClose }) {
       hubBtn("Got it", onClose, { small: true, style: { marginTop: 12 } })));
 }
 function hubStatusRow(onRules, status) {
-  return gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "2px 10px 5px" } }, status,
+  return gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, counterIncrement: "lcgap-10", padding: "2px 10px 5px" } }, status,
     gh("button", { onClick: onRules, "aria-label": "Game rules", style: { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", borderRadius: 999, padding: "3px 10px", color: "#C9D1DC", fontFamily: "Inter", fontWeight: 600, fontSize: 11.5, cursor: "pointer" } }, "ⓘ Rules"));
 }
 const roomShell = (gc, bg) => ({ display: "flex", flexDirection: "column", height: "calc(100% - 8px)", margin: "4px 6px", boxSizing: "border-box", border: "2px solid transparent", borderRadius: 22, overflow: "hidden", position: "relative", background: bg + " padding-box, linear-gradient(160deg, " + gc + ", rgba(245,184,61,.6) 50%, " + gc + ") border-box", boxShadow: "0 0 24px " + gc + "55, inset 0 0 30px " + gc + "22" });
@@ -1997,7 +1997,7 @@ function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
   const side = sideOf(fit, 66);
   return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
     gh(GameFrame, { color: gameColor("ludo") }, gh("svg", { viewBox: "0 0 15 15", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
-    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 0 0" } },
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } },
       gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
       gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, myTurn ? (s.d == null ? "Tap the dice to roll." : legal.length > 1 ? "Tap a glowing piece to move it." : "Moving…") : "Waiting for the other player.")));
 }
@@ -2021,7 +2021,7 @@ function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
   const side = Math.max(120, Math.floor(Math.min(fit.w - 20, (fit.h - 66 - 20) / 1.08)));
   return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
     gh(GameFrame, { color: gameColor("snl") }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids)),
-    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "8px 0 0" } },
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } },
       gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
       gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player."))));
 }
@@ -2096,13 +2096,13 @@ function WhotBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
   if (l && l.card != null) { if (l.pen) note = (note + " " + who + " forgot to call Last card and picks 2!").trim(); else if (l.lc) note = (note + " " + who + " called Last card!").trim(); }
   const call = lc && hand.length === 2 ? 100000 : 0, tapCard = (c) => { if (R.sh(c) === 5) setPick(true); else { setLc(false); onTap(c + call); } };
   return gh("div", { style: { width: "100%", maxWidth: 380, display: "flex", flexDirection: "column" } },
-    gh("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } }, gh("div", { style: { display: "flex" } }, Array.from({ length: Math.min(opp, 7) }, (_, i) => gh("div", { key: i, style: { width: 18, height: 28, borderRadius: 5, marginLeft: i ? -10 : 0, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "1px solid rgba(255,255,255,.4)" } }))), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC" } }, "Opponent has " + opp + " card" + (opp === 1 ? "" : "s"))),
-    gh("div", { style: { ...GLASS, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, marginBottom: 6, border: "2px solid rgba(245,184,61,.6)", boxShadow: "0 0 18px rgba(245,184,61,.28), inset 0 0 0 3px rgba(11,15,22,.9), inset 0 0 0 4px rgba(245,184,61,.3)" } },
+    gh("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", marginBottom: 4 } }, gh("div", { style: { display: "flex" } }, Array.from({ length: Math.min(opp, 7) }, (_, i) => gh("div", { key: i, style: { width: 18, height: 28, borderRadius: 5, marginLeft: i ? -10 : 0, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "1px solid rgba(255,255,255,.4)" } }))), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC" } }, "Opponent has " + opp + " card" + (opp === 1 ? "" : "s"))),
+    gh("div", { style: { ...GLASS, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, counterIncrement: "lcgap-22", marginBottom: 6, border: "2px solid rgba(245,184,61,.6)", boxShadow: "0 0 18px rgba(245,184,61,.28), inset 0 0 0 3px rgba(11,15,22,.9), inset 0 0 0 4px rgba(245,184,61,.3)" } },
       gh("button", { onClick: myTurn ? () => onTap(-1) : undefined, disabled: !myTurn, "aria-label": s.pend > 0 && myTurn ? "Pick " + s.pend + " cards" : "Pick a card from the market", style: { background: "none", border: "none", padding: 0, cursor: myTurn ? "pointer" : "default", textAlign: "center" } }, gh(WhotCard, { c: null, big: true, sc, can: myTurn }), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: myTurn ? "#F5B83D" : "#8891A0", marginTop: 6 } }, (s.pend > 0 && myTurn ? "Pick " + s.pend : "Market") + " · " + s.deck.length)),
       gh("div", { style: { textAlign: "center" } }, gh(WhotCard, { c: top, big: true, sc }), s.want >= 0 ? gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 12.5, color: WHOT_SH[s.want][1], marginTop: 6 } }, "Needs " + WHOT_SH[s.want][0]) : gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", marginTop: 6 } }, "Play pile"))),
     s.pend > 0 ? gh("div", { style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#FF4FA3", marginBottom: 3 } }, s.nx === you ? "Pick " + s.pend + " is coming! Play a " + s.pk + " or pick." : "Opponent must play a " + s.pk + " or pick " + s.pend + ".") : null,
     note ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 3 } }, note) : null,
-    pick ? gh("div", { style: { ...GLASS, padding: 8, marginBottom: 4, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginBottom: 8 } }, "Call a shape"), gh("div", { style: { display: "flex", justifyContent: "center", gap: 8 } }, WHOT_SH.map(([g, col], k) => gh("button", { key: k, onClick: () => { setPick(false); setLc(false); onTap(520 + 1000 * (k + 1) + call); }, "aria-label": "Call " + ["circle", "triangle", "cross", "square", "star"][k], style: { width: 48, height: 48, borderRadius: 14, border: "2px solid " + col, background: "rgba(255,255,255,.06)", color: col, fontSize: 24, cursor: "pointer" } }, g))), gh("button", { onClick: () => setPick(false), style: { background: "none", border: "none", color: "#9BA7B4", fontFamily: "Inter", fontSize: 12.5, marginTop: 8, cursor: "pointer" } }, "Cancel")) : null,
+    pick ? gh("div", { style: { ...GLASS, padding: 8, marginBottom: 4, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginBottom: 8 } }, "Call a shape"), gh("div", { style: { display: "flex", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8" } }, WHOT_SH.map(([g, col], k) => gh("button", { key: k, onClick: () => { setPick(false); setLc(false); onTap(520 + 1000 * (k + 1) + call); }, "aria-label": "Call " + ["circle", "triangle", "cross", "square", "star"][k], style: { width: 48, height: 48, borderRadius: 14, border: "2px solid " + col, background: "rgba(255,255,255,.06)", color: col, fontSize: 24, cursor: "pointer" } }, g))), gh("button", { onClick: () => setPick(false), style: { background: "none", border: "none", color: "#9BA7B4", fontFamily: "Inter", fontSize: 12.5, marginTop: 8, cursor: "pointer" } }, "Cancel")) : null,
     myTurn && hand.length === 2 && ids.size ? gh("button", { onClick: () => setLc(!lc), "aria-pressed": lc, style: { display: "block", margin: "2px auto 0", padding: "8px 18px", borderRadius: 999, border: "2px solid " + (lc ? "#F5B83D" : "rgba(255,255,255,.25)"), background: lc ? "rgba(245,184,61,.2)" : "rgba(255,255,255,.06)", color: lc ? "#F5B83D" : "#C9D1DC", fontFamily: "Sora", fontWeight: 800, fontSize: 13, cursor: "pointer" } }, lc ? "✋ Last card! (called)" : "Tap to call Last card before you play") : null,
     gh("div", { style: { display: "flex", justifyContent: "center", padding: "12px 4px 4px" } }, hand.map((c, i) => gh(WhotCard, { key: i + "-" + c, c, sc, ml: i ? step - cw : 0, can: ids.has(c), onClick: () => tapCard(c) }))),
     gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "center", padding: "2px 0" } }, !myTurn ? "Waiting for the other player." : s.pend > 0 ? "Play a " + s.pk + " to pass it on, or tap the market." : ids.size ? "Tap a raised card to play it, or tap the market." : "No card fits. Tap the market to pick one."));
@@ -2174,7 +2174,7 @@ function ChessBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
   return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
     gh("div", { style: { position: "relative" } },
       gh(GameFrame, { color: gameColor("chess") }, gh("svg", { viewBox: "0 0 8 8", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
-      promo != null ? gh("div", { style: { ...GLASS, position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 3, background: "rgba(11,15,22,.95)", padding: 10, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", marginBottom: 6 } }, "Promote your pawn to"), gh("div", { style: { display: "flex", gap: 8, justifyContent: "center" } }, [5, 4, 3, 2].map((t) => gh("button", { key: t, onClick: () => { const m = promo + 4096 * t; setPromo(null); onTap(m); }, "aria-label": ["", "", "Knight", "Bishop", "Rook", "Queen"][t], style: { width: 48, height: 48, borderRadius: 14, border: "1px solid #F5B83D", background: "rgba(255,255,255,.07)", color: "#F5F7FA", fontSize: 28, cursor: "pointer" } }, G[t] + "\uFE0E")))) : null),
+      promo != null ? gh("div", { style: { ...GLASS, position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 3, background: "rgba(11,15,22,.95)", padding: 10, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", marginBottom: 6 } }, "Promote your pawn to"), gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", justifyContent: "center" } }, [5, 4, 3, 2].map((t) => gh("button", { key: t, onClick: () => { const m = promo + 4096 * t; setPromo(null); onTap(m); }, "aria-label": ["", "", "Knight", "Bishop", "Rook", "Queen"][t], style: { width: 48, height: 48, borderRadius: 14, border: "1px solid #F5B83D", background: "rgba(255,255,255,.07)", color: "#F5F7FA", fontSize: 28, cursor: "pointer" } }, G[t] + "\uFE0E")))) : null),
     gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: inCheck ? "#FF8A8A" : "#C9D1DC", textAlign: "center", padding: "6px 0 0", height: 20, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (inCheck ? "Check! " : "") + (!myTurn ? "Waiting for the other player." : cur != null ? "Tap a gold dot to move there." : "Tap one of your pieces.")));
 }
 
@@ -2394,7 +2394,7 @@ function RaceRoom({ cfg, socket, myId, onExit, active }) {
   const react = (e) => (robot ? float(e) : socket.emit("game:react", { room: cfg.room, emoji: e }));
   const chip = (i) => {
     const p = g.players[i];
-    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)" } },
+    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)" } },
       gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
       gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
         gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, i === g.you ? "You" : p.name),
@@ -2407,27 +2407,27 @@ function RaceRoom({ cfg, socket, myId, onExit, active }) {
   const ctlBtn = (label, onDown, o = {}) => gh("button", { onPointerDown: (e) => { e.preventDefault(); onDown(); }, "aria-label": o.aria || label, style: { flex: o.flex || 1, height: 48, borderRadius: 16, border: "1px solid " + (o.col || "rgba(255,255,255,.16)"), background: o.bg || "rgba(255,255,255,.07)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 800, fontSize: o.fs || 24, cursor: "pointer", touchAction: "manipulation", userSelect: "none", WebkitUserSelect: "none", boxShadow: o.glow || "none" } }, label);
   const cH = Math.max(160, Math.floor(Math.min(box.h - 6 - 20 - 58, (box.w - 24 - 20) * 500 / 360))), cW = Math.floor(cH * 360 / 500);
   return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #2A1030 0%, #0B0F16 60%)") },
-    gh("div", { style: { display: "flex", gap: 8, padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
     hubStatusRow(() => setRules(true), gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : stat)),
     g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
-    gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative", gap: 8 } },
+    gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative", gap: 8, counterIncrement: "lcgap-8" } },
       gh("div", { style: { position: "relative" } }, gh(GameFrame, { color: gc }, gh("div", { style: { position: "relative" } },
         gh("canvas", { ref: cv, "aria-label": "Race track", onPointerDown: (e) => { const r = e.currentTarget.getBoundingClientRect(); ctl.current.move && ctl.current.move(e.clientX - r.left < r.width / 2 ? -1 : 1); }, style: { width: cW, height: cH, display: "block", borderRadius: 10, touchAction: "none" } }),
-        g.over ? gh("div", { style: { position: "absolute", inset: 0, borderRadius: 10, background: "rgba(7,10,16,.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 26, color: "#F5F7FA" } }, verdict), gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#C9D1DC" } }, tline)) : null,
+        g.over ? gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 10, background: "rgba(7,10,16,.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 26, color: "#F5F7FA" } }, verdict), gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#C9D1DC" } }, tline)) : null,
         floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e))))),
-      gh("div", { style: { display: "flex", gap: 10, width: cW + 20 } },
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", width: cW + 20 } },
         ctlBtn("◀", () => ctl.current.move && ctl.current.move(-1), { aria: "Move left" }),
         ctlBtn("⚡ NITRO", () => ctl.current.boost && ctl.current.boost(), { flex: 1.6, fs: 15, col: "#F5B83D", bg: "rgba(245,184,61,.16)", glow: "0 0 16px rgba(245,184,61,.4)", aria: "Use nitro" }),
         ctlBtn("▶", () => ctl.current.move && ctl.current.move(1), { aria: "Move right" })),
       rules ? gh(RulesSheet, { game: "race", color: gc, onClose: () => setRules(false) }) : null),
     gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } },
-      gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } }, ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e))),
+      gh("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", alignItems: "center", marginBottom: 6 } }, ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e))),
       robot ? null : gh("div", null,
-        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Talk some trash while you race.")),
-        gh("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, counterIncrement: "lcgap-3", marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Talk some trash while you race.")),
+        gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 8 } },
           gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Race chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
           hubBtn("Send", send, { small: true }))),
-      gh("div", { style: { display: "flex", gap: 10 } },
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
         hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
         hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
 }
@@ -2439,14 +2439,14 @@ function hubBtn(label, onClick, o = {}) {
 function PlayerCard({ p, onPlay, onChallenge }) {
   const dot = { online: "#35D0BA", looking: "#F5B83D", playing: "#FF4FA3" }[p.status] || "#5B6673";
   const label = { online: "Online", looking: "Wants a game", playing: "In a game", offline: "Offline" }[p.status];
-  return gh("div", { style: { ...GLASS, padding: 12, display: "flex", alignItems: "center", gap: 12 } },
+  return gh("div", { style: { ...GLASS, padding: 12, display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } },
     gh(Ring, { size: 48, color: p.color, initials: p.initials, photo: p.avatar, online: p.status !== "offline" }),
     gh("div", { style: { flex: 1, minWidth: 0 } },
       gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, flag(p.country) + " " + (p.username || p.name)),
       gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Lv " + p.level + " " + rankName(p.level) + " · " + p.w + "W " + p.l + "L"),
-      gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, marginTop: 3, color: dot, display: "flex", alignItems: "center", gap: 5 } },
+      gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, marginTop: 3, color: dot, display: "flex", alignItems: "center", gap: 5, counterIncrement: "lcgap-5" } },
         gh("span", { style: { width: 7, height: 7, borderRadius: 4, background: dot, boxShadow: "0 0 8px " + dot } }), label + (p.fav ? " · Likes " + hubName(p.fav) : ""))),
-    p.status === "playing" ? null : gh("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+    p.status === "playing" ? null : gh("div", { style: { display: "flex", flexDirection: "column", gap: 6, counterIncrement: "lcgap-6" } },
       hubBtn("Play", onPlay, { small: true, aria: "Invite " + p.name + " to play" }),
       hubBtn("Challenge", onChallenge, { small: true, ghost: true, aria: "Challenge " + p.name })));
 }
@@ -2503,7 +2503,7 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
   const myTurn = !g.over && g.turn === g.you;
   const chip = (i) => {
     const p = g.players[i], on = !g.over && g.turn === i;
-    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid " + (on ? PCOL[i] : "rgba(255,255,255,0.1)"), boxShadow: on ? "0 0 18px " + PCOL[i] + "88" : "none", transition: "box-shadow .25s, border-color .25s", background: "rgba(255,255,255,0.05)" } },
+    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid " + (on ? PCOL[i] : "rgba(255,255,255,0.1)"), boxShadow: on ? "0 0 18px " + PCOL[i] + "88" : "none", transition: "box-shadow .25s, border-color .25s", background: "rgba(255,255,255,0.05)" } },
       gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
       gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
         gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (i === g.you ? "You" : p.name)),
@@ -2513,30 +2513,30 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
   const hit = (i) => g.line && g.line.includes(i);
   const cells = !Array.isArray(g.state) ? null : g.state.map((v, i) => {
     const col = v == null ? null : PCOL[v];
-    if (cfg.game === "ttt") return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : gh("span", { key: "m" + v, className: "lc-mark" }, v === 0 ? "X" : "O"));
-    return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } },
+    if (cfg.game === "ttt") return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", counterReset: "lcar-1-1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : gh("span", { key: "m" + v, className: "lc-mark" }, v === 0 ? "X" : "O"));
+    return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", counterReset: "lcar-1-1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } },
       gh("div", { key: col ? "f" : "e", className: col ? "lc-disc" : undefined, style: { width: "84%", height: "84%", margin: "8%", borderRadius: "50%", background: col || "#0A0E14", boxShadow: col ? "0 0 " + (hit(i) ? 16 : 8) + "px " + col : "inset 0 2px 6px rgba(0,0,0,.7)", border: hit(i) ? "2px solid #fff" : "none" } }));
   });
   const gw = cfg.game === "c4" ? Math.max(140, Math.floor(Math.min(fit.w - 20, (fit.h - 20) * 7 / 6, 420))) : Math.max(140, Math.floor(Math.min(fit.w - 20, fit.h - 20, 340)));
   const verdict = !g.over ? null : g.winner === -1 ? "It's a draw" : g.winner === g.you ? "You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
   return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #1B1440 0%, #0B0F16 60%)") },
-    gh("div", { style: { display: "flex", gap: 8, padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
     hubStatusRow(() => setRules(true), gh("div", { role: "status", key: g.over ? "over" : "t" + g.turn, className: g.over ? "lc-status lc-over" : "lc-status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…"))),
     g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
     gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative" } },
       cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "checkers" ? gh(CheckersBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "whot" ? gh(WhotBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "chess" ? gh(ChessBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : gh(GameFrame, { color: gc }, gh("div", { style: { width: gw, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells)),
       floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e)), rules ? gh(RulesSheet, { game: cfg.game, color: gc, onClose: () => setRules(false) }) : null),
     gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } },
-      gh("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 6 } },
+      gh("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", alignItems: "center", marginBottom: 6 } },
         ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e)),
         gh("div", { style: { flex: 1 } }),
         !robot && convo ? hubBtn("🎙 Voice", () => onCall(convo, false), { small: true, ghost: true, aria: "Start voice call" }) : null),
       robot ? null : gh("div", null,
-        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Say hi while you play.")),
-        gh("div", { style: { display: "flex", gap: 8, marginBottom: 6 } },
+        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, counterIncrement: "lcgap-3", marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Say hi while you play.")),
+        gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 6 } },
           gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Game chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
           hubBtn("Send", send, { small: true }))),
-      gh("div", { style: { display: "flex", gap: 10 } },
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
         hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
         hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
 }
@@ -2605,25 +2605,25 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
   const others = lobby.players;
   const section = (title, list, empty) => gh("div", { style: { marginBottom: 18 } },
     gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, title + " (" + list.length + ")"),
-    list.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, list.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ mode: "friend", player: p, kind: "invite" }), onChallenge: () => go({ mode: "friend", player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", padding: "2px 2px" } }, empty));
+    list.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8" } }, list.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ mode: "friend", player: p, kind: "invite" }), onChallenge: () => go({ mode: "friend", player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", padding: "2px 2px" } }, empty));
   const xpInLevel = meCard.xp % 100;
   const badges = [["🏆", "Champion", "Win 10 games", meCard.w >= 10], ["🔥", "Win Streak", "Win 3 in a row", meCard.best >= 3], ["🎯", "Master Player", "Reach level 5", meCard.level >= 5], ["👑", "Top Player", "Be #1 on a leaderboard", board.rows[0] && board.rows[0].user.id === myId], ["⭐", "Rising Star", "Win 3 games", meCard.w >= 3]];
 
   const playTab = gh("div", null,
-    gh("div", { style: { ...GLASS, padding: 14, display: "flex", gap: 12, alignItems: "center", marginBottom: 14, boxShadow: "0 0 24px rgba(139,92,246,.18)" } },
+    gh("div", { style: { ...GLASS, padding: 14, display: "flex", gap: 12, counterIncrement: "lcgap-12", alignItems: "center", marginBottom: 14, boxShadow: "0 0 24px rgba(139,92,246,.18)" } },
       gh(Ring, { size: 52, color: meCard.color, initials: meCard.initials, photo: meCard.avatar, online: true }),
       gh("div", { style: { flex: 1 } },
         gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, "Level " + meCard.level + " " + rankName(meCard.level)),
         gh("div", { style: { height: 7, borderRadius: 4, background: "rgba(255,255,255,0.1)", margin: "7px 0 5px", overflow: "hidden" } }, gh("div", { style: { width: xpInLevel + "%", height: "100%", background: "linear-gradient(90deg,#35D0BA,#8B5CF6)", transition: "width .6s" } })),
         gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, xpInLevel + "/100 XP · " + meCard.w + "W " + meCard.l + "L · 🔥 " + meCard.streak))),
-    gh("div", { style: { display: "flex", gap: 10, marginBottom: 10 } },
+    gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginBottom: 10 } },
       hubBtn("👥 Find a Player", () => go({ mode: "friend" }), { style: { flex: 1 } }),
       hubBtn("🎲 Random Player", () => go({ mode: "random" }), { style: { flex: 1 }, bg: "linear-gradient(135deg,#FF4FA3,#FF8FC4)", glow: "rgba(255,79,163,.45)" })),
-    gh("button", { onClick: () => go({ mode: "robot" }), style: { width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid rgba(139,92,246,.5)", borderRadius: 22, padding: "18px 18px", marginBottom: 18, background: "linear-gradient(135deg,rgba(139,92,246,.35),rgba(53,208,186,.18))", boxShadow: "0 0 26px rgba(139,92,246,.3)", display: "flex", alignItems: "center", gap: 14 } },
+    gh("button", { onClick: () => go({ mode: "robot" }), style: { width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid rgba(139,92,246,.5)", borderRadius: 22, padding: "18px 18px", marginBottom: 18, background: "linear-gradient(135deg,rgba(139,92,246,.35),rgba(53,208,186,.18))", boxShadow: "0 0 26px rgba(139,92,246,.3)", display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" } },
       gh("div", { style: { fontSize: 44 } }, "🤖"),
       gh("div", null, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 19, color: "#F5F7FA" } }, "Play vs Robot"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", marginTop: 2 } }, "Easy to Expert. Starts right away."))),
     gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 10px" } }, "Pick a game"),
-    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } },
+    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, counterIncrement: "lcgap-12" } },
       HUB_GAMES.map((gm) => gh("button", { key: gm.id, disabled: !gm.ready, onClick: () => go({ game: gm.id, mode: null }), "aria-label": gm.name + (gm.ready ? "" : " coming soon"), style: { textAlign: "left", padding: 0, border: "1px solid " + gm.color + "55", borderRadius: 20, overflow: "hidden", cursor: gm.ready ? "pointer" : "default", background: "#121821", opacity: gm.ready ? 1 : 0.6 } },
         gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "linear-gradient(145deg," + gm.color + "55," + gm.color + "10)" } }, gm.emoji),
         gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, gm.name), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: gm.ready ? "#9BA7B4" : "#F5B83D", marginTop: 2 } }, gm.ready ? gm.blurb : "Coming soon")))),
@@ -2632,7 +2632,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
         gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, "Solo arcade"), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Snake, 2048, Memory")))));
 
   const lobbyTab = gh("div", null,
-    gh("div", { style: { display: "flex", gap: 8, marginBottom: 16 } }, [["Online", others.length, "#35D0BA"], ["Playing", others.filter((p) => p.status === "playing").length, "#FF4FA3"], ["Looking", others.filter((p) => p.status === "looking").length, "#F5B83D"]].map(([l, n, c]) => gh("div", { key: l, style: { ...GLASS, flex: 1, padding: "10px 6px", textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 22, color: c } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, l)))),
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 16 } }, [["Online", others.length, "#35D0BA"], ["Playing", others.filter((p) => p.status === "playing").length, "#FF4FA3"], ["Looking", others.filter((p) => p.status === "looking").length, "#F5B83D"]].map(([l, n, c]) => gh("div", { key: l, style: { ...GLASS, flex: 1, padding: "10px 6px", textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 22, color: c } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, l)))),
     section("Friends available", others.filter((p) => dmOf(p.id) && p.status !== "playing"), "None of your chat friends are free right now."),
     section("Looking for opponents", others.filter((p) => p.status === "looking"), "Nobody is waiting. Tap Random Player to be the first."),
     section("Playing now", others.filter((p) => p.status === "playing"), "No games running."),
@@ -2640,40 +2640,40 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     lobby.recent.length ? lobby.recent.map((r, i) => gh("div", { key: i, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: "#C9D1DC" } }, hubName(r.game) + ": " + (r.aName || "Player") + " vs " + (r.bName || "Player") + (r.w ? " · " + (r.w === r.a ? r.aName : r.bName) + " won" : " · draw"))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Finished games show up here."));
 
   const ranksTab = gh("div", null,
-    gh("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]].map(([k, l]) => gh("button", { key: k, onClick: () => setPeriod(k), style: { flex: 1, padding: "9px 0", borderRadius: 999, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "1px solid " + (period === k ? "#35D0BA" : "rgba(255,255,255,.14)"), background: period === k ? "rgba(53,208,186,.18)" : "transparent", color: period === k ? "#35D0BA" : "#9BA7B4" } }, l))),
-    board.rows.length ? board.rows.map((r) => gh("div", { key: r.user.id, style: { ...GLASS, padding: "9px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, borderColor: r.user.id === myId ? "#35D0BA" : "rgba(255,255,255,.11)" } },
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]].map(([k, l]) => gh("button", { key: k, onClick: () => setPeriod(k), style: { flex: 1, padding: "9px 0", borderRadius: 999, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "1px solid " + (period === k ? "#35D0BA" : "rgba(255,255,255,.14)"), background: period === k ? "rgba(53,208,186,.18)" : "transparent", color: period === k ? "#35D0BA" : "#9BA7B4" } }, l))),
+    board.rows.length ? board.rows.map((r) => gh("div", { key: r.user.id, style: { ...GLASS, padding: "9px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", borderColor: r.user.id === myId ? "#35D0BA" : "rgba(255,255,255,.11)" } },
       gh("div", { style: { width: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: r.rank === 1 ? "#F5B83D" : "#9BA7B4" } }, r.rank === 1 ? "👑" : r.rank),
       gh(Ring, { size: 38, color: r.user.color, initials: r.user.initials, photo: r.user.avatar }),
       gh("div", { style: { flex: 1, minWidth: 0 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA" } }, r.user.id === myId ? "You" : r.user.username || r.user.name), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, "Lv " + r.user.level + " · " + r.xp + " XP earned")),
       gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "right" } }, r.w + "W " + r.l + "L"))) : gh("div", { style: { ...GLASS, padding: 18, textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 14 } }, "No ranked games yet this " + period + ". Beat a real player to take the first spot."),
     gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "14px 2px 8px" } }, "Your badges"),
-    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, badges.map(([e, n, how, got]) => gh("div", { key: n, style: { ...GLASS, padding: 12, opacity: got ? 1 : 0.5, borderColor: got ? "#F5B83D" : "rgba(255,255,255,.11)" } }, gh("div", { style: { fontSize: 26, filter: got ? "none" : "grayscale(1)" } }, e), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginTop: 4 } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, got ? "Unlocked" : how)))));
+    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, counterIncrement: "lcgap-10" } }, badges.map(([e, n, how, got]) => gh("div", { key: n, style: { ...GLASS, padding: 12, opacity: got ? 1 : 0.5, borderColor: got ? "#F5B83D" : "rgba(255,255,255,.11)" } }, gh("div", { style: { fontSize: 26, filter: got ? "none" : "grayscale(1)" } }, e), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginTop: 4 } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, got ? "Unlocked" : how)))));
 
   // setup sheet (one question at a time: game → how → difficulty / player)
   let sheet = null;
   if (setup) {
     const s = setup; let title, body;
-    if (!s.game) { title = "Pick a game"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, HUB_GAMES.filter((x) => x.ready).map((gm) => gh("button", { key: gm.id, onClick: () => go({ game: gm.id }), style: { padding: 14, borderRadius: 18, border: "1px solid " + gm.color + "88", background: gm.color + "1f", cursor: "pointer", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 14 } }, gh("div", { style: { fontSize: 32 } }, gm.emoji), gm.name))); }
-    else if (!s.mode) { title = hubName(s.game) + ": how do you want to play?"; body = gh("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, [["friend", "👥 Play vs Friend", "Invite someone who is online"], ["random", "🎲 Play vs Random Player", "We match you with anyone waiting"], ["robot", "🤖 Play vs Robot", "Practice at your own level"]].map(([m, t, d]) => gh("button", { key: m, onClick: () => go({ mode: m }), style: { textAlign: "left", padding: "14px 16px", borderRadius: 18, border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.06)", cursor: "pointer" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, t), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", marginTop: 2 } }, d)))); }
-    else if (s.mode === "robot") { title = "Choose difficulty"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } }, LEVELS.map((l, i) => gh("button", { key: l, onClick: () => go({ level: i }), style: { padding: "16px 8px", borderRadius: 18, border: "1px solid " + ["#35D0BA", "#F5B83D", "#FF7A45", "#FF4FA3"][i], background: "rgba(255,255,255,.05)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, ["🌱", "⚡", "🔥", "💀"][i] + " " + l))); }
-    else { title = "Who do you want to play?"; const pool = others.filter((p) => p.status !== "playing").sort((a, b) => !!dmOf(b.id) - !!dmOf(a.id)); body = pool.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, pool.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ player: p, kind: "invite" }), onChallenge: () => go({ player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", padding: "8px 2px" } }, "No one is online right now. Try Random Player, or play the Robot."); }
-    sheet = gh("div", { style: { position: "absolute", inset: 0, zIndex: 20, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setSetup(null) },
+    if (!s.game) { title = "Pick a game"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, counterIncrement: "lcgap-10" } }, HUB_GAMES.filter((x) => x.ready).map((gm) => gh("button", { key: gm.id, onClick: () => go({ game: gm.id }), style: { padding: 14, borderRadius: 18, border: "1px solid " + gm.color + "88", background: gm.color + "1f", cursor: "pointer", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 14 } }, gh("div", { style: { fontSize: 32 } }, gm.emoji), gm.name))); }
+    else if (!s.mode) { title = hubName(s.game) + ": how do you want to play?"; body = gh("div", { style: { display: "flex", flexDirection: "column", gap: 10, counterIncrement: "lcgap-10" } }, [["friend", "👥 Play vs Friend", "Invite someone who is online"], ["random", "🎲 Play vs Random Player", "We match you with anyone waiting"], ["robot", "🤖 Play vs Robot", "Practice at your own level"]].map(([m, t, d]) => gh("button", { key: m, onClick: () => go({ mode: m }), style: { textAlign: "left", padding: "14px 16px", borderRadius: 18, border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.06)", cursor: "pointer" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, t), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", marginTop: 2 } }, d)))); }
+    else if (s.mode === "robot") { title = "Choose difficulty"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, counterIncrement: "lcgap-10" } }, LEVELS.map((l, i) => gh("button", { key: l, onClick: () => go({ level: i }), style: { padding: "16px 8px", borderRadius: 18, border: "1px solid " + ["#35D0BA", "#F5B83D", "#FF7A45", "#FF4FA3"][i], background: "rgba(255,255,255,.05)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, ["🌱", "⚡", "🔥", "💀"][i] + " " + l))); }
+    else { title = "Who do you want to play?"; const pool = others.filter((p) => p.status !== "playing").sort((a, b) => !!dmOf(b.id) - !!dmOf(a.id)); body = pool.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8" } }, pool.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ player: p, kind: "invite" }), onChallenge: () => go({ player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", padding: "8px 2px" } }, "No one is online right now. Try Random Player, or play the Robot."); }
+    sheet = gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setSetup(null) },
       gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "82%", overflowY: "auto", background: "#0F141C", borderTop: "1px solid rgba(139,92,246,.5)", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", animation: "hubUp .25s ease-out" } },
         gh("div", { style: { display: "flex", alignItems: "center", marginBottom: 14 } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, title), gh("button", { onClick: () => setSetup(null), "aria-label": "Close", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 20 } }, "✕")), body));
   }
 
-  const popups = gh("div", { style: { position: "fixed", top: 10, left: 10, right: 10, zIndex: 60, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" } },
+  const popups = gh("div", { style: { position: "fixed", top: 10, left: 10, right: 10, zIndex: 60, display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8", pointerEvents: "none" } },
     invites.map((iv) => gh("div", { key: iv.id, style: { ...GLASS, background: "rgba(15,20,28,.92)", borderColor: "#8B5CF6", padding: 12, pointerEvents: "auto", boxShadow: "0 0 24px rgba(139,92,246,.5)", animation: "hubUp .25s ease-out" } },
-      gh("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 10 } }, gh(Ring, { size: 40, color: iv.from.color, initials: iv.from.initials, photo: iv.from.avatar }), gh("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, gh("b", null, iv.from.name), (iv.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(iv.game))),
-      gh("div", { style: { display: "flex", gap: 10 } }, hubBtn("Accept", () => respond(iv, true), { style: { flex: 1 }, small: true }), hubBtn("Decline", () => respond(iv, false), { style: { flex: 1 }, small: true, ghost: true })))),
-    active ? onlinePops.map((p) => gh("div", { key: "on" + p.id, style: { ...GLASS, background: "rgba(15,20,28,.94)", borderColor: "#35D0BA", padding: 10, pointerEvents: "auto", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 0 20px rgba(53,208,186,.4)", animation: "hubUp .25s ease-out" } },
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", alignItems: "center", marginBottom: 10 } }, gh(Ring, { size: 40, color: iv.from.color, initials: iv.from.initials, photo: iv.from.avatar }), gh("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, gh("b", null, iv.from.name), (iv.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(iv.game))),
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } }, hubBtn("Accept", () => respond(iv, true), { style: { flex: 1 }, small: true }), hubBtn("Decline", () => respond(iv, false), { style: { flex: 1 }, small: true, ghost: true })))),
+    active ? onlinePops.map((p) => gh("div", { key: "on" + p.id, style: { ...GLASS, background: "rgba(15,20,28,.94)", borderColor: "#35D0BA", padding: 10, pointerEvents: "auto", display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", boxShadow: "0 0 20px rgba(53,208,186,.4)", animation: "hubUp .25s ease-out" } },
       gh(Ring, { size: 38, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
       gh("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, gh("b", null, p.name), " is online"),
       hubBtn("Play", () => { setOnlinePops((v) => v.filter((x) => x.id !== p.id)); go({ mode: "friend", player: p, kind: "invite" }); }, { small: true }),
       gh("button", { onClick: () => setOnlinePops((v) => v.filter((x) => x.id !== p.id)), "aria-label": "Dismiss", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 16 } }, "✕"))) : null,
     toast && !active ? gh("div", { style: { ...GLASS, background: "rgba(15,20,28,.92)", padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, toast) : null);
 
-  const tabs = gh("div", { role: "tablist", style: { display: "flex", gap: 6, padding: "0 16px 10px" } }, [["play", "🎮 Play"], ["lobby", "👥 Lobby"], ["ranks", "🏆 Ranks"]].map(([k, l]) => gh("button", { key: k, role: "tab", "aria-selected": sub === k, onClick: () => setSub(k), style: { flex: 1, padding: "9px 0", borderRadius: 14, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "none", background: sub === k ? "linear-gradient(135deg,rgba(53,208,186,.3),rgba(139,92,246,.3))" : "rgba(255,255,255,.05)", color: sub === k ? "#F5F7FA" : "#8891A0", boxShadow: sub === k ? "0 0 14px rgba(53,208,186,.3)" : "none" } }, l)));
+  const tabs = gh("div", { role: "tablist", style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", padding: "0 16px 10px" } }, [["play", "🎮 Play"], ["lobby", "👥 Lobby"], ["ranks", "🏆 Ranks"]].map(([k, l]) => gh("button", { key: k, role: "tab", "aria-selected": sub === k, onClick: () => setSub(k), style: { flex: 1, padding: "9px 0", borderRadius: 14, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "none", background: sub === k ? "linear-gradient(135deg,rgba(53,208,186,.3),rgba(139,92,246,.3))" : "rgba(255,255,255,.05)", color: sub === k ? "#F5F7FA" : "#8891A0", boxShadow: sub === k ? "0 0 14px rgba(53,208,186,.3)" : "none" } }, l)));
   let main;
   if (room) main = gh(room.game === "race" ? RaceRoom : GameRoom, { key: room.room || "robot", cfg: room, socket: sock(), myId, onExit: exitRoom, onCall, active, convo: room.mode === "online" ? dmOf((room.players.find((p) => p.id !== myId) || {}).id) : null });
   else if (arcade) main = gh("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, gh("button", { onClick: () => setArcade(false), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, textAlign: "left", padding: "12px 16px 0", cursor: "pointer" } }, "← Back to Games"), gh("div", { style: { flex: 1, minHeight: 0 } }, gh(GamesScreen, { myId })));
@@ -2682,14 +2682,14 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     gh("div", { style: { display: "flex", alignItems: "center", padding: "14px 16px 10px" } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, "Games"),
       gh("button", { onClick: () => { setBell(true); setUnread(0); }, "aria-label": "Game notifications", style: { position: "relative", background: "rgba(255,255,255,.07)", border: "none", borderRadius: 14, padding: "8px 11px", fontSize: 18, cursor: "pointer" } }, "🔔", unread ? gh("span", { style: { position: "absolute", top: -4, right: -4, background: "#FF4FA3", color: "#fff", borderRadius: 10, fontSize: 10.5, fontFamily: "Sora", fontWeight: 700, padding: "1px 6px" } }, unread) : null)),
     tabs, gh("div", { style: { flex: 1, overflowY: "auto", padding: "4px 16px 24px", WebkitOverflowScrolling: "touch" } }, sub === "play" ? playTab : sub === "lobby" ? lobbyTab : ranksTab));
-  const bellPanel = bell ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 30, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setBell(false) }, gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", overflowY: "auto", background: "#0F141C", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", borderTop: "1px solid rgba(53,208,186,.5)" } },
+  const bellPanel = bell ? gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 30, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setBell(false) }, gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", overflowY: "auto", background: "#0F141C", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", borderTop: "1px solid rgba(53,208,186,.5)" } },
     gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Game notifications"),
     alerts.length ? alerts.map((a) => gh("div", { key: a.id, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, a.icon + " " + a.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, "Challenges, turns and results will show up here."))) : null;
-  const searchBox = searching ? gh("div", { style: { position: "absolute", inset: 0, zIndex: 25, background: "rgba(3,5,9,.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 } },
+  const searchBox = searching ? gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 25, background: "rgba(3,5,9,.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14" } },
     gh("div", { style: { fontSize: 54, animation: "hubPulse 1.2s infinite" } }, "🔎"), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, "Finding a " + hubName(searching.game) + " opponent…"), hubBtn("Cancel", () => { sock().emit("game:cancel"); setSearching(null); refresh(); }, { ghost: true })) : null;
   return gh(React.Fragment, null,
     gh("style", null, "@keyframes hubUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}@keyframes hubPulse{50%{transform:scale(1.18)}}@keyframes hubFloat{to{transform:translateY(-170px);opacity:0}}@keyframes lcPop{from{opacity:0;transform:scale(.4)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDeal{from{opacity:0;transform:translateY(-14px) scale(.9)}to{opacity:1;transform:none}}@keyframes lcDrop{from{opacity:0;transform:translateY(-60%)}70%{transform:translateY(4%)}to{opacity:1;transform:none}}@keyframes lcGlow{50%{box-shadow:0 0 28px rgba(245,184,61,.9);transform:scale(1.07)}}@keyframes lcWin{from{opacity:0;transform:scale(.7)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDot{50%{opacity:.45;transform:scale(.8)}}.lc-game svg circle,.lc-game svg text{transition:cx .35s ease,cy .35s ease,x .35s ease,y .35s ease,fill .2s,opacity .25s;transform-box:fill-box;transform-origin:center;animation:lcPop .3s ease-out backwards}.lc-game svg g{transform-box:fill-box;transform-origin:center}.lc-mark{display:inline-block;animation:lcPop .28s ease-out backwards}.lc-disc{animation:lcDrop .38s cubic-bezier(.3,.7,.4,1) backwards}.lc-card{animation:lcDeal .28s ease-out backwards}.lc-status{animation:lcFade .25s ease-out backwards}.lc-status.lc-over{animation:lcWin .5s ease-out backwards}button[aria-label='Roll the dice']:not(:disabled){animation:lcGlow 1.4s ease-in-out infinite}.lc-game svg circle[fill='#F5B83D']:not([stroke]){animation:lcDot 1.3s ease-in-out infinite}@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}"),
-    gh("div", { style: { position: "absolute", inset: 0, display: active ? "flex" : "none", flexDirection: "column", background: "radial-gradient(120% 50% at 50% 0%, #1A1240 0%, #0B0F16 55%)" } }, main, sheet, bellPanel, searchBox),
+    gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: active ? "flex" : "none", flexDirection: "column", background: "radial-gradient(120% 50% at 50% 0%, #1A1240 0%, #0B0F16 55%)" } }, main, sheet, bellPanel, searchBox),
     popups);
 }
 
@@ -2738,9 +2738,9 @@ function SearchPanel({ token, conversations, onOpen, onClose }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid #1B212B", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", borderBottom: "1px solid #1B212B", flexShrink: 0 }}>
         <button aria-label="Close search" onClick={onClose} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 22, padding: "9px 14px" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "#1E2530", borderRadius: 22, padding: "9px 14px" }}>
           <Search size={17} color="#8891A0" style={{ flexShrink: 0 }} />
           <input ref={inputRef} autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search chats and groups" maxLength={100}
             style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
@@ -2762,7 +2762,7 @@ function SearchPanel({ token, conversations, onOpen, onClose }) {
             {data.suggestions.map(s => {
               const starts = s.text.startsWith(low);
               return (
-                <div key={s.text} onClick={() => pick(s.text)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }}>
+                <div key={s.text} onClick={() => pick(s.text)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "10px 16px", cursor: "pointer" }}>
                   <Search size={16} color="#5B6673" style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 15, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {starts ? <>{s.text.slice(0, low.length)}<b style={{ color: "#F5F7FA", fontWeight: 600 }}>{s.text.slice(low.length)}</b></> : <span style={{ color: "#F5F7FA" }}>{s.text}</span>}
@@ -2777,7 +2777,7 @@ function SearchPanel({ token, conversations, onOpen, onClose }) {
           <>
             <div style={label}>Chats and groups</div>
             {nameHits.map(c => (
-              <div key={c.id} onClick={() => onOpen(c)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", cursor: "pointer" }}>
+              <div key={c.id} onClick={() => onOpen(c)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "9px 16px", cursor: "pointer" }}>
                 <Ring size={40} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} />
                 <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}><Marked text={c.other.name} tokens={tokens} /></span>
               </div>
@@ -2791,10 +2791,10 @@ function SearchPanel({ token, conversations, onOpen, onClose }) {
               const c = byId.get(h.conversationId);
               if (!c) return null;
               return (
-                <div key={h.id} onClick={() => onOpen(c, h)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", cursor: "pointer" }}>
+                <div key={h.id} onClick={() => onOpen(c, h)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "9px 16px", cursor: "pointer" }}>
                   <Ring size={44} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} />
                   <div style={{ flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 9 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, counterIncrement: "lcgap-8", marginBottom: 2 }}>
                       <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}</span>
                       <span style={{ fontFamily: "Inter", fontSize: 11.5, color: "#8A96A5", flexShrink: 0 }}>{timeLabel(h.time)}</span>
                     </div>
@@ -2869,7 +2869,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
 
   const iconBtn = { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" };
   const selBar = (
-    <div style={{ display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 12, flexShrink: 0, background: "#0E1116", position: "relative" }}>
+    <div style={{ display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 12, counterIncrement: "lcgap-12", flexShrink: 0, background: "#0E1116", position: "relative" }}>
       <button aria-label="Cancel selection" onClick={clearSel} style={iconBtn}><ArrowLeft size={22} color="#F5F7FA" /></button>
       <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 22, color: "#F5F7FA" }}>{sel.length}</div>
       <button aria-label={allPinned ? "Unpin chat" : "Pin chat"} onClick={doPin} style={iconBtn}><Pin size={22} color="#F5F7FA" /></button>
@@ -2880,7 +2880,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
       <button aria-label="More" onClick={() => setMenuOpen((v) => !v)} style={iconBtn}><MoreVertical size={22} color="#F5F7FA" /></button>
       {menuOpen && (
         <>
-          <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 }} />
           <div role="menu" style={{ position: "absolute", top: 54, right: 8, zIndex: 41, minWidth: 180, background: "#12161B", border: "1px solid #1E252E", borderRadius: 18, padding: "6px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
             <div role="menuitem" onClick={() => { setSel(visible.map((c) => c.id)); setMenuOpen(false); }} style={{ padding: "13px 20px", cursor: "pointer", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" }}>Select all</div>
           </div>
@@ -2895,7 +2895,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
         <TopBar
           title={<span>Lets<span style={{ color: "#35D0BA" }}>chat</span></span>}
           right={
-            <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 18, counterIncrement: "lcgap-18", alignItems: "center" }}>
               <div onClick={onNewGroup} title="New group" style={{ cursor: "pointer", display: "flex" }}><Users size={21} color="#9BA7B4" /></div>
               <div onClick={() => setSearching(true)} role="button" aria-label="Search" style={{ cursor: "pointer", display: "flex" }}><Search size={20} color="#9BA7B4" /></div>
               <div onClick={onProfile} style={{ cursor: "pointer" }}>
@@ -2921,7 +2921,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
           <div style={{ padding: "50px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 }}>No archived chats</div>
         )}
         {!showArchived && !selecting && archivedAll.length > 0 && (
-          <div onClick={() => setShowArchived(true)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer" }}>
+          <div onClick={() => setShowArchived(true)} style={{ display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "12px 16px", cursor: "pointer" }}>
             <div style={{ width: 52, display: "flex", justifyContent: "center" }}><Archive size={22} color="#8891A0" /></div>
             <span style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>Archived</span>
             <span style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>{archivedAll.length}</span>
@@ -2934,14 +2934,14 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
             onClick={() => tapRow(c)}
             onContextMenu={(e) => { e.preventDefault(); setSel((s) => (s.includes(c.id) ? s : [...s, c.id])); }}
             onTouchStart={() => startPress(c)} onTouchEnd={endPress} onTouchMove={endPress} onTouchCancel={endPress}
-            style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", background: isSel ? "#262A2E" : "transparent", WebkitTouchCallout: "none", userSelect: "none" }}>
+            style={{ display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", cursor: "pointer", background: isSel ? "#262A2E" : "transparent", WebkitTouchCallout: "none", userSelect: "none" }}>
             <div style={{ position: "relative", flexShrink: 0 }}>
               <Ring size={52} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
               {isSel && <div style={{ position: "absolute", right: -3, bottom: -3, width: 22, height: 22, borderRadius: 11, background: "#21C063", border: "2px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center" }}><Check size={13} color="#0E1116" strokeWidth={3} /></div>}
             </div>
             <div style={{ flex: 1, minWidth: 0, borderBottom: isSel ? "1px solid transparent" : "1px solid #1B212B", paddingBottom: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6 }}>{c.other.name}{c.other.verified && <VerifiedBadge />}{favorites.includes(c.id) && <Star size={13} color="#F2B84B" style={{ fill: "#F2B84B" }} />}</span>
+                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6" }}>{c.other.name}{c.other.verified && <VerifiedBadge />}{favorites.includes(c.id) && <Star size={13} color="#F2B84B" style={{ fill: "#F2B84B" }} />}</span>
                 <span style={{ fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" }}>{c.lastMessage ? timeLabel(c.lastMessage.time) : ""}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2949,7 +2949,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
                   {c.lastMessage && c.lastMessage.senderId === c.myId && !c.lastMessage.deleted && !LCX.locked(c.id) && !LCX.draft(c.id) && <><Tick state={tickState(c.lastMessage)} size={13} /><span style={{ display: "inline-block", width: 5 }} /></>}
                   {LCX.preview(c, c.lastMessage ? (c.lastMessage.senderId === c.myId && !c.isGroup ? "" : senderPrefix(c)) + stripRich(c.lastMessage.text) : "Say hello 👋")}
                 </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6" }}>
                   {isMutedChat(muted, c.id) && <BellOff size={15} color="#8891A0" aria-label="Muted" />}
                   {isPin && <Pin size={15} color="#8891A0" aria-label="Pinned" />}
                   {LCX.locked(c.id) && <span role="img" aria-label="Locked chat" style={{ fontSize: 13 }}>{"\uD83D\uDD12"}</span>}
@@ -3023,7 +3023,7 @@ const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
 const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\s)+$/u;
 const ratingText = (r) => (r && r.count ? "\u2605 " + r.avg.toFixed(1) + " (" + r.count + ")" : "No ratings yet");
 function StarRow({ value, onChange, size = 28 }) {
-    return (React.createElement("div", { style: { display: "flex", gap: 6 } }, [1, 2, 3, 4, 5].map(n => (React.createElement("button", { key: n, "aria-label": n + (n === 1 ? " star" : " stars"), onClick: onChange ? () => onChange(n) : undefined, style: { background: "none", border: "none", padding: 0, cursor: onChange ? "pointer" : "default", display: "flex" } },
+    return (React.createElement("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6" } }, [1, 2, 3, 4, 5].map(n => (React.createElement("button", { key: n, "aria-label": n + (n === 1 ? " star" : " stars"), onClick: onChange ? () => onChange(n) : undefined, style: { background: "none", border: "none", padding: 0, cursor: onChange ? "pointer" : "default", display: "flex" } },
         React.createElement(Star, { size: size, color: n <= value ? "#F2B84B" : "#3A4452", style: { fill: n <= value ? "#F2B84B" : "none" } }))))));
 }
 function SheetFrame({ title, onClose, tall, children }) {
@@ -3056,7 +3056,7 @@ function RateSellerSheet({ seller, token, onClose, onDone }) {
         }
     };
     return (React.createElement(SheetFrame, { title: "Rate " + seller.name, onClose: onClose },
-        React.createElement("div", { style: { padding: "6px 16px 22px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 } },
+        React.createElement("div", { style: { padding: "6px 16px 22px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" } },
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", textAlign: "center" } }, info ? ratingText(info) + (info.mine ? " \u00B7 you rated " + info.mine : "") : "Loading\u2026"),
             React.createElement(StarRow, { value: pick, onChange: setPick, size: 38 }),
             err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#FF6B5D", textAlign: "center" } }, err),
@@ -3100,18 +3100,18 @@ function CommentsSheet({ listing, token, onClose, onChanged }) {
         React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px" } },
             comments === null && !err && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading\u2026"),
             comments && comments.length === 0 && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No comments yet. Ask a question or say something nice."),
-            (comments || []).map(c => (React.createElement("div", { key: c.id, style: { display: "flex", gap: 10, padding: "9px 0", borderBottom: "1px solid #1B212B" } },
+            (comments || []).map(c => (React.createElement("div", { key: c.id, style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "9px 0", borderBottom: "1px solid #1B212B" } },
                 React.createElement(Ring, { size: 32, color: c.author ? c.author.color : "#5B6673", initials: c.author ? c.author.initials : "?", photo: c.author ? c.author.avatar : null }),
                 React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                    React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8 } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8, counterIncrement: "lcgap-8" } },
                         React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member", c.author && c.author.verified && React.createElement(VerifiedBadge, { size: 13 })),
                         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8A96A5" } }, timeLabel(c.time)),
                         c.canDelete && React.createElement("button", { onClick: () => window.confirm("Delete this comment?") && remove(c.id), style: { marginLeft: "auto", background: "none", border: "none", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12, cursor: "pointer", padding: 0 } }, "Delete")),
                     React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, richText(c.text), React.createElement(TagPills, { tags: c.tags }))))))),
         err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#FF6B5D", padding: "6px 16px 0" } }, err),
-        React.createElement("div", { style: { display: "flex", gap: 6, padding: "8px 16px 0", flexShrink: 0 } }, QUICK_EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => send(e), disabled: busy, "aria-label": "Send " + e, style: { flex: 1, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 10, padding: "6px 0", fontSize: 20, cursor: "pointer" } }, e)))),
-        showEmoji && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 2, padding: "8px 12px 0", maxHeight: 130, overflowY: "auto", flexShrink: 0 } }, EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => setText(t => (t + e).slice(0, 500)), style: { background: "none", border: "none", fontSize: 24, padding: 5, cursor: "pointer" } }, e)))),
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 16px", flexShrink: 0 } },
+        React.createElement("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", padding: "8px 16px 0", flexShrink: 0 } }, QUICK_EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => send(e), disabled: busy, "aria-label": "Send " + e, style: { flex: 1, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 10, padding: "6px 0", fontSize: 20, cursor: "pointer" } }, e)))),
+        showEmoji && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 2, counterIncrement: "lcgap-2", padding: "8px 12px 0", maxHeight: 130, overflowY: "auto", flexShrink: 0 } }, EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => setText(t => (t + e).slice(0, 500)), style: { background: "none", border: "none", fontSize: 24, padding: 5, cursor: "pointer" } }, e)))),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "10px 16px 16px", flexShrink: 0 } },
             React.createElement("button", { onClick: () => setShowEmoji(v => !v), "aria-label": "Emoji", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
                 React.createElement(Smile, { size: 24, color: showEmoji ? "#35D0BA" : "#8891A0" })),
             React.createElement("button", { onClick: () => { setText(t => (t && !/\s$/.test(t) ? t + " " : t) + "@"); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
@@ -3156,20 +3156,20 @@ function MarketScreen({ token, myId, onMessageSeller }) {
           const mine = l.seller && l.seller.id === myId;
           return (
             <div key={l.id} style={{ background: "#161B22", border: "1px solid #262E3A", borderRadius: 16, marginBottom: 12, overflow: "hidden", opacity: l.sold ? 0.6 : 1 }}>
-              {l.photo && <img loading="lazy" decoding="async" src={photoSrc(l.photo)} alt="" onClick={() => setZoom(l)} style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block", cursor: "pointer" }} />}
+              {l.photo && <img loading="lazy" decoding="async" src={photoSrc(l.photo)} alt="" onClick={() => setZoom(l)} style={{ width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", objectFit: "cover", display: "block", cursor: "pointer" }} />}
               <div style={{ padding: "12px 14px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, counterIncrement: "lcgap-8" }}>
                   <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" }}>{l.title}</span>
                   <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#35D0BA", whiteSpace: "nowrap" }}>{l.sold ? "SOLD" : l.price}</span>
                 </div>
                 {l.description && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" }}>{richText(l.description)}</div>}
                 {l.tags && l.tags.length > 0 && <div style={{ margin: "-4px 0 10px" }}><TagPills tags={l.tags} /></div>}
-                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, margin: l.description ? "0 0 10px" : "8px 0 10px" }}>
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, counterIncrement: "lcgap-8", margin: l.description ? "0 0 10px" : "8px 0 10px" }}>
                   <button onClick={() => setCommentsFor(l)} style={smallBtn}>{"\u{1F4AC} Comments" + (l.commentCount ? " (" + l.commentCount + ")" : "")}</button>
                   {l.seller && <span style={{ fontFamily: "Inter", fontSize: 12.5, color: l.seller.rating && l.seller.rating.count ? "#F2B84B" : "#5B6673" }}>{ratingText(l.seller.rating)}</span>}
                   {!mine && l.seller && <button onClick={() => setRatingFor(l.seller)} style={smallBtn}>Rate seller</button>}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: l.description ? 0 : 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", marginTop: l.description ? 0 : 10 }}>
                   {l.seller && <Ring size={26} color={l.seller.color} initials={l.seller.initials} photo={l.seller.avatar} />}
                   <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>{mine ? "You" : l.seller ? l.seller.name : "Unknown"}{l.seller && l.seller.verified && <VerifiedBadge size={13} />} · {timeLabel(l.time)}</span>
                   {mine ? (
@@ -3512,15 +3512,15 @@ useEffect(() => {
     const status = call.phase === "calling" ? "Calling…" : call.phase === "ringing" ? (call.dir === "in" ? "Incoming " + (vid ? "video" : "voice") + " call" : (call.offline ? "Connecting…" : "Ringing…")) : call.phase === "connecting" ? "Connecting…" : (call.t0 && Date.now() - call.t0 < 2000 ? "Connected" : fmtDur(secs));
     const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
     const showRemoteVideo = vid && active && remoteStream;
-    return ce("div", { style: { position: "absolute", inset: 0, zIndex: 95, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" } },
-        ce("video", { ref: (el) => { if (el && el.srcObject !== remoteStream) el.srcObject = remoteStream; }, autoPlay: true, playsInline: true, style: showRemoteVideo ? { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", background: "#000" } : { display: "none" } }),
-        vid && localStream && !call.camOff && ce("video", { ref: (el) => { if (el && el.srcObject !== localStream) el.srcObject = localStream; }, autoPlay: true, playsInline: true, muted: true, style: showRemoteVideo ? { position: "absolute", top: 16, right: 16, width: 96, height: 128, objectFit: "cover", borderRadius: 14, border: "2px solid #ffffff55", background: "#000", transform: "scaleX(-1)", zIndex: 2 } : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, transform: "scaleX(-1)" } }),
+    return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 95, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" } },
+        ce("video", { ref: (el) => { if (el && el.srcObject !== remoteStream) el.srcObject = remoteStream; }, autoPlay: true, playsInline: true, style: showRemoteVideo ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", background: "#000" } : { display: "none" } }),
+        vid && localStream && !call.camOff && ce("video", { ref: (el) => { if (el && el.srcObject !== localStream) el.srcObject = localStream; }, autoPlay: true, playsInline: true, muted: true, style: showRemoteVideo ? { position: "absolute", top: 16, right: 16, width: 96, height: 128, objectFit: "cover", borderRadius: 14, border: "2px solid #ffffff55", background: "#000", transform: "scaleX(-1)", zIndex: 2 } : { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, transform: "scaleX(-1)" } }),
         ce("div", { style: { position: "relative", zIndex: 3, marginTop: showRemoteVideo ? 18 : "16%", textAlign: "center", textShadow: showRemoteVideo ? "0 1px 8px rgba(0,0,0,.8)" : "none" } },
             !showRemoteVideo && ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: peer.color || "#35D0BA", initials: peer.initials || "?", photo: peer.avatar, ring: true })),
             ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: showRemoteVideo ? 18 : 24, color: "#F5F7FA" } }, peer.name),
             ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: active ? "#35D0BA" : "#9BA7B4", marginTop: 6 } }, status)),
         ce("div", { style: { flex: 1 } }),
-        ce("div", { style: { position: "relative", zIndex: 3, display: "flex", gap: 26, alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
+        ce("div", { style: { position: "relative", zIndex: 3, display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
             call.dir === "in" && call.phase === "ringing"
                 ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Decline")),
                     ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Accept call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Accept"))]
@@ -3538,9 +3538,9 @@ function gcMedia(video) {
 function GCTile({ user, stream, local, video, media, state }) {
     const u = user || {}, showVid = !!(video && stream && !(media && media.camOff));
     return ce("div", { style: { position: "relative", background: "#141A22", borderRadius: 14, overflow: "hidden", minHeight: 0, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1E2530" } },
-        stream && ce("video", { ref: (el) => { if (el && el.srcObject !== stream) el.srcObject = stream; }, autoPlay: true, playsInline: true, muted: !!local, style: showVid ? { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", transform: local ? "scaleX(-1)" : "none" } : { position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" } }),
+        stream && ce("video", { ref: (el) => { if (el && el.srcObject !== stream) el.srcObject = stream; }, autoPlay: true, playsInline: true, muted: !!local, style: showVid ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", transform: local ? "scaleX(-1)" : "none" } : { position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" } }),
         !showVid && ce(Ring, { size: 68, color: u.color || "#35D0BA", initials: u.initials || "?", photo: u.avatar }),
-        ce("div", { style: { position: "absolute", left: 8, right: 8, bottom: 6, display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12.5, color: "#F5F7FA", textShadow: "0 1px 6px rgba(0,0,0,.9)" } },
+        ce("div", { style: { position: "absolute", left: 8, right: 8, bottom: 6, display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", fontFamily: "Inter", fontSize: 12.5, color: "#F5F7FA", textShadow: "0 1px 6px rgba(0,0,0,.9)" } },
             ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, local ? "You" : String(u.name || "").split(" ")[0]),
             media && media.muted && ce("span", { style: { background: "rgba(255,107,93,.92)", borderRadius: 8, padding: "1px 6px", fontSize: 11, flexShrink: 0 } }, "Muted"),
             !local && state && state !== "connected" && ce("span", { style: { color: "#F2B84B", fontSize: 11.5, flexShrink: 0 } }, state === "lost" ? "Lost connection" : "Connecting\u2026")));
@@ -3742,7 +3742,7 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
     if (!call) {
         const st = running[0];
         if (!st) return null;
-        return ce("div", { style: { position: "absolute", top: 62, left: 10, right: 10, zIndex: 90, display: "flex", alignItems: "center", gap: 10, background: "#10211D", border: "1px solid #1E8677", borderRadius: 14, padding: "9px 12px", boxShadow: "0 6px 18px rgba(0,0,0,.45)" } },
+        return ce("div", { style: { position: "absolute", top: 62, left: 10, right: 10, zIndex: 90, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#10211D", border: "1px solid #1E8677", borderRadius: 14, padding: "9px 12px", boxShadow: "0 6px 18px rgba(0,0,0,.45)" } },
             st.video ? ce(Video, { size: 20, color: "#35D0BA" }) : ce(Phone, { size: 20, color: "#35D0BA" }),
             ce("div", { style: { flex: 1, minWidth: 0 } },
                 ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, st.name),
@@ -3752,7 +3752,7 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
     const vid = call.video, active = call.phase === "active", ringing = call.phase === "ringing";
     const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
     const cap = (t) => ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, t);
-    const shell = { position: "absolute", inset: 0, zIndex: 96, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" };
+    const shell = { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 96, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" };
     if (!active) {
         const who = call.from && call.from.name ? String(call.from.name).split(" ")[0] : "Someone";
         const status = ringing ? who + " is calling the group" : "Connecting\u2026";
@@ -3763,7 +3763,7 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
                 ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: "#35D0BA", marginTop: 6 } }, "Group " + (vid ? "video" : "voice") + " call"),
                 ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginTop: 4 } }, status)),
             ce("div", { style: { flex: 1 } }),
-            ce("div", { style: { display: "flex", gap: 26, alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
+            ce("div", { style: { display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
                 ringing
                     ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Decline")),
                         ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Join call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), cap("Join"))]
@@ -3776,9 +3776,9 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
         ce("div", { style: { width: "100%", textAlign: "center", padding: "16px 16px 8px", flexShrink: 0 } },
             ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, call.name),
             ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#35D0BA", marginTop: 3 } }, sub)),
-        ce("div", { style: { flex: 1, minHeight: 0, width: "100%", padding: "6px 10px", boxSizing: "border-box", display: "grid", gap: 8, gridTemplateColumns: "repeat(" + cols + ", minmax(0, 1fr))", gridTemplateRows: "repeat(" + rows + ", minmax(0, 1fr))" } },
+        ce("div", { style: { flex: 1, minHeight: 0, width: "100%", padding: "6px 10px", boxSizing: "border-box", display: "grid", gap: 8, counterIncrement: "lcgap-8", gridTemplateColumns: "repeat(" + cols + ", minmax(0, 1fr))", gridTemplateRows: "repeat(" + rows + ", minmax(0, 1fr))" } },
             people.map((p) => ce(GCTile, { key: p.id, user: p.user, stream: p.stream, local: p.local, video: vid, media: p.media, state: p.state }))),
-        ce("div", { style: { display: "flex", gap: 26, alignItems: "center", justifyContent: "center", padding: "14px 20px 36px", flexShrink: 0 } },
+        ce("div", { style: { display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "14px 20px 36px", flexShrink: 0 } },
             ce("div", { style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), cap(call.muted ? "Unmute" : "Mute")),
             vid && ce("div", { style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), cap(call.camOff ? "Camera on" : "Camera off")),
             ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Leave call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Leave"))));
@@ -3803,7 +3803,7 @@ function CallsScreen({ conversations = [], onCall = () => { } }) {
                 ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8A96A5" } }, "Open a chat and tap the phone or video icon at the top to call someone.")),
             log.map((e) => {
                 const convo = conversations.find((c) => c.id === e.conversationId);
-                return ce("div", { key: e.id + e.time, style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", borderBottom: "1px solid #1B212B" } },
+                return ce("div", { key: e.id + e.time, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", borderBottom: "1px solid #1B212B" } },
                     ce(Ring, { size: 46, color: e.peer.color || "#5B6673", initials: e.peer.initials || "?", photo: e.peer.avatar }),
                     ce("div", { style: { flex: 1, minWidth: 0 } },
                         ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: bad[e.outcome] && e.dir === "in" ? "#FF6B5D" : "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, e.peer.name),
@@ -3840,7 +3840,7 @@ function useTagTargets(token) {
 }
 function TagPills({ tags, light }) {
     if (!tags || !tags.length) return null;
-    return ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, justifyContent: light ? "center" : "flex-start" } },
+    return ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, counterIncrement: "lcgap-6", marginTop: 8, justifyContent: light ? "center" : "flex-start" } },
         tags.map((t) => ce("span", { key: t.type + t.id, style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#35D0BA", background: "rgba(53,208,186,.14)", border: "1px solid rgba(53,208,186,.4)", borderRadius: 999, padding: "3px 10px" } }, (t.type === "group" ? "\u{1F465} " : "") + "@" + t.name)));
 }
 function MentionField({ token, value, onChange, tags, setTags, placeholder, multiline, maxLength, rows, style, fieldRef, onEnter, className }) {
@@ -3862,7 +3862,7 @@ function MentionField({ token, value, onChange, tags, setTags, placeholder, mult
     };
     return ce("div", { style: { position: "relative", flex: 1, minWidth: 0 } },
         matches.length > 0 && ce("div", { onMouseDown: (e) => e.preventDefault(), role: "listbox", "aria-label": "Tag a contact or group", style: { position: "absolute", left: 0, right: 0, bottom: "calc(100% + 10px)", zIndex: 6, minWidth: 230, background: "#0F141C", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,.55), 0 0 14px rgba(53,208,186,.2)", animation: "lcFadeUp .18s ease-out" } },
-            matches.map((t) => ce("div", { key: t.type + t.id, onClick: () => pick(t), role: "option", style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+            matches.map((t) => ce("div", { key: t.type + t.id, onClick: () => pick(t), role: "option", style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
                 ce(Ring, { size: 30, color: t.color || "#5B6673", initials: t.initials || "?", photo: t.avatar }),
                 ce("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.name),
                 ce("span", { style: { fontFamily: "Inter", fontSize: 11, color: t.type === "group" ? "#A78BFA" : "#35D0BA" } }, t.type === "group" ? "Group" : "Contact")))),
@@ -4094,7 +4094,7 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
     };
     const round = (on) => ({ width: 44, height: 44, borderRadius: 22, border: "none", background: on ? "#35D0BA" : "transparent", filter: on ? "none" : "drop-shadow(0 1px 3px rgba(0,0,0,.8))", color: on ? "#0E1116" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, flexShrink: 0 });
     const tool = (label, on, onClick, child) => ce("button", { key: label, onClick, "aria-label": label, style: round(on) }, child);
-    const top = ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "12px 12px 8px", flexShrink: 0 } },
+    const top = ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "12px 12px 8px", flexShrink: 0 } },
         tool("Close", false, close, ce(X, { size: 24, color: "#fff" })),
         ce("div", { style: { flex: 1 } }),
         tool("Add music", !!music, () => { setDraw(false); setPanel("music"); }, ce(MusicIcon, { size: 22, color: music ? "#0E1116" : "#fff" })),
@@ -4104,32 +4104,32 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
         tool("Draw", draw, () => { setSel(null); setDraw((d) => !d); }, ce(Pencil, { size: 22, color: draw ? "#0E1116" : "#fff" })));
     const stage = ce("div", { onPointerDown: () => setSel(null), style: { position: "relative", width: sw, height: sh, background: photo ? "#000" : bg, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(255,255,255,.08)", touchAction: "none", animation: "lcFade .3s ease-out" } },
         photo && ce("img", { src: photo, alt: "", draggable: false, style: { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "fill", userSelect: "none", pointerEvents: "none" } }),
-        !photo && !items.length && !strokes.length && ce("div", { style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "rgba(255,255,255,.75)", pointerEvents: "none" } }, "Tap Aa to write, or add a photo"),
+        !photo && !items.length && !strokes.length && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "rgba(255,255,255,.75)", pointerEvents: "none" } }, "Tap Aa to write, or add a photo"),
         ce("svg", { width: sw, height: sh, viewBox: "0 0 " + sw + " " + sh, onPointerDown: draw ? dDown : undefined, onPointerMove: draw ? dMove : undefined, onPointerUp: draw ? dUp : undefined, onPointerCancel: draw ? dUp : undefined, style: { position: "absolute", left: 0, top: 0, touchAction: "none", pointerEvents: draw ? "auto" : "none", cursor: draw ? "crosshair" : "default" } },
             strokes.map((s, i) => ce("polyline", { key: i, fill: "none", stroke: s.c, strokeWidth: s.w * sw, strokeLinecap: "round", strokeLinejoin: "round", points: s.p.map((q) => (q[0] * sw).toFixed(1) + "," + (q[1] * sh).toFixed(1)).join(" ") }))),
         items.map(renderItem));
-    const selBar = selItem && !draw && ce("div", { style: { position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 3 } },
+    const selBar = selItem && !draw && ce("div", { style: { position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, counterIncrement: "lcgap-8", zIndex: 3 } },
         [["Smaller", "A−", () => resize(0.87)], ["Bigger", "A+", () => resize(1.15)], selItem.kind !== "sticker" ? ["Colour", ce("span", { style: { color: selItem.c, fontSize: 20, lineHeight: 1 } }, "●"), () => upd(selItem.id, { c: STATUS_TEXT_COLORS[(STATUS_TEXT_COLORS.indexOf(selItem.c) + 1) % STATUS_TEXT_COLORS.length] })] : null, selItem.kind === "shape" && !(SHAPE_DEFS[selItem.v] || {}).open ? ["Fill", selItem.f ? "◼" : "◻", () => upd(selItem.id, { f: !selItem.f })] : null, ["Rotate", "↻", () => upd(selItem.id, { r: ((selItem.r || 0) + 15) % 360 })], selItem.kind === "text" ? ["Edit text", "✎", () => openText(selItem)] : null, ["Delete", "\u{1F5D1}", () => { setItems((a) => a.filter((x) => x.id !== selItem.id)); setSel(null); }]].filter(Boolean).map(([l, g, f]) => ce("button", { key: l, onClick: f, "aria-label": l, style: { ...round(false), width: 38, height: 38, fontFamily: "Inter", fontWeight: 700, fontSize: 14, background: "transparent", textShadow: "0 1px 4px rgba(0,0,0,.9)" } }, g)));
-    const musicChip = music && ce("button", { onClick: () => setPanel("music"), style: { position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", maxWidth: "88%", display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid rgba(53,208,186,.6)", borderRadius: 999, padding: "6px 12px", color: "#fff", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", zIndex: 3 } }, ce(MusicIcon, { size: 15, color: "#35D0BA" }), ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, music.name + " · " + clock(music.start) + "–" + clock(music.start + music.len)));
+    const musicChip = music && ce("button", { onClick: () => setPanel("music"), style: { position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", maxWidth: "88%", display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", background: "transparent", border: "1px solid rgba(53,208,186,.6)", borderRadius: 999, padding: "6px 12px", color: "#fff", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", zIndex: 3 } }, ce(MusicIcon, { size: 15, color: "#35D0BA" }), ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, music.name + " · " + clock(music.start) + "–" + clock(music.start + music.len)));
     const dot = (c, on, f) => ce("button", { key: c, onClick: f, "aria-label": "Colour " + c, style: { width: 28, height: 28, borderRadius: 14, background: c, border: on ? "3px solid #fff" : "3px solid rgba(255,255,255,.25)", cursor: "pointer", padding: 0, flexShrink: 0 } });
     const bottom = draw
-        ? ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 18px", flexShrink: 0 } },
+        ? ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "10px 14px 18px", flexShrink: 0 } },
             STATUS_TEXT_COLORS.map((c) => dot(c, pen === c, () => setPen(c))), ce("div", { style: { flex: 1 } }),
             ce("button", { onClick: () => setStrokes((a) => a.slice(0, -1)), disabled: !strokes.length, style: { ...smallBtn, opacity: strokes.length ? 1 : 0.4 } }, "Undo"),
             ce("button", { onClick: () => setDraw(false), style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done"))
         : ce("div", { style: { flexShrink: 0 } },
-            !photo && ce("div", { style: { display: "flex", gap: 10, justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))),
-            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } },
+            !photo && ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))),
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } },
                 ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
                 ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })),
                 ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }),
                 ce("button", { onClick: insertAt, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))),
             ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } },
-                ce("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"),
+                ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"),
                 ce("div", { style: { flex: 1 } }),
                 ce("button", { onClick: post, disabled: !canPost, "aria-label": "Post status", style: { width: 56, height: 56, borderRadius: 28, border: "none", background: "#21C063", cursor: canPost ? "pointer" : "default", opacity: canPost ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: canPost ? "0 0 18px rgba(33,192,99,.55)" : "none" } }, busy ? ce("span", { style: { color: "#06210F", fontFamily: "Inter", fontWeight: 700, fontSize: 12 } }, "…") : ce(Send, { size: 26, color: "#06210F" }))));
     const sheetBox = { position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(15,20,28,.4)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: "22px 22px 0 0", borderTop: "1px solid rgba(53,208,186,.5)", padding: "14px 16px 22px", maxHeight: "70%", overflowY: "auto", animation: "hubUp .22s ease-out", zIndex: 10 };
-    const musicPanel = panel === "music" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => { stopPlay(); setPanel(null); } },
+    const musicPanel = panel === "music" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => { stopPlay(); setPanel(null); } },
         ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
             ce("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, "Add music"), ce("button", { onClick: () => { stopPlay(); setPanel(null); }, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
             ce("input", { ref: audioRef, type: "file", accept: "audio/*", onChange: pickAudio, style: { display: "none" } }),
@@ -4141,21 +4141,21 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
                 ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 4 } }, "Start at"),
                 ce("input", { type: "range", min: 0, max: Math.max(0, Math.floor((music.dur - music.len) * 2) / 2), step: 0.5, value: music.start, disabled: music.dur - music.len < 0.5, onChange: (e) => setClip({ start: Number(e.target.value) }), style: { width: "100%", accentColor: "#35D0BA", marginBottom: 12 } }),
                 ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 6 } }, "Length"),
-                ce("div", { style: { display: "flex", gap: 8, marginBottom: 14 } }, [5, 10, 15].filter((n) => n <= Math.floor(music.dur) || n === 5).map((n) => ce("button", { key: n, onClick: () => setClip({ len: Math.min(n, Math.floor(music.dur) || n) }), style: { ...smallBtn, flex: 1, background: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#35D0BA" : "#1E2530", color: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#0E1116" : "#35D0BA" } }, n + " sec"))),
-                ce("div", { style: { display: "flex", gap: 10 } },
+                ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [5, 10, 15].filter((n) => n <= Math.floor(music.dur) || n === 5).map((n) => ce("button", { key: n, onClick: () => setClip({ len: Math.min(n, Math.floor(music.dur) || n) }), style: { ...smallBtn, flex: 1, background: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#35D0BA" : "#1E2530", color: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#0E1116" : "#35D0BA" } }, n + " sec"))),
+                ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
                     ce("button", { onClick: () => (playing ? stopPlay() : startPlay()), style: { ...smallBtn, flex: 1, padding: "10px 12px" } }, playing ? "⏹ Stop preview" : "▶ Preview"),
                     ce("button", { onClick: () => { stopPlay(); setMusic(null); }, style: { ...smallBtn, flex: 1, padding: "10px 12px", color: "#FF6B5D" } }, "Remove music")))));
-    const stickerPanel = panel === "sticker" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => setPanel(null) },
+    const stickerPanel = panel === "sticker" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => setPanel(null) },
         ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
             ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Stickers and emojis"),
-            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s))),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, counterIncrement: "lcgap-6" } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s))),
             ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", margin: "18px 0 10px" } }, "Shapes and arrows"),
-            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 } }, SHAPE_LIST.map((k) => { const df = SHAPE_DEFS[k]; return ce("button", { key: k, onClick: () => { addItem({ kind: "shape", v: k, c: "#FFFFFF", f: false, s: df.open ? 0.4 : 0.3 }); setPanel(null); }, "aria-label": "Shape " + k, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "10px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("svg", { width: 34, height: 34 * df.h / 100 + 6, viewBox: "0 0 100 " + df.h, style: { overflow: "visible" } }, ce("path", { d: df.d, fill: "none", stroke: "#fff", strokeWidth: 7, strokeLinecap: "round", strokeLinejoin: "round" }), df.head && ce("path", { d: df.head, fill: "#fff", stroke: "#fff", strokeWidth: 2 }))); }))));
-    const textPanel = panel === "text" && ce("div", { style: { position: "absolute", inset: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } },
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, counterIncrement: "lcgap-6" } }, SHAPE_LIST.map((k) => { const df = SHAPE_DEFS[k]; return ce("button", { key: k, onClick: () => { addItem({ kind: "shape", v: k, c: "#FFFFFF", f: false, s: df.open ? 0.4 : 0.3 }); setPanel(null); }, "aria-label": "Shape " + k, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "10px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("svg", { width: 34, height: 34 * df.h / 100 + 6, viewBox: "0 0 100 " + df.h, style: { overflow: "visible" } }, ce("path", { d: df.d, fill: "none", stroke: "#fff", strokeWidth: 7, strokeLinecap: "round", strokeLinejoin: "round" }), df.head && ce("path", { d: df.head, fill: "#fff", stroke: "#fff", strokeWidth: 2 }))); }))));
+    const textPanel = panel === "text" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } },
         ce("div", { style: { display: "flex", alignItems: "center", padding: "12px" } }, ce("button", { onClick: () => setPanel(null), style: { ...smallBtn, color: "#9BA7B4" } }, "Cancel"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: saveText, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
         ce("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" } },
             ce("textarea", { autoFocus: true, value: txt.v, rows: 3, maxLength: 80, onChange: (e) => setTxt({ ...txt, v: e.target.value.split("\n").slice(0, 3).join("\n") }), placeholder: "Type something…", className: "lc-plain", style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: txt.c, fontFamily: "Sora", fontWeight: 700, fontSize: 30, textShadow: "0 2px 8px rgba(0,0,0,.6)" } })),
-        ce("div", { style: { display: "flex", justifyContent: "center", gap: 12, padding: "10px 12px 24px" } }, STATUS_TEXT_COLORS.map((c) => dot(c, txt.c === c, () => setTxt({ ...txt, c })))));
+        ce("div", { style: { display: "flex", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12", padding: "10px 12px 24px" } }, STATUS_TEXT_COLORS.map((c) => dot(c, txt.c === c, () => setTxt({ ...txt, c })))));
     return ce("div", { role: "dialog", "aria-label": "New status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 65, background: "#000", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
         top,
         error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })),
@@ -4257,9 +4257,9 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
     const mi = (label, fn, color) => ce("button", { key: label, onClick: fn, style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 18px", fontFamily: "Inter", fontSize: 14.5, color: color || "#E6EAF0", cursor: "pointer" } }, label);
     return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
         ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}@keyframes lcStIn{from{opacity:0;transform:translateX(var(--d,28px))}to{opacity:1;transform:none}}"),
-        ce("div", { style: { display: "flex", gap: 4, padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } },
+        ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } },
             ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more || seenOpen ? "paused" : "running" } })))),
-        ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", position: "relative", zIndex: 3 } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", position: "relative", zIndex: 3 } },
             ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })),
             ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
             ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (group.items.length > 1 ? " · " + (i + 1) + "/" + group.items.length : "") + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))),
@@ -4274,11 +4274,11 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
         ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { onClick: () => long && setMore(!more), style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)", maxHeight: more ? "45%" : undefined, overflowY: more ? "auto" : undefined, cursor: long ? "pointer" : "default" } },
             item.photo && item.text ? (long && !more ? ce("span", null, richText(item.text.slice(0, 110).trim() + "… "), ce("b", null, "Read more")) : richText(item.text)) : null, ce(TagPills, { tags: item.tags, light: true })),
         group.mine ? ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
-            ce("button", { onClick: () => setSeenOpen(true), "aria-label": "See who viewed", style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0, color: "#fff", fontFamily: "Inter", fontSize: 13.5, textAlign: "left" } },
+            ce("button", { onClick: () => setSeenOpen(true), "aria-label": "See who viewed", style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "none", border: "none", cursor: "pointer", padding: 0, color: "#fff", fontFamily: "Inter", fontSize: 13.5, textAlign: "left" } },
                 ce("span", { style: { display: "flex", alignItems: "center" } }, (item.viewers || []).slice(0, 3).map((v, k) => ce("div", { key: v.id, style: { marginLeft: k ? -8 : 0, border: "2px solid #000", borderRadius: "50%", display: "flex" } }, ce(Ring, { size: 24, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false })))),
                 ce("span", null, (item.views || 0) ? "Seen by " + (item.views || 0) + " · tap to chat" : "No views yet")),
             ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete"))
-            : ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 20px", background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+            : ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "10px 12px 20px", background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
                 ce("input", { value: reply, onChange: (e) => setReply(e.target.value), onFocus: () => setPaused(true), onBlur: () => setPaused(false), onKeyDown: (e) => { if (e.key === "Enter") sendReply(); }, placeholder: "Reply", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,.14)", border: "none", outline: "none", borderRadius: 999, padding: "10px 16px", color: "#fff", fontFamily: "Inter", fontSize: 14.5 } }),
                 reply.trim() ? ce("button", { onClick: sendReply, "aria-label": "Send reply", style: { width: 38, height: 38, borderRadius: 19, border: "none", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ce(Send, { size: 18, color: "#06210F" }))
                     : STATUS_QUICK.slice(0, 5).map((e) => ce("button", { key: e, onClick: () => sendToOwner(e + " reacted to your status"), "aria-label": "React " + e, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 2 } }, e))),
@@ -4289,7 +4289,7 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
                     ce("button", { onClick: () => setSeenOpen(false), "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(X, { size: 20, color: "#8891A0" }))),
                 ce("div", { style: { overflowY: "auto", padding: "0 6px 18px" } },
                     !(item.viewers || []).length && ce("div", { style: { padding: "26px 20px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Nobody has viewed this update yet."),
-                    (item.viewers || []).map((v) => ce("div", { key: v.id, onClick: () => { Promise.resolve(onChat && onChat(v)).catch((e) => flash((e && e.message) || "Could not open chat")); }, style: { display: "flex", alignItems: "center", gap: 14, padding: "9px 12px", cursor: "pointer", borderRadius: 12 } },
+                    (item.viewers || []).map((v) => ce("div", { key: v.id, onClick: () => { Promise.resolve(onChat && onChat(v)).catch((e) => flash((e && e.message) || "Could not open chat")); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "9px 12px", cursor: "pointer", borderRadius: 12 } },
                         ce(Ring, { size: 46, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false }),
                         ce("div", { style: { flex: 1, minWidth: 0 } },
                             ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, v.name),
@@ -4304,8 +4304,8 @@ function StatusSaved({ title, list, empty, onBack, onRemove, top }) {
         top,
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 12px 24px" } },
             !list.length && ce("div", { style: { padding: "40px 24px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, empty),
-            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } }, list.map((s) =>
-                ce("div", { key: s.id, style: { position: "relative", aspectRatio: "9 / 16", borderRadius: 12, overflow: "hidden", background: s.bg || "#1E8677", display: "flex", alignItems: "center", justifyContent: "center" } },
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, counterIncrement: "lcgap-8" } }, list.map((s) =>
+                ce("div", { key: s.id, style: { position: "relative", aspectRatio: "9 / 16", counterReset: "lcar-9-16", borderRadius: 12, overflow: "hidden", background: s.bg || "#1E8677", display: "flex", alignItems: "center", justifyContent: "center" } },
                     s.photo ? ce("img", { src: s.photo, alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { padding: 8, color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 12, textAlign: "center", wordBreak: "break-word" } }, (s.text || "").slice(0, 70)),
                     ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "14px 6px 5px", background: "linear-gradient(transparent, rgba(0,0,0,.7))", color: "#fff", fontFamily: "Inter", fontSize: 10.5 } }, (s.name ? s.name + " · " : "") + new Date(s.time).toLocaleDateString()),
                     ce("button", { onClick: () => onRemove(s.id), "aria-label": "Remove", style: { position: "absolute", top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" } }, ce(X, { size: 13, color: "#fff" })))))));
@@ -4365,7 +4365,7 @@ function BroadcastScreen({ token, contacts, onBack }) {
             ce("div", { style: { padding: "0 16px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", lineHeight: 1.45 } }, "Create a list of chosen contacts and send them the same message any time. Each person receives it as a private chat message."),
             !lists.length && ce("div", { style: { padding: "30px 24px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "No broadcast lists yet. Tap New list to create one."),
             lists.map((l) => { const n = l.ids.filter(byId).length, last = (l.history || [])[(l.history || []).length - 1];
-                return ce("div", { key: l.id, onClick: () => { setMsg(""); setText(""); setView({ mode: "send", id: l.id }); }, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", cursor: "pointer" } }, bAvatar,
+                return ce("div", { key: l.id, onClick: () => { setMsg(""); setText(""); setView({ mode: "send", id: l.id }); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 16px", cursor: "pointer" } }, bAvatar,
                     ce("div", { style: { flex: 1, minWidth: 0 } },
                         ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, l.name),
                         ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, last ? last.text : n + (n === 1 ? " recipient" : " recipients")))); })));
@@ -4388,7 +4388,7 @@ function BroadcastScreen({ token, contacts, onBack }) {
     if (!cur) return null;
     const members = cur.ids.map(byId).filter(Boolean), hist = cur.history || [];
     return ce("div", { style: col },
-        ce(TopBar, { title: cur.name, onBack: () => setView(null), right: ce("div", { style: { display: "flex", gap: 8 } }, ce("button", { onClick: () => startEdit(cur), style: smallBtn }, "Edit"), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")) }),
+        ce(TopBar, { title: cur.name, onBack: () => setView(null), right: ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8" } }, ce("button", { onClick: () => startEdit(cur), style: smallBtn }, "Edit"), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")) }),
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 12px" } },
             ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12, lineHeight: 1.5 } }, "Recipients (" + members.length + "): " + (members.map((m) => m.name).join(", ") || "none available")),
             !hist.length && ce("div", { style: { padding: "26px 10px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Type a message below to send it to everyone on this list."),
@@ -4396,7 +4396,7 @@ function BroadcastScreen({ token, contacts, onBack }) {
                 ce("div", { style: { maxWidth: "82%", background: "#1E8677", color: "#fff", borderRadius: "14px 14px 4px 14px", padding: "9px 12px", fontFamily: "Inter", fontSize: 14.5, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, h.text,
                     ce("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 4, textAlign: "right" } }, "Sent to " + h.ok + " · " + new Date(h.time).toLocaleString()))))),
         msg && ce("div", { style: { padding: "6px 16px", fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA", flexShrink: 0 } }, msg),
-        ce("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, padding: "8px 12px 14px", flexShrink: 0, borderTop: "1px solid #1F2733" } },
+        ce("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px 14px", flexShrink: 0, borderTop: "1px solid #1F2733" } },
             ce("textarea", { value: text, rows: 1, maxLength: MAX_MSG_CHARS, onChange: (e) => setText(e.target.value), placeholder: "Broadcast message", style: { flex: 1, minWidth: 0, resize: "none", maxHeight: 120, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 18, outline: "none", padding: "10px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } }),
             ce("button", { onClick: send, disabled: busy || !text.trim(), "aria-label": "Send broadcast", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#21C063", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, busy ? ce("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : ce(Send, { size: 22, color: "#06210F" }))));
 }
@@ -4445,7 +4445,7 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
     const openFrom = (gr) => { remember(gr.user.name); open(feed, feed.indexOf(gr)); };
     const iconBtn = (label, child, fn) => ce("button", { key: label, onClick: fn, "aria-label": label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, child);
     const head = (t) => ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, t);
-    const row = (key, ring, title, sub2, onClick, right) => ce("div", { key, onClick, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", cursor: "pointer" } }, ring, ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, sub2)), right);
+    const row = (key, ring, title, sub2, onClick, right) => ce("div", { key, onClick, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 16px", cursor: "pointer" } }, ring, ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, sub2)), right);
     if (sub === "broadcast") return ce(BroadcastScreen, { token, contacts: contacts || [], onBack: () => setSub(null) });
     if (sub === "starred") return ce(StatusSaved, { title: "Starred", list: starred, empty: "Star a status update from its ⋮ menu to keep a copy here.", onBack: () => setSub(null), onRemove: (id) => { const n = starred.filter((s) => s.id !== id); setStarred(n); saveJSON("statusStarred", n); } });
     if (sub === "archive") return ce(StatusSaved, { title: "Status archive", list: archive, empty: "Nothing archived yet. New updates you post are saved here.", onBack: () => setSub(null), onRemove: (id) => { const n = archive.filter((s) => s.id !== id); setArchive(n); saveJSON("statusArchive", n); },
@@ -4463,13 +4463,13 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
         ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 9px 10px", background: "linear-gradient(transparent, rgba(0,0,0,.82))" } },
             ce("div", { style: { color: "#fff", fontFamily: "Sora", fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, textAlign: "left", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "break-word" } }, label)));
     const thumb = (gr) => { const it = gr.items[gr.items.length - 1]; return it.photo ? ce("img", { src: photoSrc(it.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { width: "100%", height: "100%", background: it.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, boxSizing: "border-box", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 11, textAlign: "center", wordBreak: "break-word", overflow: "hidden" } }, (it.text || "").slice(0, 50)); };
-    const topRight = ce("div", { style: { display: "flex", alignItems: "center", gap: 6, position: "relative" } },
+    const topRight = ce("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", position: "relative" } },
         iconBtn("Search status", ce(Search, { size: 22, color: "#F5F7FA" }), () => { setSearching(true); setQ(""); }),
         iconBtn("Menu", ce(MoreVertical, { size: 22, color: "#F5F7FA" }), () => setMenu(!menu)),
         menu && ce("div", { style: { position: "absolute", top: 40, right: 0, background: "#161B22", borderRadius: 20, minWidth: 225, padding: "6px 0", boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden", zIndex: 30 } },
             [["Advertise", () => setInfo("Advertise is coming soon.")], ["Create channel", () => setInfo("Channels are coming soon.")], ["Broadcast", () => setSub("broadcast")], ["Status privacy", () => setSub("privacy")], ["Starred", () => setSub("starred")], ["Status archive settings", () => setSub("archive")], ["Settings", () => onSettings && onSettings()]].map(([l, fn]) =>
                 ce("button", { key: l, onClick: () => { setMenu(false); fn(); }, style: { display: "block", position: "relative", width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 20px 14px 32px", fontFamily: "Inter", fontSize: 16.5, color: "#E6EAF0", cursor: "pointer", whiteSpace: "nowrap" } }, l === "Settings" && ce("span", { style: { position: "absolute", left: 14, top: "50%", marginTop: -4, width: 8, height: 8, borderRadius: 4, background: "#21C063" } }), l))));
-    const searchBar = ce("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "#0E1116", flexShrink: 0 } },
+    const searchBar = ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", background: "#0E1116", flexShrink: 0 } },
         iconBtn("Back", ce(ArrowLeft, { size: 22, color: "#F5F7FA" }), () => { setSearching(false); setQ(""); }),
         ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search status", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }),
         q && iconBtn("Clear", ce(X, { size: 18, color: "#8891A0" }), () => setQ("")));
@@ -4484,7 +4484,7 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
                 error && ce(Banner, { text: error, onClose: () => setError("") }),
                 info && ce(Banner, { text: info, tone: "info", onClose: () => setInfo("") }),
                 ce("div", { style: { padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 700, fontSize: 22, color: "#F5F7FA" } }, "Status"),
-                ce("div", { style: { display: "flex", gap: 7, overflowX: "auto", padding: "0 16px 14px", scrollbarWidth: "none" } },
+                ce("div", { style: { display: "flex", gap: 7, counterIncrement: "lcgap-7", overflowX: "auto", padding: "0 16px 14px", scrollbarWidth: "none" } },
                     card("add", () => addTap("photo"), ce("div", { style: { position: "absolute", left: 0, right: 0, top: 36, display: "flex", justifyContent: "center" } }, ce("div", { style: { position: "relative" } }, ce(Ring, { size: 50, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: false }), ce("div", { "aria-label": "Add status", style: { position: "absolute", right: -5, bottom: -5, width: 24, height: 24, borderRadius: 12, background: F.status ? "#21C063" : "#5B6673", border: "2px solid #101820", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Plus, { size: 15, color: "#06210F" })))), "Add status", null, null),
                     data.mine.length > 0 && card("mine", () => open([mineGroup], 0), thumb(mineGroup), "My status",
                         ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(profile, 52, false)),
@@ -4492,10 +4492,10 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
                     feed.map((gr, k) => card(gr.user.id, () => { remember(gr.user.name); open(feed, k); }, thumb(gr), gr.user.name,
                         ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(gr.user, 52, gr.allSeen)),
                         gr.items.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, gr.items.length) ))),
-                ce("button", { onClick: () => setInfo("Boost status is coming soon."), style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 12, width: "calc(100% - 44px)", margin: "4px 22px 6px", height: 42, borderRadius: 999, background: "transparent", border: "1px solid #2B3544", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 16, cursor: "pointer" } }, ce(Megaphone, { size: 20, color: "#21C063" }), "Boost status"),
+                ce("button", { onClick: () => setInfo("Boost status is coming soon."), style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12", width: "calc(100% - 44px)", margin: "4px 22px 6px", height: 42, borderRadius: 999, background: "transparent", border: "1px solid #2B3544", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 16, cursor: "pointer" } }, ce(Megaphone, { size: 20, color: "#21C063" }), "Boost status"),
                 loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
                 !loading && !feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")),
-        !searching && ce("div", { style: { position: "absolute", right: 16, bottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 14, zIndex: 20 } },
+        !searching && ce("div", { style: { position: "absolute", right: 16, bottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 14, counterIncrement: "lcgap-14", zIndex: 20 } },
             ce("button", { onClick: () => addTap("text"), "aria-label": "Text status", style: { width: 46, height: 46, borderRadius: 15, border: "none", background: "#1F2630", boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Pencil, { size: 22, color: "#E6EAF0" })),
             ce("button", { onClick: () => addTap("photo"), "aria-label": "Add status", style: { width: 62, height: 62, borderRadius: 20, border: "none", background: "#21C063", boxShadow: "0 6px 18px rgba(33,192,99,.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce("div", { style: { position: "relative", display: "flex" } }, ce(Camera, { size: 28, color: "#06210F" }), ce("div", { style: { position: "absolute", top: -8, right: -9, display: "flex" } }, ce(Plus, { size: 14, color: "#06210F" }))))),
         composer && ce(StatusComposer, { token, mode, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }),
@@ -4584,7 +4584,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
     const nFav = settings.favorites.length;
     const dismissPromo = () => { setPromoOff(true); saveJSON("toolsPromoOff", true); };
     const heading = (t) => ce("div", { style: { padding: "20px 16px 6px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, t);
-    const row = (Icon, title, sub, onClick, badge) => ce("div", { key: title, onClick, style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" } },
+    const row = (Icon, title, sub, onClick, badge) => ce("div", { key: title, onClick, style: { display: "flex", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "12px 16px", cursor: "pointer" } },
         ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(Icon, { size: 21, color: "#9BA7B4" })),
         ce("div", { style: { flex: 1, minWidth: 0 } },
             ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
@@ -4602,22 +4602,22 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
     const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
     return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
         ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }),
-        menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", inset: 0, zIndex: 20 } },
+        menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 } },
             ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } },
                 menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))),
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
-            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } },
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } },
                 "Last 7 days performance",
                 ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))),
             info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."),
-            ce("div", { style: { display: "flex", gap: 10, padding: "0 16px" } },
+            ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "0 16px" } },
                 stat(ToolMsg, String(started), "Conversations started"),
                 stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"),
                 stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")),
             !promoOff && heading("For you"),
             !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } },
                 ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })),
-                ce("div", { style: { display: "flex", gap: 14, paddingRight: 24 } },
+                ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", paddingRight: 24 } },
                     ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })),
                     ce("div", { style: { flex: 1 } },
                         ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"),
@@ -4638,15 +4638,15 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
             row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()),
             row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")),
             heading("How to"),
-            ce("div", { style: { display: "flex", gap: 12, overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
+            ce("div", { style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
                 ce("div", { style: { height: 86, background: g.bg, display: "flex", alignItems: "center", justifyContent: "center" } },
                     ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))),
                 ce("div", { style: { padding: "10px 10px 12px", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5, color: "#F5F7FA", lineHeight: 1.3 } }, g.title))))),
-        howTo && ce("div", { onClick: () => setHowTo(null), style: { position: "absolute", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 30, display: "flex", alignItems: "flex-end" } },
+        howTo && ce("div", { onClick: () => setHowTo(null), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,.6)", zIndex: 30, display: "flex", alignItems: "flex-end" } },
             ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderRadius: "20px 20px 0 0", padding: "20px 18px 22px", maxHeight: "75%", overflowY: "auto" } },
                 ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, howTo.title),
                 ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#C5CDD8", lineHeight: 1.55, whiteSpace: "pre-line" } }, howTo.body),
-                ce("div", { style: { display: "flex", gap: 10, marginTop: 18 } },
+                ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginTop: 18 } },
                     ce("button", { onClick: () => { const a = howTo.act; setHowTo(null); a(); }, style: { flex: 1, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "11px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, howTo.go),
                     ce("button", { onClick: () => setHowTo(null), style: { ...smallBtn, borderRadius: 22, padding: "11px 20px" } }, "Close")))));
 }
@@ -4723,7 +4723,7 @@ function QuickRepliesScreen({ settings, onBack, onSave }) {
                 ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No quick replies yet"),
                 ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8A96A5" } }, "Save messages you send often. In any chat, type / then the shortcut to insert one.")),
             err && ce("div", { style: { padding: "10px 16px", fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
-            list.map((q) => ce("div", { key: q.id, onClick: () => { setErr(""); setEdit({ ...q }); }, style: { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+            list.map((q) => ce("div", { key: q.id, onClick: () => { setErr(""); setEdit({ ...q }); }, style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "12px 16px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
                 ce("div", { style: { flex: 1, minWidth: 0 } },
                     ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#35D0BA" } }, "/" + q.shortcut),
                     ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, q.text)),
@@ -4737,7 +4737,7 @@ function Toggle({ on, onChange, disabled }) {
     </button>
   );
 }
-const settingRow = { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", borderBottom: "1px solid #1B212B" };
+const settingRow = { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "14px 16px", borderBottom: "1px solid #1B212B" };
 
 function FavouritesScreen({ conversations, settings, presence, onBack, onOpenChat, onToggleFavorite }) {
   const favs = conversations.filter(c => settings.favorites.includes(c.id));
@@ -4753,7 +4753,7 @@ function FavouritesScreen({ conversations, settings, presence, onBack, onOpenCha
           </div>
         )}
         {favs.map(c => (
-          <div key={c.id} onClick={() => onOpenChat(c)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
+          <div key={c.id} onClick={() => onOpenChat(c)} style={{ display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
             <Ring size={46} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}{c.other.verified && <VerifiedBadge />}</div>
@@ -4787,7 +4787,7 @@ function PrivacyScreen({ settings, onBack, onPrivacy, onBlock }) {
         <div style={{ ...settingRow, display: "block" }}>
           <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>Last seen & online</div>
           <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 10px" }}>Choose who can see when you are online or were last active.</div>
-          <div style={{ display: "flex", gap: 4, background: "#1E2530", borderRadius: 12, padding: 4 }}>{seg("everyone", "Everyone")}{seg("nobody", "Nobody")}</div>
+          <div style={{ display: "flex", gap: 4, counterIncrement: "lcgap-4", background: "#1E2530", borderRadius: 12, padding: 4 }}>{seg("everyone", "Everyone")}{seg("nobody", "Nobody")}</div>
         </div>
         <div style={{ ...sectionTitle, margin: "20px 16px 6px" }}>Blocked contacts · {settings.blocked.length}</div>
         {settings.blocked.length === 0 && <div style={{ padding: "6px 16px 24px", fontFamily: "Inter", fontSize: 13, color: "#8A96A5" }}>You haven’t blocked anyone. To block someone, open their chat, tap the three dots and choose Block.</div>}
@@ -4950,7 +4950,7 @@ function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, 
     const groups = conversations.filter(c => c.isGroup);
     const mine = groups.filter(c => c.adminId === myId);
     const others = groups.filter(c => c.adminId !== myId);
-    const rowFor = (c) => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+    const rowFor = (c) => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
         React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }),
         React.createElement("div", { style: { flex: 1, minWidth: 0 } },
             React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
@@ -4989,13 +4989,13 @@ function AboutDeveloperScreen({ onBack }) {
   const card = { margin: "14px 16px 0", padding: "16px", background: "#161B22", border: "1px solid #262E3A", borderRadius: 16 };
   const label = { fontFamily: "Sora", fontWeight: 700, fontSize: 12, letterSpacing: 1, color: "#F5C518", marginBottom: 8 };
   const body = { fontFamily: "Inter", fontSize: 14, lineHeight: 1.55, color: "#C9D1DA" };
-  const action = (bg, fg, border) => ({ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 10px", borderRadius: 14, border: border || "none", background: bg, color: fg, fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer", textDecoration: "none" });
+  const action = (bg, fg, border) => ({ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8", padding: "13px 10px", borderRadius: 14, border: border || "none", background: bg, color: fg, fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer", textDecoration: "none" });
   return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
     ce(TopBar, { title: "About the developer", onBack }),
     ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 28 } },
       ce("div", { style: { position: "relative", height: 430, overflow: "hidden", background: "#0E1116" } },
         ce("img", { src: "icons/developer.jpg", alt: "Abdullahi Salawu", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 3%", display: "block" } }),
-        ce("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(to top, #0E1116 4%, rgba(14,17,22,0) 60%)" } }),
+        ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(to top, #0E1116 4%, rgba(14,17,22,0) 60%)" } }),
         ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 12 } },
           ce("span", { style: { display: "inline-block", background: "#F5C518", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 6, marginBottom: 6 } }, "Developer"),
           ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 28, lineHeight: 1.1, color: "#F5F7FA" } }, "Abdullahi ", ce("span", { style: { color: "#F5C518" } }, "Salawu")))),
@@ -5005,15 +5005,15 @@ function AboutDeveloperScreen({ onBack }) {
         ce("div", { style: body }, "To build innovative, intelligent, and impactful applications that connect people, solve real-world problems, and showcase the power of African technology to the world.")),
       ce("div", { style: card },
         ce("div", { style: label }, "WHAT I BUILD"),
-        ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, skills.map((s) => ce("span", { key: s, style: { padding: "6px 12px", borderRadius: 999, border: "1px solid #2B3544", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13 } }, s)))),
+        ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, counterIncrement: "lcgap-8" } }, skills.map((s) => ce("span", { key: s, style: { padding: "6px 12px", borderRadius: 999, border: "1px solid #2B3544", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13 } }, s)))),
       ce("div", { style: card },
-        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 } },
+        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12", marginBottom: 14 } },
           ce(MapPin, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }),
           ce("div", null, ce("div", { style: label }, "LOCATION"), ce("div", { style: body }, "Okerube, Ikotun, Lagos State, Nigeria."))),
-        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12 } },
+        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12" } },
           ce(Phone, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }),
           ce("div", null, ce("div", { style: label }, "CONTACT"), ce("div", { style: { ...body, fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#F5F7FA" } }, PHONE_LOCAL)))),
-      ce("div", { style: { display: "flex", gap: 10, margin: "14px 16px 0" } },
+      ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", margin: "14px 16px 0" } },
         ce("a", { href: "https://wa.me/" + PHONE_INTL, target: "_blank", rel: "noopener noreferrer", style: action("#35D0BA", "#0E1116") }, ce(MessageCircle, { size: 18, color: "#0E1116" }), "WhatsApp"),
         ce("a", { href: "tel:" + PHONE_LOCAL, style: action("none", "#F5F7FA", "1px solid #2B3544") }, ce(Phone, { size: 18, color: "#F5F7FA" }), "Call")),
       ce("div", { style: { textAlign: "center", margin: "22px 16px 0", fontFamily: "Sora", fontStyle: "italic", fontWeight: 600, fontSize: 14, color: "#8891A0" } }, "African Technology · Global Impact")));
@@ -5081,7 +5081,7 @@ function CreatorScreen({ onBack, token }) {
   };
   const btn = (label, onClick, color, disabled) => ce("button", { key: label, disabled, onClick, style: { background: "none", border: "1px solid " + color, color, borderRadius: 18, padding: "6px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 12.5, cursor: "pointer", opacity: disabled ? 0.5 : 1 } }, label);
   const input = { width: "100%", boxSizing: "border-box", background: "#161B22", border: "1px solid #262E3A", borderRadius: 12, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" };
-  const tabs = ce("div", { style: { display: "flex", gap: 8, padding: "8px 16px 0" } },
+  const tabs = ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: "8px 16px 0" } },
     [["users", "Members"], ["listings", "Listings"], ["broadcast", "Broadcast"], ["rules", "Rules"], ["announce", "Push"]].map(([k, label]) => ce("button", { key: k, onClick: () => { setTab(k); setQ(""); setErr(""); setNote(""); }, style: { flex: 1, padding: "9px 0", borderRadius: 12, border: "1px solid " + (tab === k ? "#35D0BA" : "#262E3A"), background: tab === k ? "#35D0BA22" : "none", color: tab === k ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } }, label)));
   const errBox = err && ce("div", { style: { color: "#FF6B6B", fontFamily: "Inter", fontSize: 13, margin: "8px 16px 0" } }, err);
   let body;
@@ -5108,9 +5108,9 @@ function CreatorScreen({ onBack, token }) {
     const empty = items && items.length === 0 && !err && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, tab === "users" ? "No users found." : "No listings found.");
     const rows = (items || []).map((it) => tab === "users"
       ? ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.suspended ? 0.6 : 1 } },
-        ce("div", { style: { display: "flex", alignItems: "center", gap: 6, fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.name, it.verified && ce(VerifiedBadge, {}), it.creator && ce("span", { style: { fontSize: 11, color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 8, padding: "1px 6px" } }, "Creator"), it.suspended && ce("span", { style: { fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Suspended")),
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.name, it.verified && ce(VerifiedBadge, {}), it.creator && ce("span", { style: { fontSize: 11, color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 8, padding: "1px 6px" } }, "Creator"), it.suspended && ce("span", { style: { fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Suspended")),
         ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, [it.email, it.phone ? "+" + String(it.phone).replace(/\D/g, "") : null].filter(Boolean).join(" · ") || "No contact info"),
-        !it.creator && ce("div", { style: { display: "flex", gap: 8, marginTop: 10 } },
+        !it.creator && ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginTop: 10 } },
           btn(it.verifiedByCreator ? "Remove badge" : "Verify", () => act(it, it.verifiedByCreator ? "unverify" : "verify"), "#35D0BA", busyId === it.id),
           btn(it.suspended ? "Unsuspend" : "Suspend", () => act(it, it.suspended ? "unsuspend" : "suspend"), it.suspended ? "#35D0BA" : "#FF6B6B", busyId === it.id)))
       : ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.removed ? 0.6 : 1 } },
@@ -5158,7 +5158,7 @@ function HelpScreen({ onBack, user }) {
         <div style={{ ...sectionTitle, margin: "6px 16px" }}>Frequently asked questions</div>
         {FAQ.map(([q, ans], i) => (
           <div key={i} style={{ borderBottom: "1px solid #1B212B" }}>
-            <div onClick={() => setOpen(open === i ? -1 : i)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}>
+            <div onClick={() => setOpen(open === i ? -1 : i)} style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "14px 16px", cursor: "pointer" }}>
               <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA" }}>{q}</div>
               <ChevronRight size={17} color="#5B6673" style={{ transform: open === i ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
             </div>
@@ -5166,7 +5166,7 @@ function HelpScreen({ onBack, user }) {
           </div>
         ))}
         <div style={{ ...sectionTitle, margin: "22px 16px 8px" }}>Contact us</div>
-        <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10, counterIncrement: "lcgap-10" }}>
           {SUPPORT.whatsapp && <button onClick={wa} style={primaryBtn(false)}>Chat with support on WhatsApp</button>}
           {SUPPORT.email && <button onClick={mail} style={{ ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" }}>Email support</button>}
           <button onClick={copyInfo} style={{ ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" }}>{copied ? "Copied ✓" : "Copy my support info"}</button>
@@ -5221,7 +5221,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
   const saveNote = () => { const t = noteText.trim(); saveJSON("contactNote:" + u.id, t); setSavedNote(t); setNoteOpen(false); };
   const ico = (I) => <I size={22} color="#8891A0" />;
   const row = (key, icon, title, sub, o = {}) => (
-    <div key={key} onClick={o.onClick} style={{ display: "flex", alignItems: "center", gap: 22, padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" }}>
+    <div key={key} onClick={o.onClick} style={{ display: "flex", alignItems: "center", gap: 22, counterIncrement: "lcgap-22", padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" }}>
       <div style={{ width: 24, display: "flex", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" }}>{title}</div>
@@ -5232,20 +5232,20 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
   );
   const line = (k) => <div key={k} style={{ height: 1, background: "#1B212B", margin: "6px 0" }} />;
   const round = (label, Icon, fn) => (
-    <button key={label} onClick={fn} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+    <button key={label} onClick={fn} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, counterIncrement: "lcgap-7" }}>
       <span style={{ width: 52, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon size={19} color="#F5F7FA" /></span>
       <span style={{ fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" }}>{label}</span>
     </button>
   );
   const hoursOk = biz && typeof biz.open === "boolean";
   return (
-    <div style={{ position: "absolute", inset: 0, zIndex: 45, background: "#0E1116", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 45, background: "#0E1116", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* collapsing header: cover photo -> solid top bar */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: heroH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" }}>
-        <div style={{ position: "absolute", inset: 0, overflow: "hidden", opacity: 1 - p }}>
+        <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden", opacity: 1 - p }}>
           {u.avatar ? <img loading="lazy" decoding="async" src={photoSrc(u.avatar)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 25%", display: "block" }} />
             : <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg, " + u.color + "55, #0E1116)" }} />}
-          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 45%, rgba(14,17,22,0.55) 100%)" }} />
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 45%, rgba(14,17,22,0.55) 100%)" }} />
         </div>
       </div>
       <button aria-label="Back" onClick={onClose} style={{ position: "absolute", top: 0, left: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowLeft size={23} color="#F5F7FA" /></button>
@@ -5259,7 +5259,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
           : <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: u.color + "26", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 }}>{u.initials}</div>}
       </div>
       {menu && (
-        <div onClick={() => setMenu(false)} style={{ position: "absolute", inset: 0, zIndex: 8 }}>
+        <div onClick={() => setMenu(false)} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 8 }}>
           <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: PROFILE_BAR - 8, right: 10, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)" }}>
             {[["Share", () => share()], [iBlocked ? "Unblock" : "Block", () => onBlock()], ["Report", () => onReport()]].map(([label, fn]) => (
               <div key={label} onClick={() => { setMenu(false); fn(); }} style={{ padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: "#F5F7FA", cursor: "pointer" }}>{label}</div>
@@ -5269,10 +5269,10 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
       )}
       <div onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingTop: PROFILE_HERO + 52, paddingBottom: 30 }}>
         <div style={{ textAlign: "center", padding: "0 24px" }}>
-          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, overflowWrap: "anywhere" }}>{u.name}{u.verified && <VerifiedBadge size={20} />}</div>
+          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", overflowWrap: "anywhere" }}>{u.name}{u.verified && <VerifiedBadge size={20} />}</div>
           {subtitle && <div style={{ fontFamily: "Inter", fontSize: 16, color: "#9BA7B4", marginTop: 4, overflowWrap: "anywhere" }}>{subtitle}</div>}
           <div style={{ fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginTop: 4 }}>{statusText(online, lastSeen)}</div>
-          <div style={{ display: "flex", justifyContent: "center", gap: 18, margin: "18px 0 20px" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 18, counterIncrement: "lcgap-18", margin: "18px 0 20px" }}>
             {onVoice && round("Voice", Phone, onVoice)}
             {onVideo && round("Video", Video, onVideo)}
             {round("Share", ForwardIcon, share)}
@@ -5298,10 +5298,10 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
           <ChevronRight size={18} color="#8891A0" />
         </div>
         {(tiles.length > 0 || docs.length > 0) && (
-          <div style={{ display: "flex", gap: 4, overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" }}>
+          <div style={{ display: "flex", gap: 4, counterIncrement: "lcgap-4", overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" }}>
             {tiles.map(m => <img loading="lazy" decoding="async" key={m.id} src={m.file.data} alt={m.file.name} onClick={() => onOpenImage(m.file.data)} style={{ width: 84, height: 84, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}
             {tiles.length === 0 && docs.slice(-6).reverse().map(m => (
-              <div key={m.id} onClick={onOpenMedia} style={{ width: 84, height: 84, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 6, boxSizing: "border-box", cursor: "pointer" }}>
+              <div key={m.id} onClick={onOpenMedia} style={{ width: 84, height: 84, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", padding: 6, boxSizing: "border-box", cursor: "pointer" }}>
                 <Paperclip size={20} color="#35D0BA" /><span style={{ fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.file.name}</span>
               </div>
             ))}
@@ -5381,7 +5381,7 @@ function SheetFrame({ title, onClose, children, tall }) {
 function ChatThemeSheet({ current, onPick, onClose }) {
   return (
     <SheetFrame title="Chat theme" onClose={onClose}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, counterIncrement: "lcgap-12" }}>
         {CHAT_THEMES.map(t => (
           <button key={t.id} onClick={() => onPick(t.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "center" }}>
             <div style={{ height: 64, borderRadius: 14, background: themeBg(t), border: current === t.id ? "2px solid #35D0BA" : "1px solid #2B3544", display: "flex", alignItems: "center", justifyContent: "center" }}>{current === t.id && <Check size={20} color="#35D0BA" strokeWidth={3} />}</div>
@@ -5441,14 +5441,14 @@ function ViewOnceBubble({ m, mine, myId, socket }) {
   const status = mine ? (viewedBy.length ? "Opened" : "Not opened yet") : opened ? "Opened" : busy ? "Opening\u2026" : "Tap to view once";
   const guard = { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" };
   return React.createElement("div", null,
-    React.createElement("div", { role: canOpen ? "button" : undefined, tabIndex: canOpen ? 0 : undefined, "aria-label": canOpen ? "Open view once " + (isVid ? "video" : "photo") : undefined, onClick: canOpen ? open : undefined, onKeyDown: canOpen ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined, style: { display: "flex", alignItems: "center", gap: 12, minWidth: 190, cursor: canOpen ? "pointer" : "default", opacity: canOpen || mine ? 1 : 0.6 } },
+    React.createElement("div", { role: canOpen ? "button" : undefined, tabIndex: canOpen ? 0 : undefined, "aria-label": canOpen ? "Open view once " + (isVid ? "video" : "photo") : undefined, onClick: canOpen ? open : undefined, onKeyDown: canOpen ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined, style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", minWidth: 190, cursor: canOpen ? "pointer" : "default", opacity: canOpen || mine ? 1 : 0.6 } },
       React.createElement("span", { "aria-hidden": "true", style: { width: 38, height: 38, borderRadius: "50%", border: "2px dashed " + (canOpen ? "#35D0BA" : "#8891A0"), color: canOpen ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 800, fontSize: 15, flexShrink: 0 } }, "1"),
       React.createElement("span", { style: { minWidth: 0 } },
         React.createElement("span", { style: { display: "block", fontWeight: 600, fontSize: 14 } }, isVid ? "Video" : "Photo"),
         React.createElement("span", { style: { display: "block", fontSize: 12, color: "#B9C2CC" } }, status))),
     caption ? React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 6 } }, caption) : null,
     err ? React.createElement("div", { role: "alert", style: { fontSize: 12, color: "#FF8A7D", marginTop: 4 } }, err) : null,
-    shown ? React.createElement("div", { role: "dialog", "aria-label": "View once " + (isVid ? "video" : "photo"), style: { position: "fixed", inset: 0, zIndex: 95, background: "#000", display: "flex", flexDirection: "column", ...guard }, onContextMenu: (e) => e.preventDefault() },
+    shown ? React.createElement("div", { role: "dialog", "aria-label": "View once " + (isVid ? "video" : "photo"), style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 95, background: "#000", display: "flex", flexDirection: "column", ...guard }, onContextMenu: (e) => e.preventDefault() },
       React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "12px 10px", flexShrink: 0 } },
         React.createElement("button", { onClick: () => setShown(null), "aria-label": "Close", style: { background: "none", border: "none", padding: 8, cursor: "pointer", display: "flex" } }, React.createElement(X, { size: 26, color: "#F5F7FA" })),
         React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#B9C2CC", marginLeft: 6 } }, "View once \u00B7 it can't be opened again")),
@@ -5472,7 +5472,7 @@ function PollBubble({ m, myId, socket }) {
       const ids = votes[o.id] || [], mineV = ids.includes(myId), pct = total ? Math.round((ids.length / total) * 100) : 0;
       return React.createElement("button", { key: o.id, onClick: () => vote(o.id), "aria-pressed": mineV, "aria-label": o.text + ", " + ids.length + (ids.length === 1 ? " vote" : " votes") + (mineV ? ", your choice" : ""), style: { position: "relative", display: "block", width: "100%", textAlign: "left", overflow: "hidden", marginBottom: 6, padding: "9px 12px", borderRadius: 10, border: "1px solid " + (mineV ? "#35D0BA" : "rgba(255,255,255,.14)"), background: "rgba(0,0,0,.18)", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, cursor: "pointer" } },
         React.createElement("span", { "aria-hidden": "true", style: { position: "absolute", left: 0, top: 0, bottom: 0, width: pct + "%", background: mineV ? "rgba(53,208,186,.35)" : "rgba(255,255,255,.10)", transition: "width .3s" } }),
-        React.createElement("span", { style: { position: "relative", display: "flex", justifyContent: "space-between", gap: 10 } },
+        React.createElement("span", { style: { position: "relative", display: "flex", justifyContent: "space-between", gap: 10, counterIncrement: "lcgap-10" } },
           React.createElement("span", { style: { overflowWrap: "anywhere" } }, (mineV ? "\u2713 " : "") + o.text),
           React.createElement("span", { style: { color: "#B9C2CC", flexShrink: 0 } }, ids.length)));
     }),
@@ -5491,7 +5491,7 @@ function PollSheet({ onSend, onClose }) {
       React.createElement("input", { value: q, maxLength: 200, autoFocus: true, onChange: (e) => setQ(e.target.value), placeholder: "Ask a question", "aria-label": "Poll question", style: field }),
       opts.map((o, i) => React.createElement("input", { key: i, value: o, maxLength: 80, onChange: (e) => setOpts((a) => a.map((x, j) => (j === i ? e.target.value : x))), placeholder: "Option " + (i + 1), "aria-label": "Option " + (i + 1), style: field })),
       opts.length < 6 ? React.createElement("button", { onClick: () => setOpts((a) => [...a, ""]), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer", padding: "6px 2px" } }, "+ Add option") : null,
-      React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 10, margin: "10px 2px 14px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } },
+      React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", margin: "10px 2px 14px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } },
         React.createElement("input", { type: "checkbox", checked: multi, onChange: (e) => setMulti(e.target.checked) }), "Allow more than one answer"),
       React.createElement("button", { disabled: !ok, onClick: () => onSend({ question: q.trim(), options: clean, multi }), style: { width: "100%", padding: "13px 0", borderRadius: 12, border: "none", background: ok ? "#35D0BA" : "#2B3544", color: ok ? "#05070A" : "#8891A0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ok ? "pointer" : "default" } }, "Send poll")));
 }
@@ -5521,7 +5521,7 @@ function ScheduleSheet({ conversationId, socket, onClose }) {
       err ? React.createElement("div", { role: "alert", style: { fontSize: 13, color: "#FF8A7D", marginBottom: 8 } }, err) : null,
       React.createElement("button", { disabled: busy, onClick: save, style: { width: "100%", padding: "13px 0", borderRadius: 12, border: "none", background: "#35D0BA", color: "#05070A", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer", marginBottom: 14 } }, busy ? "Scheduling\u2026" : "Schedule"),
       items.length ? React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#8891A0", margin: "4px 2px 6px", textTransform: "uppercase", letterSpacing: 0.5 } }, "Waiting to send") : null,
-      items.map((x) => React.createElement("div", { key: x.id, style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 2px", borderBottom: "1px solid #1B212B" } },
+      items.map((x) => React.createElement("div", { key: x.id, style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "10px 2px", borderBottom: "1px solid #1B212B" } },
         React.createElement("div", { style: { flex: 1, minWidth: 0 } },
           React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, x.text),
           React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "\u23F0 " + new Date(x.sendAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))),
@@ -5634,7 +5634,7 @@ function DeleteDialog({ count, canEveryone, onEveryone, onMe, onClose }) {
   }, []);
   const btn = { background: "none", border: "none", cursor: "pointer", color: "#C6D03C", fontFamily: "Inter", fontWeight: 500, fontSize: 18, padding: "13px 4px", textAlign: "right", width: "100%" };
   return (
-    <div className="lc-sheet" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 22px" }}>
+    <div className="lc-sheet" onClick={onClose} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 120, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 22px" }}>
       <div role="alertdialog" aria-label="Delete message" className="lc-pop" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 400, background: "#111A22", borderRadius: 28, padding: "24px 26px 14px", boxShadow: "0 18px 50px rgba(0,0,0,.6)" }}>
         <div style={{ fontFamily: "Inter", fontSize: 19, color: "#C5CDD8", marginBottom: 18 }}>{count > 1 ? "Delete " + count + " messages?" : "Delete message?"}</div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -5655,7 +5655,7 @@ function StarredSheet({ stars, conversation, myId, onJump, onUnstar, onClose }) 
     <SheetFrame title="Starred messages" onClose={onClose} tall>
       {list.length === 0 && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", padding: "18px 4px", lineHeight: 1.5 }}>Nothing starred yet. Long-press a message, tap the ⋮ menu and choose Star to keep it here.</div>}
       {list.map((x) => (
-        <div key={x.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 4px", borderBottom: "1px solid #1B212B" }}>
+        <div key={x.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, counterIncrement: "lcgap-10", padding: "12px 4px", borderBottom: "1px solid #1B212B" }}>
           <div onClick={() => onJump(x.id)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
             <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA", fontWeight: 600 }}>{who(x.senderId)} · {new Date(x.time).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div>
             <div style={{ fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", marginTop: 3, ...{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }}>{x.text}</div>
@@ -5669,7 +5669,7 @@ function StarredSheet({ stars, conversation, myId, onJump, onUnstar, onClose }) 
 
 function PinnedBar({ pins, idx, onOpen }) {
   const pn = [...pins].reverse(), i = idx % pn.length, p = pn[i];
-  return React.createElement("div", { role: "button", tabIndex: 0, "aria-label": "Pinned message: " + p.text, onClick: onOpen, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }, style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", cursor: "pointer", flexShrink: 0 } },
+  return React.createElement("div", { role: "button", tabIndex: 0, "aria-label": "Pinned message: " + p.text, onClick: onOpen, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }, style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", cursor: "pointer", flexShrink: 0 } },
     React.createElement("span", { "aria-hidden": "true" }, "\uD83D\uDCCC"),
     React.createElement("span", { style: { flex: 1, minWidth: 0 } },
       React.createElement("span", { style: { display: "block", fontSize: 11, color: "#35D0BA", fontFamily: "Inter", fontWeight: 600 } }, "Pinned message" + (pn.length > 1 ? " " + (i + 1) + "/" + pn.length : "")),
@@ -5732,14 +5732,14 @@ function LockPrompt({ mode, onDone, onCancel }) {
   };
   const title = mode === "enter" ? "Enter your PIN" : first ? "Enter the PIN again" : "Choose a PIN for locked chats";
   const hint = mode === "enter" ? "This chat is locked." : first ? "Type the same PIN to confirm." : "4 to 6 digits. You'll need it to open locked chats.";
-  return React.createElement("div", { role: "dialog", "aria-modal": "true", "aria-label": title, style: { position: "fixed", inset: 0, zIndex: 100, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 } },
+  return React.createElement("div", { role: "dialog", "aria-modal": "true", "aria-label": title, style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 100, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 } },
     React.createElement("div", { style: { width: "100%", maxWidth: 340, textAlign: "center", fontFamily: "Inter, sans-serif" } },
       React.createElement("div", { "aria-hidden": "true", style: { fontSize: 34, marginBottom: 8 } }, "\uD83D\uDD12"),
       React.createElement("div", { style: { fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginBottom: 6 } }, title),
       React.createElement("div", { style: { fontSize: 13, color: "#9BA7B4", marginBottom: 16 } }, hint),
       React.createElement("input", { type: "password", inputMode: "numeric", autoComplete: "off", autoFocus: true, maxLength: 6, value: pin, "aria-label": "PIN", onChange: (e) => { setPin(e.target.value.replace(/\D/g, "")); setErr(""); }, onKeyDown: (e) => { if (e.key === "Enter") submit(); }, style: { width: "100%", boxSizing: "border-box", textAlign: "center", letterSpacing: "0.5em", fontSize: 24, padding: "12px 10px", borderRadius: 12, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", outline: "none" } }),
       err ? React.createElement("div", { role: "alert", style: { color: "#FF8A7D", fontSize: 13, marginTop: 10 } }, err) : null,
-      React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 18 } },
+      React.createElement("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginTop: 18 } },
         React.createElement("button", { onClick: onCancel, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: "#1E2530", color: "#F5F7FA", fontWeight: 600, fontSize: 15, cursor: "pointer" } }, "Cancel"),
         React.createElement("button", { onClick: submit, disabled: busy, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: "#35D0BA", color: "#05070A", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, mode === "enter" ? "Unlock" : first ? "Confirm" : "Next"))));
 }
@@ -5764,12 +5764,12 @@ function MediaDocsSheet({ msgs, conversation, myId, onOpenImage, onClose }) {
   const empty = <div style={{ padding: "30px 10px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 }}>Nothing here yet</div>;
   return (
     <SheetFrame title="Media, links, and docs" onClose={onClose} tall>
-      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 6, counterIncrement: "lcgap-6", marginBottom: 12 }}>
         {tabs.map(([k, label, n]) => <button key={k} onClick={() => setTab(k)} style={{ flex: 1, padding: "9px 4px", borderRadius: 999, border: "1px solid " + (tab === k ? "#35D0BA" : "#2B3544"), background: tab === k ? "rgba(53,208,186,0.14)" : "none", color: tab === k ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>{label}{n ? " (" + n + ")" : ""}</button>)}
       </div>
-      {tab === "media" && (media.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>{media.map(m => <img loading="lazy" decoding="async" key={m.id} src={m.file.data} alt={m.file.name} onClick={() => { onClose(); onOpenImage(m.file.data); }} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}</div> : empty)}
+      {tab === "media" && (media.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, counterIncrement: "lcgap-4" }}>{media.map(m => <img loading="lazy" decoding="async" key={m.id} src={m.file.data} alt={m.file.name} onClick={() => { onClose(); onOpenImage(m.file.data); }} style={{ width: "100%", aspectRatio: "1", counterReset: "lcar-1-1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}</div> : empty)}
       {tab === "docs" && (docs.length ? docs.map(m => (
-        <a key={m.id} href={m.file.data || undefined} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none", color: "#F5F7FA" }}>
+        <a key={m.id} href={m.file.data || undefined} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none", color: "#F5F7FA" }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
           <span style={{ minWidth: 0 }}><span style={{ display: "block", fontFamily: "Inter", fontWeight: 600, fontSize: 14, wordBreak: "break-all" }}>{m.file.name}</span><span style={{ display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0" }}>{fmtSize(m.file.size)} · {who(m)} · {fullTime(m.time)}</span></span>
         </a>)) : empty)}
@@ -5790,7 +5790,7 @@ function MessageInfoSheet({ m, conversation, myId, onClose }) {
   const nameOf = (id) => id === myId ? "You" : id === (conversation.other && conversation.other.id) && !conversation.isGroup ? conversation.other.name : ((conversation.members || []).find(u => u.id === id) || {}).name || "Former member";
   const preview = m.audio || m.hasAudio ? "🎤 Voice note" : m.file ? (m.file.mime && /^image\//.test(m.file.mime) ? "📷 Photo" : "📎 " + (m.file.name || "File")) : m.text;
   const row = (label, value, key) => (
-    <div key={key || label} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "11px 0", borderBottom: "1px solid #1B212B", fontFamily: "Inter", fontSize: 14 }}>
+    <div key={key || label} style={{ display: "flex", justifyContent: "space-between", gap: 12, counterIncrement: "lcgap-12", padding: "11px 0", borderBottom: "1px solid #1B212B", fontFamily: "Inter", fontSize: 14 }}>
       <span style={{ color: "#9BA7B4" }}>{label}</span><span style={{ color: "#F5F7FA", textAlign: "right" }}>{value}</span>
     </div>
   );
@@ -5896,7 +5896,7 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
   const iconBtn = (label, child, fn) => h("button", { key: label, "aria-label": label, onClick: fn, style: { background: "none", border: "none", cursor: "pointer", padding: 8, display: "flex" } }, child);
   const circle = (on) => h("span", { style: { width: 24, height: 24, borderRadius: 12, border: on ? "none" : "2px solid #5B6673", background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && h(Check, { size: 15, color: "#06210F", strokeWidth: 3 }));
   const label = (t) => h("div", { key: "l" + t, style: { padding: "14px 16px 6px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, t);
-  const row = (key, avatar, name, subtitle, on, fn) => h("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 14, padding: "9px 16px", cursor: "pointer" } },
+  const row = (key, avatar, name, subtitle, on, fn) => h("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "9px 16px", cursor: "pointer" } },
     avatar,
     h("div", { style: { flex: 1, minWidth: 0 } },
       h("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, name),
@@ -5904,8 +5904,8 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
     circle(on));
   const chatRow = (c, pre) => row(pre + c.id, h(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }), c.other.name, sub(c), chosen.includes(c.id), () => toggle(c.id));
   const showStatusRow = !needle || "my status".includes(needle);
-  return h("div", { style: { position: "absolute", inset: 0, zIndex: 65, background: "#0B1014", display: "flex", flexDirection: "column" } },
-    h("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "10px 8px 10px 6px", flexShrink: 0 } },
+  return h("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 65, background: "#0B1014", display: "flex", flexDirection: "column" } },
+    h("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", padding: "10px 8px 10px 6px", flexShrink: 0 } },
       iconBtn("Back", h(ArrowLeft, { size: 24, color: "#F5F7FA" }), () => (searching ? (setSearching(false), setQ("")) : onClose(false))),
       searching
         ? h("input", { autoFocus: true, value: q, onChange: e => setQ(e.target.value), placeholder: "Search…", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } })
@@ -5921,7 +5921,7 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
     err && h("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, padding: "6px 16px" } }, err),
     total > 0 && h("div", { style: { flexShrink: 0, padding: "8px 12px 12px", background: "#0B1014", borderTop: "1px solid #1B212B" } },
       h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a caption or message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }),
-      h("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } },
         h("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "#1B232C", borderRadius: 999, padding: "11px 16px" } }, chosenNames),
         h("button", { "aria-label": "Send", onClick: go, disabled: busy, style: { width: 52, height: 52, borderRadius: 26, border: "none", background: "#21C063", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, busy ? h("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : h(Send, { size: 24, color: "#06210F" })))));
 }
@@ -5942,9 +5942,9 @@ function AttachSheet({ onClose, onPick }) {
     ...(featOn("polls") ? [{ id: "poll", label: "Poll", Icon: LcPollIcon, color: "#4FD1C5" }] : []),
     ...(featOn("scheduling") ? [{ id: "schedule", label: "Schedule", Icon: LcClockIcon, color: "#F687B3" }] : []),
   ];
-  return React.createElement("div", { onClick: onClose, style: { position: "absolute", inset: 0, zIndex: 54, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" } },
+  return React.createElement("div", { onClick: onClose, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 54, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" } },
     React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", boxSizing: "border-box", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "20px 14px 24px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px 8px", animation: "lcPop .18s ease-out" } },
-      items.map((it) => React.createElement("button", { key: it.id, onClick: () => onPick(it.id), "aria-label": it.label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: 0 } },
+      items.map((it) => React.createElement("button", { key: it.id, onClick: () => onPick(it.id), "aria-label": it.label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: 0 } },
         React.createElement("span", { style: { width: 58, height: 58, borderRadius: "50%", background: it.color + "22", border: "1.5px solid " + it.color + "66", display: "flex", alignItems: "center", justifyContent: "center" } }, React.createElement(it.Icon, { size: 26, color: it.color })),
         React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DB" } }, it.label)))));
 }
@@ -5953,14 +5953,14 @@ function AttachSheet({ onClose, onPick }) {
 function PickSheet({ title, items, multi, empty, onClose, onDone }) {
   const [sel, setSel] = useState([]);
   const toggle = (id) => setSel((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  return React.createElement("div", { onClick: onClose, style: { position: "absolute", inset: 0, zIndex: 54, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
+  return React.createElement("div", { onClick: onClose, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 54, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
     React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", boxSizing: "border-box", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "16px 14px 18px", display: "flex", flexDirection: "column" } },
       React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", padding: "0 6px 10px" } }, title),
       React.createElement("div", { style: { overflowY: "auto", flex: 1, minHeight: 60 } },
         !items.length && React.createElement("div", { style: { padding: "18px 6px", fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, empty || "Nothing to show"),
         items.map((it) => {
           const on = sel.includes(it.id);
-          return React.createElement("div", { key: it.id, onClick: () => (multi ? toggle(it.id) : onDone([it.id])), style: { display: "flex", alignItems: "center", gap: 12, padding: "11px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+          return React.createElement("div", { key: it.id, onClick: () => (multi ? toggle(it.id) : onDone([it.id])), style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "11px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
               React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 15, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.title),
               it.sub ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, it.sub) : null),
@@ -5975,14 +5975,14 @@ function MediaCaptionSheet({ file, url, onSend, onCancel }) {
   const [once, setOnce] = useState(false);
   const isVid = /^video\//.test(file.type || "");
   const go = () => onSend(cap, once);
-  return React.createElement("div", { style: { position: "absolute", inset: 0, zIndex: 62, background: "#05070A", display: "flex", flexDirection: "column" } },
+  return React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 62, background: "#05070A", display: "flex", flexDirection: "column" } },
     React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "12px 10px", flexShrink: 0 } },
       React.createElement("button", { onClick: onCancel, "aria-label": "Cancel", style: { background: "none", border: "none", padding: 8, cursor: "pointer", display: "flex" } }, React.createElement(X, { size: 26, color: "#F5F7FA" })),
       React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", marginLeft: 6 } }, isVid ? "Send video" : "Send photo")),
     React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px" } },
       isVid ? React.createElement("video", { src: url, controls: true, playsInline: true, style: { maxWidth: "100%", maxHeight: "100%", borderRadius: 12, background: "#000" } })
             : React.createElement("img", { src: url, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 12 } })),
-    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 12px 16px", flexShrink: 0 } },
+    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 12px 16px", flexShrink: 0 } },
       React.createElement("input", { autoFocus: true, value: cap, maxLength: 1000, onChange: (e) => setCap(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") go(); }, placeholder: "Add a caption\u2026", style: { flex: 1, minWidth: 0, boxSizing: "border-box", background: "#1E2530", border: "none", outline: "none", borderRadius: 999, padding: "14px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }),
       featOn("viewOnce") && React.createElement("button", { onClick: () => setOnce((v) => !v), "aria-pressed": once, "aria-label": "View once", title: "View once", style: { width: 44, height: 44, borderRadius: "50%", border: "2px " + (once ? "solid #35D0BA" : "dashed #8891A0"), background: once ? "rgba(53,208,186,.18)" : "transparent", color: once ? "#35D0BA" : "#B9C2CC", fontFamily: "Sora", fontWeight: 800, fontSize: 15, cursor: "pointer", flexShrink: 0 } }, "1"),
       React.createElement("button", { onClick: go, "aria-label": "Send", style: { width: 50, height: 50, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, React.createElement(Send, { size: 21, color: "#0E1116" }))));
@@ -6544,12 +6544,12 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
 
   return (
     <div onDragOver={e => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) e.preventDefault(); }} onDrop={e => { const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f && !iBlocked) { e.preventDefault(); askMedia(f); } }} style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 8px 12px 10px", background: "#080B0F", position: "relative", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "12px 8px 12px 10px", background: "#080B0F", position: "relative", flexShrink: 0 }}>
         {picking && (() => {
           const one = pickedMsgs.length === 1 ? pickedMsgs[0] : null;
           const ib = { background: "none", border: "none", cursor: "pointer", padding: 9, display: "flex", flexShrink: 0 };
           return (
-            <div style={{ position: "absolute", inset: 0, zIndex: 60, background: "#0E1116", display: "flex", alignItems: "center", gap: 0, padding: "0 4px 0 6px" }}>
+            <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "#0E1116", display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0", padding: "0 4px 0 6px" }}>
               <button aria-label="Cancel selection" onClick={clearPick} style={{ ...ib, padding: 10 }}><ArrowLeft size={22} color="#F5F7FA" /></button>
               <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 21, color: "#F5F7FA", paddingLeft: 10 }}>{pickedMsgs.length}</div>
               {one && <button aria-label="Reply" onClick={replyPicked} style={ib}><ReplyIcon size={22} color="#F5F7FA" /></button>}
@@ -6560,7 +6560,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
               <button aria-label="More" onClick={() => setPickMenu(v => !v)} style={ib}><MoreVertical size={22} color="#F5F7FA" /></button>
               {pickMenu && (
                 <>
-                  <div onClick={() => setPickMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 61 }} />
+                  <div onClick={() => setPickMenu(false)} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 61 }} />
                   <div style={{ position: "absolute", top: 54, right: 8, zIndex: 62, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" }}>
                     {[
                       ...(one && one.senderId === myId && canEdit(one) ? [{ label: "Edit", run: () => { startEdit(one); clearPick(); } }] : []),
@@ -6604,7 +6604,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
           const items = menuPage === "more" ? more : main;
           return (
             <>
-              <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div onClick={close} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 }} />
               <div role="menu" style={{ position: "absolute", top: 62, right: 6, zIndex: 41, minWidth: menuPage === "more" ? 236 : 208, maxWidth: "calc(100% - 12px)", background: "#12161B", border: "1px solid #1E252E", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
                 {items.map((it, i) => it.divider
                   ? <div key={"d" + i} style={{ height: 1, background: "#232B37", margin: "6px 0" }} />
@@ -6624,7 +6624,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
           {peerTyping && <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{actLabel}</div>}
         </div>
         {(featOn("voiceCalls") || featOn("videoCalls")) && (
-          <button aria-label="Call options" aria-haspopup="menu" aria-expanded={callMenu} onClick={() => { setMenu(false); setCallMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+          <button aria-label="Call options" aria-haspopup="menu" aria-expanded={callMenu} onClick={() => { setMenu(false); setCallMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, counterIncrement: "lcgap-5", flexShrink: 0 }}>
             <Phone size={24} color="#9BA7B4" />
             <svg width="11" height="7" viewBox="0 0 10 6" style={{ transform: callMenu ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M0 0h10L5 6z" fill="#9BA7B4" /></svg>
           </button>
@@ -6632,12 +6632,12 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         <button aria-label="More options" onClick={() => { setCallMenu(false); setMenuPage("main"); setMenu(m => !m); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 4px", display: "flex", flexShrink: 0 }}><MoreVertical size={22} color="#F5F7FA" /></button>
         {callMenu && (
           <>
-            <div onClick={() => setCallMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+            <div onClick={() => setCallMenu(false)} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 }} />
             <div role="menu" style={{ position: "absolute", top: 58, right: 40, zIndex: 41, minWidth: 220, background: "#171C24", border: "1px solid #232B37", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
-              {featOn("voiceCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, false); }} style={{ display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Phone size={22} color="#9BA7B4" />Voice call</div>}
-              {featOn("videoCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, true); }} style={{ display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Video size={22} color="#9BA7B4" />Video call</div>}
+              {featOn("voiceCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, false); }} style={{ display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Phone size={22} color="#9BA7B4" />Voice call</div>}
+              {featOn("videoCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, true); }} style={{ display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Video size={22} color="#9BA7B4" />Video call</div>}
               <div style={{ height: 1, background: "#232B37", margin: "6px 0" }} />
-              <div role="menuitem" onClick={() => { setCallMenu(false); sendCallLink(); }} style={{ display: "flex", alignItems: "center", gap: 18, padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><LinkIcon size={22} color="#9BA7B4" />Send call link</div>
+              <div role="menuitem" onClick={() => { setCallMenu(false); sendCallLink(); }} style={{ display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><LinkIcon size={22} color="#9BA7B4" />Send call link</div>
             </div>
           </>
         )}
@@ -6645,8 +6645,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
 
       {(conversation.pinnedMsgs || []).length > 0 && <PinnedBar pins={conversation.pinnedMsgs} idx={pinIdx} onOpen={openPin} />}
       {fText !== null && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 }}>
-          <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "#1E2530", borderRadius: 12, padding: "8px 11px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "#1E2530", borderRadius: 12, padding: "8px 11px" }}>
             <Search size={16} color="#8891A0" style={{ flexShrink: 0 }} />
             <input autoFocus value={fText} onChange={e => { setFText(e.target.value); setFIdx(0); }} placeholder="Search in this chat" maxLength={100} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
             {fQ && <span style={{ fontFamily: "Inter", fontSize: 12, color: "#8891A0", whiteSpace: "nowrap" }}>{fMatches.length ? (fMatches.length - fPos) + " of " + fMatches.length : "No results"}</span>}
@@ -6656,8 +6656,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
           <button aria-label="Close search" onClick={() => { setFText(null); setFIdx(0); }} style={iconBtnStyle}><X size={20} color="#9BA7B4" /></button>
         </div>
       )}
-      {!conn && <div className="lc-strip" role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", background: "#2A2110", borderBottom: "1px solid #3D3015", fontFamily: "Inter", fontSize: 12.5, color: "#F2B84B", flexShrink: 0 }}><span className="lc-dots"><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /></span>Waiting for network. Your messages will send when you are back online.</div>}
-      <div ref={listEl} onScroll={(e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; setAtBottom(nb); if (nb) setUnseenN(0); }} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, background: chatBg }}>
+      {!conn && <div className="lc-strip" role="status" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "7px 14px", background: "#2A2110", borderBottom: "1px solid #3D3015", fontFamily: "Inter", fontSize: 12.5, color: "#F2B84B", flexShrink: 0 }}><span className="lc-dots"><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /></span>Waiting for network. Your messages will send when you are back online.</div>}
+      <div ref={listEl} onScroll={(e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; setAtBottom(nb); if (nb) setUnseenN(0); }} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8", background: chatBg }}>
         {loading && <div style={{ margin: "auto", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 }}>Loading conversation…</div>}
         {error && <Banner text={error} onClose={() => setError("")} />}
         {!loading && msgs.length === 0 && (
@@ -6689,7 +6689,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             }}>
               {burst === m.id && <span className="lc-heart-burst" aria-hidden="true">{"\u2764\uFE0F"}</span>}
               {isGroup && !mine && !cont && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
-              {m.forwarded && !m.deleted && <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 14.5, fontStyle: "italic", color: "rgba(225,232,232,0.72)", marginBottom: 5 }}><ForwardIcon size={16} strokeWidth={1.8} color="rgba(225,232,232,0.72)" />Forwarded</div>}
+              {m.forwarded && !m.deleted && <div style={{ display: "flex", alignItems: "center", gap: 9, counterIncrement: "lcgap-9", fontSize: 14.5, fontStyle: "italic", color: "rgba(225,232,232,0.72)", marginBottom: 5 }}><ForwardIcon size={16} strokeWidth={1.8} color="rgba(225,232,232,0.72)" />Forwarded</div>}
               {m.replyTo && !m.deleted && (
                 <div onClick={() => jumpTo(m.replyTo.id)} style={{ background: mine ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.06)", borderLeft: "4px solid " + (m.replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), borderRadius: 8, padding: "5px 9px", marginBottom: 6, cursor: "pointer", minWidth: 120 }}>
                   <div style={{ fontWeight: 700, fontSize: 12.5, color: m.replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA", marginBottom: 1 }}>{m.replyTo.senderId === myId ? "You" : m.replyTo.name}</div>
@@ -6703,7 +6703,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                 : m.file && m.file.data && /^data:image\//.test(m.file.data) ? <img loading="lazy" decoding="async" src={m.file.data} alt={m.file.name} onClick={() => setViewer(m.file.data)} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" }} />
                 : m.file && m.file.data && /^data:video\//.test(m.file.data) ? <video controls playsInline preload="metadata" src={m.file.data} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, borderRadius: 10, background: "#000" }} />
                 : m.file && m.file.data ? (
-                  <a href={m.file.data} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "#F5F7FA", minWidth: 150 }}>
+                  <a href={m.file.data} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", textDecoration: "none", color: "#F5F7FA", minWidth: 150 }}>
                     <span style={{ width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: "block", fontWeight: 600, fontSize: 13.5, wordBreak: "break-all" }}>{m.file.name}</span>
@@ -6716,7 +6716,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
               {m.failed && <div onClick={() => retrySend(m)} role="button" style={{ marginTop: 4, fontSize: 12, color: "#FF9B91", fontWeight: 600, cursor: "pointer" }}>Not sent · Tap to retry</div>}
               {!m.deleted && lpIds.has(m.id) && <LinkPreview url={firstPreviewUrl(m.text)} token={token} />}
               {window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine)}
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 2 }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, counterIncrement: "lcgap-4", marginTop: 2 }}>
                 {stars[m.id] && !m.deleted && <span aria-label="Starred" className="lc-chip-pop" style={{ fontSize: 10.5 }}>{"\u2B50"}</span>}
                 {m.edited && !m.deleted && <span style={{ fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" }}>edited</span>}
                 {m.expiresAt && !m.deleted && <ExpiryTag at={m.expiresAt} />}
@@ -6745,14 +6745,14 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       </div>
 
       {(rec || sending) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 }}>
           <span className={rec ? "lc-rec-dot" : undefined} style={{ width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" }} />
           <span style={{ flex: 1 }}>{rec ? "Recording " + Math.floor(recSec / 60) + ":" + String(recSec % 60).padStart(2, "0") + " · tap send to finish" : "Sending file…"}</span>
           {rec && <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>}
         </div>
       )}
       {replyTo && !editing && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 14px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0, borderLeft: "4px solid " + (replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), background: "#1E2530", borderRadius: 8, padding: "6px 10px" }}>
             <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 12.5, color: replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA" }}>{replyTo.senderId === myId ? "You" : ((isGroup ? (conversation.members.find(u => u.id === replyTo.senderId) || {}).name : conversation.other.name) || "Former member")}</div>
             <div style={{ fontFamily: "Inter", fontSize: 13, color: "#B9C2CC", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{replyTo.audio || replyTo.hasAudio ? "🎤 Voice note" : replyTo.text}</div>
@@ -6761,21 +6761,21 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         </div>
       )}
       {editing && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", flexShrink: 0 }}>
           <Pencil size={15} color="#35D0BA" />
           <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><b style={{ color: "#35D0BA" }}>Editing message</b> · {editing.text}</span>
           <button aria-label="Cancel editing" onClick={cancelEdit} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}><X size={18} color="#8891A0" /></button>
         </div>
       )}
       {!iBlocked && !rec && !editing && mHits.length > 0 && (
-        <div className="lc-strip" role="group" aria-label="Mention a member" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
+        <div className="lc-strip" role="group" aria-label="Mention a member" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
           {mHits.map(u => (
             <button key={u.id} onMouseDown={e => e.preventDefault()} onClick={() => pickMention(u)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "6px 14px", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", color: u.color || "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 14 }}>@{u.name}</button>
           ))}
         </div>
       )}
       {!iBlocked && !rec && !editing && qHits.length > 0 && (
-        <div className="lc-strip" role="group" aria-label="Your quick replies" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
+        <div className="lc-strip" role="group" aria-label="Your quick replies" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
           {qHits.map(q => (
             <button key={q.id} onMouseDown={e => e.preventDefault()} onClick={() => useQuick(q)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 12px", textAlign: "left", cursor: "pointer", flexShrink: 0, maxWidth: 240 }}>
               <div style={{ color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 13 }}>/{q.shortcut}</div>
@@ -6785,7 +6785,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         </div>
       )}
       {!iBlocked && !rec && typoHit && (
-        <div className="lc-strip" role="group" aria-label="Spelling suggestions" style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" }}>
+        <div className="lc-strip" role="group" aria-label="Spelling suggestions" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" }}>
           <span style={{ color: "#8891A0", flexShrink: 0, whiteSpace: "nowrap" }}><s style={{ color: "#FF6B5D" }}>{typoHit.word}</s> →</span>
           {typoHit.options.map(o => (
             <button key={o} onMouseDown={e => e.preventDefault()} onClick={() => applyTypo(o)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "5px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{o}</button>
@@ -6794,7 +6794,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         </div>
       )}
       {sugOpen && !iBlocked && !rec && !editing && (
-        <div className="lc-strip" role="group" aria-label="Quick replies" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#0B0E13", flexShrink: 0, overflowX: "auto" }}>
+        <div className="lc-strip" role="group" aria-label="Quick replies" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", background: "#0B0E13", flexShrink: 0, overflowX: "auto" }}>
           {quickReplies(msgs, myId).map(t => (
             <button key={t} onMouseDown={e => e.preventDefault()} onClick={() => pickSuggestion(t)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "8px 15px", color: "#F5F7FA", fontFamily: "Inter", fontWeight: 500, fontSize: 14, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{t}</button>
           ))}
@@ -6803,16 +6803,16 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       )}
       {emojiOpen && !iBlocked && !rec && (
         <div style={{ background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 }}>
-          <div style={{ display: "flex", gap: 4, padding: "6px 8px", borderBottom: "1px solid #1B212B", overflowX: "auto" }}>
+          <div style={{ display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "6px 8px", borderBottom: "1px solid #1B212B", overflowX: "auto" }}>
             {EMOJI_TABS.map((t, i) => <button key={t.name} aria-label={t.name} onClick={() => setEmojiTab(i)} style={{ background: emojiTab === i ? "#1E2530" : "none", border: "none", borderRadius: 10, padding: "4px 10px", fontSize: 20, cursor: "pointer", flexShrink: 0 }}>{t.icon}</button>)}
           </div>
-          <div style={{ height: 200, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(42px, 1fr))", padding: "6px 8px", gap: 2, alignContent: "start" }}>
+          <div style={{ height: 200, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(42px, 1fr))", padding: "6px 8px", gap: 2, counterIncrement: "lcgap-2", alignContent: "start" }}>
             {EMOJI_TABS[emojiTab].list.map(em => <button key={em} onMouseDown={ev => ev.preventDefault()} onClick={() => insertEmoji(em)} style={{ background: "none", border: "none", fontSize: 26, height: 40, lineHeight: "40px", cursor: "pointer", padding: 0 }}>{em}</button>)}
           </div>
         </div>
       )}
       {iBlocked ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" }}>
           <span style={{ flex: 1 }}>You blocked this contact.</span>
           <button onClick={() => onBlock(conversation.other.id, false)} style={smallBtn}>Unblock</button>
         </div>
@@ -6822,7 +6822,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
         <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={pickFile} style={{ display: "none" }} />
         <input ref={galRef} type="file" accept="image/*,video/*" onChange={pickGallery} style={{ display: "none" }} />
         <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,application/pdf" onChange={pickDoc} style={{ display: "none" }} />
-        <div style={{ background: "#1E2530", borderRadius: 28, padding: "12px 10px 8px 18px", display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ background: "#1E2530", borderRadius: 28, padding: "12px 10px 8px 18px", display: "flex", flexDirection: "column", gap: 4, counterIncrement: "lcgap-4" }}>
           <textarea
             ref={inputRef}
             rows={1}
@@ -6839,7 +6839,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             const micMode = !editing && !hasText && !rec && featOn("voiceNotes");
             const ib = { background: "none", border: "none", padding: 9, cursor: "pointer", display: "flex", flexShrink: 0 };
             return (
-              <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0" }}>
                 {!editing && <button aria-label="Suggestions" aria-pressed={sugOpen} onClick={() => setSugOpen(v => !v)} style={{ background: sugOpen ? "rgba(53,208,186,0.12)" : "none", border: "1px solid " + (sugOpen ? "#35D0BA" : "#3A4452"), borderRadius: 999, padding: "8px 18px", color: sugOpen ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 500, fontSize: 15.5, cursor: "pointer", flexShrink: 0 }}>Suggestions</button>}
                 <div style={{ flex: 1 }} />
                 <button aria-label={emojiOpen ? "Close emoji" : "Open emoji"} onClick={() => setEmojiOpen(o => !o)} style={ib}><Smile size={25} color={emojiOpen ? "#35D0BA" : "#9BA7B4"} /></button>
@@ -6862,21 +6862,21 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
       {pickSheet && <PickSheet title={pickSheet.title} items={pickSheet.items} multi={pickSheet.multi} empty={pickSheet.empty} onClose={() => setPickSheet(null)} onDone={onPickDone} />}
       {pendingMedia && <MediaCaptionSheet file={pendingMedia.file} url={pendingMedia.url} onSend={sendPending} onCancel={cancelPending} />}
       {sel && (
-        <div onClick={() => { if (Date.now() - openedAt.current > 500) setSel(null); }} style={{ position: "absolute", inset: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
+        <div onClick={() => { if (Date.now() - openedAt.current > 500) setSel(null); }} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" }}>
             <div style={{ padding: "6px 10px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel.audio || sel.hasAudio ? "🎤 Voice note" : sel.text}</div>
             {window.LCReactions && window.LCReactions.bar(sel, myId, reactTo)}
-            <div onClick={() => startPick(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Check size={18} color="#35D0BA" />Select messages</div>
+            <div onClick={() => startPick(sel)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Check size={18} color="#35D0BA" />Select messages</div>
             {canEdit(sel) && (
-              <div onClick={() => startEdit(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Pencil size={18} color="#35D0BA" />Edit message</div>
+              <div onClick={() => startEdit(sel)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Pencil size={18} color="#35D0BA" />Edit message</div>
             )}
-            <div onClick={() => removeMsg(sel)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#FF6B5D" }}><Trash2 size={18} color="#FF6B5D" />Delete</div>
+            <div onClick={() => removeMsg(sel)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#FF6B5D" }}><Trash2 size={18} color="#FF6B5D" />Delete</div>
             <div onClick={() => setSel(null)} style={{ padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#9BA7B4", textAlign: "center" }}>Cancel</div>
           </div>
         </div>
       )}
       {viewer && (
-        <div onClick={() => setViewer(null)} style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={() => setViewer(null)} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <img loading="lazy" decoding="async" src={viewer} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
           <div style={{ position: "absolute", top: 14, right: 14, color: "#F5F7FA" }}><X size={26} /></div>
         </div>
@@ -6925,7 +6925,7 @@ function ProfileLinkRow({ token }) {
       <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Profile link</div>
       <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 }}>Anyone with this link can open a direct message with you.</div>
       {error && <Banner text={error} onClose={() => setError("")} />}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8", flexWrap: "wrap" }}>
         <button onClick={copy} disabled={!code} style={smallBtn}>{copied ? "Copied ✓" : "Copy link"}</button>
         <button onClick={share} disabled={!code} style={smallBtn}>Share link</button>
         <button onClick={reset} disabled={!code} style={{ ...smallBtn, color: "#FF6B5D" }}>Reset</button>
@@ -6952,7 +6952,7 @@ function ChatLinkModal({ code, token, onClose, onStarted }) {
       <div onClick={e => e.stopPropagation()} style={card}>
         <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 }}>Start a chat</div>
         {info && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", marginBottom: 16 }}>
             <Ring size={52} color={info.user.color} initials={info.user.initials} photo={info.user.avatar} />
             <div>
               <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{info.user.name}</div>
@@ -7035,7 +7035,7 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
         ))}
         <ProfileLinkRow token={token} />
         <div style={{ padding: "24px 20px" }}>
-          <button onClick={onLogOut} style={{ width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
+          <button onClick={onLogOut} style={{ width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8", cursor: "pointer" }}>
             <LogOut size={16} /> Log out
           </button>
         </div>
@@ -7090,7 +7090,7 @@ function CropModal({ file, onCancel, onDone }) {
 
   const pill = { padding: "13px 0", borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 14, flex: 1 };
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "#05070A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 80, background: "#05070A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", marginBottom: 6 }}>Move and zoom</div>
       <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 18 }}>Drag the photo to fit it inside the circle</div>
       {err && <Banner text={err} />}
@@ -7105,14 +7105,14 @@ function CropModal({ file, onCancel, onDone }) {
         {img && (
           <img loading="lazy" decoding="async" src={img.src} alt="" draggable={false} style={{ position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" }} />
         )}
-        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" }} />
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, width: VIEW, marginTop: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", width: VIEW, marginTop: 20 }}>
         <span style={{ color: "#8891A0", fontSize: 12, fontFamily: "Inter" }}>-</span>
         <input type="range" min="1" max="4" step="0.01" value={zoom} onChange={(e) => changeZoom(parseFloat(e.target.value))} style={{ flex: 1, accentColor: "#35D0BA" }} aria-label="Zoom" />
         <span style={{ color: "#8891A0", fontSize: 12, fontFamily: "Inter" }}>+</span>
       </div>
-      <div style={{ display: "flex", gap: 10, width: VIEW, marginTop: 24 }}>
+      <div style={{ display: "flex", gap: 10, counterIncrement: "lcgap-10", width: VIEW, marginTop: 24 }}>
         <button onClick={onCancel} style={{ ...pill, background: "#1E2530", color: "#F5F7FA" }}>Cancel</button>
         <button onClick={confirm} disabled={!img} style={{ ...pill, background: img ? "#35D0BA" : "#1E2530", color: img ? "#0E1116" : "#5B6673" }}>Use photo</button>
       </div>
@@ -7151,10 +7151,10 @@ function catResize(file, max) { // photo -> small JPEG data URL
 }
 function CatalogGrid({ items, onTap }) {
     const ce = React.createElement;
-    return ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, padding: "4px 14px 24px" } }, items.map((it) =>
+    return ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, counterIncrement: "lcgap-10", padding: "4px 14px 24px" } }, items.map((it) =>
         ce("div", { key: it.id, onClick: () => onTap(it), style: { background: "#161B22", border: "1px solid #1F2733", borderRadius: 14, overflow: "hidden", cursor: "pointer" } },
-            it.photo ? ce("img", { src: photoSrc(it.photo), alt: it.name, style: { width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" } })
-                : ce("div", { style: { width: "100%", aspectRatio: "1 / 1", background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Grid3x3, { size: 30, color: "#8A96A5" })),
+            it.photo ? ce("img", { src: photoSrc(it.photo), alt: it.name, style: { width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", objectFit: "cover", display: "block" } })
+                : ce("div", { style: { width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Grid3x3, { size: 30, color: "#8A96A5" })),
             ce("div", { style: { padding: "8px 10px 10px" } },
                 ce("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, it.name),
                 it.price ? ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#35D0BA", marginTop: 2 } }, it.price) : null))));
@@ -7196,7 +7196,7 @@ function CatalogScreen({ token, onBack }) {
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 16px 24px" } },
             error && ce(Banner, { text: error, onClose: () => setError("") }),
             ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
-            ce("div", { onClick: () => fileRef.current && fileRef.current.click(), style: { width: "100%", aspectRatio: "16 / 10", borderRadius: 14, background: "#1B232C", border: "1px dashed #3A4452", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", marginBottom: 14 } },
+            ce("div", { onClick: () => fileRef.current && fileRef.current.click(), style: { width: "100%", aspectRatio: "16 / 10", counterReset: "lcar-16-10", borderRadius: 14, background: "#1B232C", border: "1px dashed #3A4452", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", marginBottom: 14 } },
                 form.photo ? ce("img", { src: photoSrc(form.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } })
                     : ce("div", { style: { textAlign: "center", color: "#8891A0", fontFamily: "Inter", fontSize: 13.5 } }, ce(ImagePlus, { size: 30, color: "#8891A0" }), ce("div", { style: { marginTop: 6 } }, "Add a photo"))),
             ce("input", { value: form.name, maxLength: 60, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "Item name", style: input }),
@@ -7222,7 +7222,7 @@ function CatalogViewer({ uid, name, token, onClose }) {
         api("/api/v1/catalog/" + uid, { token }).then((d) => setItems(d.items || [])).catch(() => setItems([]));
         api("/api/v1/catalog/" + uid + "/view", { method: "POST", token }).catch(() => { });
     }, [uid]);
-    return ce("div", { style: { position: "absolute", inset: 0, zIndex: 66, background: "#0E1116", display: "flex", flexDirection: "column" } },
+    return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 66, background: "#0E1116", display: "flex", flexDirection: "column" } },
         ce(TopBar, { title: (name ? name.split(" ")[0] + "’s catalog" : "Catalog"), onBack: open ? () => setOpen(null) : onClose }),
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
             items === null && ce("div", { style: { padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
@@ -7242,7 +7242,7 @@ function ProfileCatalogRow({ uid, name, token }) {
     useEffect(() => { let live = true; api("/api/v1/catalog/" + uid, { token }).then((d) => { if (live) setCount((d.items || []).length); }).catch(() => { }); return () => { live = false; }; }, [uid]);
     if (!count) return null;
     return ce("div", null,
-        ce("div", { onClick: () => setOpen(true), style: { display: "flex", alignItems: "center", gap: 18, padding: "12px 22px", cursor: "pointer" } },
+        ce("div", { onClick: () => setOpen(true), style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "12px 22px", cursor: "pointer" } },
             ce(Grid3x3, { size: 22, color: "#8891A0" }),
             ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, count + (count === 1 ? " item" : " items"))),
             ce(ChevronRight, { size: 18, color: "#8891A0" })),
@@ -7308,14 +7308,14 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
 
     const icon = (I) => ce(I, { size: 22, color: "#9BA7B4" });
     const inputStyle = { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16, padding: 0 };
-    const rowBox = (key, ico, content, onClick) => ce("div", { key, onClick, style: { display: "flex", alignItems: "flex-start", gap: 22, padding: "14px 18px", cursor: onClick ? "pointer" : "default" } },
+    const rowBox = (key, ico, content, onClick) => ce("div", { key, onClick, style: { display: "flex", alignItems: "flex-start", gap: 22, counterIncrement: "lcgap-22", padding: "14px 18px", cursor: onClick ? "pointer" : "default" } },
         ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 1 } }, ico), ce("div", { style: { flex: 1, minWidth: 0 } }, content));
     const head = (t) => ce("div", { style: { padding: "16px 18px 6px", fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, t);
     const rule = () => ce("div", { style: { height: 1, background: "#1B212B", margin: "6px 0" } });
     const field = (key, ico, value, key2, placeholder, extra = {}) => rowBox(key, ico, ce("input", { value, placeholder, onChange: (e) => set({ [key2]: extra.clean ? extra.clean(e.target.value) : e.target.value }), maxLength: extra.max, type: extra.type || "text", inputMode: extra.mode, autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }));
     const toggleCat = (c) => set({ cats: f.cats.includes(c) ? f.cats.filter((x) => x !== c) : f.cats.length >= 3 ? f.cats : [...f.cats, c] });
     const setDay = (i, patch) => set({ days: f.days.map((d, k) => (k === i ? { ...d, ...patch } : d)) });
-    const sheetWrap = (title, children, onDone) => ce("div", { onClick: () => setSheet(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+    const sheetWrap = (title, children, onDone) => ce("div", { onClick: () => setSheet(null), style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
         ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "16px 16px 20px", maxHeight: "82%", display: "flex", flexDirection: "column" } },
             ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA", marginBottom: 10 } }, title),
             ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, children),
@@ -7325,13 +7325,13 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
     const hoursSheet = () => sheetWrap("Opening hours", [
         ce("button", { key: "all", onClick: () => set({ days: f.days.map(() => ({ ...f.days[0] })) }), style: { ...smallBtn, marginBottom: 10 } }, "Copy Sunday to all days"),
         ...f.days.map((d, i) => ce("div", { key: i, style: { padding: "10px 0", borderBottom: "1px solid #1B212B" } },
-            ce("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } },
+            ce("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, counterIncrement: "lcgap-10" } },
                 ce("span", { style: { fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" } }, EP_DAYS[i]),
                 ce("select", { value: d.mode, onChange: (e) => { const m = e.target.value; setDay(i, m === "custom" ? { mode: m, from: d.from || "09:00", to: d.to || "17:00" } : { mode: m }); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 8, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, padding: "7px 8px" } },
                     ce("option", { value: "24h" }, "Open 24 hours"), ce("option", { value: "closed" }, "Closed"), ce("option", { value: "custom" }, "Set hours"))),
-            d.mode === "custom" && ce("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, justifyContent: "flex-end" } }, timeIn(d.from, (v) => setDay(i, { from: v })), ce("span", { style: { color: "#8891A0", fontFamily: "Inter" } }, "to"), timeIn(d.to, (v) => setDay(i, { to: v })))))]);
+            d.mode === "custom" && ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", marginTop: 8, justifyContent: "flex-end" } }, timeIn(d.from, (v) => setDay(i, { from: v })), ce("span", { style: { color: "#8891A0", fontFamily: "Inter" } }, "to"), timeIn(d.to, (v) => setDay(i, { to: v })))))]);
     const catSheet = () => sheetWrap("Categories (up to 3)", ce("div", null, EP_CATEGORIES.map(pill)));
-    const prevLine = (I, t) => t ? ce("div", { key: t, style: { display: "flex", gap: 12, padding: "7px 0", fontFamily: "Inter", fontSize: 14, color: "#C5CDD8" } }, ce(I, { size: 18, color: "#8891A0" }), ce("span", { style: { overflowWrap: "anywhere" } }, t)) : null;
+    const prevLine = (I, t) => t ? ce("div", { key: t, style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", padding: "7px 0", fontFamily: "Inter", fontSize: 14, color: "#C5CDD8" } }, ce(I, { size: 18, color: "#8891A0" }), ce("span", { style: { overflowWrap: "anywhere" } }, t)) : null;
     const hoursSummary = (() => { const d = f.days; return d.every((x) => x.mode === "24h") ? "Open 24 hours" : "Hours set"; })();
     const previewSheet = () => sheetWrap("How customers see your profile", ce("div", null,
         ce("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "6px 0 12px" } },
@@ -7342,7 +7342,7 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
         prevLine(EpGlobe, f.website), prevLine(EpInstagram, f.instagram), prevLine(EpFacebook, f.facebook), prevLine(EpMail, f.email)));
 
     return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
-        ce("div", { style: { display: "flex", alignItems: "center", gap: 18, padding: "14px 16px", flexShrink: 0, background: "#0E1116" } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "14px 16px", flexShrink: 0, background: "#0E1116" } },
             ce("button", { onClick: back, "aria-label": "Back", style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } }, ce(ArrowLeft, { size: 22 })),
             ce("div", { style: { flex: 1, fontFamily: "Inter", fontWeight: 500, fontSize: 20, color: "#F5F7FA" } }, "Edit profile"),
             ce("button", { onClick: shareLink, "aria-label": "Advertise your profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(ToolMegaphone, { size: 22, color: "#F5F7FA" })),
@@ -7354,7 +7354,7 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
         note && ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 84, zIndex: 40, background: "#1B212B", border: "1px solid #262E3A", color: "#F5F7FA", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center" } }, note),
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: dirty ? 84 : 24 } },
             ce("div", { style: { position: "relative", height: 190, background: "linear-gradient(180deg,#1C2429 0%,#151B20 100%)" } },
-                avatar && ce("div", { style: { position: "absolute", inset: 0, overflow: "hidden" } }, ce("div", { style: { position: "absolute", inset: -20, backgroundImage: "url(" + avatar + ")", backgroundSize: "cover", backgroundPosition: "center", filter: "blur(22px) brightness(.45)" } })),
+                avatar && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden" } }, ce("div", { style: { position: "absolute", top: -20, right: -20, bottom: -20, left: -20, backgroundImage: "url(" + avatar + ")", backgroundSize: "cover", backgroundPosition: "center", filter: "blur(22px) brightness(.45)" } })),
                 ce("button", { onClick: () => setMenu(true), "aria-label": "Change cover and photo", style: { position: "absolute", right: 14, top: 98, width: 32, height: 32, borderRadius: "50%", background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" })),
                 ce("div", { style: { position: "absolute", left: "50%", bottom: -52, transform: "translateX(-50%)", zIndex: 2 } },
                     ce("div", { style: { position: "relative" } },
@@ -7362,7 +7362,7 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
                         ce("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: { position: "absolute", bottom: 4, right: 4, width: 36, height: 36, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" }))),
                     ce("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
                     ce("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }))),
-            ce("div", { style: { marginTop: 62, textAlign: "center", fontFamily: "Inter", fontSize: 26, color: "#F5F7FA", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 } },
+            ce("div", { style: { marginTop: 62, textAlign: "center", fontFamily: "Inter", fontSize: 26, color: "#F5F7FA", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6" } },
                 ce("span", { style: { overflowWrap: "anywhere" } }, f.name || "Your name"),
                 profile.verified ? ce(VerifiedBadge, { size: 20 }) : ce("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#8891A0", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", style: { flexShrink: 0 } }, ce("circle", { cx: 12, cy: 12, r: 10, strokeDasharray: "3 3" }), ce("path", { d: "m8.5 12.3 2.4 2.4 4.6-5" }))),
             ce("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "10px 20px 18px" } }, "Your profile is public. ", ce("span", { onClick: () => setLearn(!learn), style: { color: "#35D0BA", fontWeight: 700, cursor: "pointer" } }, "Learn more")),
@@ -7375,7 +7375,7 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
                 ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "username", onChange: (e) => set({ username: e.target.value.replace(/^@/, "").replace(/[^a-zA-Z0-9_.]/g, "").toLowerCase().slice(0, 20) }), autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })),
                 ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, "Username \u00B7 3 to 20 letters, numbers, _ or ."))),
             rowBox("cat", icon(EpShapes), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: f.cats.length ? "#F5F7FA" : "#5B6673", lineHeight: 1.35 } }, f.cats.length ? f.cats.join(", ") : "Category"), () => setSheet("cats")),
-            ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") },
+            ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, counterIncrement: "lcgap-22", padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") },
                 ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 5 } }, icon(ClockIcon)),
                 ce("div", { style: { flex: 1 } }, f.days.map((d, i) => ce("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "5px 0", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, ce("span", null, EP_DAYS[i]), ce("span", null, epDayLabel(d)))))),
             rowBox("desc", icon(EpDoc), ce("textarea", { value: f.description, placeholder: "Description", rows: 1, maxLength: 256, onChange: (e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; set({ description: e.target.value }); }, style: { ...inputStyle, resize: "none", overflow: "hidden", lineHeight: 1.4 } })),
@@ -7568,7 +7568,7 @@ function LoginScreen({ onContinue }) {
   });
   const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
 
-  const box = { display: "flex", alignItems: "center", gap: 10, background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
+  const box = { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
   const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
   const btn = (on) => ({ padding: "15px", borderRadius: 14, border: "none", cursor: busy ? "default" : "pointer", background: on ? "#35D0BA" : "#1E2530", color: on ? "#0E1116" : "#5B6673", fontFamily: "Sora", fontWeight: 700, fontSize: 15, width: "100%" });
 
@@ -7597,9 +7597,9 @@ function LoginScreen({ onContinue }) {
       {stage === "phone" && (
         <>
           <div style={box}>
-            <div style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center", gap: 6, paddingRight: 10, borderRight: "1px solid #262E3A" }}>
+            <div style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", paddingRight: 10, borderRight: "1px solid #262E3A" }}>
               <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap" }}>{flagOf(country[0])} +{dial} <span style={{ color: "#8891A0", fontSize: 11 }}>&#9662;</span></span>
-              <select value={iso} onChange={e => { setIso(e.target.value); setPhone(""); try { localStorage.setItem("lc-country", e.target.value); } catch (err) {} }} aria-label="Country code" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", fontSize: 16 }}>
+              <select value={iso} onChange={e => { setIso(e.target.value); setPhone(""); try { localStorage.setItem("lc-country", e.target.value); } catch (err) {} }} aria-label="Country code" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", fontSize: 16 }}>
                 {COUNTRIES.map((c) => <option key={c[0]} value={c[0]}>{flagOf(c[0])} {c[1]} (+{c[2]})</option>)}
               </select>
             </div>
@@ -7614,7 +7614,7 @@ function LoginScreen({ onContinue }) {
 
       {stage === "email" && (
         <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 }}>
             {[["Log in", false], ["Create account", true]].map(([label, v]) => (
               <button key={label} onClick={() => { setIsNew(v); setError(""); setNotice(""); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>{label}</button>
             ))}
@@ -7728,7 +7728,7 @@ function App() {
 
   useEffect(() => {
     const link = document.createElement("link");
-    link.rel = "stylesheet"; link.href = FONT_LINK;
+    link.rel = "stylesheet"; link.href = window.__lcLite ? "data:text/css," : FONT_LINK;
     document.head.appendChild(link);
     return () => document.head.removeChild(link);
   }, []);
