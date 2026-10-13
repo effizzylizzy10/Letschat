@@ -206,6 +206,7 @@ function groupView(db, c, uid, preMsgs) {
     members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
     inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
     disappearAfter: c.disappearAfter || 0,
+    ai: c.ai && c.ai.on ? { on: true, rules: c.ai.rules || [] } : { on: false },
     pinnedMsgs: livePins(c, msgs),
     lastMessage: lite(receiptView(db, msgs[msgs.length - 1], db.users.find((u) => u.id === uid) || { id: uid }, c)) || null,
     unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
@@ -365,14 +366,8 @@ function authMiddleware(req, res, next) {
 
 app.get("/api/health", (req, res) => res.json({ ok: true, storage: USE_DB ? "supabase" : "file", version: API_VERSION, uptime: Math.round(process.uptime()) }));
 
-app.post("/api/auth/firebase", async (req, res) => {
-  let decoded;
-  try {
-    decoded = await admin.auth().verifyIdToken(String(req.body.idToken || ""));
-  } catch (e) {
-    console.error("Firebase token check failed:", e.message);
-    return res.status(401).json({ error: "Sign-in could not be verified. Please try again." });
-  }
+// Turns a verified Firebase login into a Letschat user + token (shared by /api/auth/firebase and the /lite sign-in page).
+function firebaseSignIn(decoded, nameFromBody) {
   const phone = decoded.phone_number ? normalizePhone(decoded.phone_number) : null;
   const email = decoded.email && decoded.email_verified ? decoded.email.toLowerCase() : null;
 
@@ -384,8 +379,8 @@ app.post("/api/auth/firebase", async (req, res) => {
     null;
 
   if (!user) {
-    const name = String(decoded.name || req.body.name || "").trim();
-    if (!name) return res.status(400).json({ error: "Name required for new accounts", newUser: true });
+    const name = String(decoded.name || nameFromBody || "").trim();
+    if (!name) return { status: 400, body: { error: "Name required for new accounts", newUser: true } };
     user = {
       id: nanoid(10),
       firebaseUid: decoded.uid,
@@ -407,8 +402,20 @@ app.post("/api/auth/firebase", async (req, res) => {
     if (email && !user.email) { user.email = email; changed = true; }
     if (changed) writeDB(db);
   }
-  if (user.suspended) return res.status(403).json({ error: "This account has been suspended" });
-  res.json({ token: signToken(user), user: publicUser(user) });
+  if (user.suspended) return { status: 403, body: { error: "This account has been suspended" } };
+  return { status: 200, body: { token: signToken(user), user: publicUser(user) } };
+}
+
+app.post("/api/auth/firebase", async (req, res) => {
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(String(req.body.idToken || ""));
+  } catch (e) {
+    console.error("Firebase token check failed:", e.message);
+    return res.status(401).json({ error: "Sign-in could not be verified. Please try again." });
+  }
+  const r = firebaseSignIn(decoded, req.body.name);
+  res.status(r.status).json(r.body);
 });
 
 app.get("/api/me", authMiddleware, (req, res) => {
@@ -818,7 +825,7 @@ function pushMessage(db, convo, message, senderId) {
       if (convo.isGroup && sub.groups === false) continue;
       const mentioned = (message.mentions || []).includes(id);
       const body = sub.preview === false ? (mentioned ? "Mentioned you" : "New message") : (mentioned ? "\uD83D\uDCE3 Mentioned you: " : "") + String(message.text || "New message").slice(0, 140);
-      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "conv-" + convo.id, url: "./" }), { TTL: 86400, urgency: "high" })
+      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "conv-" + convo.id, url: "./", ai: !!message.ai }), { TTL: 86400, urgency: "high" })
         .catch((err) => {
           if (err && (err.statusCode === 404 || err.statusCode === 410)) { // device unsubscribed: forget it
             const d2 = readDB(), u2 = d2.users.find((x) => x.id === id);
@@ -1144,6 +1151,11 @@ app.post("/api/conversations/group", authMiddleware, (req, res) => {
   const c = { id: nanoid(12), isGroup: true, name, adminId: req.user.id, inviteCode: nanoid(16),
     participantIds: [req.user.id, ...ids], createdAt: Date.now(), updatedAt: Date.now() };
   db.conversations.push(c);
+  if (ids.length) { // everyone in the group sees who added the first members
+    const nm = ids.map((id) => nameOf(db, id));
+    groupNotice(db, c, nameOf(db, req.user.id) + " added " + (nm.length > 3 ? nm.slice(0, 3).join(", ") + " and " + (nm.length - 3) + " others" : nm.length > 1 ? nm.slice(0, -1).join(", ") + " and " + nm[nm.length - 1] : nm[0]),
+      { kind: "added", actorId: req.user.id, targetIds: ids });
+  }
   writeDB(db);
   groupEvent(c, "conversation:added");
   res.json({ conversation: groupView(db, c, req.user.id) });
@@ -1163,6 +1175,10 @@ app.post("/api/conversations/:id/members", authMiddleware, (req, res) => {
   if (c.participantIds.length + fresh.length > MAX_GROUP) return res.status(400).json({ error: `A group can have up to ${MAX_GROUP} people` });
   c.participantIds.push(...fresh);
   c.updatedAt = Date.now();
+  for (const id of fresh) { // admin adding someone brings back anyone the AI moderator removed
+    if (c.ai) { if (c.ai.warns) delete c.ai.warns[id]; c.ai.banned = (c.ai.banned || []).filter((x) => x !== id); }
+    groupNotice(db, c, nameOf(db, req.user.id) + " added " + nameOf(db, id), { kind: "added", actorId: req.user.id, targetIds: [id] });
+  }
   writeDB(db);
   groupEvent(c, "conversation:update");
   res.json({ conversation: groupView(db, c, req.user.id) });
@@ -1506,6 +1522,7 @@ const statusViewers = (db, s) => (s.viewedBy || []).map((id) => { const v = memb
   .filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0));
 const statusItem = (s, me, db) => ({ id: s.id, text: s.text || "", bg: s.bg || "#1E8677", photo: s.photo ? `/api/v1/status/${s.id}/photo?v=${s.time}` : null, time: s.time,
   music: s.music ? `/api/v1/status/${s.id}/music?v=${s.time}` : null, musicName: s.musicName || null, musicDur: s.musicDur || 0, tags: tagViews(db, s.tags),
+  reshared: s.reshared ? { id: s.reshared.userId, name: nameOf(db, s.reshared.userId) } : null,
   seen: (s.viewedBy || []).includes(me), ...(s.userId === me ? { views: (s.viewedBy || []).length, viewers: statusViewers(db, s) } : {}) });
 app.get("/api/status", authMiddleware, (req, res) => {
   const db = readDB();
@@ -1544,6 +1561,22 @@ app.post("/api/status", authMiddleware, (req, res) => {
   notifyTags(db, req.user.id, s.tags, "status");
   res.json({ status: statusItem(s, req.user.id, db) });
 });
+// reshare someone's update to my own status (24h like any other); it keeps a "reshared from <name>" source so viewers know
+app.post("/api/status/:id/reshare", authMiddleware, (req, res) => {
+  if (USE_DB && ready.statuses === false) return res.status(503).json({ error: "Status storage is not set up on the server yet" });
+  const db = readDB(), me = req.user.id, list = statusesOf(db);
+  const src = list.find((x) => x.id === req.params.id);
+  if (!src || !canSeeStatusItem(db, me, src)) return res.status(404).json({ error: "Status not found. It may have expired." });
+  const origin = src.reshared || { userId: src.userId, id: src.id }; // resharing a reshare still points to the first person
+  if (src.userId === me || origin.userId === me) return res.status(400).json({ error: "You cannot reshare your own status" });
+  if (list.some((x) => x.userId === me && x.reshared && x.reshared.id === origin.id)) return res.status(400).json({ error: "You already reshared this status" });
+  if (list.filter((x) => x.userId === me).length >= 30) return res.status(400).json({ error: "You can have up to 30 status updates at a time" });
+  const s = { id: nanoid(14), userId: me, text: src.text || "", bg: src.bg || "#1E8677", photo: src.photo || null, time: Date.now(), viewedBy: [], tags: [], reshared: { userId: origin.userId, id: origin.id } };
+  if (src.music) { s.music = src.music; s.musicName = src.musicName; s.musicDur = src.musicDur; }
+  list.push(s);
+  writeDB(db);
+  res.json({ status: statusItem(s, me, db) });
+});
 app.post("/api/status/:id/view", authMiddleware, (req, res) => {
   const db = readDB();
   const s = statusesOf(db).find((x) => x.id === req.params.id);
@@ -1564,6 +1597,7 @@ app.delete("/api/status/:id", authMiddleware, (req, res) => {
 app.get("/api/groups/invite/:code", authMiddleware, (req, res) => {
   const c = readDB().conversations.find((x) => x.isGroup && x.inviteCode === req.params.code);
   if (!c) return res.status(404).json({ error: "This invite link is invalid or has been reset" });
+  if (!c.participantIds.includes(req.user.id) && ((c.ai && c.ai.banned) || []).includes(req.user.id)) return res.status(403).json({ error: "You were removed from this group by the AI moderator. Only the group admin can add you back." });
   res.json({ name: c.name, memberCount: c.participantIds.length, joined: c.participantIds.includes(req.user.id) });
 });
 app.post("/api/groups/join", authMiddleware, (req, res) => {
@@ -1571,13 +1605,649 @@ app.post("/api/groups/join", authMiddleware, (req, res) => {
   const c = db.conversations.find((x) => x.isGroup && x.inviteCode === String(req.body.code || ""));
   if (!c) return res.status(404).json({ error: "This invite link is invalid or has been reset" });
   if (!c.participantIds.includes(req.user.id)) {
+    if (((c.ai && c.ai.banned) || []).includes(req.user.id)) return res.status(403).json({ error: "You were removed from this group by the AI moderator. Only the group admin can add you back." });
     if (c.participantIds.length >= MAX_GROUP) return res.status(400).json({ error: "This group is full" });
     c.participantIds.push(req.user.id);
     c.updatedAt = Date.now();
+    groupNotice(db, c, nameOf(db, req.user.id) + " joined using the group invite link", { kind: "joined", via: "link", actorId: req.user.id, targetIds: [req.user.id] });
     writeDB(db);
     groupEvent(c, "conversation:update");
   }
   res.json({ conversation: groupView(db, c, req.user.id) });
+});
+
+// =====================================================================================================================
+// ---- Letschat AI: self-learning chat assistant (per person) + AI group moderator (per group) + join/leave notices ----
+// Everything runs on this server with plain JavaScript: no outside AI service, no extra cost, no chat text leaves the server.
+// Assistant: when a person turns it on it studies THEIR OWN chats (how they reply to what people say, their greetings, tone, topics)
+//   and, while they are offline, answers direct chats in their style. Every automatic reply starts with "AI:" so nobody is fooled.
+//   Money / password / OTP style messages are never answered by the AI: it only says the person will reply personally.
+// Moderator: the group admin feeds it the group rules. It warns rule breakers with an @mention (2 warnings), removes them on the
+//   next violation, and removed people cannot rejoin by link: only the admin adding them again lets them back.
+// =====================================================================================================================
+const AI_MAX_PAIRS = 120;
+const KB = require("./knowledge"); // online sourcing + self-learning knowledge (see AGENT-AI.md)
+KB.start();
+const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
+BOT.start(); // daily research for the creator
+const AI_STOP = new Set("a an the is are was were be been am i you he she it we they me my your our their to of in on at for with and or but so if this that these those do does did have has had will would can could should just please pls ok okay oh not".split(" "));
+function aiTokens(t) {
+  const w = String(t || "").toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/[^a-z0-9\u00C0-\uFFFF\s']/g, " ").split(/\s+/)
+    .filter((x) => x && x.length > 1 && !AI_STOP.has(x) && !/\d{4,}/.test(x)).map((x) => x.replace(/(ing|ed|es|s)$/, "")).filter((x) => x.length > 1);
+  return [...new Set(w)].slice(0, 10);
+}
+const AI_INTENTS = [
+  ["thanks", /\b(thanks|thank you|thank u|thx|tnx|tanx|appreciate|nagode|ese)\b/i],
+  ["bye", /\b(bye|goodnight|good night|see you|cya|later|ttyl|talk later)\b/i],
+  ["how", /\b(how are you|how r u|how you doing|how have you been|how'?s it going|how is it going|how body|how are things|what'?s up|wassup|how you dey)\b/i],
+  ["greet", /^\s*(hi|hello|hey|hiya|yo|good (morning|afternoon|evening)|how far|howdy|sup|salam|assalam\w*|asalam\w*)\b/i],
+  ["when", /\b(when|what time|which time)\b/i],
+  ["ask", /\?\s*$/],
+];
+const aiIntent = (t) => { const s = String(t || ""); for (const [n, re] of AI_INTENTS) if (re.test(s)) return n; return "other"; };
+const AI_DEFAULTS = {
+  greet: ["Hello 👋"], how: ["I'm fine, thank you. How are you?"], thanks: ["You're welcome 🙂"], bye: ["Bye, talk soon."],
+  when: ["I'll let you know when I'm back."], ask: ["Good question. I'll get back to you when I'm back."], other: ["Got your message. I'll reply properly when I'm back."],
+};
+// never let the AI answer (or learn from) anything that looks like money, codes, passwords or personal numbers
+const AI_SENSITIVE = /\b(otp|pin|password|passcode|cvv|bvn|nin|verification code|card number|account number|acct|send money|transfer|loan|payment|pay me|bank|wallet|crypto|bitcoin|invest\w*|urgent|emergency)\b|\b\d{6,}\b|@\w+\.\w+/i;
+const AI_EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+const aiOf = (u) => {
+  if (!u.ai || typeof u.ai !== "object") u.ai = { on: false, autoReply: true };
+  const a = u.ai;
+  if (!a.learn) a.learn = { pairs: [], say: {}, topics: {}, style: { n: 0, len: 0, emoji: 0, lower: 0, sig: {} }, seen: 0, sent: 0, studied: 0 };
+  if (!a.replied) a.replied = {};
+  return a;
+};
+const aiNameWords = (u) => String((u && u.name) || "").toLowerCase().split(/[^a-z0-9\u00C0-\uFFFF]+/).filter((w) => w.length >= 3);
+function aiAddPair(a, incoming, reply, avoid) {
+  const inc = String(incoming || "").trim(), rep = String(reply || "").trim();
+  if ((avoid || []).length && String(rep).toLowerCase().split(/[^a-z0-9\u00C0-\uFFFF]+/).some((w) => avoid.includes(w))) return false; // never keep a reply that names the other person
+  if (!inc || !rep || rep.length > 160 || inc.length > 300 || AI_SENSITIVE.test(inc) || AI_SENSITIVE.test(rep) || /https?:\/\//i.test(rep)) return false;
+  const toks = aiTokens(inc), key = toks.length ? toks : [inc.toLowerCase().slice(0, 20)];
+  const L = a.learn, kk = key.join(" ");
+  const hit = L.pairs.find((p) => p.k.join(" ") === kk && p.r === rep);
+  if (hit) { hit.n++; hit.t = Date.now(); } else {
+    L.pairs.push({ k: key, r: rep, n: 1, t: Date.now() });
+    if (L.pairs.length > AI_MAX_PAIRS) { L.pairs.sort((x, y) => (y.n - x.n) || (y.t - x.t)); L.pairs.length = AI_MAX_PAIRS; }
+  }
+  const it = aiIntent(inc);
+  const list = (L.say[it] = L.say[it] || []);
+  if (!list.includes(rep)) { list.unshift(rep); if (list.length > 5) list.length = 5; }
+  return true;
+}
+function aiStyle(a, text) {
+  const s = a.learn.style, t = String(text || "");
+  s.n++; s.len += t.length;
+  if (AI_EMOJI.test(t)) { s.emoji++; for (const ch of t.match(new RegExp(AI_EMOJI.source, "gu")) || []) s.sig[ch] = (s.sig[ch] || 0) + 1; }
+  if (t === t.toLowerCase() && /[a-z]/.test(t)) s.lower++;
+  const keys = Object.keys(s.sig); if (keys.length > 12) { keys.sort((x, y) => s.sig[y] - s.sig[x]); for (const k of keys.slice(8)) delete s.sig[k]; }
+}
+function aiTopics(a, text) {
+  const T = a.learn.topics;
+  for (const w of aiTokens(text)) if (w.length > 3) T[w] = (T[w] || 0) + 1;
+  const keys = Object.keys(T);
+  if (keys.length > 80) { keys.sort((x, y) => T[y] - T[x]); for (const k of keys.slice(50)) delete T[k]; }
+}
+const aiPlain = (m) => m && !m.deleted && !m.system && !m.auto && !m.bot && typeof m.text === "string" && !m.audio && !m.file && !m.poll && !m.viewOnce;
+// study one message the owner just sent (DMs only): pair it with what they were answering
+function aiLearnSent(db, convo, message, owner) {
+  const a = aiOf(owner);
+  if (!a.on || convo.isGroup || !aiPlain(message)) return;
+  let prev = null;
+  for (let i = db.messages.length - 1; i >= 0; i--) {
+    const m = db.messages[i];
+    if (m.id === message.id || m.conversationId !== convo.id) continue;
+    if (m.senderId !== owner.id) { prev = m; break; }
+    if (m.senderId === owner.id && !m.auto) break; // they already spoke last
+  }
+  a.learn.sent++;
+  aiStyle(a, message.text);
+  if (prev && aiPlain(prev) && message.time - prev.time < 30 * 60 * 1000) aiAddPair(a, prev.text, message.text, aiNameWords(db.users.find((u) => u.id === prev.senderId)));
+}
+// study a message that arrived for someone who has the AI on (topics only, never stored word for word)
+function aiObserve(db, convo, message) {
+  if (convo.isGroup || !aiPlain(message)) return;
+  for (const id of convo.participantIds) {
+    if (id === message.senderId) continue;
+    const u = db.users.find((x) => x.id === id);
+    if (!u || !u.ai || !u.ai.on) continue;
+    const a = aiOf(u);
+    a.learn.seen++;
+    if (!AI_SENSITIVE.test(message.text)) aiTopics(a, message.text);
+  }
+}
+// first time it is switched on: study the person's existing direct chats (their last ~600 messages)
+function aiStudyHistory(db, owner) {
+  const a = aiOf(owner);
+  const mine = new Set(db.conversations.filter((c) => !c.isGroup && c.participantIds.includes(owner.id)).map((c) => c.id));
+  const byC = new Map();
+  for (const m of db.messages) if (mine.has(m.conversationId)) { let l = byC.get(m.conversationId); if (!l) byC.set(m.conversationId, (l = [])); l.push(m); }
+  let budget = 600;
+  for (const list of byC.values()) {
+    const tail = list.slice(-Math.min(list.length, budget));
+    budget -= tail.length;
+    for (let i = 0; i < tail.length; i++) {
+      const m = tail[i];
+      if (!aiPlain(m)) continue;
+      if (m.senderId === owner.id) {
+        a.learn.sent++; aiStyle(a, m.text);
+        const p = tail[i - 1];
+        if (p && p.senderId !== owner.id && aiPlain(p) && m.time - p.time < 30 * 60 * 1000) aiAddPair(a, p.text, m.text, aiNameWords(db.users.find((u) => u.id === p.senderId)));
+      } else { a.learn.seen++; if (!AI_SENSITIVE.test(m.text)) aiTopics(a, m.text); }
+    }
+    if (budget <= 0) break;
+  }
+  a.learn.studied = Date.now();
+}
+const aiJaccard = (x, y) => { const A = new Set(x), B = new Set(y); let i = 0; for (const t of A) if (B.has(t)) i++; const u = A.size + B.size - i; return u ? i / u : 0; };
+// best replies for an incoming message: learned replies first, then the person's own wording for that kind of message, then safe defaults
+function aiCandidates(owner, incoming, max) {
+  const a = aiOf(owner), L = a.learn, out = [];
+  const toks = aiTokens(incoming), key = toks.length ? toks : [String(incoming || "").toLowerCase().slice(0, 20)];
+  const scored = L.pairs.map((p) => ({ p, s: aiJaccard(key, p.k) })).filter((x) => x.s >= 0.5).sort((x, y) => (y.s - x.s) || (y.p.n - x.p.n));
+  for (const x of scored) if (!out.includes(x.p.r)) out.push(x.p.r);
+  const it = aiIntent(incoming);
+  for (const r of (L.say[it] || [])) if (!out.includes(r)) out.push(r);
+  for (const r of AI_DEFAULTS[it] || AI_DEFAULTS.other) if (!out.includes(r)) out.push(r);
+  return out.slice(0, max || 3);
+}
+function aiCompose(owner, incoming) {
+  if (AI_SENSITIVE.test(String(incoming || ""))) return "This looks important, so " + String(owner.name || "they").split(" ")[0] + " will reply to you personally when back.";
+  return aiCandidates(owner, incoming, 1)[0];
+}
+const AI_SEND_GAP = 45 * 1000, AI_MAX_PER_WINDOW = 6, AI_WINDOW = 6 * 60 * 60 * 1000;
+// answer for an offline person who has the AI on (direct chats, and group messages that @mention them)
+function aiRespond(db, convo, incoming) {
+  if (incoming.auto || incoming.bot || incoming.system || !aiPlain(incoming)) return;
+  const ownerIds = convo.isGroup ? (incoming.mentions || []) : convo.participantIds.filter((id) => id !== incoming.senderId);
+  for (const ownerId of ownerIds) {
+    const owner = db.users.find((u) => u.id === ownerId);
+    if (!owner || owner.suspended || ownerId === incoming.senderId || !owner.ai || !owner.ai.on) continue;
+    const a = aiOf(owner);
+    if (a.autoReply === false) continue;
+    const live = userSockets.get(owner.id);
+    if (live && live.size) continue; // they are online: they answer themselves
+    if ((owner.blocked || []).includes(incoming.senderId)) continue;
+    const last = db.messages[db.messages.length - 1];
+    if (last && last.id !== incoming.id && last.conversationId === convo.id && last.auto && last.senderId === owner.id && last.time >= incoming.time) continue; // away/greeting message already answered
+    const hist = (a.replied[convo.id] || []).filter((t) => Date.now() - t < AI_WINDOW);
+    if (hist.length >= AI_MAX_PER_WINDOW || (hist.length && Date.now() - hist[hist.length - 1] < AI_SEND_GAP)) { a.replied[convo.id] = hist; continue; }
+    hist.push(Date.now()); a.replied[convo.id] = hist;
+    if (aiAgentWants(db, owner, incoming.text)) { aiAgentReply(convo.id, incoming, owner.id).catch((e) => console.error("agent reply failed", e.message)); continue; }
+    aiDelayedReply(convo.id, incoming, owner.id, "AI: " + aiCompose(owner, incoming.text)).catch((e) => console.error("ai reply failed", e.message));
+  }
+}
+
+// ---- group notices: "<admin> added <name>", "<name> joined using the group invite link", "<name> left" (shown to everyone in the group) ----
+function groupNotice(db, c, text, extra) {
+  const m = { id: nanoid(14), conversationId: c.id, senderId: "system", system: true, text, time: Date.now(), read: true, readBy: [...c.participantIds], ...(extra || {}) };
+  db.messages.push(m);
+  c.updatedAt = Date.now();
+  io.to(`conv:${c.id}`).emit("message:new", m);
+  return m;
+}
+const nameOf = (db, id) => { const u = db.users.find((x) => x.id === id); return u ? (isCreator(u) ? "letschatafrica" : u.name) : "Someone"; };
+
+// ---- AI moderator ----
+const AI_NEG = /\b(no|not|don'?t|dont|do not|never|avoid|without|stop|ban\w*|forbid\w*|prohibit\w*|disallow\w*|illegal|strictly|warn\w*|remove\w*|kick\w*)\b/i;
+const AI_PROMO = /\b(buy now|promo(tion)?s?|discount|dm me|inbox me|whatsapp me|contact me on|click (here|the link)|join (my|our) (channel|group)|earn \$?\d+|make money|investment|invest now|forex|crypto|airdrop|giveaway|100% (genuine|legit)|for sale|selling|order now|visit (my|our) (page|site|website))\b/i;
+const AI_LINK = /(https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(com|net|org|ng|io|me|ly|co|app|xyz|info|biz|link|site|online)(\/\S*)?\b/i;
+const AI_RUDE = /\b(fuck\w*|shit\w*|bitch\w*|bastard|asshole|dick|pussy|idiot|stupid|moron|fool(ish)?|mumu|olodo|oloshi|ashawo|yeye|dumb|imbecile|stfu)\b/i;
+const AI_ADULT = /\b(porn\w*|nudes?|nsfw|xxx|sex ?(video|tape|chat)|naked|onlyfans)\b/i;
+function aiRuleSet(c) {
+  const a = c.ai || {}, set = { links: false, ads: false, abuse: false, adult: false, flood: false, caps: false, words: [] };
+  const words = new Set((a.words || []).map((w) => String(w).toLowerCase().trim()).filter(Boolean));
+  for (const line of a.rules || []) {
+    const r = String(line).toLowerCase(), neg = AI_NEG.test(r);
+    for (const m of String(line).matchAll(/["\u201C\u201D'\u2018\u2019]([^"\u201C\u201D'\u2018\u2019]{2,30})["\u201C\u201D'\u2018\u2019]/g)) if (neg) words.add(m[1].toLowerCase().trim());
+    if (/\b(respect\w*|polite|civil\w*|be kind|courteous)\b/.test(r)) set.abuse = true;
+    if (!neg) continue;
+    if (/\b(link|links|url|urls|website|websites|http|invite)\b/.test(r)) set.links = true;
+    if (/\b(ad|ads|advert\w*|promo\w*|spam|selling|sell|marketing|sales?|forex|crypto|invest\w*|business)\b/.test(r)) set.ads = true;
+    if (/\b(abus\w*|insult\w*|curs\w*|swear\w*|profan\w*|vulgar\w*|rude|disrespect\w*|bad words?|hate|hateful|offensive|bully\w*|harass\w*)\b/.test(r)) set.abuse = true;
+    if (/\b(adult|porn\w*|nude\w*|nsfw|sexual|18\+|explicit)\b/.test(r)) set.adult = true;
+    if (/\b(spam|flood\w*|repeat\w*|too many)\b/.test(r)) set.flood = true;
+    if (/\b(caps|capital|shout\w*|uppercase)\b/.test(r)) set.caps = true;
+  }
+  set.words = [...words];
+  return set;
+}
+const aiFlood = new Map(); // convoId:userId -> [{t, text}]
+function aiCheck(set, convoId, uid, text) {
+  const t = String(text || "");
+  if (set.words.length) {
+    const low = t.toLowerCase();
+    for (const w of set.words) {
+      const hit = /^[a-z0-9' ]+$/.test(w) ? new RegExp("(^|[^a-z0-9])" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([^a-z0-9]|$)").test(low) : low.includes(w);
+      if (hit) return "using a banned word";
+    }
+  }
+  if (set.adult && AI_ADULT.test(t)) return "sharing adult content";
+  if (set.abuse && AI_RUDE.test(t)) return "insulting or offensive language";
+  if (set.ads && (AI_PROMO.test(t) || (AI_LINK.test(t) && /\b(buy|sell|price|order|sale|offer|deal)\b/i.test(t)))) return "advertising or spam";
+  if (set.links && AI_LINK.test(t)) return "sharing links";
+  if (set.caps) { const letters = t.replace(/[^A-Za-z]/g, ""); if (letters.length >= 12 && letters.replace(/[^A-Z]/g, "").length / letters.length >= 0.7) return "typing in all capital letters"; }
+  if (set.flood) {
+    const key = convoId + ":" + uid, now = Date.now(), list = (aiFlood.get(key) || []).filter((x) => now - x.t < 120000);
+    list.push({ t: now, text: t.trim().toLowerCase() }); aiFlood.set(key, list);
+    if (list.filter((x) => now - x.t < 20000).length >= 8) return "sending too many messages too fast";
+    if (list.filter((x) => x.text === list[list.length - 1].text).length >= 3) return "repeating the same message";
+  }
+  return "";
+}
+function aiBotSay(db, c, text, mentions) {
+  return groupNotice(db, c, text, { bot: true, ...(mentions && mentions.length ? { mentions, mentionNames: mentions.map((id) => nameOf(db, id)) } : {}) });
+}
+function aiLog(c, entry) { const a = c.ai; a.log = [{ t: Date.now(), ...entry }, ...(a.log || [])].slice(0, 30); }
+function aiModerate(db, convo, message) {
+  const a = convo.ai;
+  if (!convo.isGroup || !a || !a.on || message.system || message.bot || message.auto) return;
+  if (message.senderId === convo.adminId) return; // the admin is never moderated
+  const sender = db.users.find((u) => u.id === message.senderId);
+  if (!sender || isCreator(sender)) return;
+  const set = aiRuleSet(convo);
+  const reason = aiCheck(set, convo.id, message.senderId, message.text);
+  if (!reason) return;
+  a.warns = a.warns || {}; a.warnAt = a.warnAt || {};
+  if (Date.now() - (a.warnAt[message.senderId] || 0) < 15000) return; // one burst counts once
+  a.warnAt[message.senderId] = Date.now();
+  const n = (a.warns[message.senderId] || 0) + 1, name = nameOf(db, message.senderId);
+  if (n <= 2) {
+    a.warns[message.senderId] = n;
+    aiLog(convo, { uid: message.senderId, name, reason, action: "warning " + n });
+    aiBotSay(db, convo, n === 1
+      ? "⚠️ @" + name + ", warning 1 of 2: " + reason + " is not allowed in this group. Please follow the group rules."
+      : "⚠️ @" + name + ", final warning (2 of 2): " + reason + ". Any more violations and you will be removed from the group.", [message.senderId]);
+    writeDB(db);
+    return;
+  }
+  // third violation: removed, and cannot come back unless the admin adds them again
+  delete a.warns[message.senderId];
+  a.banned = [...new Set([...(a.banned || []), message.senderId])];
+  aiLog(convo, { uid: message.senderId, name, reason, action: "removed" });
+  convo.participantIds = convo.participantIds.filter((id) => id !== message.senderId);
+  aiBotSay(db, convo, "🚫 @" + name + " was removed from the group by the AI moderator after 2 warnings (" + reason + "). They can only return if the admin adds them back.", [message.senderId]);
+  writeDB(db);
+  try { io.in(`user:${message.senderId}`).socketsLeave(`conv:${convo.id}`); } catch (e) { /* ignore */ }
+  io.to(`user:${message.senderId}`).emit("conversation:update", { id: convo.id });
+  groupEvent(convo, "conversation:update");
+}
+// one hook called after every sent message
+function aiAfterSend(db, convo, message, userId) {
+  if (message.system || message.bot) return;
+  const askAi = /^\s*(?:@ai|\/ai|@letschat ?ai)\b[\s:,-]*([\s\S]{2,300})$/i.exec(String(message.text || ""));
+  if (askAi && aiPlain(message)) aiPublicAsk(convo.id, message, askAi[1]).catch((e) => console.error("ai ask failed", e.message));
+  if (convo.isGroup) { aiModerate(db, convo, message); }
+  const sender = db.users.find((u) => u.id === userId);
+  const had = sender && sender.ai && sender.ai.on;
+  if (had) aiLearnSent(db, convo, message, sender);
+  aiObserve(db, convo, message);
+  if (had || convo.participantIds.some((id) => { const u = db.users.find((x) => x.id === id); return u && u.ai && u.ai.on; })) writeDB(db);
+  aiRespond(db, convo, message);
+}
+
+// ---- routes: my assistant ----
+function aiView(u) {
+  const a = aiOf(u), L = a.learn;
+  const topics = Object.keys(L.topics).sort((x, y) => L.topics[y] - L.topics[x]).slice(0, 10);
+  const phrases = [];
+  for (const k of ["greet", "how", "thanks", "bye"]) for (const r of (L.say[k] || []).slice(0, 2)) phrases.push(r);
+  const st = L.style, avg = st.n ? Math.round(st.len / st.n) : 0;
+  return {
+    on: !!a.on, autoReply: a.autoReply !== false,
+    learned: {
+      studied: L.sent + L.seen, replies: L.sent, patterns: L.pairs.length, topics, phrases: phrases.slice(0, 6), since: L.studied || 0,
+      tone: !st.n ? "Still learning" : (avg < 25 ? "short and quick" : avg < 80 ? "normal length" : "detailed") + (st.emoji / st.n > 0.25 ? ", uses emojis" : "") + (st.lower / st.n > 0.6 ? ", mostly lowercase" : ""),
+    },
+  };
+}
+app.get("/api/me/ai", authMiddleware, (req, res) => { const db = readDB(); const u = db.users.find((x) => x.id === req.user.id); res.json(aiView(u)); });
+app.put("/api/me/ai", authMiddleware, (req, res) => {
+  const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
+  const a = aiOf(u), was = !!a.on;
+  if (req.body.on !== undefined) a.on = req.body.on === true;
+  if (req.body.autoReply !== undefined) a.autoReply = req.body.autoReply === true;
+  if (a.on && !was) aiStudyHistory(db, u);
+  writeDB(db);
+  res.json(aiView(u));
+});
+app.post("/api/me/ai/reset", authMiddleware, (req, res) => {
+  const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
+  const a = aiOf(u);
+  u.ai = { on: !!a.on, autoReply: a.autoReply !== false, ...(a.agent ? { agent: a.agent } : {}) };
+  aiOf(u);
+  if (u.ai.on) aiStudyHistory(db, u);
+  writeDB(db);
+  res.json(aiView(u));
+});
+app.get("/api/me/ai/suggest", authMiddleware, (req, res) => {
+  const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
+  const a = aiOf(u);
+  const convo = db.conversations.find((c) => c.id === String(req.query.conversationId || ""));
+  if (!a.on || !convo || !convo.participantIds.includes(u.id)) return res.json({ on: !!a.on, suggestions: [] });
+  let last = null;
+  for (let i = db.messages.length - 1; i >= 0; i--) { const m = db.messages[i]; if (m.conversationId === convo.id && m.senderId !== u.id && aiPlain(m)) { last = m; break; } }
+  if (!last) return res.json({ on: true, suggestions: [] });
+  res.json({ on: true, suggestions: AI_SENSITIVE.test(last.text) ? [] : aiCandidates(u, last.text, 4) });
+});
+
+// ---- Letschat AI agent (business-agent style) ----
+// The owner chats with the agent to give it instructions and knowledge. It also feeds itself: it reads the owner's profile, business catalogue
+// and Market items, sources answers online (knowledge.js), quick-checks prices, and tells the owner how many chats it handled.
+const aiClip = (s, n) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
+const AI_PRIVATE = /\b(otp|pin|password|passcode|cvv|bvn|nin|verification code|card number|account number)\b|\b\d{6,}\b/i;
+function aiAgent(u) {
+  const a = aiOf(u);
+  if (!a.agent || typeof a.agent !== "object") a.agent = {};
+  const g = a.agent;
+  if (!Array.isArray(g.instructions)) g.instructions = [];
+  if (!Array.isArray(g.facts)) g.facts = [];
+  if (!Array.isArray(g.inbox)) g.inbox = [];
+  if (!Array.isArray(g.replies)) g.replies = [];
+  if (!g.checks || typeof g.checks !== "object") g.checks = {};
+  if (g.online === undefined) g.online = true;
+  g.lastCheck = g.lastCheck || 0; g.lastDigest = g.lastDigest || 0;
+  return g;
+}
+// everything the agent already knows without being told: profile, business catalogue, Market items, plus what the owner taught it
+function aiFacts(db, u) {
+  const g = aiAgent(u), f = [];
+  if (u.name) f.push("Owner name: " + u.name);
+  if (u.about && !/^hey there!/i.test(u.about)) f.push("About: " + aiClip(u.about, 160));
+  for (const c of u.catalog || []) { if (!c.name || g.checks[c.id] === "unavailable") continue; f.push("Item: " + aiClip(c.name, 80) + (c.price ? " - price " + aiClip(c.price, 30) : "") + (c.description ? " - " + aiClip(c.description, 140) : "")); }
+  for (const l of db.listings || []) if (l.sellerId === u.id && !l.removed && !l.sold && l.title) f.push("Market item: " + aiClip(l.title, 80) + (l.price ? " - price " + aiClip(l.price, 30) : "") + (l.description ? " - " + aiClip(l.description, 140) : ""));
+  for (const x of g.facts) f.push(x);
+  return f.slice(0, 150);
+}
+// should the agent (not the old canned reply) answer this incoming message?
+function aiAgentWants(db, owner, text) {
+  const t = String(text || "");
+  if (AI_SENSITIVE.test(t) || !KB.isQuestion(t)) return false;
+  if (["how", "greet", "thanks", "bye"].includes(aiIntent(t))) return false;
+  if (KB.topFacts(t, aiFacts(db, owner), 3).length) return true; // it knows something about this from the owner's own items/facts
+  return !/\b(you|your|yours|u|ur)\b/i.test(t); // otherwise only general-knowledge questions, not personal ones aimed at the owner
+}
+function aiCount(owner, convoId) { const g = aiAgent(owner); g.replies.push({ t: Date.now(), c: convoId }); if (g.replies.length > 200) g.replies = g.replies.slice(-200); }
+// "typing..." for AI replies: the chat shows the typing indicator (and dots) before an AI message arrives, like a person writing it
+function aiTypingStart(convoId, ownerId) {
+  const emit = (on) => { try { io.to(`conv:${convoId}`).emit("typing", { conversationId: convoId, userId: ownerId, typing: on, kind: "typing" }); } catch (e) { /* sockets are optional */ } };
+  const t0 = Date.now();
+  emit(true);
+  const iv = setInterval(() => emit(true), 4000); // the app hides the indicator after 8 s, so keep it alive while the AI is working
+  return async (text) => { // call when the answer is ready: waits so the typing never looks instant, then switches it off
+    const want = Math.min(4500, 1300 + String(text || "").length * 18);
+    const left = want - (Date.now() - t0);
+    if (left > 0) await new Promise((r) => setTimeout(r, left));
+    clearInterval(iv); emit(false);
+  };
+}
+async function aiDelayedReply(convoId, incoming, ownerId, text) {
+  const done = aiTypingStart(convoId, ownerId);
+  await done(text);
+  const db = readDB(), owner = db.users.find((u) => u.id === ownerId), convo = db.conversations.find((c) => c.id === convoId);
+  if (!owner || !convo) return;
+  const live = userSockets.get(owner.id);
+  if (live && live.size) return; // they came back online while it was typing
+  aiCount(owner, convoId);
+  aiPostReply(db, convo, owner, incoming, text);
+}
+function aiPostReply(db, convo, owner, incoming, text) {
+  const reply = { id: nanoid(14), conversationId: convo.id, senderId: owner.id, text, auto: true, ai: true, time: Date.now() + 1, read: false, ...(convo.isGroup ? { replyTo: { id: incoming.id, senderId: incoming.senderId, name: ((db.users.find((u) => u.id === incoming.senderId) || {}).name) || "Member", text: String(incoming.text).slice(0, 140) } } : {}), ...(convo.disappearAfter ? { expiresAt: Date.now() + convo.disappearAfter * 1000 } : {}) };
+  db.messages.push(reply);
+  convo.updatedAt = Date.now();
+  writeDB(db);
+  io.to(`conv:${convo.id}`).emit("message:new", reply);
+  try { pushMessage(db, convo, reply, owner.id); } catch (e) { console.error("push failed", e.message); }
+}
+const aiTimeout = (p, ms) => Promise.race([p, new Promise((x) => setTimeout(() => x(null), ms))]);
+async function aiAgentReply(convoId, incoming, ownerId) {
+  let text = "", db = readDB(), owner = db.users.find((u) => u.id === ownerId);
+  if (!owner) return;
+  const g0 = aiAgent(owner);
+  const typingDone = aiTypingStart(convoId, ownerId);
+  try {
+    const r = await aiTimeout(KB.answer(incoming.text, { facts: aiFacts(db, owner), instructions: g0.instructions, persona: String(owner.name || "").split(" ")[0], online: g0.online !== false }), 17000);
+    if (r && r.text) text = r.text + (r.sources && r.sources.length ? " (Source: " + r.sources.join(", ") + ")" : "");
+  } catch (e) { console.error("agent answer failed", e.message); }
+  if (!text) text = aiCompose(owner, incoming.text);
+  await typingDone(text);
+  db = readDB(); owner = db.users.find((u) => u.id === ownerId);
+  const convo = db.conversations.find((c) => c.id === convoId);
+  if (!owner || !convo) return;
+  const live = userSockets.get(owner.id);
+  if (live && live.size) return; // they came back online while it was looking things up
+
+  aiCount(owner, convoId);
+  aiPostReply(db, convo, owner, incoming, "AI: " + text);
+}
+
+// anyone can type "@ai <question>" (or "/ai ...") in any chat or group and get an answer sourced online
+const aiAskLog = new Map();
+function aiAskOk(uid) {
+  const now = Date.now(), l = (aiAskLog.get(uid) || []).filter((t) => now - t < 3600000);
+  if (l.length >= 20 || (l.length && now - l[l.length - 1] < 4000)) return false;
+  l.push(now); aiAskLog.set(uid, l); return true;
+}
+async function aiPublicAsk(convoId, message, question) {
+  const q = aiClip(question, 300), uid = message.senderId;
+  if (!aiAskOk(uid)) return;
+  let text;
+  if (AI_PRIVATE.test(q)) text = "Please keep passwords, codes and personal numbers private. I can't help with those.";
+  else {
+    const r = await aiTimeout(KB.answer(q, {}), 18000).catch(() => null);
+    text = r && r.text ? r.text + (r.sources && r.sources.length ? "\nSource: " + r.sources.join(", ") : "") : "I couldn't find a reliable answer to that yet. Try asking it a different way.";
+  }
+  const db = readDB(), convo = db.conversations.find((c) => c.id === convoId);
+  if (!convo) return;
+  aiBotSay(db, convo, "🤖 @" + nameOf(db, uid) + " " + text, [uid]);
+  writeDB(db);
+}
+
+// chat between the owner and their agent
+async function aiAgentChat(db, u, raw) {
+  const t = aiClip(raw, 400), ref = { db, u };
+  let g = aiAgent(u);
+  const fresh = () => { ref.db = readDB(); ref.u = ref.db.users.find((x) => x.id === u.id) || ref.u; g = aiAgent(ref.u); return g; };
+  const done = (reply, buttons) => ({ reply, buttons: buttons || [], ref });
+  const addInstruction = (x) => { if (!g.instructions.includes(x)) g.instructions.push(x); if (g.instructions.length > 25) g.instructions.shift(); };
+  const ask = " Is there anything else you'd like me to adjust?";
+  // 1) answer to a quick check
+  if (g.pending) {
+    const yes = /^(yes|yeah|yep|yup|correct|still|available|ok|okay|sure)\b/i.test(t), no = /^(no|nope|sold out|not available|unavailable|out of stock|not anymore)\b/i.test(t);
+    if (yes || no) {
+      const p = g.pending; g.checks[p.id] = yes ? "ok" : "unavailable"; g.pending = null;
+      return done(yes ? "Thank you. I'll keep sharing " + p.name + " with your customers." : "Noted. I won't offer " + p.name + " to customers until you tell me it is back. Say \"" + p.name + " is available\" any time to turn it on.");
+    }
+  }
+  const back = /^(.{2,60}?)\s+is (?:available|back|in stock)\b/i.exec(t);
+  if (back) { const it = (u.catalog || []).find((c) => c.name && c.name.toLowerCase().includes(back[1].toLowerCase())); if (it) { g.checks[it.id] = "ok"; return done("Great, " + it.name + " is back on. I'll share it with your customers again."); } }
+  // 2) forget something
+  const fg = /^(?:forget|remove|delete)\s+(.{2,80})$/i.exec(t);
+  if (fg) {
+    const w = fg[1].toLowerCase(), before = g.instructions.length + g.facts.length;
+    g.instructions = g.instructions.filter((x) => !x.toLowerCase().includes(w)); g.facts = g.facts.filter((x) => !x.toLowerCase().includes(w));
+    const gone = before - g.instructions.length - g.facts.length;
+    return done(gone ? "Done. I removed " + gone + " item" + (gone === 1 ? "" : "s") + "." : "I couldn't find that in your instructions or knowledge.", ["Go to Instructions", "Go to Knowledge"]);
+  }
+  // 3) show what it knows
+  if (/^(?:what do you know|show|list|view)\b/i.test(t) && /\b(know|knowledge|instructions?)\b/i.test(t)) {
+    const auto = aiFacts(ref.db, ref.u).length - g.facts.length;
+    return done("I have " + g.instructions.length + " instruction" + (g.instructions.length === 1 ? "" : "s") + ", " + g.facts.length + " fact" + (g.facts.length === 1 ? "" : "s") + " you taught me, and " + Math.max(0, auto) + " I learned from your profile, items and Market posts.", ["Go to Instructions", "Go to Knowledge"]);
+  }
+  // 4) switch online sourcing off / on
+  if (/\b(don'?t|do not|stop|never)\b[^.]*\b(online|internet|web|google|search)\b/i.test(t)) { g.online = false; addInstruction(t); return done("I've updated your instructions. I'll answer only from what you've told me and what I learned from your items, and I won't look anything up online." + ask, ["Go to Instructions"]); }
+  if (/\b(source|search|look ?up|use|check)\b[^.]*\b(online|internet|web)\b/i.test(t)) { g.online = true; addInstruction(t); return done("I've updated your instructions. I'll now source related information online to give your customers the most accurate answers to their questions." + ask, ["Go to Instructions"]); }
+  // 5) research something and learn it ("source for properties in Lagos")
+  const rs = /^(?:source|research|find|search)\s+(?:for\s+|about\s+|information (?:on|about)\s+)?(.{3,160})$/i.exec(t);
+  if (rs && !/\b(always|never|be |tone|reply)\b/i.test(t)) {
+    const r = await aiTimeout(KB.answer(rs[1], { online: true }), 18000).catch(() => null);
+    fresh();
+    if (r && r.text) {
+      const fact = "Learned online (" + aiClip(rs[1], 50) + "): " + aiClip(r.text, 300);
+      if (!g.facts.includes(fact)) g.facts.push(fact); if (g.facts.length > 80) g.facts.shift();
+      return done(r.text + (r.sources.length ? "\n\nSource: " + r.sources.join(", ") : "") + "\n\nI added this to your Knowledge. Is there anything else you'd like me to add?", ["Go to Knowledge"]);
+    }
+    return done("I couldn't find reliable information on that online right now. You can type the details and I'll save them to your Knowledge.");
+  }
+  // 6) a question: test it the way a customer would ask
+  if (KB.isQuestion(t)) {
+    const r = await aiTimeout(KB.answer(t, { facts: aiFacts(ref.db, ref.u), instructions: g.instructions, persona: String(u.name || "").split(" ")[0], online: g.online !== false }), 18000).catch(() => null);
+    fresh();
+    return done(r && r.text ? r.text + (r.sources.length ? "\n\nSource: " + r.sources.join(", ") : "") : "I don't have a reliable answer to that yet. Tell me the answer and I'll save it to your Knowledge.", r ? [] : ["Go to Knowledge"]);
+  }
+  // 7) an instruction about how to behave
+  if (/\b(always|never|be\s+(?:very\s+)?(?:kind|polite|humble|brief|short|formal|friendly|professional|helpful|patient)|speak|reply in|respond in|tone|do not|don'?t|avoid|ignore|greet)\b/i.test(t)) { addInstruction(t); return done("I've updated your instructions to: " + t + "." + ask, ["Go to Instructions"]); }
+  // 8) anything else is a fact to learn
+  if (t.length < 6) return done("Tell me a bit more so I can learn it, for example your address, opening hours or prices.");
+  if (!g.facts.includes(t)) g.facts.push(t);
+  if (g.facts.length > 80) g.facts.shift();
+  return done("I've saved that to your Knowledge: \"" + aiClip(t, 120) + "\". Is there anything else you'd like to add?", ["Go to Knowledge"]);
+}
+function aiAgentView(db, u) {
+  const g = aiAgent(u), a = aiOf(u), rep = g.replies.filter((r) => r.t >= Date.now() - 864e5);
+  return {
+    on: !!a.on, online: g.online !== false, llm: KB.llmReady(), instructions: g.instructions, facts: g.facts,
+    auto: aiFacts(db, u).filter((f) => !g.facts.includes(f)).slice(0, 40), inbox: g.inbox.slice(-40),
+    today: { chats: new Set(rep.map((r) => r.c)).size, replies: rep.length },
+  };
+}
+app.get("/api/me/ai/agent", authMiddleware, (req, res) => { const db = readDB(), u = db.users.find((x) => x.id === req.user.id); res.json(aiAgentView(db, u)); });
+app.post("/api/me/ai/agent", authMiddleware, async (req, res) => {
+  const text = aiClip(req.body.text, 400);
+  if (!text) return res.status(400).json({ error: "Type something first" });
+  const db0 = readDB(), u0 = db0.users.find((x) => x.id === req.user.id);
+  if (!u0) return res.status(404).json({ error: "Not found" });
+  let out;
+  try { out = await aiAgentChat(db0, u0, text); } catch (e) { console.error("agent chat failed", e.message); return res.status(500).json({ error: "The AI could not answer right now" }); }
+  const db = readDB(), u = db.users.find((x) => x.id === req.user.id) || u0;
+  // apply the changes to the freshest copy of the user (the lookup above can take a few seconds)
+  if (u !== out.ref.u) { const gOld = aiAgent(out.ref.u), gNew = aiAgent(u); gNew.instructions = gOld.instructions; gNew.facts = gOld.facts; gNew.checks = gOld.checks; gNew.pending = gOld.pending || null; gNew.online = gOld.online; }
+  const g = aiAgent(u);
+  g.inbox.push({ from: "me", text, t: Date.now() }, { from: "ai", text: out.reply, buttons: out.buttons, t: Date.now() + 1 });
+  if (g.inbox.length > 60) g.inbox = g.inbox.slice(-60);
+  writeDB(db);
+  res.json({ ...aiAgentView(db, u), reply: out.reply, buttons: out.buttons });
+});
+app.post("/api/me/ai/agent/remove", authMiddleware, (req, res) => {
+  const db = readDB(), u = db.users.find((x) => x.id === req.user.id), g = aiAgent(u), i = Number(req.body.index);
+  const list = req.body.kind === "instructions" ? g.instructions : req.body.kind === "facts" ? g.facts : null;
+  if (list && i >= 0 && i < list.length) list.splice(i, 1);
+  writeDB(db);
+  res.json(aiAgentView(db, u));
+});
+app.get("/api/ai/ask", authMiddleware, async (req, res) => {
+  if (!aiAskOk(req.user.id)) return res.status(429).json({ error: "Too many questions, wait a moment" });
+  const q = aiClip(req.query.q, 300);
+  if (!q || AI_PRIVATE.test(q)) return res.json({ answer: null, sources: [] });
+  const r = await aiTimeout(KB.answer(q, {}), 18000).catch(() => null);
+  res.json({ answer: r ? r.text : null, sources: r ? r.sources : [] });
+});
+// ---- LetsChat AI robot chat (every user) ----
+const botLog = new Map();
+app.get("/api/bot/chat", authMiddleware, (req, res) => res.json({ messages: BOT.history(req.user.id), canTrain: isCreator(req.user), llm: KB.llmReady() }));
+app.post("/api/bot/chat", authMiddleware, async (req, res) => {
+  const text = String(req.body.text || "").trim().slice(0, 1000);
+  if (!text) return res.status(400).json({ error: "Type something first" });
+  const now = Date.now(), log = (botLog.get(req.user.id) || []).filter((t) => now - t < 60000);
+  if (log.length >= 12) return res.status(429).json({ error: "You're sending messages very fast. Give me a moment to catch up." });
+  log.push(now); botLog.set(req.user.id, log);
+  try { res.json(await BOT.chat(req.user.id, text)); } catch (e) { console.error("bot chat failed", e.message); res.status(500).json({ error: "The AI could not answer right now" }); }
+});
+app.post("/api/bot/clear", authMiddleware, (req, res) => { BOT.clear(req.user.id); res.json({ ok: true }); });
+// ---- developer training + research (creator only) ----
+app.get("/api/creator/bot", authMiddleware, creatorOnly, (req, res) => res.json(BOT.trainView()));
+app.post("/api/creator/bot/add", authMiddleware, creatorOnly, (req, res) => { try { BOT.trainAdd(req.body.kind, req.body.text); res.json(BOT.trainView()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post("/api/creator/bot/remove", authMiddleware, creatorOnly, (req, res) => { try { BOT.trainRemove(req.body.kind, req.body.index); res.json(BOT.trainView()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post("/api/creator/bot/research", authMiddleware, creatorOnly, (req, res) => { BOT.research(); res.json({ ...BOT.trainView(), running: true }); }); // runs in the background; the digest arrives in your AI chat
+app.get("/api/creator/ai-knowledge", authMiddleware, creatorOnly, (req, res) => res.json(KB.stats()));
+// every 30 minutes: quick price checks and the "I replied in N chats" report (at most once a day each)
+function aiAgentTick() {
+  const db = readDB(), now = Date.now(); let changed = false;
+  for (const u of db.users) {
+    if (!u.ai || !u.ai.on || u.suspended) continue;
+    const g = aiAgent(u), rep = g.replies.filter((r) => r.t >= now - 864e5);
+    if (rep.length && now - g.lastDigest > 864e5) { const n = new Set(rep.map((r) => r.c)).size; g.inbox.push({ from: "ai", t: now, text: "I've been busy today! I replied in " + n + " conversation" + (n === 1 ? "" : "s") + " for you.", buttons: [] }); g.lastDigest = now; changed = true; }
+    if (!g.pending && now - g.lastCheck > 864e5) {
+      const items = (u.catalog || []).filter((c) => c.name && c.price && g.checks[c.id] !== "unavailable");
+      if (items.length) { const it = items[Math.floor(Math.random() * items.length)]; g.pending = { id: it.id, name: it.name }; g.lastCheck = now; g.inbox.push({ from: "ai", t: now, text: "Quick check: Are you currently offering " + it.name + " at a regular price of " + it.price + "? I want to make sure I have the right item and price before sharing it with your customers. Reply yes or no.", buttons: [] }); changed = true; }
+    }
+    if (g.inbox.length > 60) g.inbox = g.inbox.slice(-60);
+  }
+  if (changed) writeDB(db);
+}
+setInterval(() => { try { aiAgentTick(); } catch (e) { console.error("agent tick failed", e.message); } }, 30 * 60 * 1000).unref();
+
+// ---- routes: group moderator ----
+const aiList = (v, max, len) => (Array.isArray(v) ? v : String(v || "").split(/[\n,]+/)).map((x) => String(x).trim().slice(0, len)).filter(Boolean).slice(0, max);
+function aiGroupView(db, c, uid) {
+  const a = c.ai || {}, admin = c.adminId === uid;
+  return {
+    on: !!a.on, rules: a.rules || [], words: admin ? (a.words || []) : [],
+    ...(admin ? {
+      warned: Object.keys(a.warns || {}).filter((id) => c.participantIds.includes(id)).map((id) => ({ id, name: nameOf(db, id), count: a.warns[id] })),
+      removed: (a.banned || []).map((id) => ({ id, name: nameOf(db, id) })),
+      log: (a.log || []).slice(0, 15),
+    } : {}),
+  };
+}
+app.get("/api/conversations/:id/ai", authMiddleware, (req, res) => {
+  const db = readDB(), c = db.conversations.find((x) => x.id === req.params.id);
+  if (!c || !c.isGroup || !c.participantIds.includes(req.user.id)) return res.status(404).json({ error: "Group not found" });
+  res.json(aiGroupView(db, c, req.user.id));
+});
+app.put("/api/conversations/:id/ai", authMiddleware, (req, res) => {
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g;
+  const old = c.ai || {};
+  const rules = req.body.rules !== undefined ? aiList(req.body.rules, 20, 200) : (old.rules || []);
+  const words = req.body.words !== undefined ? aiList(req.body.words, 50, 30) : (old.words || []);
+  const on = req.body.on !== undefined ? req.body.on === true : !!old.on;
+  if (on && !rules.length && !words.length) return res.status(400).json({ error: "Add at least one group rule before turning the AI moderator on" });
+  const changed = JSON.stringify(rules) !== JSON.stringify(old.rules || []) || JSON.stringify(words) !== JSON.stringify(old.words || []);
+  c.ai = { ...old, on, rules, words, warns: old.warns || {}, banned: old.banned || [] };
+  if (on && (!old.on || changed)) aiBotSay(db, c, "AI moderator is on. Group rules:\n" + (rules.length ? rules.map((r, i) => (i + 1) + ". " + r).join("\n") : "Banned words are being watched.") + "\n\nBreaking a rule earns 2 warnings, then removal.");
+  else if (!on && old.on) aiBotSay(db, c, "AI moderator is off.");
+  writeDB(db);
+  groupEvent(c, "conversation:update");
+  res.json(aiGroupView(db, c, req.user.id));
+});
+app.post("/api/conversations/:id/ai/clear", authMiddleware, (req, res) => { // admin: forgive a warned or removed person
+  const g = adminGroup(req, res); if (!g) return;
+  const { db, c } = g, id = String(req.body.userId || "");
+  if (c.ai) { if (c.ai.warns) delete c.ai.warns[id]; c.ai.banned = (c.ai.banned || []).filter((x) => x !== id); }
+  writeDB(db);
+  res.json(aiGroupView(db, c, req.user.id));
+});
+
+// ---- routes: leave a group (everyone is told "<name> left") ----
+app.post("/api/conversations/:id/leave", authMiddleware, (req, res) => {
+  const db = readDB(), c = db.conversations.find((x) => x.id === req.params.id);
+  if (!c || !c.isGroup || !c.participantIds.includes(req.user.id)) return res.status(404).json({ error: "Group not found" });
+  const me = req.user.id, name = nameOf(db, me);
+  c.participantIds = c.participantIds.filter((id) => id !== me);
+  if (c.ai && c.ai.warns) delete c.ai.warns[me];
+  if (!c.participantIds.length) {
+    for (let i = db.messages.length - 1; i >= 0; i--) if (db.messages[i].conversationId === c.id) { if (USE_DB) pendingDeletes.push({ c: "messages", id: db.messages[i].id }); db.messages.splice(i, 1); }
+    const ci = db.conversations.findIndex((x) => x.id === c.id);
+    if (ci >= 0) { if (USE_DB) pendingDeletes.push({ c: "conversations", id: c.id }); db.conversations.splice(ci, 1); }
+  } else {
+    if (c.adminId === me) c.adminId = c.participantIds[0];
+    groupNotice(db, c, name + " left", { kind: "left", actorId: me, targetIds: [me] });
+  }
+  writeDB(db);
+  try { io.in(`user:${me}`).socketsLeave(`conv:${c.id}`); } catch (e) { /* ignore */ }
+  io.to(`user:${me}`).emit("conversation:update", { id: c.id });
+  if (c.participantIds.length) groupEvent(c, "conversation:update");
+  res.json({ ok: true });
+});
+// =====================================================================================================================
+
+// ---- Letschat Lite: plain HTML pages that work with no JavaScript (Opera Mini extreme/mini mode, keypad phones) ----
+require("./lite")({
+  express, jwt, admin, readDB, writeDB, nanoid, rateLimit, publicUser, firebaseSignIn, handleSend, findByContact, joinUserToRoom,
+  announceRead, NOT_FOUND_MSG, JWT_SECRET, signToken, stripViewOnce, getApp: () => app,
+  verifyToken: (t) => { try { const p = jwt.verify(String(t || ""), JWT_SECRET); const u = readDB().users.find((x) => x.id === p.sub); return u && !u.suspended ? u : null; } catch (e) { return null; } },
 });
 
 app.use("/api", (req, res) => res.status(404).json({ error: `No such endpoint: ${req.method} ${req.originalUrl}` }));
@@ -2124,56 +2794,8 @@ function registerGames(socket) {
   socket.on("disconnect", () => { if (!userSockets.has(me)) gLeave(me); });
 }
 
-io.use((socket, next) => {
-  try {
-    const token = socket.handshake.auth?.token;
-    const payload = jwt.verify(token, JWT_SECRET);
-    const db = readDB();
-    const user = db.users.find((u) => u.id === payload.sub);
-    if (!user) return next(new Error("Unknown user"));
-    socket.userId = user.id;
-    next();
-  } catch {
-    next(new Error("Unauthorized"));
-  }
-});
-
-io.on("connection", (socket) => {
-  const userId = socket.userId;
-
-  if (!userSockets.has(userId)) userSockets.set(userId, new Set());
-  userSockets.get(userId).add(socket.id);
-  socket.join(`user:${userId}`);
-  deliverPendingCall(userId);
-  socket.on("presence:get", (ack) => { if (typeof ack === "function") ack(presenceSnapshot(userId)); });
-  socket.data.visible = true;
-  socket.on("app:visible", (v) => { socket.data.visible = !!v; }); // lets the server know when the app is in the background, so it sends a push instead
-
-  const db = readDB();
-  const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
-  for (const c of myConvos) socket.join(`conv:${c.id}`);
-  // messages that were waiting for this person are delivered now: tell the senders so their ticks update
-  try {
-    if ((userSockets.get(userId) || new Set()).size <= 1) {
-      const dmIds = new Set(myConvos.filter((c) => !c.isGroup).map((c) => c.id)), got = {};
-      for (const m of db.messages) if (dmIds.has(m.conversationId) && m.senderId !== userId && !m.delivered && !m.read && !m.deleted) { m.delivered = true; (got[m.conversationId] || (got[m.conversationId] = [])).push(m.id); }
-      const cids = Object.keys(got);
-      if (cids.length) { writeDB(db); for (const cid of cids) io.to(`conv:${cid}`).emit("message:delivered", { conversationId: cid, ids: got[cid] }); }
-    }
-  } catch (e) { console.error("delivery marking failed", e.message); }
-
-  if (!hidesPresence(db.users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: true });
-  // Games: tell everyone else a player just came online (first device only, and at most once a minute per player so reconnects don't spam)
-  if (userSockets.get(userId).size === 1) {
-    const meU = db.users.find((u) => u.id === userId);
-    const now = Date.now();
-    if (meU && !hidesPresence(meU) && now - (gOnlineAt.get(userId) || 0) > 60000) {
-      gOnlineAt.set(userId, now);
-      socket.broadcast.emit("game:player-online", { player: { id: meU.id, name: meU.name, initials: publicUser(meU).initials, color: publicUser(meU).color, avatar: publicUser(meU).avatar } });
-    }
-  }
-
-  socket.on("message:send", ({ conversationId, text, audio, duration, file, replyTo, forwarded, viewOnce, poll, mentions }, ack) => {
+// Sends one message. Used by the live socket ("message:send") and by the no-JavaScript Lite pages (/lite).
+function handleSend(userId, { conversationId, text, audio, duration, file, replyTo, forwarded, viewOnce, poll, mentions } = {}, ack) {
     const fail = (error) => { if (ack) ack({ error }); };
     const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
     if (audio && !voice) return fail("Voice note is too long or not supported (max about 1 minute)");
@@ -2266,7 +2888,59 @@ io.on("connection", (socket) => {
     try { pushMessage(db, convo, message, userId); } catch (e) { console.error("push failed", e.message); }
     if (ack) ack({ message: stripViewOnce(message) });
     try { autoReply(db, convo, message); } catch (e) { console.error("auto reply failed", e.message); }
-  });
+    try { aiAfterSend(db, convo, message, userId); } catch (e) { console.error("ai failed", e.message); }
+}
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    const payload = jwt.verify(token, JWT_SECRET);
+    const db = readDB();
+    const user = db.users.find((u) => u.id === payload.sub);
+    if (!user) return next(new Error("Unknown user"));
+    socket.userId = user.id;
+    next();
+  } catch {
+    next(new Error("Unauthorized"));
+  }
+});
+
+io.on("connection", (socket) => {
+  const userId = socket.userId;
+
+  if (!userSockets.has(userId)) userSockets.set(userId, new Set());
+  userSockets.get(userId).add(socket.id);
+  socket.join(`user:${userId}`);
+  deliverPendingCall(userId);
+  socket.on("presence:get", (ack) => { if (typeof ack === "function") ack(presenceSnapshot(userId)); });
+  socket.data.visible = true;
+  socket.on("app:visible", (v) => { socket.data.visible = !!v; }); // lets the server know when the app is in the background, so it sends a push instead
+
+  const db = readDB();
+  const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
+  for (const c of myConvos) socket.join(`conv:${c.id}`);
+  // messages that were waiting for this person are delivered now: tell the senders so their ticks update
+  try {
+    if ((userSockets.get(userId) || new Set()).size <= 1) {
+      const dmIds = new Set(myConvos.filter((c) => !c.isGroup).map((c) => c.id)), got = {};
+      for (const m of db.messages) if (dmIds.has(m.conversationId) && m.senderId !== userId && !m.delivered && !m.read && !m.deleted) { m.delivered = true; (got[m.conversationId] || (got[m.conversationId] = [])).push(m.id); }
+      const cids = Object.keys(got);
+      if (cids.length) { writeDB(db); for (const cid of cids) io.to(`conv:${cid}`).emit("message:delivered", { conversationId: cid, ids: got[cid] }); }
+    }
+  } catch (e) { console.error("delivery marking failed", e.message); }
+
+  if (!hidesPresence(db.users.find((u) => u.id === userId))) io.emit("presence:update", { userId, online: true });
+  // Games: tell everyone else a player just came online (first device only, and at most once a minute per player so reconnects don't spam)
+  if (userSockets.get(userId).size === 1) {
+    const meU = db.users.find((u) => u.id === userId);
+    const now = Date.now();
+    if (meU && !hidesPresence(meU) && now - (gOnlineAt.get(userId) || 0) > 60000) {
+      gOnlineAt.set(userId, now);
+      socket.broadcast.emit("game:player-online", { player: { id: meU.id, name: meU.name, initials: publicUser(meU).initials, color: publicUser(meU).color, avatar: publicUser(meU).avatar } });
+    }
+  }
+
+  socket.on("message:send", (data, ack) => handleSend(userId, data || {}, ack));
 
   // ---- edit / delete your own messages (everyone in the chat sees the change live) ----
   // Delete works any time. Text edits are allowed for EDIT_WINDOW_MS after sending (0 = no limit).
