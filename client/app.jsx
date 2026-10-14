@@ -284,15 +284,37 @@ function clearJSON(key) {
 }
 
 // ---- API helper ----
-async function api(path, { method = "GET", token, body } = {}) {
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+async function api(path, { method = "GET", token, body, timeoutMs } = {}) {
+    // Cold-start proof: when the free server is asleep the first requests fail ("Failed to fetch") or get a 502/503 from the host. Instead of
+    // showing that error we wake the server (window.__lcWake polls /health until it is ready) and retry. timeoutMs (optional) still gives up
+    // after that long so iPhone Safari does not drop the request with "Load failed".
+    const wake = (force) => (window.__lcWake ? window.__lcWake(force) : new Promise((r) => setTimeout(r, 1500)));
+    const safeToRepeat = method === "GET" || method === "HEAD";
+    let res;
+    for (let attempt = 0; ; attempt++) {
+        let ctl = null, timer = null, aborted = false;
+        if (timeoutMs && typeof AbortController !== "undefined") { ctl = new AbortController(); timer = setTimeout(() => { aborted = true; try { ctl.abort(); } catch (e) { } }, timeoutMs); }
+        try {
+            res = await fetch(`${API_URL}${path}`, {
+                method,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: body ? JSON.stringify(body) : undefined,
+                signal: ctl ? ctl.signal : undefined,
+            });
+        } catch (e) {
+            if (timer) clearTimeout(timer);
+            if (aborted || attempt >= 3 || (typeof navigator !== "undefined" && navigator.onLine === false)) throw e;
+            await wake(true); // server asleep or network blip: wait until it answers, then try again
+            continue;
+        }
+        if (timer) clearTimeout(timer);
+        // 502/503 from the host (or our own "starting" 503) means the request never reached the app, so it is safe to repeat for any method
+        if ((res.status === 502 || res.status === 503 || (safeToRepeat && res.status === 504)) && attempt < 4) { await wake(true); continue; }
+        break;
+    }
   const payload = await res.json().catch(() => ({}));
     // expired / rejected login: sign out so the person lands on the login screen instead of seeing errors
     if ((res.status === 401 || res.status === 403) && token && /invalid token|unknown user|missing token|suspended/i.test((payload.error && payload.error.message) || "")) {
@@ -6656,7 +6678,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
           <button aria-label="Close search" onClick={() => { setFText(null); setFIdx(0); }} style={iconBtnStyle}><X size={20} color="#9BA7B4" /></button>
         </div>
       )}
-      {!conn && <div className="lc-strip" role="status" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "7px 14px", background: "#2A2110", borderBottom: "1px solid #3D3015", fontFamily: "Inter", fontSize: 12.5, color: "#F2B84B", flexShrink: 0 }}><span className="lc-dots"><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /></span>Waiting for network. Your messages will send when you are back online.</div>}
+      {!conn && <div className="lc-strip" role="status" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "7px 14px", background: "#2A2110", borderBottom: "1px solid #3D3015", fontFamily: "Inter", fontSize: 12.5, color: "#F2B84B", flexShrink: 0 }}><span className="lc-dots"><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /></span>{typeof navigator !== "undefined" && navigator.onLine === false ? "Waiting for network. Your messages will send when you are back online." : "Connecting to the server\u2026 your messages will send in a moment."}</div>}
       <div ref={listEl} onScroll={(e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; setAtBottom(nb); if (nb) setUnseenN(0); }} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8", background: chatBg }}>
         {loading && <div style={{ margin: "auto", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 }}>Loading conversation…</div>}
         {error && <Banner text={error} onClose={() => setError("")} />}

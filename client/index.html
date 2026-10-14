@@ -2,6 +2,65 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!-- Your server config (single source of truth: config.js; must load before the app) -->
+  <script src="config.js"></script>
+  <!-- Speed: wake the server the moment the app opens (free hosts sleep when idle). It polls /health every ~1.2 s until the server answers
+       (no more single 70 s wait), shows "Waking up the server" only if it takes more than 2 s, and exposes window.__lcWake() so every
+       app request can wait for the server and retry instead of failing with "Failed to fetch". -->
+  <script>
+    (function () {
+      var api = "", upAt = 0, bar = null, pending = null;
+      try { api = ((window.LETSCHAT_CONFIG || {}).API_URL || "").replace(/\/$/, ""); } catch (e) {}
+      if (!api) return;
+      function isUp() { return upAt && Date.now() - upAt < 8 * 60 * 1000; } // after 8 quiet minutes it may be asleep again
+      function hide() { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); bar = null; }
+      function show() {
+        if (bar || isUp() || !document.body) return;
+        bar = document.createElement("div");
+        bar.setAttribute("role", "status");
+        bar.textContent = "Waking up the server\u2026 almost there.";
+        bar.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:100001;padding:8px 12px;text-align:center;font:13px/1.3 Inter,Arial,sans-serif;background:#1B2B33;color:#35D0BA;padding-top:calc(8px + env(safe-area-inset-top,0px))";
+        document.body.appendChild(bar);
+      }
+      // one health check (8 s limit); true only when the server is up AND has finished loading its data
+      function probe() {
+        return new Promise(function (resolve) {
+          var ctl = typeof AbortController === "function" ? new AbortController() : null, done = false;
+          var timer = setTimeout(function () { if (ctl) try { ctl.abort(); } catch (e) {} fin(false); }, 8000);
+          function fin(v) { if (done) return; done = true; clearTimeout(timer); resolve(v); }
+          fetch(api + "/api/v1/health?t=" + Date.now(), { cache: "no-store", signal: ctl ? ctl.signal : undefined }).then(function (r) {
+            if (!r || !r.ok) return fin(false);
+            return r.json().then(function (j) { var d = (j && j.data) || j || {}; fin(d.ready !== false); }, function () { fin(true); });
+          }).catch(function () { fin(false); });
+        });
+      }
+      // wake(force): resolves true when the server answers, false after 100 s. Many callers share one polling loop.
+      function wake(force) {
+        if (!force && isUp()) return Promise.resolve(true);
+        if (pending) return pending;
+        if (force) upAt = 0;
+        var t0 = Date.now(), slow = setTimeout(show, 2000);
+        pending = new Promise(function (resolve) {
+          (function loop() {
+            probe().then(function (ok) {
+              if (ok) { upAt = Date.now(); clearTimeout(slow); hide(); pending = null; return resolve(true); }
+              if (Date.now() - t0 > 100000) { clearTimeout(slow); hide(); pending = null; return resolve(false); }
+              setTimeout(loop, 1200);
+            });
+          })();
+        });
+        return pending;
+      }
+      window.__lcWake = wake;
+      wake(true);
+      document.addEventListener("visibilitychange", function () { if (!document.hidden && !isUp()) wake(true); });
+      window.addEventListener("focus", function () { if (!isUp()) wake(true); });
+      window.addEventListener("online", function () { wake(true); });
+      window.addEventListener("pageshow", function () { if (!isUp()) wake(true); });
+      // while the app is open, keep the server warm (it sleeps after 15 quiet minutes)
+      setInterval(function () { if (!document.hidden) { try { fetch(api + "/api/v1/ping", { mode: "no-cors", cache: "no-store" }).then(function () { upAt = Date.now(); }, function () {}); } catch (e) {} } }, 4 * 60 * 1000);
+    })();
+  </script>
   <!-- Browsers with JavaScript switched off go straight to Letschat Lite (plain pages that need no scripts) -->
   <noscript><meta http-equiv="refresh" content="0;url=https://letschat-9tw4.onrender.com/lite" /></noscript>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
@@ -64,6 +123,7 @@
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://cdn.socket.io" crossorigin />
+  <link rel="preconnect" href="https://letschat-9tw4.onrender.com" crossorigin />
   <link rel="dns-prefetch" href="https://letschat-9tw4.onrender.com" />
   <!-- Speed: start downloading the libraries and the app right away (they are run later, in order) -->
   <link rel="preload" as="script" href="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" />
@@ -199,44 +259,6 @@
   <script defer crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script defer crossorigin="anonymous" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
-  <!-- Your server config (single source of truth: config.js; must load before the app) -->
-  <script src="config.js"></script>
-  <!-- Speed: wake the server the moment the app opens (free hosts sleep when idle). It also wakes it again when you come back to the app,
-       and shows "Waking up the server" while a cold start is happening, so the app never looks frozen. -->
-  <script>
-    (function () {
-      var api = "", up = false, last = 0, bar = null, shownT = 0;
-      try { api = ((window.LETSCHAT_CONFIG || {}).API_URL || "").replace(/\/$/, ""); } catch (e) {}
-      if (!api) return;
-      function hide() { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); bar = null; }
-      function show() {
-        if (bar || up || !document.body) return;
-        bar = document.createElement("div");
-        bar.setAttribute("role", "status");
-        bar.textContent = "Waking up the server\u2026 this can take up to a minute the first time.";
-        bar.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:100001;padding:8px 12px;text-align:center;font:13px/1.3 Inter,Arial,sans-serif;background:#1B2B33;color:#35D0BA;padding-top:calc(8px + env(safe-area-inset-top,0px))";
-        document.body.appendChild(bar);
-      }
-      // ping() is safe to call often: at most once every 20 s, and never while the page is hidden
-      function ping(force) {
-        var t = Date.now();
-        if (!force && (t - last < 20000 || document.hidden)) return;
-        last = t;
-        var ctl = typeof AbortController === "function" ? new AbortController() : null, slow = setTimeout(show, 3000), t0 = Date.now();
-        var timer = ctl ? setTimeout(function () { ctl.abort(); }, 70000) : 0;
-        fetch(api + "/api/v1/health", { cache: "no-store", signal: ctl ? ctl.signal : undefined }).then(function (r) {
-          clearTimeout(slow); clearTimeout(timer);
-          if (r && r.ok) { up = true; hide(); shownT = Date.now() - t0; setTimeout(function () { up = false; }, 12 * 60 * 1000); } // after 12 quiet minutes it may be asleep again
-          else setTimeout(function () { ping(true); }, 4000);
-        }).catch(function () { clearTimeout(slow); clearTimeout(timer); hide(); });
-      }
-      ping(true);
-      document.addEventListener("visibilitychange", function () { if (!document.hidden) ping(false); });
-      window.addEventListener("focus", function () { ping(false); });
-      window.addEventListener("online", function () { ping(true); });
-      window.addEventListener("pageshow", function () { ping(false); });
-    })();
-  </script>
 </head>
 <body>
   <main id="root"><div id="boot" role="status"><h1 style="font:700 20px Sora,Inter,sans-serif;color:#F5F7FA;margin:0 0 8px">Letschat Africa</h1><p style="margin:0">Loading…</p><p style="margin:14px 0 0;font-size:13px">Slow or basic phone? <a href="https://letschat-9tw4.onrender.com/lite" style="color:#35D0BA">Open Letschat Lite</a></p></div></main>
@@ -315,6 +337,8 @@
         });
         navigator.serviceWorker.register("./sw.js" + (window.__lcLite ? "?lite=1" : "")).then(function (reg) {
           var check = function () { reg.update().catch(function () {}); };
+          // installed app on Chrome/Edge: let the browser wake the server every so often even while the app is closed
+          try { if (reg.periodicSync && reg.periodicSync.register) reg.periodicSync.register("keep-warm", { minInterval: 12 * 60 * 60 * 1000 }).catch(function () {}); } catch (e) {}
           document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
           setInterval(check, 60 * 60 * 1000);
         }).catch(function () {});

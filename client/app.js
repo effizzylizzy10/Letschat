@@ -328,21 +328,36 @@ function clearJSON(key) {
 }
 // ---- API helper ----
 async function api(path, { method = "GET", token, body, timeoutMs } = {}) {
-    // timeoutMs (optional): give up after that long instead of letting iPhone Safari drop the request with "Load failed"
-    let ctl = null, timer = null;
-    if (timeoutMs && typeof AbortController !== "undefined") { ctl = new AbortController(); timer = setTimeout(() => { try { ctl.abort(); } catch (e) { } }, timeoutMs); }
+    // Cold-start proof: when the free server is asleep the first requests fail ("Failed to fetch") or get a 502/503 from the host. Instead of
+    // showing that error we wake the server (window.__lcWake polls /health until it is ready) and retry. timeoutMs (optional) still gives up
+    // after that long so iPhone Safari does not drop the request with "Load failed".
+    const wake = (force) => (window.__lcWake ? window.__lcWake(force) : new Promise((r) => setTimeout(r, 1500)));
+    const safeToRepeat = method === "GET" || method === "HEAD";
     let res;
-    try {
-        res = await fetch(`${API_URL}${path}`, {
-            method,
-            headers: {
-                "Content-Type": "application/json",
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: body ? JSON.stringify(body) : undefined,
-            signal: ctl ? ctl.signal : undefined,
-        });
-    } finally { if (timer) clearTimeout(timer); }
+    for (let attempt = 0; ; attempt++) {
+        let ctl = null, timer = null, aborted = false;
+        if (timeoutMs && typeof AbortController !== "undefined") { ctl = new AbortController(); timer = setTimeout(() => { aborted = true; try { ctl.abort(); } catch (e) { } }, timeoutMs); }
+        try {
+            res = await fetch(`${API_URL}${path}`, {
+                method,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: body ? JSON.stringify(body) : undefined,
+                signal: ctl ? ctl.signal : undefined,
+            });
+        } catch (e) {
+            if (timer) clearTimeout(timer);
+            if (aborted || attempt >= 3 || (typeof navigator !== "undefined" && navigator.onLine === false)) throw e;
+            await wake(true); // server asleep or network blip: wait until it answers, then try again
+            continue;
+        }
+        if (timer) clearTimeout(timer);
+        // 502/503 from the host (or our own "starting" 503) means the request never reached the app, so it is safe to repeat for any method
+        if ((res.status === 502 || res.status === 503 || (safeToRepeat && res.status === 504)) && attempt < 4) { await wake(true); continue; }
+        break;
+    }
     const payload = await res.json().catch(() => ({}));
     // expired / rejected login: sign out so the person lands on the login screen instead of seeing errors
     if ((res.status === 401 || res.status === 403) && token && /invalid token|unknown user|missing token|suspended/i.test((payload.error && payload.error.message) || "")) {
@@ -535,11 +550,11 @@ function ImageZoomModal({ photo, initials, color, onClose }) {
 // ---- shared: photo type check, bottom sheet menu, camera badge ----
 const PHOTO_ACCEPT = "image/jpeg,image/png";
 const isJpgOrPng = (file) => /^image\/(jpe?g|png)$/i.test(file.type);
-function PhotoMenu({ hasPhoto, onGallery, onCamera, onRemove, onClose }) {
-    const items = [["Choose from gallery", onGallery, false], ["Take a photo", onCamera, false], hasPhoto ? ["Remove photo", onRemove, true] : null].filter(Boolean);
+function PhotoMenu({ hasPhoto, onGallery, onCamera, onRemove, onClose, title = "Profile photo", removeLabel = "Remove photo" }) {
+    const items = [["Choose from gallery", onGallery, false], ["Take a photo", onCamera, false], hasPhoto ? [removeLabel, onRemove, true] : null].filter(Boolean);
     return (React.createElement("div", { onClick: onClose, style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
         React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" } },
-            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 2 } }, "Profile photo"),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 2 } }, title),
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8A96A5", textAlign: "center", marginBottom: 12 } }, "JPG or PNG"),
             items.map(([label, fn, danger]) => (React.createElement("button", { key: label, onClick: () => { onClose(); fn(); }, style: { display: "block", width: "100%", padding: "14px", marginBottom: 8, borderRadius: 12, border: "none", background: "#1E2530", color: danger ? "#FF6B5D" : "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, label))),
             React.createElement("button", { onClick: onClose, style: { display: "block", width: "100%", padding: "12px", border: "none", background: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 14, cursor: "pointer" } }, "Cancel"))));
@@ -6691,7 +6706,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
     return (React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 45, background: "#0E1116", display: "flex", flexDirection: "column", overflow: "hidden" } },
         React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: heroH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" } },
             React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden", opacity: 1 - p } },
-                u.avatar ? React.createElement("img", { loading: "lazy", decoding: "async", src: photoSrc(u.avatar), alt: "", draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 25%", display: "block" } })
+                (u.cover || u.avatar) ? React.createElement("img", { loading: "lazy", decoding: "async", src: photoSrc(u.cover || u.avatar), alt: "", draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: u.cover ? "center" : "center 25%", display: "block" } })
                     : React.createElement("div", { style: { width: "100%", height: "100%", background: "linear-gradient(135deg, " + u.color + "55, #0E1116)" } }),
                 React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 45%, rgba(14,17,22,0.55) 100%)" } }))),
         React.createElement("button", { "aria-label": "Back", onClick: onClose, style: { position: "absolute", top: 0, left: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } },
@@ -7243,40 +7258,135 @@ function MuteSheet({ onPick, onClose }) {
         React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 6 } }, "You won't get sounds or pop-ups for new messages in this chat."),
         opts.map(([k, label]) => React.createElement("div", { key: k, onClick: () => onPick(k), style: { padding: "15px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, label))));
 }
+// ---- "All media" screen: Media / Docs / Links tabs with a sliding green underline, swipe left and right between tabs, search, and items grouped
+// under RECENT / LAST WEEK / LAST MONTH / month headings. Used by the chat's "Media, links, and docs" and by your own profile. ----
+const MEDIA_GREEN = "#21C063";
+const PfLink = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"], ["p", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]]);
+function mediaBucket(ts) {
+    const now = new Date(), d = new Date(ts);
+    const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diff = Math.round((start(now) - start(d)) / 86400000);
+    if (diff <= 6) return "RECENT";
+    if (diff <= 13) return "LAST WEEK";
+    const mDiff = (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth();
+    if (mDiff <= 0) return "THIS MONTH";
+    if (mDiff === 1) return "LAST MONTH";
+    return d.toLocaleDateString([], d.getFullYear() === now.getFullYear() ? { month: "long" } : { month: "long", year: "numeric" }).toUpperCase();
+}
+function mediaGroups(list) {
+    const out = [];
+    let cur = null;
+    list.forEach((it) => { const k = mediaBucket(it.time); if (!cur || cur.key !== k) { cur = { key: k, items: [] }; out.push(cur); } cur.items.push(it); });
+    return out;
+}
+const MEDIA_URLS = new Map(); // finished downloads of profile media (id -> promise of a blob link), so a tile never downloads twice
+function mediaLoader(token, id) {
+    return () => {
+        if (!MEDIA_URLS.has(id)) {
+            MEDIA_URLS.set(id, fetch(`${API_URL}/api/v1/me/media/${id}/file`, { headers: { Authorization: "Bearer " + token } })
+                .then((r) => { if (!r.ok) throw new Error("File not available"); return r.blob(); })
+                .then((b) => URL.createObjectURL(b))
+                .catch((e) => { MEDIA_URLS.delete(id); throw e; }));
+        }
+        return MEDIA_URLS.get(id);
+    };
+}
+function saveFileFrom(href, name) { const a = document.createElement("a"); a.href = href; a.download = name || "file"; document.body.appendChild(a); a.click(); setTimeout(() => { try { document.body.removeChild(a); } catch (e) { } }, 100); }
+// one square tile; pictures that must be downloaded first (profile) load only when they scroll into view
+function MediaTile({ item, onOpen }) {
+    const ref = useRef(null);
+    const [url, setUrl] = useState(item.src || null);
+    useEffect(() => {
+        if (url || !item.load) return;
+        let dead = false, io = null;
+        const go = () => { item.load().then((u) => { if (!dead) setUrl(u); }).catch(() => { }); };
+        if (typeof IntersectionObserver === "undefined" || !ref.current) go();
+        else { io = new IntersectionObserver((es) => { if (es[0] && es[0].isIntersecting) { io.disconnect(); go(); } }, { rootMargin: "240px" }); io.observe(ref.current); }
+        return () => { dead = true; if (io) io.disconnect(); };
+    }, [item.id]);
+    const fill = { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" };
+    return React.createElement("div", { ref, onClick: () => onOpen(item, url), role: "button", "aria-label": item.name || "Open", style: { position: "relative", width: "100%", paddingBottom: "100%", background: "#161B22", overflow: "hidden", cursor: "pointer" } },
+        url && !item.isVideo && React.createElement("img", { src: url, alt: "", draggable: false, style: fill }),
+        url && item.isVideo && React.createElement("video", { src: url + "#t=0.1", muted: true, preload: "metadata", playsInline: true, style: fill }),
+        item.isVideo && React.createElement("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "14px 6px 5px", background: "linear-gradient(0deg, rgba(0,0,0,.65), rgba(0,0,0,0))", display: "flex", alignItems: "center" } }, React.createElement(Video, { size: 15, color: "#fff" })));
+}
+function MediaScreen({ title = "All media", media = [], docs = [], links = [], onBack, onOpenMedia, onOpenDoc, loading }) {
+    const [idx, setIdx] = useState(0);
+    const [dx, setDx] = useState(0);
+    const [drag, setDrag] = useState(false);
+    const [searching, setSearching] = useState(false);
+    const [q, setQ] = useState("");
+    const wrap = useRef(null);
+    const t0 = useRef(null);
+    const needle = q.trim().toLowerCase();
+    const has = (s) => String(s || "").toLowerCase().indexOf(needle) >= 0;
+    const fMedia = needle ? media.filter((m) => has(m.name)) : media;
+    const fDocs = needle ? docs.filter((m) => has(m.name)) : docs;
+    const fLinks = needle ? links.filter((m) => has(m.url) || has(m.text)) : links;
+    const tabs = ["Media", "Docs", "Links"];
+    const onStart = (e) => { const t = e.touches[0]; t0.current = { x: t.clientX, y: t.clientY, lock: null }; };
+    const onMove = (e) => {
+        const s = t0.current; if (!s) return;
+        const t = e.touches[0], ddx = t.clientX - s.x, ddy = t.clientY - s.y;
+        if (s.lock === null && (Math.abs(ddx) > 8 || Math.abs(ddy) > 8)) s.lock = Math.abs(ddx) > Math.abs(ddy) * 1.2 ? "x" : "y";
+        if (s.lock === "x") { let v = ddx; if ((idx === 0 && v > 0) || (idx === 2 && v < 0)) v = v / 3; setDrag(true); setDx(v); }
+    };
+    const onEnd = () => {
+        const s = t0.current; t0.current = null;
+        if (s && s.lock === "x") { const w = (wrap.current && wrap.current.offsetWidth) || 320; if (dx < -w * 0.18 && idx < 2) setIdx(idx + 1); else if (dx > w * 0.18 && idx > 0) setIdx(idx - 1); }
+        setDx(0); setDrag(false);
+    };
+    const w = (wrap.current && wrap.current.offsetWidth) || 320;
+    const prog = Math.max(0, Math.min(2, idx - dx / w)); // underline follows your finger
+    const head = (k) => React.createElement("div", { key: "h" + k, style: { padding: "16px 16px 8px", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, letterSpacing: "0.06em", color: "#8891A0" } }, k);
+    const empty = (label) => React.createElement("div", { style: { padding: "50px 20px", textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8A96A5" } }, loading ? "Loading…" : needle ? "No results" : label);
+    const pane = (children) => React.createElement("div", { style: { width: "33.3333%", height: "100%", overflowY: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 24 } }, children);
+    const icoBox = (child, round) => React.createElement("span", { style: { width: 44, height: 44, borderRadius: round ? "50%" : 10, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, child);
+    const mediaPane = pane(fMedia.length ? mediaGroups(fMedia).map((g) => React.createElement(React.Fragment, { key: g.key }, head(g.key),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 } }, g.items.map((m) => React.createElement(MediaTile, { key: m.id, item: m, onOpen: onOpenMedia }))))) : empty("No media"));
+    const docsPane = pane(fDocs.length ? mediaGroups(fDocs).map((g) => React.createElement(React.Fragment, { key: g.key }, head(g.key),
+        g.items.map((m) => React.createElement("div", { key: m.id, onClick: () => onOpenDoc && onOpenDoc(m), style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 16px", cursor: "pointer" } },
+            icoBox(React.createElement(NotesIcon, { size: 22, color: "#35D0BA" })),
+            React.createElement("div", { style: { minWidth: 0, flex: 1 } },
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 15.5, color: "#F5F7FA", overflowWrap: "anywhere" } }, m.name),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, [m.size ? fmtSize(m.size) : "", m.who || "", fullTime(m.time)].filter(Boolean).join(" · "))))))) : empty("No docs"));
+    const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
+    const linksPane = pane(fLinks.length ? mediaGroups(fLinks).map((g) => React.createElement(React.Fragment, { key: g.key }, head(g.key),
+        g.items.map((m) => React.createElement("div", { key: m.id, onClick: () => window.open(m.url, "_blank", "noopener,noreferrer"), style: { display: "flex", alignItems: "flex-start", gap: 14, counterIncrement: "lcgap-14", padding: "10px 16px", cursor: "pointer" } },
+            icoBox(React.createElement(PfLink, { size: 20, color: "#C5CDD6" }), true),
+            React.createElement("div", { style: { minWidth: 0, flex: 1 } },
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 15.5, fontWeight: 600, color: "#F5F7FA", overflowWrap: "anywhere" } }, host(m.url)),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#7FE3D3", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, m.url),
+                m.text && m.text !== m.url && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } }, m.text))))) ) : empty("No links"));
+    const iconBtn = { width: 46, height: 56, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
+    return React.createElement("div", { role: "dialog", "aria-modal": "true", "aria-label": title, style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 90, background: "#0E1116", display: "flex", flexDirection: "column", animation: "lcFade .2s ease-out" } },
+        searching
+            ? React.createElement("div", { style: { display: "flex", alignItems: "center", height: 56, flexShrink: 0, padding: "0 6px" } },
+                React.createElement("button", { "aria-label": "Close search", onClick: () => { setSearching(false); setQ(""); }, style: iconBtn }, React.createElement(ArrowLeft, { size: 23, color: "#F5F7FA" })),
+                React.createElement("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search…", "aria-label": "Search", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 18 } }),
+                q && React.createElement("button", { "aria-label": "Clear", onClick: () => setQ(""), style: iconBtn }, React.createElement(X, { size: 20, color: "#9BA7B4" })))
+            : React.createElement("div", { style: { display: "flex", alignItems: "center", height: 56, flexShrink: 0, padding: "0 6px" } },
+                React.createElement("button", { "aria-label": "Back", onClick: onBack, style: iconBtn }, React.createElement(ArrowLeft, { size: 23, color: "#F5F7FA" })),
+                React.createElement("div", { style: { flex: 1, fontFamily: "Inter", fontWeight: 500, fontSize: 20, color: "#F5F7FA" } }, title),
+                React.createElement("button", { "aria-label": "Search", onClick: () => setSearching(true), style: iconBtn }, React.createElement(Search, { size: 22, color: "#F5F7FA" }))),
+        React.createElement("div", { role: "tablist", style: { position: "relative", display: "flex", flexShrink: 0, borderBottom: "1px solid #1B212B" } },
+            tabs.map((t, i) => React.createElement("button", { key: t, role: "tab", "aria-selected": idx === i, onClick: () => setIdx(i), style: { flex: 1, height: 46, background: "none", border: "none", cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: Math.abs(prog - i) < 0.5 ? MEDIA_GREEN : "#9BA7B4", transition: "color .2s" } }, t)),
+            React.createElement("div", { style: { position: "absolute", left: 0, bottom: -1, width: "33.3333%", height: 3, background: MEDIA_GREEN, borderRadius: "3px 3px 0 0", transform: "translateX(" + (prog * 100) + "%)", transition: drag ? "none" : "transform .28s cubic-bezier(.3,.7,.3,1)" } })),
+        React.createElement("div", { ref: wrap, onTouchStart: onStart, onTouchMove: onMove, onTouchEnd: onEnd, onTouchCancel: onEnd, style: { flex: 1, minHeight: 0, overflow: "hidden", touchAction: "pan-y" } },
+            React.createElement("div", { style: { display: "flex", width: "300%", height: "100%", transform: "translateX(calc(" + (-idx * 33.3333) + "% + " + dx + "px))", transition: drag ? "none" : "transform .28s cubic-bezier(.3,.7,.3,1)" } }, mediaPane, docsPane, linksPane)));
+}
+// the chat's "Media, links, and docs": same screen, filled with what is loaded in this chat on this device
 function MediaDocsSheet({ msgs, conversation, myId, onOpenImage, onClose }) {
-    const [tab, setTab] = useState("media");
-    const live = msgs.filter(m => !m.deleted);
-    const media = live.filter(m => m.file && m.file.data && /^data:image\//.test(m.file.data));
-    const docs = live.filter(m => m.file && !(m.file.data && /^data:image\//.test(m.file.data)));
-    const links = [];
-    live.forEach(m => { if (typeof m.text === "string")
-        (m.text.match(/https?:\/\/[^\s]+/g) || []).forEach(u => links.push({ url: u, m })); });
+    const live = msgs.filter((m) => !m.deleted).slice().reverse(); // newest first
     const who = (m) => (m.senderId === myId ? "You" : conversation.isGroup ? (memberFor(conversation, m.senderId, m) || {}).name || "Former member" : conversation.other.name);
-    const tabs = [["media", "Media", media.length], ["docs", "Docs", docs.length], ["links", "Links", links.length]];
-    const empty = React.createElement("div", { style: { padding: "30px 10px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Nothing here yet");
-    return (React.createElement(SheetFrame, { title: "Media, links, and docs", onClose: onClose, tall: true },
-        React.createElement("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", marginBottom: 12 } }, tabs.map(([k, label, n]) => React.createElement("button", { key: k, onClick: () => setTab(k), style: { flex: 1, padding: "9px 4px", borderRadius: 999, border: "1px solid " + (tab === k ? "#35D0BA" : "#2B3544"), background: tab === k ? "rgba(53,208,186,0.14)" : "none", color: tab === k ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } },
-            label,
-            n ? " (" + n + ")" : ""))),
-        tab === "media" && (media.length ? React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, counterIncrement: "lcgap-4" } }, media.map(m => React.createElement("img", { loading: "lazy", decoding: "async", key: m.id, src: m.file.data, alt: m.file.name, onClick: () => { onClose(); onOpenImage(m.file.data); }, style: { width: "100%", aspectRatio: "1", counterReset: "lcar-1-1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } }))) : empty),
-        tab === "docs" && (docs.length ? docs.map(m => (React.createElement("a", { key: m.id, href: m.file.data || undefined, download: m.file.name, style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none", color: "#F5F7FA" } },
-            React.createElement("span", { style: { width: 38, height: 38, borderRadius: 10, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
-                React.createElement(Paperclip, { size: 17, color: "#35D0BA" })),
-            React.createElement("span", { style: { minWidth: 0 } },
-                React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontWeight: 600, fontSize: 14, wordBreak: "break-all" } }, m.file.name),
-                React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0" } },
-                    fmtSize(m.file.size),
-                    " \u00B7 ",
-                    who(m),
-                    " \u00B7 ",
-                    fullTime(m.time)))))) : empty),
-        tab === "links" && (links.length ? links.map((l, i) => (React.createElement("a", { key: i, href: l.url, target: "_blank", rel: "noopener noreferrer", style: { display: "block", padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none" } },
-            React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontSize: 14, color: "#7FE3D3", wordBreak: "break-all" } }, l.url),
-            React.createElement("span", { style: { display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0", marginTop: 2 } },
-                who(l.m),
-                " \u00B7 ",
-                fullTime(l.m.time))))) : empty),
-        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8A96A5", textAlign: "center", marginTop: 12 } }, "Shows what is loaded in this chat on this device.")));
+    const isImg = (m) => m.file && m.file.data && /^data:image\//.test(m.file.data);
+    const media = live.filter(isImg).map((m) => ({ id: m.id, time: m.time, name: m.file.name, src: m.file.data }));
+    const docs = live.filter((m) => m.file && !isImg(m)).map((m) => ({ id: m.id, time: m.time, name: m.file.name, size: m.file.size, who: who(m), href: m.file.data }));
+    const links = [];
+    live.forEach((m) => { if (typeof m.text === "string") (m.text.match(/https?:\/\/[^\s]+/g) || []).forEach((u, i) => links.push({ id: m.id + "-" + i, time: m.time, url: u, text: m.text })); });
+    return React.createElement(MediaScreen, { title: "All media", media, docs, links, onBack: onClose,
+        onOpenMedia: (it) => { onClose(); onOpenImage(it.src); },
+        onOpenDoc: (it) => { if (it.href) saveFileFrom(it.href, it.name); } });
 }
 // ---- message info (sent / read times + reactions) ----
 function fullTime(ts) { return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
@@ -8411,7 +8521,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                     { label: "Add shortcut", run: () => { close(); addShortcut(); } },
                     { label: isFav ? "Remove from favourites" : "Add to favourites", run: () => { close(); onToggleFavorite(conversation.id); } },
                 ];
-                const items = menuPage === "more" ? more : main;
+                // Chat Room: the menu has only Search and Mute (everything else is hidden)
+                const items = isRoom ? main.filter((it) => it.label === "Search" || /mute notifications/i.test(it.label || "")) : (menuPage === "more" ? more : main);
                 return (React.createElement(React.Fragment, null,
                     React.createElement("div", { onClick: close, style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 } }),
                     React.createElement("div", { role: "menu", style: { position: "absolute", top: 62, right: 6, zIndex: 41, minWidth: menuPage === "more" ? 236 : 208, maxWidth: "calc(100% - 12px)", background: "#12161B", border: "1px solid #1E252E", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" } }, items.map((it, i) => it.divider
@@ -8423,14 +8534,14 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
             })(),
             React.createElement("button", { "aria-label": "Back", onClick: onBack, style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } },
                 React.createElement(ArrowLeft, { size: 24 })),
-            React.createElement(Ring, { size: 42, color: conversation.other.color, initials: conversation.other.initials, photo: conversation.other.avatar, online: undefined, onClick: conversation.other.avatar ? () => setZoomed(true) : undefined }),
-            React.createElement("div", { onClick: isGroup ? () => setInfo(true) : () => setPeerInfo(true), style: { flex: 1, minWidth: 0, cursor: "pointer", paddingLeft: 2 } },
+            React.createElement(Ring, { size: 42, color: conversation.other.color, initials: conversation.other.initials, photo: conversation.other.avatar, online: undefined, onClick: conversation.other.avatar && !isRoom ? () => setZoomed(true) : undefined }),
+            React.createElement("div", { onClick: isRoom ? undefined : isGroup ? () => setInfo(true) : () => setPeerInfo(true), style: { flex: 1, minWidth: 0, cursor: isRoom ? "default" : "pointer", paddingLeft: 2 } },
                 React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 19, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
                     conversation.other.name,
                     conversation.other.verified && React.createElement(VerifiedBadge, null)),
                 conversation.disappearAfter ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, "\u23F1 Disappearing: " + disappearLabel(conversation.disappearAfter)) : null,
                 peerTyping && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, actLabel)),
-            (featOn("voiceCalls") || featOn("videoCalls")) && (React.createElement("button", { "aria-label": "Call options", "aria-haspopup": "menu", "aria-expanded": callMenu, onClick: () => { setMenu(false); setCallMenu(v => !v); }, style: { background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, counterIncrement: "lcgap-5", flexShrink: 0 } },
+            !isRoom && (featOn("voiceCalls") || featOn("videoCalls")) && (React.createElement("button", { "aria-label": "Call options", "aria-haspopup": "menu", "aria-expanded": callMenu, onClick: () => { setMenu(false); setCallMenu(v => !v); }, style: { background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, counterIncrement: "lcgap-5", flexShrink: 0 } },
                 React.createElement(Phone, { size: 24, color: "#9BA7B4" }),
                 React.createElement("svg", { width: "11", height: "7", viewBox: "0 0 10 6", style: { transform: callMenu ? "rotate(180deg)" : "none", transition: "transform .15s" } },
                     React.createElement("path", { d: "M0 0h10L5 6z", fill: "#9BA7B4" })))),
@@ -8466,7 +8577,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                 React.createElement("i", { style: { background: "#F2B84B" } }),
                 React.createElement("i", { style: { background: "#F2B84B" } }),
                 React.createElement("i", { style: { background: "#F2B84B" } })),
-            "Waiting for network. Your messages will send when you are back online."),
+            (typeof navigator !== "undefined" && navigator.onLine === false ? "Waiting for network. Your messages will send when you are back online." : "Connecting to the server\u2026 your messages will send in a moment.")),
         React.createElement("div", { ref: listEl, onScroll: (e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; setAtBottom(nb); if (nb)
                 setUnseenN(0); }, style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8", background: chatBg } },
             loading && React.createElement("div", { style: { margin: "auto", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading conversation\u2026"),
@@ -8765,6 +8876,7 @@ function ChatLinkModal({ code, token, onClose, onStarted }) {
             info && !info.self && React.createElement("button", { onClick: start, disabled: busy, style: primaryBtn(busy) }, busy ? "Opening…" : "Message " + info.user.name.split(" ")[0]),
             React.createElement("button", { onClick: onClose, style: { ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 } }, info && !info.self ? "Not now" : "Close"))));
 }
+const PfImage = makeIcon([["r", 3, 3, 18, 18, 2], ["c", 9, 9, 2], ["p", "m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"]]);
 function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut }) {
     const [zoomed, setZoomed] = useState(false);
     const [menu, setMenu] = useState(false);
@@ -8773,6 +8885,38 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
     const [error, setError] = useState("");
     const galleryRef = useRef(null);
     const cameraRef = useRef(null);
+    // cover photo: its own menu, file inputs, crop and save, so it never touches the profile photo (and the other way round)
+    const [coverMenu, setCoverMenu] = useState(false);
+    const [coverFile, setCoverFile] = useState(null);
+    const [coverBusy, setCoverBusy] = useState(false);
+    const coverGalleryRef = useRef(null);
+    const coverCameraRef = useRef(null);
+    const onCoverFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!file)
+            return;
+        if (!isJpgOrPng(file)) {
+            setError("Please choose a JPG or PNG image.");
+            return;
+        }
+        setError("");
+        setCoverFile(file);
+    };
+    const saveCover = async (cover) => {
+        setCoverBusy(true);
+        setError("");
+        try {
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { cover } });
+            onUserUpdate(user);
+        }
+        catch (e) {
+            setError(e.message);
+        }
+        finally {
+            setCoverBusy(false);
+        }
+    };
     const rows = [
         { label: "Name", value: profile.name },
         { label: "About", value: profile.about },
@@ -8805,37 +8949,125 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
             setBusy(false);
         }
     };
-    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }, onContextMenu: e => e.preventDefault() },
-        React.createElement(TopBar, { title: "Profile", onBack: onBack }),
-        menu && React.createElement(PhotoMenu, { hasPhoto: !!profile.avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => savePhoto(null) }),
-        cropFile && React.createElement(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setCropFile(null); savePhoto(d); } }),
-        React.createElement("div", { style: { flex: 1, overflowY: "auto" } },
-            React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" } },
-                React.createElement("div", { style: { position: "relative" } },
-                    React.createElement(Ring, { size: 110, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true, onClick: () => setZoomed(true) }),
-                    React.createElement(CameraBadge, { onClick: () => setMenu(true), busy: busy }),
-                    React.createElement("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
-                    React.createElement("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } })),
-                busy && React.createElement("div", { style: { marginTop: 12, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" } }, "Saving photo\u2026")),
-            error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
-            rows.map(r => (React.createElement("div", { key: r.label, onClick: !r.ro ? onEdit : undefined, style: { padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" } },
-                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8A96A5", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 } }, r.label),
-                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                    React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } },
-                        r.value,
-                        r.label === "Name" && profile.verified && React.createElement(VerifiedBadge, { size: 16 })),
-                    !r.ro && React.createElement(Pencil, { size: 15, color: "#5B6673" }))))),
-            React.createElement(ProfileLinkRow, { token: token }),
-            React.createElement("div", { style: { padding: "24px 20px" } },
-                React.createElement("button", { onClick: onLogOut, style: { width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8", cursor: "pointer" } },
-                    React.createElement(LogOut, { size: 16 }),
-                    " Log out"))),
-        zoomed && (React.createElement(ImageZoomModal, { photo: profile.avatar, initials: profile.initials, color: "#35D0BA", onClose: () => setZoomed(false) }))));
+    // ---- layout copied from the contact-info screen: big round photo, name, round action buttons, icon rows, green circle rows, red rows ----
+    const ce = React.createElement;
+    const [scrolled, setScrolled] = useState(false);
+    const [topMenu, setTopMenu] = useState(false);
+    const [note, setNote] = useState("");
+    // "Media, links, and docs": everything from your chats (list from the server, pictures load one by one as they scroll into view)
+    const [mm, setMm] = useState(null);
+    const [mediaOpen, setMediaOpen] = useState(false);
+    const [viewer, setViewer] = useState(null);
+    useEffect(() => { let live = true; api("/api/v1/me/media", { token }).then((d) => { if (live) setMm(d); }).catch(() => { if (live) setMm({ media: [], docs: [], links: [] }); }); return () => { live = false; }; }, [token]);
+    const mItems = mm ? mm.media.map((x) => ({ id: x.id, time: x.time, name: x.name, isVideo: /^video\//.test(x.mime || ""), load: mediaLoader(token, x.id) })) : [];
+    const dItems = mm ? mm.docs.map((x) => ({ id: x.id, time: x.time, name: x.name, size: x.size, who: x.mine ? "You" : "" })) : [];
+    const lItems = mm ? mm.links : [];
+    const openDoc = (it) => { mediaLoader(token, it.id)().then((u) => saveFileFrom(u, it.name)).catch(() => setError("That file is no longer available")); };
+    const mTotal = mItems.length + dItems.length + lItems.length;
+    const biz = profile.business || null;
+    const hoursOk = biz && typeof biz.open === "boolean";
+    const ico = (I) => ce(I, { size: 22, color: "#8891A0" });
+    const shareProfile = async () => {
+        try {
+            const d = await api("/api/v1/me/profile-link", { token });
+            const link = profileLinkFor(d.code);
+            if (navigator.share) { navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }).catch(() => { }); return; }
+            try { await navigator.clipboard.writeText(link); setNote("Profile link copied"); setTimeout(() => setNote(""), 1800); } catch (e) { window.prompt("Copy your profile link", link); }
+        }
+        catch (e) { setError(e.message); }
+    };
+    const row = (key, icon, title, sub, o = {}) => (ce("div", { key, onClick: o.onClick, style: { display: "flex", alignItems: "center", gap: 22, counterIncrement: "lcgap-22", padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" } },
+        ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
+        ce("div", { style: { flex: 1, minWidth: 0 } },
+            ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" } }, title, o.badge),
+            sub && ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, overflowWrap: "anywhere" } }, sub)),
+        o.right));
+    const line = (k) => ce("div", { key: k, style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+    const round = (label, Icon, fn) => (ce("button", { key: label, onClick: fn, style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, counterIncrement: "lcgap-7" } },
+        ce("span", { style: { width: 52, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Icon, { size: 19, color: "#F5F7FA" })),
+        ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" } }, label)));
+    const greenCircle = (Icon) => ce("span", { style: { width: 40, height: 40, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" } }, ce(Icon, { size: 20, color: "#0E1116" }));
+    const subtitle = profile.username ? "@" + profile.username : profile.phone ? "+" + profile.phone : (profile.email || "");
+    const BAR = 58, AV = 120;
+    return (ce("div", { style: { position: "relative", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "#0E1116", userSelect: "none", WebkitUserSelect: "none" }, onContextMenu: e => e.preventDefault() },
+        // top bar: back, small photo + name (appears after scrolling), three dots
+        ce("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: BAR, zIndex: 6, display: "flex", alignItems: "center", background: scrolled ? "#0E1116" : "transparent", boxShadow: scrolled ? "0 1px 0 #1B212B" : "none" } },
+            ce("button", { "aria-label": "Back", onClick: onBack, style: { height: BAR, width: 50, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ArrowLeft, { size: 23, color: "#F5F7FA" })),
+            ce("div", { style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", opacity: scrolled ? 1 : 0, transition: "opacity .2s", pointerEvents: "none" } },
+                ce(Ring, { size: 34, color: "#35D0BA", initials: profile.initials, photo: profile.avatar }),
+                ce("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, profile.name),
+                profile.verified && ce(VerifiedBadge, { size: 15 })),
+            ce("button", { "aria-label": "More", onClick: () => setTopMenu(m => !m), style: { height: BAR, width: 50, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(MoreVertical, { size: 22, color: "#F5F7FA" }))),
+        topMenu && ce("div", { onClick: () => setTopMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 8 } },
+            ce("div", { onClick: e => e.stopPropagation(), style: { position: "absolute", top: BAR - 8, right: 10, minWidth: 200, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)" } },
+                [["Edit profile", onEdit], ["Change profile photo", () => setMenu(true)], ["Change cover photo", () => setCoverMenu(true)]].map(([label, fn]) => ce("div", { key: label, onClick: () => { setTopMenu(false); fn(); }, style: { padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: "#F5F7FA", cursor: "pointer" } }, label)))),
+        menu && ce(PhotoMenu, { hasPhoto: !!profile.avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => savePhoto(null) }),
+        cropFile && ce(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setCropFile(null); savePhoto(d); } }),
+        coverMenu && ce(PhotoMenu, { title: "Cover photo", removeLabel: "Remove cover photo", hasPhoto: !!profile.cover, onClose: () => setCoverMenu(false), onGallery: () => coverGalleryRef.current && coverGalleryRef.current.click(), onCamera: () => coverCameraRef.current && coverCameraRef.current.click(), onRemove: () => saveCover(null) }),
+        coverFile && ce(CropModal, { file: coverFile, aspect: 2, round: false, outW: 960, title: "Cover photo", hint: "Drag the photo to choose what shows on your profile banner", useLabel: "Use cover", onCancel: () => setCoverFile(null), onDone: (d) => { setCoverFile(null); saveCover(d); } }),
+        ce("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
+        ce("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }),
+        ce("input", { ref: coverGalleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onCoverFileChange, style: { display: "none" } }),
+        ce("input", { ref: coverCameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "environment", onChange: onCoverFileChange, style: { display: "none" } }),
+        ce("div", { onScroll: e => { const v = e.currentTarget.scrollTop > 150; if (v !== scrolled) setScrolled(v); }, style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 30 } },
+            // cover photo (only when you set one), softly faded into the page
+            profile.cover && ce("div", { style: { position: "relative", height: 150, marginBottom: -56 } },
+                ce("img", { src: photoSrc(profile.cover), alt: "Cover photo", draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } }),
+                ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(180deg, rgba(0,0,0,.45) 0%, rgba(14,17,22,0) 40%, #0E1116 100%)" } })),
+            ce("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: (profile.cover ? 0 : BAR + 6) + "px 24px 0", position: "relative" } },
+                ce("div", { style: { position: "relative", width: AV, height: AV } },
+                    ce(Ring, { size: AV, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: true, onClick: profile.avatar ? () => setZoomed(true) : undefined }),
+                    ce(CameraBadge, { onClick: () => setMenu(true), busy: busy })),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", marginTop: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", overflowWrap: "anywhere", textAlign: "center" } }, profile.name, profile.verified && ce(VerifiedBadge, { size: 20 })),
+                subtitle && ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#9BA7B4", marginTop: 4, overflowWrap: "anywhere" } }, subtitle),
+                (busy || coverBusy) && ce("div", { style: { marginTop: 6, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" } }, busy ? "Saving photo…" : "Saving cover…"),
+                note && ce("div", { style: { marginTop: 6, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" } }, note),
+                ce("div", { style: { display: "flex", justifyContent: "center", gap: 18, counterIncrement: "lcgap-18", margin: "18px 0 20px" } },
+                    round("Edit", Pencil, onEdit),
+                    round("Share", ForwardIcon, shareProfile))),
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            line("l0"),
+            row("name", ico(EpUserCircle), profile.name, "Name", { onClick: onEdit, badge: profile.verified ? ce(VerifiedBadge, { size: 16 }) : null }),
+            row("about", ico(NotesIcon), profile.about || "Hey there! I am using Letschat Africa.", "About", { onClick: onEdit }),
+            row("username", ico(AtSign), profile.username ? "@" + profile.username : "Not set (tap to add)", "Username", { onClick: onEdit }),
+            profile.phone ? row("phone", ico(Phone), "+" + profile.phone, "Phone") : row("email", ico(EpMail), profile.email || "", "Email"),
+            biz && (hoursOk || biz.hours) && row("hours", ico(ClockIcon), hoursOk ? (biz.open ? "Open now" : "Closed now") : "Hours", null, { color: hoursOk ? (biz.open ? "#35D0BA" : "#FF6B5D") : undefined }),
+            biz && biz.category && row("cat", ico(ShoppingBag), biz.category),
+            biz && biz.address && row("addr", ico(MapPin), biz.address),
+            biz && biz.description && row("bdesc", ico(EpDoc), biz.description),
+            biz && biz.website && row("bweb", ico(EpGlobe), biz.website),
+            biz && biz.instagram && row("big", ico(EpInstagram), biz.instagram),
+            biz && biz.facebook && row("bfb", ico(EpFacebook), biz.facebook),
+            biz && biz.email && row("bmail", ico(EpMail), biz.email),
+            biz && row("biz", ico(InfoIcon), "Business account", "This account is a business on Letschat Africa"),
+            line("l1"),
+            // Media, links, and docs: header with the count, then a strip of the latest pictures (tap anywhere to open the full "All media" screen)
+            ce("div", { onClick: () => setMediaOpen(true), style: { display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" } },
+                ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Media, links, and docs"),
+                ce("span", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 } }, mm ? mTotal : ""),
+                ce(ChevronRight, { size: 18, color: "#8891A0" })),
+            mItems.length > 0 && ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
+                mItems.slice(0, 10).map((m) => ce("div", { key: m.id, style: { width: 84, flexShrink: 0, borderRadius: 8, overflow: "hidden" } }, ce(MediaTile, { item: m, onOpen: () => setMediaOpen(true) })))),
+            line("l1b"),
+            // photo actions: separate rows for the profile photo and the cover photo (green circles)
+            row("photo", greenCircle(Camera), "Change profile photo", "Your round photo", { onClick: () => setMenu(true) }),
+            row("cover", greenCircle(PfImage), profile.cover ? "Change cover photo" : "Add cover photo", "The wide banner on your profile", { onClick: () => setCoverMenu(true) }),
+            line("l2"),
+            ce(ProfileLinkRow, { token }),
+            line("l3"),
+            row("logout", ce(LogOut, { size: 22, color: "#FF6B5D" }), "Log out", null, { color: "#FF6B5D", onClick: onLogOut })),
+        zoomed && (ce(ImageZoomModal, { photo: profile.avatar, initials: profile.initials, color: "#35D0BA", onClose: () => setZoomed(false) })),
+        mediaOpen && ce(MediaScreen, { title: "All media", media: mItems, docs: dItems, links: lItems, loading: !mm, onBack: () => setMediaOpen(false),
+            onOpenMedia: (it, url) => { if (url) setViewer({ url, isVideo: it.isVideo }); }, onOpenDoc: openDoc }),
+        viewer && !viewer.isVideo && ce(ImageZoomModal, { photo: viewer.url, initials: "", color: "#35D0BA", onClose: () => setViewer(null) }),
+        viewer && viewer.isVideo && ce("div", { onClick: () => setViewer(null), style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 95, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" } },
+            ce("video", { src: viewer.url, controls: true, autoPlay: true, playsInline: true, onClick: (e) => e.stopPropagation(), style: { maxWidth: "100%", maxHeight: "100%" } }),
+            ce("button", { "aria-label": "Close", onClick: () => setViewer(null), style: { position: "absolute", top: 10, right: 10, width: 44, height: 44, borderRadius: "50%", border: "none", background: "rgba(0,0,0,.6)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(X, { size: 22, color: "#fff" })))));
 }
 // Move + zoom + crop a chosen photo to a square, then export 512x512 JPEG
-function CropModal({ file, onCancel, onDone }) {
+function CropModal({ file, onCancel, onDone, aspect = 1, round = true, outW = 512, title = "Move and zoom", hint = "Drag the photo to fit it inside the circle", useLabel = "Use photo" }) {
     const VIEW = Math.min(300, Math.max(220, (typeof window !== "undefined" ? window.innerWidth : 360) - 80));
-    const OUT = 512;
+    const OUT = outW, OUT_H = Math.round(outW / aspect), VH = Math.round(VIEW / aspect); // aspect 1 = square profile photo, 2 = wide cover photo
     const [img, setImg] = useState(null);
     const [zoom, setZoom] = useState(1);
     const [off, setOff] = useState({ x: 0, y: 0 });
@@ -8851,42 +9083,43 @@ function CropModal({ file, onCancel, onDone }) {
     }, [file]);
     const nw = img ? img.naturalWidth : 1;
     const nh = img ? img.naturalHeight : 1;
-    const cover = VIEW / Math.min(nw, nh); // scale at which the image just covers the square
+    const cover = Math.max(VIEW / nw, VH / nh); // scale at which the image just covers the square
     const scale = cover * zoom;
     const clamp = (o, s) => {
-        const mx = Math.max(0, (nw * s - VIEW) / 2), my = Math.max(0, (nh * s - VIEW) / 2);
+        const mx = Math.max(0, (nw * s - VIEW) / 2), my = Math.max(0, (nh * s - VH) / 2);
         return { x: Math.min(mx, Math.max(-mx, o.x)), y: Math.min(my, Math.max(-my, o.y)) };
     };
     const changeZoom = (z) => { setZoom(z); setOff((o) => clamp(o, cover * z)); };
     const confirm = () => {
         const canvas = document.createElement("canvas");
         canvas.width = OUT;
-        canvas.height = OUT;
+        canvas.height = OUT_H;
         const ctx = canvas.getContext("2d");
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, OUT, OUT);
+        ctx.fillRect(0, 0, OUT, OUT_H);
         const sw = VIEW / scale;
         const sx = (nw * scale / 2 - VIEW / 2 - off.x) / scale;
-        const sy = (nh * scale / 2 - VIEW / 2 - off.y) / scale;
-        ctx.drawImage(img, sx, sy, sw, sw, 0, 0, OUT, OUT);
+        const sh = VH / scale;
+        const sy = (nh * scale / 2 - VH / 2 - off.y) / scale;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, OUT, OUT_H);
         onDone(canvas.toDataURL("image/jpeg", 0.85));
     };
     const pill = { padding: "13px 0", borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 14, flex: 1 };
     return (React.createElement("div", { style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 80, background: "#05070A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 } },
-        React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", marginBottom: 6 } }, "Move and zoom"),
-        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 18 } }, "Drag the photo to fit it inside the circle"),
+        React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", marginBottom: 6 } }, title),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 18 } }, hint),
         err && React.createElement(Banner, { text: err }),
         React.createElement("div", { onPointerDown: (e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, o: off }; }, onPointerMove: (e) => { if (drag.current)
-                setOff(clamp({ x: drag.current.o.x + e.clientX - drag.current.x, y: drag.current.o.y + e.clientY - drag.current.y }, scale)); }, onPointerUp: () => { drag.current = null; }, onPointerCancel: () => { drag.current = null; }, onWheel: (e) => changeZoom(Math.min(4, Math.max(1, zoom - e.deltaY * 0.002))), style: { position: "relative", width: VIEW, height: VIEW, overflow: "hidden", background: "#161B22", touchAction: "none", cursor: "grab", borderRadius: 4 } },
-            img && (React.createElement("img", { loading: "lazy", decoding: "async", src: img.src, alt: "", draggable: false, style: { position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" } })),
-            React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" } })),
+                setOff(clamp({ x: drag.current.o.x + e.clientX - drag.current.x, y: drag.current.o.y + e.clientY - drag.current.y }, scale)); }, onPointerUp: () => { drag.current = null; }, onPointerCancel: () => { drag.current = null; }, onWheel: (e) => changeZoom(Math.min(4, Math.max(1, zoom - e.deltaY * 0.002))), style: { position: "relative", width: VIEW, height: VH, overflow: "hidden", background: "#161B22", touchAction: "none", cursor: "grab", borderRadius: 4 } },
+            img && (React.createElement("img", { loading: "lazy", decoding: "async", src: img.src, alt: "", draggable: false, style: { position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VH / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" } })),
+            React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: round ? "50%" : 4, boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" } })),
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", width: VIEW, marginTop: 20 } },
             React.createElement("span", { style: { color: "#8891A0", fontSize: 12, fontFamily: "Inter" } }, "-"),
             React.createElement("input", { type: "range", min: "1", max: "4", step: "0.01", value: zoom, onChange: (e) => changeZoom(parseFloat(e.target.value)), style: { flex: 1, accentColor: "#35D0BA" }, "aria-label": "Zoom" }),
             React.createElement("span", { style: { color: "#8891A0", fontSize: 12, fontFamily: "Inter" } }, "+")),
         React.createElement("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", width: VIEW, marginTop: 24 } },
             React.createElement("button", { onClick: onCancel, style: { ...pill, background: "#1E2530", color: "#F5F7FA" } }, "Cancel"),
-            React.createElement("button", { onClick: confirm, disabled: !img, style: { ...pill, background: img ? "#35D0BA" : "#1E2530", color: img ? "#0E1116" : "#5B6673" } }, "Use photo"))));
+            React.createElement("button", { onClick: confirm, disabled: !img, style: { ...pill, background: img ? "#35D0BA" : "#1E2530", color: img ? "#0E1116" : "#5B6673" } }, useLabel))));
 }
 // ---- Edit profile (business-style layout) ----
 // (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
@@ -9566,7 +9799,7 @@ function App() {
         socket.on("user:update", (u) => {
             // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
             setConversations(prev => prev.map(c => c.isGroup
-                ? { ...c, members: c.members.map(m => (m.id === u.id ? { ...m, name: u.name, initials: u.initials, avatar: u.avatar, about: u.about } : m)) }
+                ? { ...c, members: c.members.map(m => (m.id === u.id ? { ...m, name: u.name, initials: u.initials, avatar: u.avatar, cover: u.cover, about: u.about } : m)) }
                 : c.other.id === u.id ? { ...c, other: u } : c));
             setActiveConvo(prev => (prev && prev.other.id === u.id ? { ...prev, other: u } : prev));
         });
