@@ -187,24 +187,16 @@
   </script>
 
   <!-- Old-phone support (must run before everything else) -->
-  <script src="polyfills.js"></script>
-  <script src="compat.js"></script>
-  <script src="responsive.js"></script>
+  <script defer src="polyfills.js"></script>
+  <script defer src="compat.js"></script>
+  <script defer src="responsive.js"></script>
 
   <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
   <script defer crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script defer crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-  <script>
-    // Firebase 10 needs a recent browser; older phones (Chrome < 87, Safari < 14.5, e.g. iPhone 6 on iOS 12) get Firebase 8, same API
-    (function () {
-      var modern = false;
-      try { modern = window.CSS && CSS.supports && CSS.supports("inset", "0"); } catch (e) {}
-      var base = "https://www.gstatic.com/firebasejs/", files = modern
-        ? [base + "10.12.2/firebase-app-compat.js", base + "10.12.2/firebase-auth-compat.js"]
-        : [base + "8.10.1/firebase-app.js", base + "8.10.1/firebase-auth.js"];
-      for (var i = 0; i < files.length; i++) document.write('<script defer crossorigin="anonymous" src="' + files[i] + '"><\/script>');
-    })();
-  </script>
+  <!-- Firebase 10 (no document.write). Very old phones cannot run it; responsive.js then loads Firebase 8 from a backup host automatically. -->
+  <script defer crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script defer crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script defer crossorigin="anonymous" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
   <!-- Your server config (single source of truth: config.js; must load before the app) -->

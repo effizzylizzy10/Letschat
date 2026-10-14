@@ -92,7 +92,9 @@
       var f = d.createElement("link"); f.rel = "stylesheet"; f.href = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap"; d.head.appendChild(f);
       inject("push.js"); inject("reactions.js"); // optional extras: the app works without them
     }
-    inject("app.js"); inject("device.js");
+    // modern phones get the small modern bundle; old ones the ES5 bundle (build.js makes app.legacy.js). If it is missing, app.js is used.
+    if (modern) inject("app.js"); else { var L = d.createElement("script"); L.src = "app.legacy.js"; L.async = false; L.onerror = function () { inject("app.js"); }; d.body.appendChild(L); }
+    inject("device.js");
   }
   function go() { fixAll(0, start); setTimeout(start, 30000); } // never wait forever: the app shows its own error if something is still missing
   if (d.readyState === "loading") d.addEventListener("DOMContentLoaded", go); else go();

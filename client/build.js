@@ -39,6 +39,15 @@ try {
   for (const f of ["app.js", "push.js", "reactions.js", "config.js", "device.js", "compat.js", "responsive.js", "sw.js"]) {
     const file = path.join(out, f);
     if (!fs.existsSync(file)) continue;
+    if (f === "app.js") { // v24: keep a modern copy for modern phones (smaller, no ES5 helpers); the ES5 build below becomes app.legacy.js
+      const modernSrc = fs.readFileSync(file, "utf8");
+      try {
+        let code = modernSrc;
+        if (terser) { const m = await terser.minify(modernSrc, { compress: { passes: 1 }, mangle: true, format: { comments: false }, ecma: 2017 }); if (m.code) code = m.code; }
+        new Function(code);
+        fs.writeFileSync(path.join(out, "app.modern.tmp"), code);
+      } catch (e) { console.log("Could not build the modern app.js: " + e.message); }
+    }
     if (f !== "compat.js" && f !== "responsive.js" && f !== "sw.js") {
       const src = fs.readFileSync(file, "utf8");
       let done = false;
@@ -70,4 +79,9 @@ try {
       console.log("Minified " + f + ": " + Math.round(src.length / 1024) + " KB -> " + Math.round(res.code.length / 1024) + " KB");
     } catch (e) { console.log("Could not minify " + f + " (" + e.message + "): shipping it as is"); }
   }
+  // swap: the ES5 build -> app.legacy.js, the modern build -> app.js
+  try {
+    const tmp = path.join(out, "app.modern.tmp");
+    if (fs.existsSync(tmp)) { fs.renameSync(path.join(out, "app.js"), path.join(out, "app.legacy.js")); fs.renameSync(tmp, path.join(out, "app.js")); console.log("app.js = modern build, app.legacy.js = ES5 build"); }
+  } catch (e) { console.log("Could not swap app builds: " + e.message); }
 })();
