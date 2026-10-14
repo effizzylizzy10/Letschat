@@ -172,10 +172,10 @@ async function lookupAll(question) {
 // Models can be changed with <NAME>_MODEL (e.g. GROQ_MODEL).
 function providers() {
   const p = [], add = (n, url, key, model) => { if (key && url) p.push({ n, url, key, model }); };
-  add("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", E.GEMINI_API_KEY, E.GEMINI_MODEL || "gemini-2.5-flash");
-  add("groq", "https://api.groq.com/openai/v1", E.GROQ_API_KEY, E.GROQ_MODEL || "llama-3.1-8b-instant");
-  add("openai", "https://api.openai.com/v1", E.OPENAI_API_KEY, E.OPENAI_MODEL || "gpt-4o-mini"); // OpenAI / ChatGPT (set OPENAI_API_KEY)
-  add("xai", "https://api.x.ai/v1", E.XAI_API_KEY, E.XAI_MODEL || "grok-4"); // optional: xAI Grok (set XAI_API_KEY)
+  add("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", E.GEMINI_API_KEY, E.GEMINI_MODEL ? [E.GEMINI_MODEL] : ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"]);
+  add("groq", "https://api.groq.com/openai/v1", E.GROQ_API_KEY, E.GROQ_MODEL ? [E.GROQ_MODEL] : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]);
+  add("openai", "https://api.openai.com/v1", E.OPENAI_API_KEY, E.OPENAI_MODEL ? [E.OPENAI_MODEL] : ["gpt-4o-mini", "gpt-4.1-mini"]); // OpenAI / ChatGPT (set OPENAI_API_KEY)
+  add("xai", "https://api.x.ai/v1", E.XAI_API_KEY, E.XAI_MODEL ? [E.XAI_MODEL] : ["grok-4", "grok-3-mini", "grok-3"]); // optional: xAI Grok (set XAI_API_KEY)
   add("deepseek", "https://api.deepseek.com/v1", E.DEEPSEEK_API_KEY, E.DEEPSEEK_MODEL || "deepseek-chat"); // DeepSeek (set DEEPSEEK_API_KEY)
   add("mistral", "https://api.mistral.ai/v1", E.MISTRAL_API_KEY, E.MISTRAL_MODEL || "mistral-small-latest"); // Mistral (set MISTRAL_API_KEY)
   add("openrouter", "https://openrouter.ai/api/v1", E.OPENROUTER_API_KEY, E.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free");
@@ -193,28 +193,48 @@ function providers() {
 }
 const llmReady = () => providers().length > 0;
 const cooldown = new Map(); // provider name -> time until it is tried again after a failure
+const lastErrors = {}; // provider name -> { at, error } (the real reason the last call failed, shown in /api/creator/ai-status)
+const noteErr = (n, msg) => { lastErrors[n] = { at: new Date().toISOString(), error: String(msg).slice(0, 300) }; console.error("[ai]", n, "failed:", String(msg).slice(0, 300)); };
 async function chat(messages, opt) {
   const t0 = Date.now(), budget = (opt && opt.budget) || 45000;
   for (const p of providers()) {
     if (Date.now() - t0 > budget) break;
     if ((cooldown.get(p.n) || 0) > Date.now()) continue;
-    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), (opt && opt.timeout) || 14000);
-    try {
-      const r = await fetch(p.url.replace(/\/$/, "") + "/chat/completions", {
-        method: "POST", signal: ctl.signal,
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + p.key, ...(p.n === "gemini" ? { "x-goog-api-key": p.key } : {}) },
-        body: JSON.stringify({ model: p.model, messages, max_tokens: (opt && opt.max) || 300, temperature: opt && opt.temp != null ? opt.temp : 0.3 }),
-      });
-      if (!r.ok) { cooldown.set(p.n, Date.now() + (r.status === 429 || r.status === 402 ? 10 * 60 * 1000 : r.status === 401 || r.status === 403 ? 60 * 60 * 1000 : 2 * 60 * 1000)); throw new Error("HTTP " + r.status); }
-      const j = await r.json(), txt = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (txt && txt.trim()) {
-        if (opt && opt.accept && !opt.accept(txt.trim())) continue; // a weak model echoed the question or answered with nonsense: ask the next AI
-        return { text: txt.trim(), by: p.n };
-      }
-    } catch (e) { if (!cooldown.get(p.n) || cooldown.get(p.n) < Date.now()) cooldown.set(p.n, Date.now() + 60 * 1000); /* try the next provider */ } finally { clearTimeout(t); }
+    const models = Array.isArray(p.model) ? p.model : [p.model];
+    let providerDown = false;
+    for (const model of models) {
+      if (providerDown || Date.now() - t0 > budget) break;
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), (opt && opt.timeout) || 14000);
+      try {
+        const r = await fetch(p.url.replace(/\/$/, "") + "/chat/completions", {
+          method: "POST", signal: ctl.signal,
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + p.key, ...(p.n === "gemini" ? { "x-goog-api-key": p.key } : {}) },
+          body: JSON.stringify({ model, messages, max_tokens: (opt && opt.max) || 300, temperature: opt && opt.temp != null ? opt.temp : 0.3 }),
+        });
+        if (!r.ok) {
+          let body = ""; try { body = (await r.text()).slice(0, 250); } catch (e) {}
+          noteErr(p.n + ":" + model, "HTTP " + r.status + " " + body);
+          if (r.status === 400 || r.status === 404) continue; // wrong/retired model name: try the next model of the same provider
+          providerDown = true; // bad key, quota, outage: skip this provider for a while
+          cooldown.set(p.n, Date.now() + (r.status === 429 || r.status === 402 ? 5 * 60 * 1000 : r.status === 401 || r.status === 403 ? 30 * 60 * 1000 : 60 * 1000));
+          continue;
+        }
+        const j = await r.json(), txt = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+        if (txt && txt.trim()) {
+          if (opt && opt.accept && !opt.accept(txt.trim())) continue; // a weak model echoed the question or answered with nonsense: ask the next AI
+          delete lastErrors[p.n + ":" + model]; lastErrors[p.n] = { at: new Date().toISOString(), ok: true, model };
+          return { text: txt.trim(), by: p.n };
+        }
+        noteErr(p.n + ":" + model, "empty reply");
+      } catch (e) {
+        noteErr(p.n + ":" + model, (e && e.name === "AbortError" ? "timeout" : (e && e.message) || e));
+        providerDown = true; cooldown.set(p.n, Date.now() + 30 * 1000);
+      } finally { clearTimeout(t); }
+    }
   }
   return null;
 }
+const aiStatus = () => ({ providers: providers().map((p) => ({ name: p.n, models: [].concat(p.model), coolingDown: (cooldown.get(p.n) || 0) > Date.now() })), lastErrors });
 
 // Real Gemini with Google Search grounding (the native Gemini API, not the compatibility endpoint): it searches the web by itself for every question and returns the sources it used.
 async function geminiSearch(messages, opt) {
@@ -316,4 +336,4 @@ function stats() {
     ai: providers().map((p) => p.n), top: Object.values(store.asked).sort((a, b) => b.n - a.n).slice(0, 10).map((x) => ({ q: x.q, n: x.n })),
   };
 }
-module.exports = { geminiSearch, answer, lookup, lookupAll, loadNews, refresh, start, stats, llmReady, isQuestion, scrub, tokens, topFacts, chat, _store: () => store };
+module.exports = { geminiSearch, answer, lookup, lookupAll, loadNews, refresh, start, stats, llmReady, aiStatus, isQuestion, scrub, tokens, topFacts, chat, _store: () => store };
