@@ -2864,16 +2864,19 @@ function registerGames(socket) {
     gQueue.set(me, { game, since: Date.now() }); ack(f, { ok: true, matched: false });
   });
   socket.on("game:cancel", () => gQueue.delete(me));
-  socket.on("game:invite", ({ to, game, kind } = {}, f) => {
-    if (!GAME_RULES[game] || !to || to === me || !userSockets.has(to) || gPlaying.has(to) || gPlaying.has(me)) return ack(f, { ok: false, reason: gPlaying.has(to) ? "busy" : "offline" });
+  socket.on("game:invite", ({ to, game, kind, viaChat } = {}, f) => {
+    // viaChat: the invite is a game bubble in a chat, so the friend may open it a little later (they do not have to be online right now)
+    if (!GAME_RULES[game] || !to || to === me || (!viaChat && !userSockets.has(to)) || gPlaying.has(to) || gPlaying.has(me)) return ack(f, { ok: false, reason: gPlaying.has(to) ? "busy" : "offline" });
     const id = nanoid(8); gInvites.set(id, { from: me, to, game, at: Date.now() });
-    setTimeout(() => { const iv = gInvites.get(id); if (iv) { gInvites.delete(id); io.to(`user:${iv.from}`).emit("game:invite-expired", { id }); } }, 120000);
+    setTimeout(() => { const iv = gInvites.get(id); if (iv) { gInvites.delete(id); io.to(`user:${iv.from}`).emit("game:invite-expired", { id }); } }, viaChat ? 30 * 60 * 1000 : 120000);
     const db = readDB(); io.to(`user:${to}`).emit("game:invite", { id, game, kind: kind === "challenge" ? "challenge" : "invite", from: gCard(db, me) }); ack(f, { ok: true, id });
   });
-  socket.on("game:respond", ({ id, accept } = {}) => {
-    const iv = gInvites.get(id); if (!iv || iv.to !== me) return; gInvites.delete(id);
-    if (!accept) return void io.to(`user:${iv.from}`).emit("game:declined", { id, by: gCard(readDB(), me) });
-    if (gPlaying.has(iv.from) || gPlaying.has(me)) return;
+  socket.on("game:respond", ({ id, accept } = {}, f) => {
+    const iv = gInvites.get(id); if (!iv || iv.to !== me) return ack(f, { ok: false, reason: "expired" });
+    if (!accept) { gInvites.delete(id); ack(f, { ok: true }); return void io.to(`user:${iv.from}`).emit("game:declined", { id, by: gCard(readDB(), me) }); }
+    if (!userSockets.has(iv.from)) return ack(f, { ok: false, reason: "away" }); // the sender is offline: keep the invite so they can try again
+    if (gPlaying.has(iv.from) || gPlaying.has(me)) return ack(f, { ok: false, reason: "busy" });
+    gInvites.delete(id); ack(f, { ok: true });
     io.to(`user:${iv.from}`).emit("game:accepted", { id, by: gCard(readDB(), me) }); gStart(iv.game, iv.from, me);
   });
   socket.on("game:move", ({ room: rid, move } = {}) => {
