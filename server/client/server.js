@@ -195,21 +195,40 @@ function publicUser(u) {
     business: u.business || undefined, // optional: { category, address, hours, open } for business accounts
   };
 }
-// Group members only see each other's name/photo/about, never phone numbers or emails.
-const memberView = (u, withContact) => (u ? { id: u.id, verified: isVerified(u), name: isCreator(u) ? "letschatafrica" : u.name, initials: isCreator(u) ? "LA" : u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}) } : null);
+// ---- which country each person is chatting from (flag on their avatar in the Chat Room only) ----
+// Country comes from, strongest first: the connection (a country header from the host/CDN), the phone's time zone, the phone's language,
+// and finally the country code of their phone number. Only the country is kept, never an IP address.
+const GEO = require("./geo");
+const GEO_RANK = { lang: 1, tz: 2, ip: 3 }, GEO_DAY = 24 * 3600 * 1000;
+const userCountry = (u) => (u && (u.country || countryOf(u))) || "";
+// remembers where a person is chatting from; returns true when the record changed (the caller saves the database)
+function noteCountry(db, u, cc, src) {
+  if (!u || !cc || !GEO_RANK[src]) return false;
+  const now = Date.now(), recent = now - (u.countryAt || 0) < 3 * GEO_DAY;
+  if (u.country && recent && (GEO_RANK[u.countrySrc] || 0) > GEO_RANK[src]) return false; // a weaker guess never overrides recent, better evidence
+  if (u.country === cc && u.countrySrc === src && now - (u.countryAt || 0) < GEO_DAY / 2) return false; // nothing new (saves a database write)
+  u.country = cc; u.countrySrc = src; u.countryAt = now;
+  return true;
+}
+// Group members only see each other's name/photo/about, never phone numbers or emails. The Chat Room also shows each member's country.
+const memberView = (u, withContact, withCountry) => (u ? { id: u.id, verified: isVerified(u), name: isCreator(u) ? "letschatafrica" : u.name, initials: isCreator(u) ? "LA" : u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}), ...(withCountry ? { country: userCountry(u) } : {}) } : null);
+// who may change a group: its admin; in the Chat Room only the creator account (CREATOR_EMAILS), nobody else
+const isGroupBoss = (db, c, uid) => (c.chatRoom ? isCreator(db.users.find((u) => u.id === uid)) : c.adminId === uid);
 function groupView(db, c, uid, preMsgs) {
-  const msgs = preMsgs || db.messages.filter((m) => m.conversationId === c.id);
+  let msgs = preMsgs || db.messages.filter((m) => m.conversationId === c.id);
+  if (c.chatRoom) msgs = msgs.filter((m) => !m.bot && !m.ai); // Chat Room: no AI messages (old ones are hidden, not deleted)
+  const boss = isGroupBoss(db, c, uid); // the admin (in the Chat Room: the creator)
   return {
-    id: c.id, isGroup: true, name: c.name, adminId: c.adminId, description: c.description || "",
+    id: c.id, isGroup: true, name: c.name, adminId: c.chatRoom && boss ? uid : c.adminId, description: c.description || "",
     avatar: c.avatar ? `/api/v1/groups/${c.id}/avatar?v=${c.avatarVersion || 1}` : null,
-    dmRequests: (c.dmRequests || []).filter((r) => (c.adminId === uid ? r.status === "pending" : r.from === uid)),
+    dmRequests: (c.dmRequests || []).filter((r) => (boss ? r.status === "pending" : r.from === uid)),
     members: (c.chatRoom && c.participantIds.length > 300
       ? [...c.participantIds].sort((a, b) => (b === uid) - (a === uid) || (userSockets.has(b) ? 1 : 0) - (userSockets.has(a) ? 1 : 0)).slice(0, 300)
-      : c.participantIds).map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
+      : c.participantIds).map((id) => memberView(db.users.find((u) => u.id === id), boss, !!c.chatRoom)).filter(Boolean),
     ...(c.chatRoom ? { chatRoom: true, memberCount: c.participantIds.length } : {}),
-    inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
+    inviteCode: boss ? c.inviteCode : undefined, // only the admin ever receives the link
     disappearAfter: c.disappearAfter || 0,
-    ai: c.ai && c.ai.on ? { on: true, rules: c.ai.rules || [] } : { on: false },
+    ai: !c.chatRoom && c.ai && c.ai.on ? { on: true, rules: c.ai.rules || [] } : { on: false }, // the Chat Room never has an AI moderator
     pinnedMsgs: livePins(c, msgs),
     lastMessage: lite(receiptView(db, msgs[msgs.length - 1], db.users.find((u) => u.id === uid) || { id: uid }, c)) || null,
     unread: msgs.filter((m) => m.senderId !== uid && !(m.readBy || []).includes(uid)).length,
@@ -474,6 +493,31 @@ function setListingRemoved(value) {
 app.post("/api/creator/listings/:id/remove", authMiddleware, creatorOnly, setListingRemoved(true));
 app.post("/api/creator/listings/:id/restore", authMiddleware, creatorOnly, setListingRemoved(false));
 // Announcement = push notification to every device that has notifications on (needs the VAPID keys on the server).
+// ---- Tools > How to: YouTube videos. Only the creator can post or remove them; everybody can watch (stored in the creator's user record) ----
+function ytId(url) {
+  const m = /^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})(?:[?&#/]|$)/i.exec(String(url || "").trim());
+  return m ? m[1] : "";
+}
+function howtoOf(db) { const boss = db.users.find((u) => isCreator(u)); return { boss, list: boss ? (Array.isArray(boss.howto) ? boss.howto : (boss.howto = [])) : [] }; }
+const howtoView = (list) => list.map((v) => ({ id: v.id, title: v.title, url: v.url, vid: v.vid, time: v.time }));
+app.get("/api/howto", authMiddleware, (req, res) => res.json({ videos: howtoView(howtoOf(readDB()).list) }));
+app.post("/api/creator/howto", authMiddleware, creatorOnly, (req, res) => {
+  const title = String(req.body.title || "").replace(/\s+/g, " ").trim().slice(0, 80), vid = ytId(req.body.url);
+  if (!title) return res.status(400).json({ error: "Type a title for the video" });
+  if (!vid) return res.status(400).json({ error: "Paste a YouTube link (youtube.com or youtu.be)" });
+  const db = readDB(), { boss, list } = howtoOf(db);
+  if (!boss) return res.status(404).json({ error: "Creator account not found" });
+  if (list.length >= 30) return res.status(400).json({ error: "You can keep up to 30 videos. Remove one first." });
+  list.unshift({ id: nanoid(8), title, vid, url: "https://www.youtube.com/watch?v=" + vid, time: Date.now() });
+  writeDB(db); res.json({ videos: howtoView(list) });
+});
+app.delete("/api/creator/howto/:id", authMiddleware, creatorOnly, (req, res) => {
+  const db = readDB(), { boss, list } = howtoOf(db);
+  if (!boss) return res.status(404).json({ error: "Creator account not found" });
+  const i = list.findIndex((v) => v.id === req.params.id);
+  if (i >= 0) { list.splice(i, 1); writeDB(db); }
+  res.json({ videos: howtoView(list) });
+});
 app.post("/api/creator/announce", authMiddleware, creatorOnly, async (req, res) => {
   const title = String((req.body && req.body.title) || "").trim().slice(0, 80);
   const body = String((req.body && req.body.body) || "").trim().slice(0, 300);
@@ -824,11 +868,12 @@ function pushMessage(db, convo, message, senderId) {
     const u = db.users.find((x) => x.id === id);
     if (!u || !(u.pushSubs || []).length || (u.blocked || []).includes(senderId)) continue;
     if (mutedOf(db, u)[convo.id] !== undefined) continue; // this chat is muted for that person
-    if (convo.chatRoom && !(message.mentions || []).includes(id)) continue; // Chat Room: only people who are @mentioned get a push
+    const repliedToMe = !!(message.replyTo && message.replyTo.senderId === id);
+    if (convo.chatRoom && !(message.mentions || []).includes(id) && !repliedToMe) continue; // Chat Room: only people who are @mentioned or replied to get a push
     for (const sub of u.pushSubs) {
       if (convo.isGroup && sub.groups === false) continue;
       const mentioned = (message.mentions || []).includes(id);
-      const body = sub.preview === false ? (mentioned ? "Mentioned you" : "New message") : (mentioned ? "\uD83D\uDCE3 Mentioned you: " : "") + String(message.text || "New message").slice(0, 140);
+      const body = sub.preview === false ? (mentioned ? "Mentioned you" : repliedToMe ? "Replied to you" : "New message") : (mentioned ? "\uD83D\uDCE3 Mentioned you: " : repliedToMe ? "\u21A9\uFE0F Replied to you: " : "") + String(message.text || "New message").slice(0, 140);
       webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "conv-" + convo.id, url: "./", ai: !!message.ai }), { TTL: 86400, urgency: "high" })
         .catch((err) => {
           if (err && (err.statusCode === 404 || err.statusCode === 410)) { // device unsubscribed: forget it
@@ -932,6 +977,7 @@ app.get("/api/users/lookup", authMiddleware, (req, res) => {
 app.get("/api/conversations", authMiddleware, (req, res) => {
   const db = readDB();
   let roomChanged = false; try { roomChanged = joinChatRoom(db, req.user.id); } catch (e) { console.error("chat room join failed", e.message); }
+  try { if (noteCountry(db, db.users.find((u) => u.id === req.user.id), GEO.fromHeaders(req.headers), "ip")) roomChanged = true; } catch (e) { console.error("country note failed", e.message); }
   if (purgeExpiredMessages(db) || roomChanged) writeDB(db);
   const mine = db.conversations.filter((c) => c.participantIds.includes(req.user.id));
   // one pass over the messages instead of one pass per chat (this endpoint runs after every incoming message)
@@ -994,7 +1040,7 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
     return res.status(404).json({ error: "Conversation not found" });
   }
   const swept = purgeExpiredMessages(db);
-  const all = db.messages.filter((m) => m.conversationId === req.params.id);
+  const all = db.messages.filter((m) => m.conversationId === req.params.id && !(convo.chatRoom && (m.bot || m.ai))); // Chat Room: old AI messages stay hidden
   let changed = swept > 0;
   const newlyRead = [];
   for (const m of all) {
@@ -1011,7 +1057,8 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const since = Number(req.query.since) || 0; // ?since=<ms>: the first `limit` messages from that moment on (jump to an old search result)
   const older = all.filter((m) => m.time < before);
   const page = since ? all.filter((m) => m.time >= since).slice(0, limit) : older.slice(-limit);
-  res.json({ messages: page.map((m) => stripViewOnce(receiptView(db, m, req.user, convo))), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
+  const senderCache = new Map();
+  res.json({ messages: page.map((m) => roomSender(db, convo, stripViewOnce(receiptView(db, m, req.user, convo)), senderCache)), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
 });
 
 // ---- link previews: title, description and picture of a web page that was pasted into a chat ----
@@ -1160,16 +1207,24 @@ function joinChatRoom(db, userId) {
   if (!u || u.suspended) return false;
   const { c, created } = ensureChatRoom(db);
   let changed = created;
+  if (c.ai) { delete c.ai; changed = true; } // the Chat Room has no AI moderator (clears one that was switched on before)
   if (!c.adminId && isCreator(u)) { c.adminId = u.id; changed = true; }
   if (!c.participantIds.includes(userId) && !(c.optedOut || []).includes(userId)) { c.participantIds.push(userId); changed = true; }
   if (created) groupNotice(db, c, "Welcome to the Chat Room \uD83D\uDC4B Everyone on Letschat appears here once they are online. Tap @ to mention a contact and chat with them in this room.", { kind: "welcome" });
   return changed;
 }
+// Chat Room only: phones get 300 members at most, so every message also carries its sender's name and photo (nobody shows as "Former member")
+function roomSender(db, convo, m, cache) {
+  if (!convo || !convo.chatRoom || !m || !m.senderId) return m;
+  let v = cache && cache.get(m.senderId);
+  if (v === undefined) { const u = db.users.find((x) => x.id === m.senderId); v = u ? memberView(u, false, true) : null; if (cache) cache.set(m.senderId, v); }
+  return v ? { ...m, sender: v } : m;
+}
 function adminGroup(req, res) { // returns the group if the caller is its admin, else sends the error
   const db = readDB();
   const c = db.conversations.find((x) => x.id === req.params.id);
   if (!c || !c.isGroup || !c.participantIds.includes(req.user.id)) { res.status(404).json({ error: "Group not found" }); return null; }
-  if (c.adminId !== req.user.id) { res.status(403).json({ error: "Only the group admin can do that" }); return null; }
+  if (!isGroupBoss(db, c, req.user.id)) { res.status(403).json({ error: c.chatRoom ? "Only the creator can modify the Chat Room" : "Only the group admin can do that" }); return null; }
   return { db, c };
 }
 app.post("/api/conversations/group", authMiddleware, (req, res) => {
@@ -1247,6 +1302,12 @@ app.post("/api/conversations/:id/dm-requests", authMiddleware, (req, res) => {
   const to = String(req.body.toId || "");
   if (!c || !c.isGroup || !c.participantIds.includes(req.user.id) || !c.participantIds.includes(to) || to === req.user.id) return res.status(404).json({ error: "Member not found in this group" });
   const reqs = c.dmRequests || (c.dmRequests = []);
+  if (c.chatRoom) { // Chat Room: everyone can message anyone privately, no approval (unless that person blocked you)
+    const other = db.users.find((u) => u.id === to);
+    if (other && (other.blocked || []).includes(req.user.id)) return res.status(403).json({ error: "This person isn't available for a private chat" });
+    ensureDM(db, req.user.id, to); writeDB(db);
+    return res.json({ conversation: groupView(db, c, req.user.id) });
+  }
   if (c.adminId === req.user.id || c.adminId === to) { ensureDM(db, req.user.id, to); writeDB(db); return res.json({ conversation: groupView(db, c, req.user.id) }); }
   if (reqs.some((r) => r.status === "pending" && r.from === req.user.id && r.to === to)) return res.status(400).json({ error: "Request already sent" });
   reqs.push({ id: nanoid(8), from: req.user.id, to, status: "pending", time: Date.now() });
@@ -1790,7 +1851,7 @@ function aiCompose(owner, incoming) {
 }
 // "Reply even when I am online": once the AI is on it chats with people whether the owner is online, away or offline. The creator account has it on by default.
 const aiAlways = (u) => !!u && !!u.ai && (u.ai.always === true || (u.ai.always === undefined && isCreator(u)));
-const AI_SEND_GAP = 45 * 1000, AI_MAX_PER_WINDOW = 6, AI_WINDOW = 6 * 60 * 60 * 1000;
+const AI_SEND_GAP = 3 * 1000, AI_MAX_PER_WINDOW = 1000, AI_WINDOW = 6 * 60 * 60 * 1000;
 // answer for an offline person who has the AI on (direct chats, and group messages that @mention them)
 function aiRespond(db, convo, incoming) {
   if (incoming.auto || incoming.bot || incoming.system || !aiPlain(incoming)) return;
@@ -1910,7 +1971,8 @@ function aiModerate(db, convo, message) {
 // one hook called after every sent message
 function aiAfterSend(db, convo, message, userId) {
   if (message.system || message.bot) return;
-  const askAi = /^\s*(?:@ai|\/ai|@letschat ?ai)\b[\s:,-]*([\s\S]{2,300})$/i.exec(String(message.text || ""));
+  if (convo.chatRoom) return; // Chat Room: no AI of any kind (no @ai answers, no moderator, no assistant replies, no learning from room messages)
+  const askAi = /^\s*(?:@ai|\/ai|@letschat ?ai)\b[\s:,-]*([\s\S]{2,4000})$/i.exec(String(message.text || ""));
   if (askAi && aiPlain(message)) aiPublicAsk(convo.id, message, askAi[1]).catch((e) => console.error("ai ask failed", e.message));
   if (convo.isGroup) { aiModerate(db, convo, message); }
   const sender = db.users.find((u) => u.id === userId);
@@ -2061,17 +2123,22 @@ async function aiAgentReply(convoId, incoming, ownerId) {
 const aiAskLog = new Map();
 function aiAskOk(uid) {
   const now = Date.now(), l = (aiAskLog.get(uid) || []).filter((t) => now - t < 3600000);
-  if (l.length >= 20 || (l.length && now - l[l.length - 1] < 4000)) return false;
+  /* v24: no per-person @ai cap */
   l.push(now); aiAskLog.set(uid, l); return true;
 }
 async function aiPublicAsk(convoId, message, question) {
-  const q = aiClip(question, 300), uid = message.senderId;
+  const q = aiClip(question, 4000), uid = message.senderId;
   if (!aiAskOk(uid)) return;
   let text;
   if (AI_PRIVATE.test(q)) text = "Please keep passwords, codes and personal numbers private. I can't help with those.";
   else {
-    const r = await aiTimeout(KB.answer(q, {}), 18000).catch(() => null);
-    text = r && r.text ? r.text + (r.sources && r.sources.length ? "\nSource: " + r.sources.join(", ") : "") : "I couldn't find a reliable answer to that yet. Try asking it a different way.";
+    let out = null; // the LetsChat AI robot: researches the question first, then answers from the notes
+    try { out = await aiTimeout(BOT._reply(readDB(), { id: uid, botChat: [] }, q, {}), 40000); } catch (e) { out = null; }
+    if (out && out.parts && out.parts.length) text = out.parts.join("\n\n");
+    else {
+      const r = await aiTimeout(KB.answer(q, {}), 18000).catch(() => null);
+      text = r && r.text ? r.text + (r.sources && r.sources.length ? "\nSource: " + r.sources.join(", ") : "") : "I couldn't find a reliable answer to that yet. Try asking it a different way.";
+    }
   }
   const db = readDB(), convo = db.conversations.find((c) => c.id === convoId);
   if (!convo) return;
@@ -2182,10 +2249,10 @@ app.get("/api/ai/ask", authMiddleware, async (req, res) => {
 const botLog = new Map();
 app.get("/api/bot/chat", authMiddleware, (req, res) => res.json({ messages: BOT.history(req.user.id), canTrain: isCreator(req.user), llm: KB.llmReady() }));
 app.post("/api/bot/chat", authMiddleware, async (req, res) => {
-  const text = String(req.body.text || "").trim().slice(0, 1000);
+  const text = String(req.body.text || "").trim().slice(0, 8000);
   if (!text) return res.status(400).json({ error: "Type something first" });
   const now = Date.now(), log = (botLog.get(req.user.id) || []).filter((t) => now - t < 60000);
-  if (log.length >= 12) return res.status(429).json({ error: "You're sending messages very fast. Give me a moment to catch up." });
+  /* v24: no chat rate limit */
   log.push(now); botLog.set(req.user.id, log);
   try { res.json(await BOT.chat(req.user.id, text)); } catch (e) { console.error("bot chat failed", e.message); res.status(500).json({ error: "The AI could not answer right now" }); }
 });
@@ -2239,11 +2306,13 @@ function aiGroupView(db, c, uid) {
 app.get("/api/conversations/:id/ai", authMiddleware, (req, res) => {
   const db = readDB(), c = db.conversations.find((x) => x.id === req.params.id);
   if (!c || !c.isGroup || !c.participantIds.includes(req.user.id)) return res.status(404).json({ error: "Group not found" });
+  if (c.chatRoom) return res.json({ on: false, rules: [], words: [] }); // no AI in the Chat Room
   res.json(aiGroupView(db, c, req.user.id));
 });
 app.put("/api/conversations/:id/ai", authMiddleware, (req, res) => {
   const g = adminGroup(req, res); if (!g) return;
   const { db, c } = g;
+  if (c.chatRoom) return res.status(400).json({ error: "AI is not available in the Chat Room" });
   const old = c.ai || {};
   const rules = req.body.rules !== undefined ? aiList(req.body.rules, 20, 200) : (old.rules || []);
   const words = req.body.words !== undefined ? aiList(req.body.words, 50, 30) : (old.words || []);
@@ -2260,6 +2329,7 @@ app.put("/api/conversations/:id/ai", authMiddleware, (req, res) => {
 app.post("/api/conversations/:id/ai/clear", authMiddleware, (req, res) => { // admin: forgive a warned or removed person
   const g = adminGroup(req, res); if (!g) return;
   const { db, c } = g, id = String(req.body.userId || "");
+  if (c.chatRoom) return res.status(400).json({ error: "AI is not available in the Chat Room" });
   if (c.ai) { if (c.ai.warns) delete c.ai.warns[id]; c.ai.banned = (c.ai.banned || []).filter((x) => x !== id); }
   writeDB(db);
   res.json(aiGroupView(db, c, req.user.id));
@@ -2889,7 +2959,7 @@ function handleSend(userId, { conversationId, text, audio, duration, file, reply
       if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
       if (other && (other.blocked || []).includes(userId)) return fail("This message couldn't be delivered.");
     }
-    if (convo.chatRoom) { const t0 = Date.now(); if (t0 - (roomLast.get(userId) || 0) < 1500) return fail("Slow down a little, the Chat Room is busy"); roomLast.set(userId, t0); }
+    if (convo.chatRoom) { const t0 = Date.now(), log = (roomLast.get(userId) || []).filter((x) => t0 - x < 10000); if (log.length >= 12) return fail("You're sending very fast, wait a few seconds"); log.push(t0); roomLast.set(userId, log); } // free flow: up to 12 messages per 10 s
     // @mentions (groups only): only current members, never yourself, at most 20
     const mentionIds = convo.isGroup && Array.isArray(mentions) ? [...new Set(mentions.filter((id) => typeof id === "string" && id !== userId && convo.participantIds.includes(id)))].slice(0, 20) : [];
     // reply: keep a small snapshot of the quoted message so the quote still shows if the original is deleted later
@@ -2931,7 +3001,7 @@ function handleSend(userId, { conversationId, text, audio, duration, file, reply
     convo.updatedAt = Date.now();
     writeDB(db);
 
-    io.to(`conv:${conversationId}`).emit("message:new", stripViewOnce(message));
+    io.to(`conv:${conversationId}`).emit("message:new", roomSender(db, convo, stripViewOnce(message)));
     try { pushMessage(db, convo, message, userId); } catch (e) { console.error("push failed", e.message); }
     if (ack) ack({ message: stripViewOnce(message) });
     try { autoReply(db, convo, message); } catch (e) { console.error("auto reply failed", e.message); }
@@ -2966,6 +3036,14 @@ io.on("connection", (socket) => {
   const db = readDB();
   let joinedRoom = false;
   try { if (joinChatRoom(db, userId)) { writeDB(db); joinedRoom = true; } } catch (e) { console.error("chat room join failed", e.message); }
+  try { if (noteCountry(db, db.users.find((u) => u.id === userId), GEO.fromHeaders(socket.handshake.headers), "ip")) writeDB(db); } catch (e) { console.error("country note failed", e.message); }
+  // the app reports its time zone and language: used for the Chat Room flag when the host gives no country header
+  socket.on("geo:set", ({ tz, lang } = {}) => {
+    try {
+      const d = readDB(), me = d.users.find((u) => u.id === userId), viaTz = GEO.fromTimezone(tz);
+      if (noteCountry(d, me, viaTz || GEO.fromLanguage(lang), viaTz ? "tz" : "lang")) writeDB(d);
+    } catch (e) { console.error("country report failed", e.message); }
+  });
   const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
   for (const c of myConvos) socket.join(`conv:${c.id}`);
   if (joinedRoom) io.to(`user:${userId}`).emit("conversation:added", { id: CHAT_ROOM_ID });
@@ -3037,7 +3115,7 @@ io.on("connection", (socket) => {
     const db = readDB();
     const convo = db.conversations.find((c) => c.id === conversationId);
     if (!convo || !convo.participantIds.includes(userId)) return fail("Conversation not found");
-    if (convo.isGroup && convo.adminId !== userId) return fail("Only the group admin can change this");
+    if (convo.isGroup && !isGroupBoss(db, convo, userId)) return fail(convo.chatRoom ? "Only the creator can modify the Chat Room" : "Only the group admin can change this");
     const s = Number(seconds) || 0;
     if (!DISAPPEAR_CHOICES.includes(s)) return fail("Choose a valid timer");
     if ((convo.disappearAfter || 0) !== s) {
@@ -3132,6 +3210,7 @@ io.on("connection", (socket) => {
     if (!m || !convo || !convo.participantIds.includes(userId)) return fail("Message not found");
     if (m.deleted) return fail("This message was deleted");
     if (m.viewOnce) return fail("View once media can't be pinned");
+    if (convo.chatRoom && !isGroupBoss(db, convo, userId)) return fail("Only the creator can modify the Chat Room"); // pins change what everyone sees at the top of the room
     let list = (convo.pinnedMsgs || []).filter((x) => x.id !== m.id);
     if (pin !== false) {
       const text = m.audio ? "🎤 Voice note" : m.file ? (String(m.file.mime).startsWith("image/") ? "📷 Photo" : "📎 " + m.file.name) : String(m.text || "").slice(0, 100);

@@ -155,6 +155,15 @@ async function lookup(question) {
   return a && a.kind === "ddg" && (b ? a.text.length >= 60 : true) ? a : b || a;
 }
 
+// every source that has something for the question, so the answer can be cross-checked (specific source first; otherwise DuckDuckGo AND Wikipedia together)
+async function lookupAll(question) {
+  const q = scrub(question); if (q.length < 3) return [];
+  const loc = localAnswer(q); if (loc) return [loc];
+  for (const fn of [weather, fx, define]) { const r = await safe(fn(q)); if (r) return [r]; }
+  const [n, a, b] = await Promise.all([safe(news(q)), safe(ddg(subject(q) || q)), safe(wiki(q))]);
+  return [n, b, a].filter(Boolean);
+}
+
 // ---------- free AI (optional) ----------
 // Free AI providers (OpenAI-compatible chat/completions). Each one is used only when its key is set in Render > Environment; they are tried in order and
 // a provider that is out of quota or down is skipped for a few minutes, so one failing key never slows the robot down.
@@ -301,4 +310,4 @@ function stats() {
     ai: providers().map((p) => p.n), top: Object.values(store.asked).sort((a, b) => b.n - a.n).slice(0, 10).map((x) => ({ q: x.q, n: x.n })),
   };
 }
-module.exports = { geminiSearch, answer, lookup, loadNews, refresh, start, stats, llmReady, isQuestion, scrub, tokens, topFacts, chat, _store: () => store };
+module.exports = { geminiSearch, answer, lookup, lookupAll, loadNews, refresh, start, stats, llmReady, isQuestion, scrub, tokens, topFacts, chat, _store: () => store };

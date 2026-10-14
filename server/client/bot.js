@@ -233,7 +233,7 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
   function system(lab, emotion, skills, pidgin) {
     return "You are LetsChat AI, the built-in AI assistant of Letschat Africa, a chat app used across Africa (mostly Nigeria), built by the developer Abdullahi Salawu. Right now it is " + lagosNow() + ". " +
       "CAPABILITY: you are a full-power text AI, as capable as the best AI assistants. You can answer any question, explain and teach, write and edit (messages, emails, posts, captions, essays, stories, poems, speeches, business plans), summarise, translate, solve maths and logic, write, explain and debug code, analyse and compare products, plan, brainstorm, give advice, role-play and simply chat. Never say you cannot do something that text can do. Do the task fully. " +
-      "ACCURACY: do research for every factual question. Use the NEWS NOTES, WEB NOTES, APP INFO and FACTS below and any search you can run. Anything that changes with time (news, scores, prices, who holds an office, dates, exchange rates) must come from those notes or a search result, never from memory. If you could not confirm something, say so plainly and say what you did find. Never invent facts, numbers, quotes, links or sources. Medical, legal and money decisions: give solid general information and recommend a qualified professional for the decision. " +
+      "ACCURACY: do research for every factual question. Use the NEWS NOTES, WEB NOTES, APP INFO and FACTS below and any search you can run. Anything that changes with time (news, scores, prices, who holds an office, dates, exchange rates) must come from those notes or a search result, never from memory. If you could not confirm something, say so plainly and say what you did find. Never invent facts, numbers, quotes, links or sources. The NEWS NOTES and WEB NOTES (when present) were researched just now for this exact question: build the answer from them, compare the sources, and if they disagree, look thin or look outdated say so instead of guessing. Lead with the direct answer, then the key details. Medical, legal and money decisions: give solid general information and recommend a qualified professional for the decision. " +
       "STYLE: sound like a real, warm person: natural words, contractions, feelings that fit (happy for good news, caring when someone is sad, patient when confused, calm when someone is rude). Use emojis only where they fit (one or two at most, often none). Match the user's language and style" + (pidgin ? " (the user writes Nigerian Pidgin, so answer in friendly Pidgin)" : " (English, Pidgin, Hausa, Yoruba, Igbo, French...)") + ". Casual chat: short messages. A real question or task: give a complete, well organised answer of whatever length it needs (plain numbered steps or dashes are fine). " +
       "RESPECT: treat everybody with respect; never insult, mock or judge; stay calm and kind with rude people and politely set a boundary. " +
       "TEACHING, PRODUCTS, MONEY: when teaching a skill give a clear step-by-step path with a first small task. For a product say what it is, who it suits, honest pros and cons and cheaper alternatives, no hype. For making money give legitimate, realistic options with steps, effort and risks, never guaranteed income, and warn about scams (double-your-money, Ponzi, fake investments, advance-fee fraud). Never ask for or accept passwords, OTPs, PINs or card details. " +
@@ -294,8 +294,29 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
     return (out) => { const o = tokens(out); return out.trim().length > 1 && !recent.some((r) => r.length && jacc(o, r) > 0.7); };
   };
 
+  // ---------- research for every question, immediately ----------
+  const NO_RESEARCH = /^\s*(write|draft|compose|rewrite|translate|proofread|fix|debug|code|generate|create|make me|summari[sz]e|paraphrase)\b/i;
+  function needsResearch(t) {
+    t = String(t || "").trim();
+    if (t.length < 6 || (CHITCHAT.test(t) && t.length < 40) || SHARING_SECRET.test(t) || NO_RESEARCH.test(t)) return false;
+    return true; // v24: every real question (anything that is not chit-chat, a secret, or a pure writing/code task) is researched live
+  }
+  // asks every free source at once (weather, rates, dictionary, Wikipedia, DuckDuckGo and, for time-sensitive questions, news) so the AI answers from fresh, cross-checked notes
+  async function researchNow(t) {
+    const q = KB.scrub(t) || String(t), R = { web: [], news: [], sources: [] };
+    const newsy = true; // v24: always add fresh news + a "latest" search, so answers use the newest information
+    const qs = newsy ? [q, "latest " + q] : [q];
+    const addSrc = (x) => { if (x && !R.sources.includes(x)) R.sources.push(x); };
+    await Promise.all([
+      ...qs.map(async (x) => { const rs = await withTimeout(KB.lookupAll(x).catch(() => []), 8000); for (const r of rs || []) if (r && r.text && !R.web.some((w) => w.text === r.text)) { R.web.push(r); (r.sources || []).forEach(addSrc); } }),
+      ...(newsy ? qs.map(async (x) => { const n = await withTimeout(News.search(x, 6).catch(() => []), 8000); for (const it of n || []) if (!R.news.some((y) => y.title === it.title)) { R.news.push(it); addSrc(it.src); } }) : []),
+    ]);
+    R.web = R.web.slice(0, 4); R.news = R.news.slice(0, 8);
+    return R;
+  }
+
   async function reply(db, user, text, opts) {
-    const t = String(text || "").trim().slice(0, 1000);
+    const t = String(text || "").trim().slice(0, 8000);
     const { lab } = labOf(db);
     const emotion = detectEmotion(t), pidgin = PIDGIN.test(t);
     let react = reactionFor(t);
@@ -308,13 +329,15 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
       return { parts: ["On it! 🔎 I'm researching \"" + topic + "\" broadly now: the basics, the latest news, key facts, opportunities and risks.", "I'll send you a full report here in a few minutes, and I'll keep updating myself on it every day and tell you what changes."], react: "👍" };
     }
     const app = appMatches(t, 3), mine = knowledgeOf(lab, t), skills = skillsFor(lab, t, emotion);
-    { // a question it already answered well before (and nobody has marked wrong) is answered instantly, even if every AI engine is busy
+    let cachedHit = null;
+    { // a question it already answered well before (and nobody has marked wrong) is kept as a fallback for when every AI engine and online source fails
       const a0 = autoOf(lab);
       if (a0.on && a0.inApp && !(opts && opts.creator && CHAT_ONLY_CMD.test(t)) && !CHITCHAT.test(t) && KB.isQuestion(t) && !TIME_SENSITIVE.test(t) && !PERSONAL.test(t) && learnable(t)) {
         const hit = qaFind(a0, t);
-        if (hit && hit.n >= 2) { a0.stats.qaHits++; return { parts: [hit.a], react: react || "", by: "", cached: true }; }
+        if (hit && hit.n >= 2) cachedHit = hit; // only a fallback now: every real question is researched fresh first
       }
     }
+    const researchP = (!app.length && needsResearch(t)) ? researchNow(t) : Promise.resolve(null); // research starts immediately, in parallel
     const cats = News.detect(t);
     const wantsPredict = PREDICT.test(t) && /\b(match|game|league|cup|final|fixture|vs|versus|win|team|club|football|nba|f1|fight|season|title)\b/i.test(t);
     if (wantsPredict && !cats.includes("sports")) cats.push("sports");
@@ -323,7 +346,13 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
     if (cats.length) { const lists = await Promise.all(cats.map((c) => News.top(c, 6))); const seen = new Set(); newsItems = lists.flat().filter((x) => !seen.has(x.title) && seen.add(x.title)).slice(0, 10); }
     else if (!chitchat && KB.isQuestion(t) && /\b(who|what happened|why did|is it true|latest|today|yesterday|this week|just|arrested|died|dead|won|lost|score|price of)\b/i.test(t)) newsItems = await News.search(t, 5).catch(() => []);
     if (wantsPredict) { const extra = await News.search(t.replace(/\b(predict(ion|ions)?|forecast|who (will|go|wan) win|odds)\b/gi, " "), 5).catch(() => []); const seen2 = new Set(newsItems.map((x) => x.title)); newsItems = [...newsItems, ...extra.filter((x) => !seen2.has(x.title))].slice(0, 12); }
-    const ctxBase = (app.length ? "APP INFO:\n- " + app.join("\n- ") + "\n" : "") + (mine.length ? "FACTS FROM THE DEVELOPER, DAILY RESEARCH AND REPORTS:\n- " + mine.join("\n- ") + "\n" : "") + (newsItems.length ? "NEWS NOTES (" + (cats.length ? cats.map((c) => News.labels()[c]).join(", ") : "search results") + "):\n" + News.notes(newsItems) + "\n" : "") + (APP_URL() ? "APP LINK: " + APP_URL() + "\n" : "");
+    const R = await researchP;
+    if (R) {
+      const seenN = new Set(newsItems.map((x) => x.title));
+      newsItems = [...newsItems, ...R.news.filter((x) => !seenN.has(x.title))].slice(0, 12);
+      if (R.web.length) web = { text: R.web.map((w) => w.text).join(" || "), sources: [...new Set(R.web.flatMap((w) => w.sources || []))].filter(Boolean) };
+    }
+    const ctxBase = (app.length ? "APP INFO:\n- " + app.join("\n- ") + "\n" : "") + (mine.length ? "FACTS FROM THE DEVELOPER, DAILY RESEARCH AND REPORTS:\n- " + mine.join("\n- ") + "\n" : "") + (newsItems.length ? "NEWS NOTES (" + (cats.length ? cats.map((c) => News.labels()[c]).join(", ") : "search results") + "):\n" + News.notes(newsItems) + "\n" : "") + (web ? "WEB NOTES (" + (web.sources || []).join(", ") + ") researched just now for this question: " + web.text + "\n" : "") + (APP_URL() ? "APP LINK: " + APP_URL() + "\n" : "");
     const hist = chatOf(user).slice(-14).filter((m) => !m.digest && m.text).filter((m, i, a) => m.from === "me" || !a.some((x) => x.from === "me" && jacc(tokens(x.text), tokens(m.text)) > 0.7)).map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 700) }));
     const myHint = meHint(user); if (myHint) skills.push(myHint);
     const accept = echoGuard(user, t);
@@ -338,24 +367,27 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
     if (KB.llmReady() && !chitchat) {
       // 1) real Gemini with Google Search: it researches the question itself
       const gMsgs = [{ role: "system", content: system(lab, emotion, skills, pidgin) + "\n\n" + (ctxBase || "(no extra notes; search the web yourself)") }, ...hist, { role: "user", content: t }];
-      const g = await KB.geminiSearch(gMsgs, { max: 1800, temp: 0.6, timeout: 28000, accept });
+      const g = await KB.geminiSearch(gMsgs, { max: 8000, temp: 0.6, timeout: 28000, accept });
       if (g) finish(g, ctxBase);
       if (g && sources.length && parts.length) { const names = [...new Set(sources.map((x) => x.title).filter(Boolean))].slice(0, 3); if (names.length && !/\bsources?:/i.test(parts[parts.length - 1])) parts[parts.length - 1] += "\n\nSources: " + names.join(", "); }
     }
     if (!parts && KB.llmReady()) {
       // 2) the other AIs in order (Gemini, Groq, ...) with notes gathered from the free online sources
-      if (!chitchat && !app.length) { try { web = await Promise.race([KB.lookup(t), new Promise((r) => setTimeout(() => r(null), 9000))]); } catch (e) { web = null; } }
-      const ctx = ctxBase + (web ? "WEB NOTES (" + (web.sources || []).join(", ") + "): " + web.text + "\n" : "");
+      let ctx = ctxBase;
+      if (!web && !chitchat && !app.length) { try { web = await withTimeout(KB.lookup(t), 9000); } catch (e) { web = null; } if (web) ctx += "WEB NOTES (" + (web.sources || []).join(", ") + "): " + web.text + "\n"; }
       const messages = [{ role: "system", content: system(lab, emotion, skills, pidgin) + "\n\n" + (ctx || "(no notes for this message)") }, ...hist, { role: "user", content: KB.scrub(t) || t }];
-      const r = await KB.chat(messages, { max: 1500, temp: 0.6, timeout: 25000, budget: 70000, accept });
+      const r = await KB.chat(messages, { max: 8000, temp: 0.6, timeout: 25000, budget: 70000, accept });
       if (r) finish(r, ctx);
     }
+    if (parts && R && !/\bsources?:/i.test(parts.join("\n"))) { const names = R.sources.filter(Boolean).slice(0, 3); if (names.length) parts[parts.length - 1] += "\n\nSources: " + names.join(", "); }
+    let fromCache = false;
+    if (!parts && cachedHit && !web && !newsItems.length) { parts = [cachedHit.a]; fromCache = true; }
     if (!parts) {
       if (!web && !chitchat && !app.length && !newsItems.length && wantsWeb(t)) { try { web = await Promise.race([KB.lookup(t), new Promise((r) => setTimeout(() => r(null), 8000))]); } catch (e) { web = null; } }
       parts = offline(t, emotion, app, mine, web, newsItems);
       if (web && web.sources && web.sources.length) parts[parts.length - 1] += "\n(Source: " + web.sources.join(", ") + ")";
     }
-    return { parts: parts.map((p) => clipLong(p, 6000)), react: react || "", by };
+    return { parts: parts.map((p) => clipLong(p, 6000)), react: react || "", by, ...(fromCache ? { cached: true } : {}) };
   }
   const wantsWeb = (t) => !CHITCHAT.test(t.trim()) && (KB.isQuestion(t) || t.length > 30) && !SHARING_SECRET.test(t);
   function appMatches(text, n) {
@@ -369,7 +401,7 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
     if (!u0) throw new Error("Not found");
     const out = await reply(db0, u0, text, { creator: isCreator(u0) });
     const db = readDB(), u = db.users.find((x) => x.id === userId) || u0, h = chatOf(u), t0 = now();
-    h.push({ id: nanoid(8), from: "me", text: String(text).trim().slice(0, 1000), t: t0, ...(out.react ? { reaction: out.react } : {}) });
+    h.push({ id: nanoid(8), from: "me", text: String(text).trim().slice(0, 8000), t: t0, ...(out.react ? { reaction: out.react } : {}) });
     out.parts.forEach((p, i) => h.push({ id: nanoid(8), from: "ai", text: p, t: t0 + i + 1 }));
     if (h.length > 80) u.botChat = h.slice(-80);
     try { observe(db, u, String(text).trim(), out); } catch (e) { console.error("observe failed:", e.message); }
