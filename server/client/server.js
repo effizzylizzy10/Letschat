@@ -180,6 +180,8 @@ const isCreator = (u) => !!u && !!u.email && CREATOR_LIST.includes(String(u.emai
 const YT_RE = /(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/i; // only the creator may share YouTube links
 const YT_MSG = "Only the creator can share YouTube links";
 const isVerified = (u) => !!u && (isCreator(u) || !!u.verifiedByCreator || VERIFIED_LIST.some((v) => v === String(u.id).toLowerCase() || (u.email && v === String(u.email).toLowerCase()) || (!v.includes("@") && u.phone && v.replace(/\D/g, "") && v.replace(/\D/g, "") === normalizePhone(u.phone))));
+// Cover photo (the wide banner on a profile): stored separately from the profile photo, so each can be changed on its own.
+function coverUrl(u) { return u && u.cover && u.cover.startsWith("data:image/") ? `/api/v1/users/${u.id}/cover?v=${u.coverVersion || 1}` : null; }
 function publicUser(u) {
   return {
     id: u.id,
@@ -192,6 +194,7 @@ function publicUser(u) {
     initials: u.initials,
     color: u.color,
     avatar: avatarUrl(u),
+    cover: coverUrl(u),
     business: u.business || undefined, // optional: { category, address, hours, open } for business accounts
   };
 }
@@ -211,7 +214,7 @@ function noteCountry(db, u, cc, src) {
   return true;
 }
 // Group members only see each other's name/photo/about, never phone numbers or emails. The Chat Room also shows each member's country.
-const memberView = (u, withContact, withCountry) => (u ? { id: u.id, verified: isVerified(u), name: isCreator(u) ? "letschatafrica" : u.name, initials: isCreator(u) ? "LA" : u.initials, color: u.color, avatar: avatarUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}), ...(withCountry ? { country: userCountry(u) } : {}) } : null);
+const memberView = (u, withContact, withCountry) => (u ? { id: u.id, verified: isVerified(u), name: isCreator(u) ? "letschatafrica" : u.name, initials: isCreator(u) ? "LA" : u.initials, color: u.color, avatar: avatarUrl(u), cover: coverUrl(u), about: u.about, username: u.username || null, ...(withContact ? { phone: u.phone || null, email: u.email || null } : {}), ...(withCountry ? { country: userCountry(u) } : {}) } : null);
 // who may change a group: its admin; in the Chat Room only the creator account (CREATOR_EMAILS), nobody else
 const isGroupBoss = (db, c, uid) => (c.chatRoom ? isCreator(db.users.find((u) => u.id === uid)) : c.adminId === uid);
 function groupView(db, c, uid, preMsgs) {
@@ -295,12 +298,32 @@ app.use((req, res, next) => {
   if (req.url.startsWith("/api/v1")) req.url = "/api" + req.url.slice("/api/v1".length);
   next();
 });
+// Cold-start speed: the server now starts listening the instant the process boots (before the database has loaded), so the host
+// stops showing its own "waking up" gateway error. /api/health answers at once; everything else gets a short 503 + Retry-After
+// until the data is loaded (the app retries automatically), instead of a dropped connection.
+let dbReady = false;
+app.use((req, res, next) => {
+  if (dbReady || req.path === "/api/health" || req.path === "/api/ping") return next();
+  res.setHeader("Retry-After", "2");
+  res.setHeader("Cache-Control", "no-store");
+  if (req.path.startsWith("/api")) return res.status(503).json({ success: false, error: { code: "STARTING", message: "Server is starting, retrying..." } });
+  res.status(503).type("text/plain").send("Letschat is starting. Refresh in a few seconds.");
+});
 // Profile photos: plain image response, registered before the JSON wrapper and rate
 // limiter so a chat list full of avatars never trips the limit. Browsers cache it.
 app.get("/api/users/:id/avatar", (req, res) => {
   const u = readDB().users.find((x) => x.id === req.params.id);
   const m = u && u.avatar && /^data:(image\/(?:jpeg|png));base64,(.+)$/s.exec(u.avatar);
   if (!m) return res.status(404).type("text/plain").send("No photo");
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.type(m[1]).send(Buffer.from(m[2], "base64"));
+});
+
+app.get("/api/users/:id/cover", (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.params.id);
+  const m = u && u.cover && /^data:(image\/(?:jpeg|png));base64,(.+)$/s.exec(u.cover);
+  if (!m) return res.status(404).type("text/plain").send("No cover");
   res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.type(m[1]).send(Buffer.from(m[2], "base64"));
@@ -386,7 +409,8 @@ function authMiddleware(req, res, next) {
   }
 }
 
-app.get("/api/health", (req, res) => res.json({ ok: true, storage: USE_DB ? "supabase" : "file", version: API_VERSION, uptime: Math.round(process.uptime()) }));
+app.get("/api/health", (req, res) => { res.setHeader("Cache-Control", "no-store"); res.json({ ok: true, ready: dbReady, storage: USE_DB ? "supabase" : "file", version: API_VERSION, uptime: Math.round(process.uptime()) }); });
+app.get("/api/ping", (req, res) => { res.setHeader("Cache-Control", "no-store"); res.type("text/plain").send("ok"); });
 
 // Turns a verified Firebase login into a Letschat user + token (shared by /api/auth/firebase and the /lite sign-in page).
 function firebaseSignIn(decoded, nameFromBody) {
@@ -689,7 +713,7 @@ app.patch("/api/me", authMiddleware, (req, res) => {
   const db = readDB();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "User not found" });
-  const { name, about, avatar, username } = req.body;
+  const { name, about, avatar, username, cover } = req.body;
 
   // validate everything first so a bad request changes nothing
   if (name !== undefined) {
@@ -717,6 +741,12 @@ app.patch("/api/me", authMiddleware, (req, res) => {
     if (avatar.length > 1500000) return res.status(400).json({ error: "Profile photo is too large (max about 1 MB)" });
   }
 
+  const newCover = typeof cover === "string" && cover.startsWith("data:");
+  if (newCover) {
+    if (!AVATAR_RE.test(cover) || !looksLikeImage(cover)) return res.status(400).json({ error: "Cover photo must be a JPG or PNG image" });
+    if (cover.length > 1500000) return res.status(400).json({ error: "Cover photo is too large (max about 1 MB)" });
+  }
+
   if (name) {
     user.name = String(name).trim();
     user.initials = initials(user.name);
@@ -727,11 +757,51 @@ app.patch("/api/me", authMiddleware, (req, res) => {
   if (newPhoto) { user.avatar = avatar; user.avatarVersion = Date.now(); }
   else if (avatar === null) { user.avatar = null; user.avatarVersion = Date.now(); }
   // any other avatar value (e.g. the unchanged photo link) is ignored
+  if (newCover) { user.cover = cover; user.coverVersion = Date.now(); }
+  else if (cover === null) { delete user.cover; user.coverVersion = Date.now(); }
   writeDB(db);
 
   const pub = publicUser(user);
   io.emit("user:update", pub); // lets the people you chat with see the new photo right away
   res.json({ user: pub });
+});
+
+// ---- "Media, links, and docs" on your own profile: everything you sent or received across your chats (list only, files load one by one) ----
+app.get("/api/me/media", authMiddleware, (req, res) => {
+  const db = readDB();
+  const mine = new Set(db.conversations.filter((c) => c.participantIds.includes(req.user.id) && !c.chatRoom).map((c) => c.id));
+  const media = [], docs = [], links = [];
+  const msgs = db.messages;
+  for (let i = msgs.length - 1; i >= 0; i--) { // newest first
+    const m = msgs[i];
+    if (!m || m.deleted || !mine.has(m.conversationId)) continue;
+    if (m.file && !m.viewOnce && typeof m.file.data === "string") {
+      const mime = String(m.file.mime || "");
+      const item = { id: m.id, conv: m.conversationId, name: m.file.name, mime, size: m.file.size || 0, time: m.time, mine: m.senderId === req.user.id };
+      if (/^image\//.test(mime) || /^video\//.test(mime)) { if (media.length < 90) media.push(item); }
+      else if (docs.length < 150) docs.push(item);
+    }
+    if (links.length < 150 && typeof m.text === "string" && !m.system) {
+      const found = m.text.match(/https?:\/\/[^\s]+/g);
+      if (found) for (const u of found) { if (links.length < 150) links.push({ id: m.id + "-" + links.length, conv: m.conversationId, url: u.slice(0, 500), text: m.text.slice(0, 200), time: m.time, mine: m.senderId === req.user.id }); }
+    }
+  }
+  res.json({ media, docs, links });
+});
+// one file from one of your chats, as the raw image / document (the app asks for it with your login, so nobody else can open it)
+app.get("/api/me/media/:id/file", authMiddleware, (req, res) => {
+  const db = readDB();
+  const m = db.messages.find((x) => x.id === req.params.id);
+  const convo = m && db.conversations.find((c) => c.id === m.conversationId);
+  if (!m || m.deleted || m.viewOnce || !convo || !convo.participantIds.includes(req.user.id) || !m.file || typeof m.file.data !== "string") return res.status(404).json({ error: "File not found" });
+  const mm = /^data:([\w.+-]+\/[\w.+-]+)?(?:;[\w=.+-]+)*;base64,(.*)$/s.exec(m.file.data);
+  if (!mm) return res.status(404).json({ error: "File not found" });
+  const safe = /^(image\/(jpeg|png|gif|webp)|video\/(mp4|webm)|audio\/[\w.+-]+|application\/pdf)$/.test(mm[1] || "");
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.type(safe ? mm[1] : "application/octet-stream"); // anything that could run as a page is sent as a plain download
+  res.setHeader("Content-Disposition", (safe && /^(image|video)\//.test(mm[1]) ? "inline" : "attachment") + '; filename="' + String(m.file.name || "file").replace(/[^\w.\- ]/g, "_") + '"');
+  res.send(Buffer.from(mm[2], "base64"));
 });
 
 // ---- shareable profile link: ?chat=CODE opens a direct message with the owner ----
@@ -3034,6 +3104,7 @@ function handleSend(userId, { conversationId, text, audio, duration, file, reply
 }
 
 io.use((socket, next) => {
+  if (!dbReady) return next(new Error("Server starting")); // the app reconnects by itself within a second or two
   try {
     const token = socket.handshake.auth?.token;
     const payload = jwt.verify(token, JWT_SECRET);
@@ -3423,6 +3494,23 @@ io.on("connection", (socket) => {
   });
 });
 
+server.listen(PORT, "0.0.0.0", () => console.log(`Letschat Africa server listening on port ${PORT}`));
 initDB()
-  .then(() => server.listen(PORT, () => console.log(`Letschat Africa server listening on port ${PORT}`)))
+  .then(() => { dbReady = true; console.log(`Ready in ${Math.round(process.uptime() * 1000)} ms`); })
   .catch((e) => { console.error("Could not start (database error):", e); process.exit(1); });
+
+// Stay awake: the free Render plan sleeps after 15 minutes without a request. While the server is awake it calls its own public address
+// every 9 minutes, which counts as traffic, so it never falls asleep (a free service has enough monthly hours to run non-stop).
+// Render sets RENDER_EXTERNAL_URL by itself; set SELF_URL to use another host, or KEEP_AWAKE=0 to turn this off.
+const SELF_URL = (process.env.SELF_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
+if (SELF_URL && process.env.KEEP_AWAKE !== "0") {
+  const pingSelf = () => {
+    try {
+      const lib = SELF_URL.startsWith("https") ? https : http;
+      const r = lib.get(SELF_URL + "/api/ping", { timeout: 15000, headers: { "User-Agent": "letschat-keep-awake" } }, (res) => res.resume());
+      r.on("error", () => {}); r.on("timeout", () => r.destroy());
+    } catch (e) {}
+  };
+  setInterval(pingSelf, 9 * 60 * 1000).unref();
+  console.log("Keep-awake: pinging " + SELF_URL + " every 9 minutes");
+}
