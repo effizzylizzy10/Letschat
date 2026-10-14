@@ -102,5 +102,12 @@
     inject("device.js");
   }
   function go() { fixAll(0, start); setTimeout(start, 30000); } // never wait forever: the app shows its own error if something is still missing
-  if (d.readyState === "loading") d.addEventListener("DOMContentLoaded", go); else go();
+  // responsive.js is a deferred script, so document.readyState is already "interactive" while it runs, BEFORE the React / Firebase /
+  // Socket.IO scripts listed after it in index.html. Starting now made it fetch a second copy of React from a backup host and the app
+  // and ReactDOM ended up on different copies ("Cannot read properties of null (reading 'useState')"). Wait until every deferred
+  // script has finished (DOMContentLoaded), and only then check which libraries are really missing.
+  var went = false;
+  function goOnce() { if (went) return; went = true; go(); }
+  if (d.readyState === "complete") goOnce();
+  else { d.addEventListener("DOMContentLoaded", goOnce); w.addEventListener("load", goOnce); }
 })();
