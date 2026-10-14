@@ -21,3 +21,18 @@
 - **After you regenerate `client/index.html` from `app.jsx`, run `node tools/split-app.js`** to move the app out again.
 - A new deploy now appears on the next open (app code is fetched network-first). A "Letschat was updated, tap to refresh" button shows when a new version takes over. To force every device to drop old files, bump `CACHE` in `client/sw.js`.
 - `vercel.json` sits in `client/`, so it applies if your Vercel project's Root Directory is `client`.
+
+## v68 cold-start fix (server wake-up)
+- **Server** (`server/client/server.js`): listens the instant the process boots, `/api/health` answers at once (`ready` turns true when data is loaded), other calls get a short 503 + Retry-After until then. While awake it pings its own public URL every 9 minutes (`RENDER_EXTERNAL_URL`, set by Render automatically) so it stops falling asleep. Turn off with `KEEP_AWAKE=0`; use another host with `SELF_URL`.
+- **index.html**: config + wake script are the first things in `<head>`; polls `/health` every 1.2 s until ready and exposes `window.__lcWake()`; keeps the server warm every 4 min while the app is open; preconnects to the API.
+- **app.js / app.jsx `api()`**: network errors and 502/503 trigger a wake + automatic retry (up to 4 times), so "Failed to fetch" no longer shows during a cold start.
+- **sw.js v68**: app shell served from the device instantly and refreshed in the background, server wake on open / push / periodic sync, precache bypasses the HTTP cache.
+- Redeploy **both** the Render server and the Vercel client for this to take effect.
+
+## Cover photo (separate from the profile photo)
+- Server: `PATCH /api/v1/me` accepts `cover` (JPG/PNG data URL, null removes it); served at `/api/v1/users/:id/cover`; `cover` is part of every user object.
+- App: Profile screen has its own "Add cover / Change cover" button with a wide (2:1) crop; the profile photo has its own camera badge. Contact profiles show the cover as the banner, falling back to the profile photo when none is set.
+
+## All media screen (Media / Docs / Links)
+- `MediaScreen` in `client/app.js`: sliding green tab underline, swipe between tabs, search, items grouped under RECENT / LAST WEEK / LAST MONTH / month. Used by the chat's "Media, links, and docs" and by the Profile screen.
+- Profile: `GET /api/v1/me/media` lists your media, docs and links across all chats; `GET /api/v1/me/media/:id/file` returns one file (needs your login; view-once media is never listed).
