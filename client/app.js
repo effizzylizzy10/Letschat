@@ -3592,6 +3592,74 @@ function aiLinkify(text) {
     return out;
 }
 // developer panel: train the robot (instructions, facts, research topics) and read the daily research
+// ---- v18 AI auto-learn on the phone: offline knowledge pack, offline answers, question queue, "what it learned about me" ----
+const LCAI_STOP = new Set("the and for you your with that this what how are was can does have has not but from about into when where which who why please tell give show would could should there their them they then than just like some any more most very also".split(" "));
+const lcAiTok = (t) => [...new Set(String(t || "").toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/[^a-z0-9\u00C0-\uFFFF\s]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !LCAI_STOP.has(w)))];
+const lcAiJac = (a, b) => { const A = new Set(a), B = new Set(b); if (!A.size || !B.size) return 0; let i = 0; A.forEach((x) => { if (B.has(x)) i++; }); return i / (A.size + B.size - i); };
+const lcAiGet = (k, d) => { try { const r = window.localStorage.getItem(k); return r ? JSON.parse(r) : d; } catch (e) { return d; } };
+const lcAiSet = (k, v) => { try { if (v == null) window.localStorage.removeItem(k); else window.localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
+const lcAiPackGet = () => lcAiGet("lc_ai_pack", null);
+const lcAiPackSet = (p) => lcAiSet("lc_ai_pack", p);
+const lcAiQueueGet = () => { const q = lcAiGet("lc_ai_queue", []); return Array.isArray(q) ? q : []; };
+const lcAiQueueAdd = (text) => { const q = lcAiQueueGet(); q.push({ text: String(text).slice(0, 300), t: Date.now() }); lcAiSet("lc_ai_queue", q.slice(-20)); return Math.min(q.length, 20); };
+const lcAiQueueSet = (q) => lcAiSet("lc_ai_queue", q);
+// answers with no internet: greetings and feelings by rule, then the saved answers, app guide and notes from the last pack
+function lcAiOfflineReply(text, pack) {
+    const t = String(text || "").trim(), low = t.toLowerCase(), pid = !!(pack && pack.me && pack.me.pidgin) || /\b(abeg|wetin|how far|dey|wahala|oga|una)\b/i.test(low);
+    const pickOne = (a) => a[Math.floor(Math.random() * a.length)];
+    if (/\b(my (password|pin|otp|cvv|bvn)( is|:)|\d{9,})\b/i.test(t)) return { parts: ["Please be careful 🙏 don't share passwords, PINs, OTPs or card numbers with anyone, not even me."], known: true };
+    if (/^(hi+|hello+|hey+|yo|sup|good (morning|afternoon|evening)|how far)\b/i.test(low) && t.length < 40) return { parts: [pid ? pickOne(["Hey! How far? 👋", "I dey o! Wetin I fit do for you?"]) : pickOne(["Hey! 👋 Good to see you.", "Hello there! 😊"]), "I'm offline right now, but I can still help with what I have saved on your phone."], known: true };
+    if (/^(thanks?|thank you|thx)\b/i.test(low)) return { parts: [pickOne(["You're most welcome! 😊", "Anytime! 🙏"])], known: true };
+    if (/^(bye|goodbye|see you|good night)\b/i.test(low)) return { parts: ["Take care! 👋 Come back anytime."], known: true };
+    if (/^(how are you|how are u|how you dey)\b/i.test(low)) return { parts: [pid ? "I dey fine o! 😄 You nko?" : "I'm doing great, thanks for asking! 😊 How are you?"], known: true };
+    if (/\b(sad|depressed|heartbroken|stressed|lonely|crying)\b/i.test(low)) return { parts: ["I'm really sorry you're going through this. 🤗 You don't have to carry it alone.", "Please talk to someone you trust too. I'm here and listening."], known: true };
+    const qt = lcAiTok(t);
+    if (pack && qt.length) {
+        let best = null, bs = 0;
+        (pack.qa || []).forEach((e) => { const s = lcAiJac(qt, lcAiTok(e.q)); if (s > bs) { bs = s; best = e.a; } });
+        if (best && bs >= 0.5) return { parts: [best, "📴 Answered from what I saved on your phone."], known: true };
+        const overlap = (list, min) => { let b = null, c = 0; (list || []).forEach((f) => { const n = lcAiTok(f).filter((w) => qt.indexOf(w) >= 0).length; if (n > c) { c = n; b = f; } }); return c >= min ? b : null; };
+        const app = overlap(pack.app, 2); if (app) return { parts: [app, "📴 From the Letschat guide saved on your phone."], known: true };
+        const note = overlap(pack.notes, 2); if (note) return { parts: [note, "📴 From notes I saved earlier. I'll double-check it online when you're back."], known: true };
+        if (/\b(news|gist|gossip|headline|football)\b/i.test(low) && pack.news && pack.news.length) return { parts: ["Here are the last headlines I saved: 📰", pack.news.slice(0, 5).map((x, i) => (i + 1) + ". " + x).join("\n"), "📴 They may be a bit old. I'll refresh when you're online."], known: true };
+    }
+    return { parts: ["I'm offline right now and I haven't saved an answer to that yet. 📴", "I kept your question and I'll answer it properly as soon as you're back online."], known: false };
+}
+function AiLearnPanel({ token, onClose }) {
+    const ce = React.createElement;
+    const [data, setData] = useState(null);
+    const [err, setErr] = useState("");
+    const [note, setNote] = useState("");
+    const [packInfo, setPackInfo] = useState(() => lcAiPackGet());
+    const load = () => api("/api/bot/learn", { token }).then(setData).catch((e) => setErr(e.message));
+    useEffect(() => { load(); }, []);
+    const chip = (on) => ({ padding: "9px 14px", borderRadius: 16, border: "none", cursor: "pointer", fontFamily: "Inter", fontSize: 13, fontWeight: 600, background: on ? "#35D0BA" : "#1B212B", color: on ? "#0E1116" : "#C9D1DA" });
+    const toggle = async () => { setErr(""); try { const r = await api("/api/bot/learn", { method: "POST", token, body: { on: !(data && data.me && data.me.on) } }); setData((d) => ({ ...d, me: r.me })); } catch (e) { setErr(e.message); } };
+    const erase = async () => { setErr(""); try { const r = await api("/api/bot/learn/erase", { method: "POST", token }); setData((d) => ({ ...d, me: r.me })); setNote("Erased. It forgot what it learned about you."); } catch (e) { setErr(e.message); } };
+    const refresh = async () => { setErr(""); setNote(""); try { const p = await api("/api/bot/pack", { token }); if (p && !p.off) { lcAiPackSet(p); setPackInfo(p); setNote("Offline knowledge saved on this phone."); } else { lcAiPackSet(null); setPackInfo(null); setNote("Offline knowledge is switched off by the creator."); } } catch (e) { setErr("You need the internet to refresh it."); } };
+    const me = data && data.me, auto = data && data.auto, q = lcAiQueueGet().length;
+    const row = (t) => ce("div", { style: { background: "#161B22", borderRadius: 12, padding: "9px 10px", marginBottom: 8, fontSize: 13.5, lineHeight: 1.45, wordBreak: "break-word" } }, t);
+    const title = (t) => ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13, color: "#F5F7FA", margin: "14px 0 6px" } }, t);
+    return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 5, background: "#0E1116", display: "flex", flexDirection: "column" } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#12161B", borderBottom: "1px solid #1E252E" } },
+            ce("button", { "aria-label": "Back", onClick: onClose, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } }, ce(ArrowLeft, { size: 22, color: "#F5F7FA" })),
+            ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "AI learning")),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px 20px", fontFamily: "Inter", color: "#C9D1DA", fontSize: 14 } },
+            !data && !err && ce("div", { style: { padding: 20, textAlign: "center", color: "#8A96A5" } }, "Loading…"),
+            auto && !auto.on && row("The creator has paused auto-learning for now."),
+            me && ce(React.Fragment, null,
+                row("The AI learns from your own chats with it (never from your chats with other people): the language you use, short or long replies, and topics you ask about. It never keeps links, numbers, passwords or money details."),
+                ce("button", { onClick: toggle, style: chip(me.on) }, "Learning from my chats: " + (me.on ? "On" : "Off")),
+                title("What it has learned about you"),
+                me.messages ? row(me.messages + " messages studied" + (me.pidgin ? " · you often write Pidgin" : "") + (me.shortStyle ? " · you like short replies" : "") + (me.emojis ? " · you like emojis" : "") + (me.topics && me.topics.length ? " · topics: " + me.topics.join(", ") : "")) : row("Nothing yet."),
+                me.messages ? ce("button", { onClick: erase, style: { ...chip(false), color: "#FF6B5D" } }, "Erase what it learned about me") : null),
+            title("Offline"),
+            row(packInfo && packInfo.t ? "Saved on this phone: " + ((packInfo.qa || []).length) + " answers, " + ((packInfo.notes || []).length) + " notes and the Letschat guide (updated " + new Date(packInfo.t).toLocaleString() + "). The AI uses them when you have no internet." : "Nothing saved yet. Open this screen once with internet and it saves what it needs."),
+            row(q ? q + " question" + (q > 1 ? "s" : "") + " waiting. They are answered properly as soon as you are online." : "No questions waiting."),
+            ce("button", { onClick: refresh, style: chip(true) }, "Update offline knowledge now"),
+            note && ce("div", { style: { color: "#35D0BA", fontSize: 12.5, marginTop: 10 } }, note),
+            err && ce("div", { style: { color: "#FF6B5D", fontSize: 12.5, marginTop: 10 } }, err)));
+}
 function AiTrainPanel({ token, onClose }) {
     const ce = React.createElement;
     const [tab, setTab] = useState("instruction");
@@ -3603,7 +3671,10 @@ function AiTrainPanel({ token, onClose }) {
     useEffect(() => { call("").then(setData).catch((e) => setErr(e.message)); }, []);
     const add = async () => { if (!txt.trim()) return; setErr(""); try { setData(await call("/add", { kind: tab, text: txt })); setTxt(""); } catch (e) { setErr(e.message); } };
     const del = async (kind, index) => { try { setData(await call("/remove", { kind, index })); } catch (e) { setErr(e.message); } };
+    const reTopic = async (t) => { setErr(""); setNote("Researching \"" + t + "\" now. The report will arrive in your AI chat in a few minutes."); try { setData(await call("/topic", { topic: t })); } catch (e) { setErr(e.message); } };
     const runNow = async () => { setErr(""); setNote("Researching now. This takes a minute or two; the digest will arrive in your AI chat."); try { setData(await call("/research", {})); } catch (e) { setErr(e.message); } };
+    const setAuto = async (patch) => { setErr(""); try { setData(await call("/auto", patch)); } catch (e) { setErr(e.message); } };
+    const runAuto = async () => { setErr(""); setNote("Auto-learn pass started. It studies unanswered questions and popular questions now."); try { setData(await call("/auto/run", {})); } catch (e) { setErr(e.message); } };
     const tabs = [["instruction", "Instructions"], ["fact", "Knowledge"], ["topic", "Topics"], ["research", "Research"]];
     const lists = data ? { instruction: data.instructions, fact: data.facts, topic: data.topics } : {};
     const hints = { instruction: "How the robot should behave, e.g. \"Always greet in Pidgin when the user writes Pidgin\".", fact: "Facts it should know and use, e.g. \"Letschat Market posts expire after 24 hours\". Add links like \"Guide - https://...\" and it can share them.", topic: "Extra subjects for its daily online research, e.g. \"farming technology in Nigeria\"." };
@@ -3622,14 +3693,28 @@ function AiTrainPanel({ token, onClose }) {
                 ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 10 } },
                     ce("input", { value: txt, onChange: (e) => setTxt(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") add(); }, placeholder: "Add…", style: { flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 12, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
                     ce("button", { onClick: add, style: { ...chip(true), padding: "0 16px" } }, "Add")),
-                (lists[tab] || []).map((x, i) => ce("div", { key: i, style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", alignItems: "flex-start", background: "#161B22", borderRadius: 12, padding: "9px 10px", marginBottom: 6 } },
+                tab === "topic" ? (data.topics || []).map((x, i) => { const rp = (data.reports || [])[i] || {}; return ce("div", { key: i, style: { background: "#161B22", borderRadius: 12, padding: "9px 10px", marginBottom: 8 } },
+                    ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", alignItems: "flex-start" } }, ce("div", { style: { flex: 1, wordBreak: "break-word", fontSize: 14, fontWeight: 600, color: "#F5F7FA" } }, x), ce("button", { "aria-label": "Remove", onClick: () => del("topic", i), style: { background: "none", border: "none", color: "#FF6B5D", cursor: "pointer", fontSize: 16 } }, "\u2715")),
+                    ce("div", { style: { fontSize: 12, color: rp.t ? "#35D0BA" : "#F2D98B", margin: "4px 0 6px" } }, rp.t ? "Researched " + new Date(rp.t).toLocaleString() + " \u00B7 updates itself 5 times a day" : (data.running ? "Researching now\u2026 the report will arrive in your AI chat" : "Waiting to be researched")),
+                    ce("button", { onClick: () => reTopic(x), style: { ...chip(false), padding: "5px 10px", fontSize: 12 } }, "Research again now"),
+                    rp.text && ce("details", { style: { marginTop: 8 } }, ce("summary", { style: { cursor: "pointer", fontSize: 13 } }, "Read the latest report"), ce("div", { style: { whiteSpace: "pre-wrap", marginTop: 6, fontSize: 13, lineHeight: 1.5 } }, aiLinkify(rp.text)))); }) : (lists[tab] || []).map((x, i) => ce("div", { key: i, style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", alignItems: "flex-start", background: "#161B22", borderRadius: 12, padding: "9px 10px", marginBottom: 6 } },
                     ce("div", { style: { flex: 1, wordBreak: "break-word", fontSize: 13.5 } }, x),
                     ce("button", { "aria-label": "Remove", onClick: () => del(tab, i), style: { background: "none", border: "none", color: "#FF6B5D", cursor: "pointer", fontSize: 16 } }, "✕"))),
                 !(lists[tab] || []).length && ce("div", { style: { color: "#5B6673", fontSize: 13 } }, "Nothing added yet."),
-                tab === "topic" && ce("div", { style: { fontSize: 12, color: "#5B6673", marginTop: 10 } }, "Always researched: " + data.defaultTopics.join("; ") + ".")),
+                tab === "topic" && ce("div", { style: { fontSize: 12, color: "#5B6673", marginTop: 10 } }, "As soon as you add a topic it researches it broadly (basics, facts, latest news, Nigeria, opportunities, risks), sends you a report in your AI chat, and re-researches it 5 times a day to tell you what changed. Always researched too: " + data.defaultTopics.join("; ") + ".")),
             data && tab === "research" && ce(React.Fragment, null,
-                ce("div", { style: { fontSize: 12.5, color: "#8A96A5", marginBottom: 8 } }, "Every day the robot researches online and sends the digest to your AI chat. " + (data.lastRun ? "Last run: " + new Date(data.lastRun).toLocaleString() + "." : "It has not run yet.")),
+                ce("div", { style: { fontSize: 12.5, color: "#8A96A5", marginBottom: 8 } }, "The robot researches online 5 times a day (" + (data.schedule || []).join(", ") + " Lagos time) and sends one update to your AI chat each time. " + (data.lastRun ? "Last run: " + new Date(data.lastRun).toLocaleString() + "." : "It has not run yet.")),
                 ce("button", { onClick: runNow, disabled: data.running, style: { ...chip(true), padding: "10px 16px", marginBottom: 12, opacity: data.running ? 0.6 : 1 } }, data.running ? "Researching…" : "Run research now"),
+                data.auto && ce("div", { style: { background: "#161B22", borderRadius: 12, padding: 10, marginBottom: 12 } },
+                    ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13, color: "#F5F7FA", marginBottom: 6 } }, "Auto-learn"),
+                    ce("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 } }, [["on", "All"], ["online", "Online"], ["inApp", "In-app"], ["offline", "Offline"]].map(([k, l]) => ce("button", { key: k, onClick: () => setAuto({ [k]: !data.auto[k] }), style: { ...chip(!!data.auto[k]), padding: "6px 11px", fontSize: 12 } }, l + ": " + (data.auto[k] ? "on" : "off")))),
+                    ce("div", { style: { fontSize: 12, color: "#8A96A5", lineHeight: 1.55, marginBottom: 8 } }, "Online: every 30 minutes it looks up questions it could not answer and researches questions many people ask. In-app: it learns from each person's own chat with the robot and from thumbs up/down (never from private chats between people). Offline: phones save a knowledge pack and answer without internet, then send the questions back when they reconnect. Links, numbers, passwords and money details are never learned."),
+                    ce("div", { style: { fontSize: 12, color: "#C9D1DA", lineHeight: 1.6, marginBottom: 8 } }, "Questions seen: " + data.auto.asked + " · asked 3+ times: " + data.auto.hot + " · unanswered waiting: " + data.auto.gaps + " · saved answers: " + data.auto.answers + " · auto topics: " + (data.auto.autoTopics || []).length + " · learned from gaps: " + data.auto.stats.gapsLearned + " · thumbs up " + data.auto.stats.up + " / down " + data.auto.stats.down + " · answered after offline: " + data.auto.stats.synced + (data.auto.study ? " · self-study: sports " + data.auto.study.sports.done + "/" + data.auto.study.sports.total + ", tech and AI " + data.auto.study.tech.done + "/" + data.auto.study.tech.total + " (" + data.auto.study.today + "/" + data.auto.study.limit + " today" + (data.auto.study.last ? ", last: " + data.auto.study.last : "") + ")" : "") + (data.auto.stats.lastTick ? " · last pass " + new Date(data.auto.stats.lastTick).toLocaleString() : "")),
+                    (data.auto.autoTopics || []).length ? ce("div", { style: { fontSize: 12, color: "#8A96A5", marginBottom: 8 } }, "Auto topics: " + data.auto.autoTopics.join(" | ")) : null,
+                    ce("button", { onClick: runAuto, style: { ...chip(false), padding: "8px 14px" } }, "Run auto-learn now")),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13, color: "#F5F7FA", margin: "6px 0" } }, "Chat skills it teaches itself (" + (data.skills || []).filter((x) => x.learned).length + "/" + (data.skills || []).length + " refreshed online; built-in versions always work offline)"),
+                ce("div", { style: { fontSize: 12, color: "#8A96A5", marginBottom: 10, lineHeight: 1.5, whiteSpace: "pre-line" } }, (data.skills || []).map((x) => (x.learned ? "\u2713 " : "\u2022 ") + x.topic).join("\n")),
+                data.news && ce("div", { style: { fontSize: 12, color: "#8A96A5", marginBottom: 10 } }, "Nigerian news feed: " + Object.entries(data.news.cats || {}).map(([k, v]) => k + " " + v).join(", ") + (data.news.updated ? " (updated " + new Date(data.news.updated).toLocaleTimeString() + ")" : " (not loaded yet)")),
                 ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13, color: "#F5F7FA", margin: "6px 0" } }, "What it learned (used in answers)"),
                 data.learned.map((x, i) => ce("div", { key: i, style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", background: "#161B22", borderRadius: 12, padding: "8px 10px", marginBottom: 6 } }, ce("div", { style: { flex: 1, fontSize: 13, wordBreak: "break-word" } }, x), ce("button", { "aria-label": "Remove", onClick: () => del("learned", i), style: { background: "none", border: "none", color: "#FF6B5D", cursor: "pointer", fontSize: 16 } }, "✕"))),
                 !data.learned.length && ce("div", { style: { color: "#5B6673", fontSize: 13 } }, "Nothing yet."),
@@ -3648,11 +3733,47 @@ function AiBotScreen({ token, onClose }) {
     const [ready, setReady] = useState(false);
     const [canTrain, setCanTrain] = useState(false);
     const [train, setTrain] = useState(false);
+    const [online, setOnline] = useState(typeof navigator === "undefined" || navigator.onLine !== false);
+    const [learnOpen, setLearnOpen] = useState(false);
+    const [rated, setRated] = useState({});
+    const [qn, setQn] = useState(() => lcAiQueueGet().length);
+    const [syncing, setSyncing] = useState(false);
+    const syncRef = useRef(false);
     const endRef = useRef(null), busy = useRef(false), alive = useRef(true);
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     useEffect(() => {
         api("/api/bot/chat", { token }).then((s) => { if (alive.current) { setMsgs(s.messages || []); setCanTrain(!!s.canTrain); setReady(true); } })
-            .catch(() => { if (alive.current) { setErr("Could not load your earlier AI chat."); setReady(true); } });
+            .catch(() => { if (alive.current) { const old = lcAiGet("lc_ai_hist", []); if (old.length) setMsgs(old); else if (typeof navigator === "undefined" || navigator.onLine !== false) setErr("Could not load your earlier AI chat."); setReady(true); } });
+    }, []);
+    useEffect(() => { if (ready && msgs.length) lcAiSet("lc_ai_hist", msgs.slice(-40).map((m) => ({ id: m.id, from: m.from, text: String(m.text || "").slice(0, 1500), t: m.t, digest: m.digest, reaction: m.reaction, off: m.off }))); }, [msgs, ready]);
+    useEffect(() => { // v18: save the offline knowledge pack, and send questions asked offline once the phone is back online
+        const loadPack = () => { if (typeof navigator !== "undefined" && navigator.onLine === false) return; api("/api/bot/pack", { token }).then((p) => { if (p && !p.off) lcAiPackSet(p); else if (p && p.off) lcAiPackSet(null); }).catch(() => { }); };
+        const syncQueue = async () => {
+            if (syncRef.current) return;
+            let q = lcAiQueueGet(); if (!q.length) return;
+            syncRef.current = true; if (alive.current) setSyncing(true);
+            try {
+                while (q.length && alive.current && (typeof navigator === "undefined" || navigator.onLine !== false)) {
+                    const chunk = q.slice(0, 3);
+                    await api("/api/bot/sync", { method: "POST", token, body: { items: chunk } });
+                    q = q.slice(chunk.length); lcAiQueueSet(q); if (alive.current) setQn(q.length);
+                }
+                if (alive.current && !busy.current) { const s = await api("/api/bot/chat", { token }); if (alive.current && !busy.current) setMsgs(s.messages || []); }
+            } catch (e) { /* try again next time */ }
+            syncRef.current = false; if (alive.current) setSyncing(false);
+        };
+        const on = () => { setOnline(true); loadPack(); syncQueue(); }, off = () => setOnline(false);
+        window.addEventListener("online", on); window.addEventListener("offline", off);
+        loadPack(); syncQueue();
+        const iv = setInterval(() => { loadPack(); syncQueue(); }, 10 * 60 * 1000);
+        return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); clearInterval(iv); };
+    }, []);
+    useEffect(() => { // reports and daily digests arrive while the chat is open: pick them up
+        const iv = setInterval(() => {
+            if (busy.current) return;
+            api("/api/bot/chat", { token }).then((s) => { if (!alive.current || busy.current) return; const fresh = (s.messages || []).filter((m) => m.digest); setMsgs((cur) => { const have = new Set(cur.map((x) => x.id)); const add = fresh.filter((m) => !have.has(m.id)); return add.length ? [...cur, ...add] : cur; }); }).catch(() => { });
+        }, 20000);
+        return () => clearInterval(iv);
     }, []);
     useEffect(() => { const el = endRef.current; if (el && el.scrollIntoView) el.scrollIntoView({ block: "end" }); }, [msgs, typing, ready]);
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -3665,9 +3786,11 @@ function AiBotScreen({ token, onClose }) {
         await sleep(350 + Math.random() * 400); // a person needs a moment to read before typing
         if (!alive.current) return;
         setTyping(true);
-        let out = null;
+        let out = null, viaOffline = false;
         const started = Date.now();
-        try { out = await api("/api/bot/chat", { method: "POST", token, body: { text } }); } catch (e) { setErr(e.message || "The AI could not answer right now"); }
+        const goOffline = () => { const r = lcAiOfflineReply(text, lcAiPackGet()); setQn(lcAiQueueAdd(text)); viaOffline = true; return { parts: r.parts, react: "" }; };
+        if (typeof navigator !== "undefined" && navigator.onLine === false) out = goOffline();
+        else { try { out = await api("/api/bot/chat", { method: "POST", token, body: { text } }); } catch (e) { const m = String((e && e.message) || ""); if (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed/i.test(m)) out = goOffline(); else setErr(m || "The AI could not answer right now"); } }
         if (!alive.current) return;
         if (!out) { setTyping(false); busy.current = false; return; }
         if (out.react) { await sleep(500); if (!alive.current) return; setMsgs((m) => m.map((x) => (x.id === mine.id ? { ...x, reaction: out.react } : x))); }
@@ -3677,7 +3800,7 @@ function AiBotScreen({ token, onClose }) {
             const want = Math.min(3600, 800 + parts[i].length * 20 + Math.random() * 500) - (i === 0 ? Date.now() - started : 0);
             if (want > 0) await sleep(want);
             if (!alive.current) return;
-            setMsgs((m) => [...m, { from: "ai", text: parts[i], t: Date.now(), id: "a" + Date.now() + i }]);
+            setMsgs((m) => [...m, { from: "ai", text: parts[i], t: Date.now(), id: "a" + Date.now() + i, off: viaOffline }]);
             if (i < parts.length - 1) { setTyping(false); await sleep(300); if (!alive.current) return; setTyping(true); }
         }
         setTyping(false);
@@ -3685,25 +3808,33 @@ function AiBotScreen({ token, onClose }) {
     };
     const list = msgs.length || !ready ? msgs : [WELCOME];
     const hhmm = (t) => { try { return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
+    let lastAiIdx = -1; for (let k = list.length - 1; k >= 0; k--) if (list[k].from === "ai" && !list[k].digest && !list[k].off && list[k].text) { lastAiIdx = k; break; }
+    const rate = (key, q, a, up) => { setRated((r) => ({ ...r, [key]: up ? 1 : -1 })); if (q) api("/api/bot/feedback", { method: "POST", token, body: { q, a, up } }).catch(() => { }); };
     return React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "#0E1116", display: "flex", flexDirection: "column" } },
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "12px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", flexShrink: 0 } },
             React.createElement("button", { "aria-label": "Back", onClick: onClose, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } }, React.createElement(ArrowLeft, { size: 22, color: "#F5F7FA" })),
             React.createElement(AiBotAvatar, { size: 42, big: true }),
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
-                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing…" : "online")),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing…" : !online ? "offline · saved answers" + (qn ? " · " + qn + " waiting" : "") : syncing ? "answering your offline questions…" : "online")),
+            React.createElement("button", { "aria-label": "AI learning", onClick: () => setLearnOpen(true), style: { background: "#1B212B", border: "none", borderRadius: 14, padding: "7px 12px", color: "#C9D1DA", fontFamily: "Inter", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, "Learn"),
             canTrain && React.createElement("button", { onClick: () => setTrain(true), style: { background: "#1B212B", border: "none", borderRadius: 14, padding: "7px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, "Train")),
         React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 8 } },
             React.createElement("style", null, "@keyframes lcAiDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}@keyframes lcAiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes lcAiBob{50%{transform:translateY(-3px)}}@keyframes lcAiReact{from{opacity:0;transform:scale(.2)}70%{transform:scale(1.25)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
             !ready && React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13, padding: 20 } }, "Loading…"),
             list.map((m, i) => {
                 const mine = m.from === "me", digest = !!m.digest;
+                const rkey = m.id || i, showRate = i === lastAiIdx && !typing;
+                let rq = ""; if (showRate) for (let j = i - 1; j >= 0; j--) if (list[j].from === "me") { rq = list[j].text; break; }
                 return React.createElement("div", { key: m.id || i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8, animation: "lcAiIn .22s ease-out", marginBottom: m.reaction ? 10 : 0 } },
                     !mine && React.createElement(AiBotAvatar, { size: 28 }),
                     React.createElement("div", { style: { maxWidth: digest ? "92%" : "78%", position: "relative" } },
                         React.createElement("div", { style: { background: mine ? "#1F8F7E" : digest ? "#142235" : "#1B212B", border: digest ? "1px solid #24476E" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, aiLinkify(m.text),
                             React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))),
-                        m.reaction && React.createElement("span", { "aria-label": "Reaction " + m.reaction, style: { position: "absolute", bottom: -12, left: mine ? -6 : "auto", right: mine ? "auto" : -6, background: "#12161B", border: "1px solid #262E3A", borderRadius: 12, padding: "1px 5px", fontSize: 14, lineHeight: "18px", animation: "lcAiReact .3s ease-out" } }, m.reaction)));
+                        m.reaction && React.createElement("span", { "aria-label": "Reaction " + m.reaction, style: { position: "absolute", bottom: -12, left: mine ? -6 : "auto", right: mine ? "auto" : -6, background: "#12161B", border: "1px solid #262E3A", borderRadius: 12, padding: "1px 5px", fontSize: 14, lineHeight: "18px", animation: "lcAiReact .3s ease-out" } }, m.reaction),
+                        showRate && React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 4, marginLeft: 2 } },
+                            [[1, "\uD83D\uDC4D", "Good answer"], [-1, "\uD83D\uDC4E", "Bad answer"]].map(([v, ic, lab]) => React.createElement("button", { key: v, "aria-label": lab, disabled: !!rated[rkey], onClick: () => rate(rkey, rq, m.text, v > 0), style: { background: rated[rkey] === v ? "#1F8F7E" : "#1B212B", border: "none", borderRadius: 12, padding: "2px 9px", fontSize: 13, cursor: rated[rkey] ? "default" : "pointer", opacity: rated[rkey] && rated[rkey] !== v ? 0.35 : 1 } }, ic)),
+                            rated[rkey] ? React.createElement("span", { style: { fontSize: 11, color: "#8A96A5", alignSelf: "center" } }, rated[rkey] > 0 ? "Thanks, I'll remember it" : "Thanks, I'll learn from it") : null)));
             }),
             typing && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
                 React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
@@ -3713,6 +3844,7 @@ function AiBotScreen({ token, onClose }) {
         React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: 8, background: "#12161B", borderTop: "1px solid #1E252E", flexShrink: 0 } },
             React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", maxLength: 1000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
             React.createElement("button", { "aria-label": "Send", onClick: () => send(), disabled: !draft.trim() || typing, style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !draft.trim() || typing ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, React.createElement(Send, { size: 20, color: "#0E1116" }))),
+        learnOpen && React.createElement(AiLearnPanel, { token: token, onClose: () => setLearnOpen(false) }),
         train && React.createElement(AiTrainPanel, { token: token, onClose: () => setTrain(false) }));
 }
 function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence, favorites = [], pinned = [], onSetPinned = () => { }, muted = {}, onMute = () => Promise.resolve(true) }) {
@@ -6024,7 +6156,7 @@ function AiAssistantScreen({ token, onBack }) {
     const row = (title, sub, on, onChange, disabled) => ce("div", { key: title, style: settingRow }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title), ce("div", { style: { ...aiMuted, marginTop: 3 } }, sub)), ce(Toggle, { on, onChange, disabled }));
     const on = !!(ai && ai.on), L = ai && ai.learned;
     const stat = (label, value) => ce("div", { key: label, style: { display: "flex", justifyContent: "space-between", gap: 12, padding: "9px 16px", borderBottom: "1px solid #1B212B", fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, ce("span", { style: { color: "#9BA7B4" } }, label), ce("span", { style: { textAlign: "right", minWidth: 0 } }, value));
-    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "AI assistant", onBack }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 30 } }, err && ce(Banner, { text: err, onClose: () => setErr("") }), ce("div", { style: { padding: "16px 16px 4px", display: "flex", gap: 12, alignItems: "flex-start" } }, ce("div", { style: { width: 42, height: 42, borderRadius: 14, background: "rgba(53,208,186,.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolAi, { size: 23, color: "#35D0BA" })), ce("div", { style: { ...aiMuted, fontSize: 13.5 } }, "Your own chat assistant. It studies how you chat, keeps learning as you go, and can answer for you while you are offline.")), row("Turn on AI assistant", on ? "On. It is studying your chats and learning your style." : "Off. Turn it on and it starts studying your chats straight away.", on, (v) => set({ on: v }), !ai || busy), row("Reply when I am offline", "Answers your direct chats, and group messages that @mention you, in your own style. Every AI reply starts with \"AI:\" so people know it is automatic. It never answers questions about money, codes or passwords: it only says you will reply personally.", !!(ai && ai.autoReply), (v) => set({ autoReply: v }), !on || busy), head("What it has learned"), !on && ce("div", { style: { padding: "4px 16px 12px", ...aiMuted } }, "Nothing yet. Turn the assistant on to start learning."), on && L && [
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "AI assistant", onBack }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 30 } }, err && ce(Banner, { text: err, onClose: () => setErr("") }), ce("div", { style: { padding: "16px 16px 4px", display: "flex", gap: 12, alignItems: "flex-start" } }, ce("div", { style: { width: 42, height: 42, borderRadius: 14, background: "rgba(53,208,186,.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolAi, { size: 23, color: "#35D0BA" })), ce("div", { style: { ...aiMuted, fontSize: 13.5 } }, "Your own chat assistant. It studies how you chat, keeps learning as you go, and can answer for you while you are offline.")), row("Turn on AI assistant", on ? "On. It is studying your chats and learning your style." : "Off. Turn it on and it starts studying your chats straight away.", on, (v) => set({ on: v }), !ai || busy), row("Reply when I am offline", "Answers your direct chats, and group messages that @mention you, in your own style. Every AI reply starts with \"AI:\" so people know it is automatic. It never answers questions about money, codes or passwords: it only says you will reply personally.", !!(ai && ai.autoReply), (v) => set({ autoReply: v }), !on || busy), row("Reply even when I am online", "Once the AI is on it chats with people whether you are online, away or offline. Turn this off if you only want it to answer while you are offline.", !!(ai && ai.always), (v) => set({ always: v }), !on || busy), head("What it has learned"), !on && ce("div", { style: { padding: "4px 16px 12px", ...aiMuted } }, "Nothing yet. Turn the assistant on to start learning."), on && L && [
         stat("Messages studied", String(L.studied)),
         stat("Your replies learned", String(L.replies)),
         stat("Reply patterns", String(L.patterns)),
@@ -8531,6 +8663,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                     return (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0" } },
                         !editing && React.createElement("button", { "aria-label": "AI assistant", "aria-pressed": sugOpen, onClick: () => setSugOpen(v => !v), style: { background: sugOpen || aiOnNow ? "rgba(53,208,186,0.12)" : "none", border: "1px solid " + (sugOpen || aiOnNow ? "#35D0BA" : "#3A4452"), borderRadius: 999, padding: "8px 18px", color: sugOpen || aiOnNow ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 600, fontSize: 15.5, cursor: "pointer", flexShrink: 0 } }, "AI", aiOnNow && React.createElement("span", { style: { display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "#35D0BA", marginLeft: 7, verticalAlign: "middle" } })),
                         React.createElement("div", { style: { flex: 1 } }),
+                        conversation.isGroup && !editing && !rec && React.createElement("button", { "aria-label": "Mention a member", onMouseDown: e => e.preventDefault(), onClick: () => { setEmojiOpen(false); setDraft(d => /(^|\s)@[^\s@]*$/.test(d) ? d : (d && !/\s$/.test(d) ? d + " @" : d + "@")); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, style: { ...ib, color: "#9BA7B4", fontFamily: "Sora", fontWeight: 700, fontSize: 21, lineHeight: "24px", alignItems: "center", justifyContent: "center", minWidth: 40 } }, "@"),
                         React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: ib },
                             React.createElement(Smile, { size: 25, color: emojiOpen ? "#35D0BA" : "#9BA7B4" })),
                         !editing && React.createElement("button", { "aria-label": "Attach file", onClick: () => setAttachOpen(true), style: ib },

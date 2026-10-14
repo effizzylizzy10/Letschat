@@ -9,7 +9,7 @@
 //   keeps fewer photos, so it uses little storage and little data.
 // - Never touches the API, sockets, Lite pages (/lite), sends, uploads or audio/video range requests.
 // - Syntax stays simple on purpose (no optional catch binding, no async/await): old browsers must still be able to parse it.
-var VERSION = "letschat-shell-v64"; // bump (v57, v58...) to make every device drop its old copy
+var VERSION = "letschat-shell-v67"; // bump (v57, v58...) to make every device drop its old copy
 var CACHE = VERSION;
 var IMGS = "letschat-images-v1";    // profile, status and market photos
 var LIBS = "letschat-libs-v1";      // pinned library versions never change, so this cache is kept across updates
@@ -144,6 +144,15 @@ self.addEventListener("message", function (e) {
   if (d === "clear-app-cache") e.waitUntil(caches.delete(CACHE).catch(ignore));
 });
 
+// Wake the server as early as possible: the worker starts before the page does, so the very first page request already pings the (free, sleeping) server.
+// Change WAKE_URL if the server address changes. At most one ping every 30 s.
+var WAKE_URL = "https://letschat-9tw4.onrender.com/api/v1/health", lastWake = 0;
+function wakeServer() {
+  var t = Date.now();
+  if (t - lastWake < 30000) return;
+  lastWake = t;
+  try { fetch(WAKE_URL, { mode: "no-cors", cache: "no-store" }).catch(ignore); } catch (err) {}
+}
 self.addEventListener("fetch", function (e) {
   var req = e.request;
   if (req.method !== "GET") return;                    // sends, uploads, etc.
@@ -164,6 +173,7 @@ self.addEventListener("fetch", function (e) {
   if (p.indexOf("/socket.io") === 0 || p.indexOf("/api") === 0 || p.indexOf("/lite") === 0) return; // realtime, API, Lite pages
 
   var isPage = req.mode === "navigate";
+  if (isPage) wakeServer();
   e.respondWith(
     caches.open(CACHE).then(function (c) {
       if (isPage || FRESH.test(p) || /\/index\.html$/.test(p)) return networkFirst(e, req, c, isPage ? "./index.html" : req, waitMs(), isPage);
