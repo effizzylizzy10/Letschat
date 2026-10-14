@@ -1722,7 +1722,7 @@ KB.start();
 const NEWS = require("./news"); // Nigerian news, gist, gossip, trending, crime and sports feeds (see news.js)
 NEWS.start();
 const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, News: NEWS, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
-BOT.start(); // daily research for the creator
+// BOT.start() removed: no daily research or auto-learning for the LetsChat AI page
 const AI_STOP = new Set("a an the is are was were be been am i you he she it we they me my your our their to of in on at for with and or but so if this that these those do does did have has had will would can could should just please pls ok okay oh not".split(" "));
 function aiTokens(t) {
   const w = String(t || "").toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/[^a-z0-9\u00C0-\uFFFF\s']/g, " ").split(/\s+/)
@@ -2247,31 +2247,36 @@ app.get("/api/ai/ask", authMiddleware, async (req, res) => {
 });
 // ---- LetsChat AI robot chat (every user) ----
 const botLog = new Map();
-app.get("/api/bot/chat", authMiddleware, (req, res) => res.json({ messages: BOT.history(req.user.id), canTrain: isCreator(req.user), llm: KB.llmReady() }));
+const AI_PAGE_SYSTEM = "You are LetsChat AI, a helpful assistant inside the Letschat Africa chat app. Answer clearly and honestly in the language the person writes in. Keep replies short unless they ask for detail. Never ask for passwords, PINs or OTPs.";
+// The LetsChat AI page is a plain chat with the AI API (Gemini, OpenAI, Grok...). No learning, training, research or notes.
+app.get("/api/bot/chat", authMiddleware, (req, res) => {
+  const u = readDB().users.find((x) => x.id === req.user.id);
+  const h = u && Array.isArray(u.botChat) ? u.botChat.filter((m) => m && m.text && !m.digest && !m.off) : [];
+  res.json({ messages: h.slice(-60).map((m) => ({ id: m.id, from: m.from, text: m.text, t: m.t })), llm: KB.llmReady() });
+});
 app.post("/api/bot/chat", authMiddleware, async (req, res) => {
   const text = String(req.body.text || "").trim().slice(0, 8000);
   if (!text) return res.status(400).json({ error: "Type something first" });
+  if (!KB.llmReady()) return res.status(503).json({ error: "The AI is not connected yet. Add an AI API key (GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY...) on the server." });
   const now = Date.now(), log = (botLog.get(req.user.id) || []).filter((t) => now - t < 60000);
-  /* v24: no chat rate limit */
   log.push(now); botLog.set(req.user.id, log);
-  try { res.json(await BOT.chat(req.user.id, text)); } catch (e) { console.error("bot chat failed", e.message); res.status(500).json({ error: "The AI could not answer right now" }); }
+  try {
+    const u0 = readDB().users.find((x) => x.id === req.user.id);
+    if (!u0) return res.status(404).json({ error: "Not found" });
+    const past = (Array.isArray(u0.botChat) ? u0.botChat : []).filter((m) => m && m.text && !m.digest && !m.off).slice(-12)
+      .map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 2000) }));
+    const out = await KB.chat([{ role: "system", content: AI_PAGE_SYSTEM }, ...past, { role: "user", content: text }], { max: 2000, temp: 0.7, timeout: 30000, budget: 80000 });
+    if (!out) return res.status(502).json({ error: "The AI could not answer right now. Please try again." });
+    const db = readDB(), u = db.users.find((x) => x.id === req.user.id) || u0;
+    if (!Array.isArray(u.botChat)) u.botChat = [];
+    const t0 = Date.now();
+    u.botChat.push({ id: nanoid(8), from: "me", text, t: t0 }, { id: nanoid(8), from: "ai", text: out.text, t: t0 + 1 });
+    if (u.botChat.length > 80) u.botChat = u.botChat.slice(-80);
+    writeDB(db);
+    res.json({ parts: [out.text], by: out.by });
+  } catch (e) { console.error("bot chat failed", e.message); res.status(500).json({ error: "The AI could not answer right now" }); }
 });
 app.post("/api/bot/clear", authMiddleware, (req, res) => { BOT.clear(req.user.id); res.json({ ok: true }); });
-// ---- v18 auto-learn: offline knowledge pack, offline-question sync, feedback, what it learned about me ----
-app.get("/api/bot/pack", authMiddleware, async (req, res) => { try { res.json(await BOT.pack(req.user.id)); } catch (e) { console.error("bot pack failed", e.message); res.status(500).json({ error: "Could not build the offline pack" }); } });
-app.post("/api/bot/sync", authMiddleware, async (req, res) => { try { res.json(await BOT.sync(req.user.id, (req.body && req.body.items) || [])); } catch (e) { console.error("bot sync failed", e.message); res.status(500).json({ error: "Could not sync" }); } });
-app.post("/api/bot/feedback", authMiddleware, (req, res) => { const b = req.body || {}; res.json({ ok: BOT.feedback(req.user.id, b.q, b.a, !!b.up) }); });
-app.get("/api/bot/learn", authMiddleware, (req, res) => res.json({ me: BOT.meGet(req.user.id), auto: (({ on, online, inApp, offline }) => ({ on, online, inApp, offline }))(BOT.autoView()) }));
-app.post("/api/bot/learn", authMiddleware, (req, res) => res.json({ me: BOT.meSet(req.user.id, !!(req.body && req.body.on)) }));
-app.post("/api/bot/learn/erase", authMiddleware, (req, res) => res.json({ me: BOT.meErase(req.user.id) }));
-// ---- developer training + research (creator only) ----
-app.get("/api/creator/bot", authMiddleware, creatorOnly, (req, res) => res.json(BOT.trainView()));
-app.post("/api/creator/bot/add", authMiddleware, creatorOnly, (req, res) => { try { BOT.trainAdd(req.body.kind, req.body.text); res.json(BOT.trainView()); } catch (e) { res.status(400).json({ error: e.message }); } });
-app.post("/api/creator/bot/remove", authMiddleware, creatorOnly, (req, res) => { try { BOT.trainRemove(req.body.kind, req.body.index); res.json(BOT.trainView()); } catch (e) { res.status(400).json({ error: e.message }); } });
-app.post("/api/creator/bot/topic", authMiddleware, creatorOnly, (req, res) => { const t = String(req.body.topic || "").trim().slice(0, 120); if (!t) return res.status(400).json({ error: "Pick a topic" }); BOT.researchTopic(t); res.json({ ...BOT.trainView(), running: true }); }); // research one topic again now
-app.post("/api/creator/bot/research", authMiddleware, creatorOnly, (req, res) => { BOT.research(); res.json({ ...BOT.trainView(), running: true }); }); // runs in the background; the digest arrives in your AI chat
-app.post("/api/creator/bot/auto", authMiddleware, creatorOnly, (req, res) => { try { res.json({ ...BOT.trainView(), auto: BOT.autoSet(req.body || {}) }); } catch (e) { res.status(400).json({ error: e.message }); } }); // master switches: on / online / inApp / offline
-app.post("/api/creator/bot/auto/run", authMiddleware, creatorOnly, (req, res) => { BOT.autoTick(); res.json({ ...BOT.trainView(), running: true }); });
 app.get("/api/creator/ai-knowledge", authMiddleware, creatorOnly, (req, res) => res.json(KB.stats()));
 // every 30 minutes: quick price checks and the "I replied in N chats" report (at most once a day each)
 function aiAgentTick() {

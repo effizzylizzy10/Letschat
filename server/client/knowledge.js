@@ -174,7 +174,10 @@ function providers() {
   const p = [], add = (n, url, key, model) => { if (key && url) p.push({ n, url, key, model }); };
   add("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", E.GEMINI_API_KEY, E.GEMINI_MODEL || "gemini-2.5-flash");
   add("groq", "https://api.groq.com/openai/v1", E.GROQ_API_KEY, E.GROQ_MODEL || "llama-3.1-8b-instant");
+  add("openai", "https://api.openai.com/v1", E.OPENAI_API_KEY, E.OPENAI_MODEL || "gpt-4o-mini"); // OpenAI / ChatGPT (set OPENAI_API_KEY)
   add("xai", "https://api.x.ai/v1", E.XAI_API_KEY, E.XAI_MODEL || "grok-4"); // optional: xAI Grok (set XAI_API_KEY)
+  add("deepseek", "https://api.deepseek.com/v1", E.DEEPSEEK_API_KEY, E.DEEPSEEK_MODEL || "deepseek-chat"); // DeepSeek (set DEEPSEEK_API_KEY)
+  add("mistral", "https://api.mistral.ai/v1", E.MISTRAL_API_KEY, E.MISTRAL_MODEL || "mistral-small-latest"); // Mistral (set MISTRAL_API_KEY)
   add("openrouter", "https://openrouter.ai/api/v1", E.OPENROUTER_API_KEY, E.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free");
   add("openrouter2", "https://openrouter.ai/api/v1", E.OPENROUTER_API_KEY_2, E.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free");
   add("openrouter3", "https://openrouter.ai/api/v1", E.OPENROUTER_API_KEY_3, E.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free");
@@ -183,6 +186,9 @@ function providers() {
   add("sambanova", "https://api.sambanova.ai/v1", E.SAMBANOVA_API_KEY, E.SAMBANOVA_MODEL || "Meta-Llama-3.3-70B-Instruct");
   if (E.CLOUDFLARE_API_KEY && E.CLOUDFLARE_ACCOUNT_ID) add("cloudflare", "https://api.cloudflare.com/client/v4/accounts/" + E.CLOUDFLARE_ACCOUNT_ID + "/ai/v1", E.CLOUDFLARE_API_KEY, E.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct");
   add("custom", E.AI_BASE_URL, E.AI_API_KEY, E.AI_MODEL || "default");
+  // AI_PRIMARY=openai (or gemini, xai, groq, deepseek...) tries that provider first
+  const first = String(E.AI_PRIMARY || "").trim().toLowerCase(), i = p.findIndex((x) => x.n === first);
+  if (i > 0) p.unshift(p.splice(i, 1)[0]);
   return p;
 }
 const llmReady = () => providers().length > 0;
