@@ -86,7 +86,12 @@
 
   function inject(src) { var s = d.createElement("script"); s.src = src; s.async = false; d.body.appendChild(s); }
   function start() {
-    if (started) return; started = true;
+    if (started) return;
+    if (!w.React || !w.ReactDOM) { // never start the app without React: explain instead of a blank crash screen
+      if (w.showErr) w.showErr("Letschat could not load its React library. Check your internet connection, then tap Reload.");
+      return;
+    }
+    started = true;
     if (usedBackup) { var b = d.getElementById("error-box"); if (b && /FAILED TO LOAD SCRIPT/.test(b.textContent || "")) { b.style.display = "none"; b.textContent = ""; } }
     if (!lite) {
       var f = d.createElement("link"); f.rel = "stylesheet"; f.href = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap"; d.head.appendChild(f);

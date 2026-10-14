@@ -1,6 +1,7 @@
 // Letschat Africa: emoji reactions on messages (plain JS, loads before the app).
 // The app calls chips() under each message bubble, bar() when a message is selected, and useLive() once per chat.
 (function () {
+  if (!window.React) return; // React not loaded yet: skip the emoji extras instead of crashing the app
   var h = React.createElement, useState = React.useState;
   var QUICK = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE4F", "\u261D\uFE0F"]; // 👍 ❤️ 😂 😮 😢 🙏 ☝️
   var MORE = ["\uD83D\uDD25", "\uD83D\uDE0D", "\uD83C\uDF89", "\uD83D\uDC4F", "\uD83D\uDE05", "\uD83D\uDE21", "\uD83E\uDD14", "\uD83D\uDE2D", "\uD83D\uDCAF", "\uD83D\uDE4C", "\uD83D\uDE0E", "\uD83E\uDD1D",
