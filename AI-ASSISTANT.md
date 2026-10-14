@@ -132,3 +132,9 @@ Removed/raised: `@ai` 20-per-hour cap, robot chat 12-per-minute cap, 1000-charac
 - **Render-blocking**: `polyfills.js`, `compat.js`, `responsive.js` are `defer` (same order). `config.js` stays blocking on purpose (the wake-up script reads it).
 - **Legacy JavaScript**: `build.js` now ships two bundles: `app.js` (modern, no ES5 helpers, smaller) and `app.legacy.js` (ES5, for phones without `CSS inset` support). `responsive.js` picks one and falls back to `app.js` if the legacy file is missing.
 - **Unused JavaScript**: the modern bundle removes a lot of helper code, but the app is still one large file. Real splitting into lazy-loaded screens needs a bigger refactor.
+
+
+## v25: LetsChat AI page is API-only
+The LetsChat AI chat (Chats tab robot) now just sends your message and the last 12 messages to the AI API and shows the answer. Removed from that page: Learn and Train buttons/panels, daily research and digests, auto-learn, offline knowledge pack and question queue, saved answers, thumbs feedback, reactions, fake typing delays, notes and news lookups. Routes /api/bot/pack, sync, feedback, learn, learn/erase and /api/creator/bot/* are gone and BOT.start() no longer runs.
+Providers (set keys in Render > Environment): GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY (Grok), GROQ_API_KEY, DEEPSEEK_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY, TOGETHER_API_KEY, HF_API_KEY, SAMBANOVA_API_KEY, CLOUDFLARE_*, or AI_API_KEY + AI_BASE_URL + AI_MODEL for any OpenAI-compatible service. Set AI_PRIMARY (e.g. openai) to choose which is tried first. Without any key the page says the AI is not connected.
+Other places that use bot.js (the `@ai` command in chats and the Tools AI assistant) were not changed.
