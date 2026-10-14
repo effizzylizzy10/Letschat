@@ -203,7 +203,10 @@ function groupView(db, c, uid, preMsgs) {
     id: c.id, isGroup: true, name: c.name, adminId: c.adminId, description: c.description || "",
     avatar: c.avatar ? `/api/v1/groups/${c.id}/avatar?v=${c.avatarVersion || 1}` : null,
     dmRequests: (c.dmRequests || []).filter((r) => (c.adminId === uid ? r.status === "pending" : r.from === uid)),
-    members: c.participantIds.map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
+    members: (c.chatRoom && c.participantIds.length > 300
+      ? [...c.participantIds].sort((a, b) => (b === uid) - (a === uid) || (userSockets.has(b) ? 1 : 0) - (userSockets.has(a) ? 1 : 0)).slice(0, 300)
+      : c.participantIds).map((id) => memberView(db.users.find((u) => u.id === id), c.adminId === uid)).filter(Boolean),
+    ...(c.chatRoom ? { chatRoom: true, memberCount: c.participantIds.length } : {}),
     inviteCode: c.adminId === uid ? c.inviteCode : undefined, // only the admin ever receives the link
     disappearAfter: c.disappearAfter || 0,
     ai: c.ai && c.ai.on ? { on: true, rules: c.ai.rules || [] } : { on: false },
@@ -821,6 +824,7 @@ function pushMessage(db, convo, message, senderId) {
     const u = db.users.find((x) => x.id === id);
     if (!u || !(u.pushSubs || []).length || (u.blocked || []).includes(senderId)) continue;
     if (mutedOf(db, u)[convo.id] !== undefined) continue; // this chat is muted for that person
+    if (convo.chatRoom && !(message.mentions || []).includes(id)) continue; // Chat Room: only people who are @mentioned get a push
     for (const sub of u.pushSubs) {
       if (convo.isGroup && sub.groups === false) continue;
       const mentioned = (message.mentions || []).includes(id);
@@ -927,7 +931,8 @@ app.get("/api/users/lookup", authMiddleware, (req, res) => {
 
 app.get("/api/conversations", authMiddleware, (req, res) => {
   const db = readDB();
-  if (purgeExpiredMessages(db)) writeDB(db);
+  let roomChanged = false; try { roomChanged = joinChatRoom(db, req.user.id); } catch (e) { console.error("chat room join failed", e.message); }
+  if (purgeExpiredMessages(db) || roomChanged) writeDB(db);
   const mine = db.conversations.filter((c) => c.participantIds.includes(req.user.id));
   // one pass over the messages instead of one pass per chat (this endpoint runs after every incoming message)
   const mineIds = new Set(mine.map((c) => c.id)), byConv = new Map();
@@ -1134,6 +1139,31 @@ app.get("/api/search", authMiddleware, (req, res) => res.json(searchMessages(rea
 const MAX_GROUP = 256;
 function groupEvent(c, event) { // put every member's sockets in the room and tell them to refresh
   for (const id of c.participantIds) { joinUserToRoom(id, `conv:${c.id}`); io.to(`user:${id}`).emit(event, { id: c.id }); }
+}
+// ---- Chat Room (v19): one group that every user joins automatically the first time they come online ----
+// People can leave (they are then not added again). Joining is silent (no "X joined" notice for hundreds of people), only @mentions send a push,
+// messages are limited to one per 1.5 s per person, and the group is never deleted when it empties. The creator is its admin.
+const CHAT_ROOM_ID = "chatroom-letschat", CHAT_ROOM_NAME = "Chat Room", roomLast = new Map();
+function ensureChatRoom(db) {
+  let c = db.conversations.find((x) => x.chatRoom);
+  if (c) return { c, created: false };
+  const boss = db.users.find((u) => isCreator(u));
+  c = { id: CHAT_ROOM_ID, isGroup: true, chatRoom: true, name: CHAT_ROOM_NAME, adminId: boss ? boss.id : "", inviteCode: nanoid(16),
+    description: "Everyone on Letschat appears here once they are online. Tap the @ button to mention a contact and chat with them right here.",
+    participantIds: [], createdAt: Date.now(), updatedAt: Date.now() };
+  db.conversations.push(c);
+  return { c, created: true };
+}
+// adds the person if needed; returns true when the database changed (the caller saves it)
+function joinChatRoom(db, userId) {
+  const u = db.users.find((x) => x.id === userId);
+  if (!u || u.suspended) return false;
+  const { c, created } = ensureChatRoom(db);
+  let changed = created;
+  if (!c.adminId && isCreator(u)) { c.adminId = u.id; changed = true; }
+  if (!c.participantIds.includes(userId) && !(c.optedOut || []).includes(userId)) { c.participantIds.push(userId); changed = true; }
+  if (created) groupNotice(db, c, "Welcome to the Chat Room \uD83D\uDC4B Everyone on Letschat appears here once they are online. Tap @ to mention a contact and chat with them in this room.", { kind: "welcome" });
+  return changed;
 }
 function adminGroup(req, res) { // returns the group if the caller is its admin, else sends the error
   const db = readDB();
@@ -1628,7 +1658,9 @@ app.post("/api/groups/join", authMiddleware, (req, res) => {
 const AI_MAX_PAIRS = 120;
 const KB = require("./knowledge"); // online sourcing + self-learning knowledge (see AGENT-AI.md)
 KB.start();
-const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
+const NEWS = require("./news"); // Nigerian news, gist, gossip, trending, crime and sports feeds (see news.js)
+NEWS.start();
+const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, News: NEWS, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
 BOT.start(); // daily research for the creator
 const AI_STOP = new Set("a an the is are was were be been am i you he she it we they me my your our their to of in on at for with and or but so if this that these those do does did have has had will would can could should just please pls ok okay oh not".split(" "));
 function aiTokens(t) {
@@ -1756,6 +1788,8 @@ function aiCompose(owner, incoming) {
   if (AI_SENSITIVE.test(String(incoming || ""))) return "This looks important, so " + String(owner.name || "they").split(" ")[0] + " will reply to you personally when back.";
   return aiCandidates(owner, incoming, 1)[0];
 }
+// "Reply even when I am online": once the AI is on it chats with people whether the owner is online, away or offline. The creator account has it on by default.
+const aiAlways = (u) => !!u && !!u.ai && (u.ai.always === true || (u.ai.always === undefined && isCreator(u)));
 const AI_SEND_GAP = 45 * 1000, AI_MAX_PER_WINDOW = 6, AI_WINDOW = 6 * 60 * 60 * 1000;
 // answer for an offline person who has the AI on (direct chats, and group messages that @mention them)
 function aiRespond(db, convo, incoming) {
@@ -1767,7 +1801,7 @@ function aiRespond(db, convo, incoming) {
     const a = aiOf(owner);
     if (a.autoReply === false) continue;
     const live = userSockets.get(owner.id);
-    if (live && live.size) continue; // they are online: they answer themselves
+    if (live && live.size && !aiAlways(owner)) continue; // they are online: they answer themselves (unless they chose "reply even when I am online")
     if ((owner.blocked || []).includes(incoming.senderId)) continue;
     const last = db.messages[db.messages.length - 1];
     if (last && last.id !== incoming.id && last.conversationId === convo.id && last.auto && last.senderId === owner.id && last.time >= incoming.time) continue; // away/greeting message already answered
@@ -1895,7 +1929,7 @@ function aiView(u) {
   for (const k of ["greet", "how", "thanks", "bye"]) for (const r of (L.say[k] || []).slice(0, 2)) phrases.push(r);
   const st = L.style, avg = st.n ? Math.round(st.len / st.n) : 0;
   return {
-    on: !!a.on, autoReply: a.autoReply !== false,
+    on: !!a.on, autoReply: a.autoReply !== false, always: aiAlways(u),
     learned: {
       studied: L.sent + L.seen, replies: L.sent, patterns: L.pairs.length, topics, phrases: phrases.slice(0, 6), since: L.studied || 0,
       tone: !st.n ? "Still learning" : (avg < 25 ? "short and quick" : avg < 80 ? "normal length" : "detailed") + (st.emoji / st.n > 0.25 ? ", uses emojis" : "") + (st.lower / st.n > 0.6 ? ", mostly lowercase" : ""),
@@ -1908,6 +1942,7 @@ app.put("/api/me/ai", authMiddleware, (req, res) => {
   const a = aiOf(u), was = !!a.on;
   if (req.body.on !== undefined) a.on = req.body.on === true;
   if (req.body.autoReply !== undefined) a.autoReply = req.body.autoReply === true;
+  if (req.body.always !== undefined) a.always = req.body.always === true;
   if (a.on && !was) aiStudyHistory(db, u);
   writeDB(db);
   res.json(aiView(u));
@@ -1915,7 +1950,7 @@ app.put("/api/me/ai", authMiddleware, (req, res) => {
 app.post("/api/me/ai/reset", authMiddleware, (req, res) => {
   const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
   const a = aiOf(u);
-  u.ai = { on: !!a.on, autoReply: a.autoReply !== false, ...(a.agent ? { agent: a.agent } : {}) };
+  u.ai = { on: !!a.on, autoReply: a.autoReply !== false, ...(a.always !== undefined ? { always: a.always } : {}), ...(a.agent ? { agent: a.agent } : {}) };
   aiOf(u);
   if (u.ai.on) aiStudyHistory(db, u);
   writeDB(db);
@@ -1988,7 +2023,7 @@ async function aiDelayedReply(convoId, incoming, ownerId, text) {
   const db = readDB(), owner = db.users.find((u) => u.id === ownerId), convo = db.conversations.find((c) => c.id === convoId);
   if (!owner || !convo) return;
   const live = userSockets.get(owner.id);
-  if (live && live.size) return; // they came back online while it was typing
+  if (live && live.size && !aiAlways(owner)) return; // they came back online while it was typing
   aiCount(owner, convoId);
   aiPostReply(db, convo, owner, incoming, text);
 }
@@ -2016,7 +2051,7 @@ async function aiAgentReply(convoId, incoming, ownerId) {
   const convo = db.conversations.find((c) => c.id === convoId);
   if (!owner || !convo) return;
   const live = userSockets.get(owner.id);
-  if (live && live.size) return; // they came back online while it was looking things up
+  if (live && live.size && !aiAlways(owner)) return; // they came back online while it was looking things up
 
   aiCount(owner, convoId);
   aiPostReply(db, convo, owner, incoming, "AI: " + text);
@@ -2155,11 +2190,21 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
   try { res.json(await BOT.chat(req.user.id, text)); } catch (e) { console.error("bot chat failed", e.message); res.status(500).json({ error: "The AI could not answer right now" }); }
 });
 app.post("/api/bot/clear", authMiddleware, (req, res) => { BOT.clear(req.user.id); res.json({ ok: true }); });
+// ---- v18 auto-learn: offline knowledge pack, offline-question sync, feedback, what it learned about me ----
+app.get("/api/bot/pack", authMiddleware, async (req, res) => { try { res.json(await BOT.pack(req.user.id)); } catch (e) { console.error("bot pack failed", e.message); res.status(500).json({ error: "Could not build the offline pack" }); } });
+app.post("/api/bot/sync", authMiddleware, async (req, res) => { try { res.json(await BOT.sync(req.user.id, (req.body && req.body.items) || [])); } catch (e) { console.error("bot sync failed", e.message); res.status(500).json({ error: "Could not sync" }); } });
+app.post("/api/bot/feedback", authMiddleware, (req, res) => { const b = req.body || {}; res.json({ ok: BOT.feedback(req.user.id, b.q, b.a, !!b.up) }); });
+app.get("/api/bot/learn", authMiddleware, (req, res) => res.json({ me: BOT.meGet(req.user.id), auto: (({ on, online, inApp, offline }) => ({ on, online, inApp, offline }))(BOT.autoView()) }));
+app.post("/api/bot/learn", authMiddleware, (req, res) => res.json({ me: BOT.meSet(req.user.id, !!(req.body && req.body.on)) }));
+app.post("/api/bot/learn/erase", authMiddleware, (req, res) => res.json({ me: BOT.meErase(req.user.id) }));
 // ---- developer training + research (creator only) ----
 app.get("/api/creator/bot", authMiddleware, creatorOnly, (req, res) => res.json(BOT.trainView()));
 app.post("/api/creator/bot/add", authMiddleware, creatorOnly, (req, res) => { try { BOT.trainAdd(req.body.kind, req.body.text); res.json(BOT.trainView()); } catch (e) { res.status(400).json({ error: e.message }); } });
 app.post("/api/creator/bot/remove", authMiddleware, creatorOnly, (req, res) => { try { BOT.trainRemove(req.body.kind, req.body.index); res.json(BOT.trainView()); } catch (e) { res.status(400).json({ error: e.message }); } });
+app.post("/api/creator/bot/topic", authMiddleware, creatorOnly, (req, res) => { const t = String(req.body.topic || "").trim().slice(0, 120); if (!t) return res.status(400).json({ error: "Pick a topic" }); BOT.researchTopic(t); res.json({ ...BOT.trainView(), running: true }); }); // research one topic again now
 app.post("/api/creator/bot/research", authMiddleware, creatorOnly, (req, res) => { BOT.research(); res.json({ ...BOT.trainView(), running: true }); }); // runs in the background; the digest arrives in your AI chat
+app.post("/api/creator/bot/auto", authMiddleware, creatorOnly, (req, res) => { try { res.json({ ...BOT.trainView(), auto: BOT.autoSet(req.body || {}) }); } catch (e) { res.status(400).json({ error: e.message }); } }); // master switches: on / online / inApp / offline
+app.post("/api/creator/bot/auto/run", authMiddleware, creatorOnly, (req, res) => { BOT.autoTick(); res.json({ ...BOT.trainView(), running: true }); });
 app.get("/api/creator/ai-knowledge", authMiddleware, creatorOnly, (req, res) => res.json(KB.stats()));
 // every 30 minutes: quick price checks and the "I replied in N chats" report (at most once a day each)
 function aiAgentTick() {
@@ -2226,14 +2271,15 @@ app.post("/api/conversations/:id/leave", authMiddleware, (req, res) => {
   if (!c || !c.isGroup || !c.participantIds.includes(req.user.id)) return res.status(404).json({ error: "Group not found" });
   const me = req.user.id, name = nameOf(db, me);
   c.participantIds = c.participantIds.filter((id) => id !== me);
+  if (c.chatRoom) c.optedOut = [...new Set([...(c.optedOut || []), me])];
   if (c.ai && c.ai.warns) delete c.ai.warns[me];
-  if (!c.participantIds.length) {
+  if (!c.participantIds.length && !c.chatRoom) {
     for (let i = db.messages.length - 1; i >= 0; i--) if (db.messages[i].conversationId === c.id) { if (USE_DB) pendingDeletes.push({ c: "messages", id: db.messages[i].id }); db.messages.splice(i, 1); }
     const ci = db.conversations.findIndex((x) => x.id === c.id);
     if (ci >= 0) { if (USE_DB) pendingDeletes.push({ c: "conversations", id: c.id }); db.conversations.splice(ci, 1); }
   } else {
-    if (c.adminId === me) c.adminId = c.participantIds[0];
-    groupNotice(db, c, name + " left", { kind: "left", actorId: me, targetIds: [me] });
+    if (c.adminId === me && !c.chatRoom) c.adminId = c.participantIds[0];
+    if (!c.chatRoom) groupNotice(db, c, name + " left", { kind: "left", actorId: me, targetIds: [me] });
   }
   writeDB(db);
   try { io.in(`user:${me}`).socketsLeave(`conv:${c.id}`); } catch (e) { /* ignore */ }
@@ -2843,6 +2889,7 @@ function handleSend(userId, { conversationId, text, audio, duration, file, reply
       if (me && (me.blocked || []).includes(otherId)) return fail("You blocked this contact. Unblock them to send messages.");
       if (other && (other.blocked || []).includes(userId)) return fail("This message couldn't be delivered.");
     }
+    if (convo.chatRoom) { const t0 = Date.now(); if (t0 - (roomLast.get(userId) || 0) < 1500) return fail("Slow down a little, the Chat Room is busy"); roomLast.set(userId, t0); }
     // @mentions (groups only): only current members, never yourself, at most 20
     const mentionIds = convo.isGroup && Array.isArray(mentions) ? [...new Set(mentions.filter((id) => typeof id === "string" && id !== userId && convo.participantIds.includes(id)))].slice(0, 20) : [];
     // reply: keep a small snapshot of the quoted message so the quote still shows if the original is deleted later
@@ -2917,8 +2964,11 @@ io.on("connection", (socket) => {
   socket.on("app:visible", (v) => { socket.data.visible = !!v; }); // lets the server know when the app is in the background, so it sends a push instead
 
   const db = readDB();
+  let joinedRoom = false;
+  try { if (joinChatRoom(db, userId)) { writeDB(db); joinedRoom = true; } } catch (e) { console.error("chat room join failed", e.message); }
   const myConvos = db.conversations.filter((c) => c.participantIds.includes(userId));
   for (const c of myConvos) socket.join(`conv:${c.id}`);
+  if (joinedRoom) io.to(`user:${userId}`).emit("conversation:added", { id: CHAT_ROOM_ID });
   // messages that were waiting for this person are delivered now: tell the senders so their ticks update
   try {
     if ((userSockets.get(userId) || new Set()).size <= 1) {

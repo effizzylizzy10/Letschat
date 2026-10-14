@@ -163,9 +163,9 @@ async function lookup(question) {
 // Models can be changed with <NAME>_MODEL (e.g. GROQ_MODEL).
 function providers() {
   const p = [], add = (n, url, key, model) => { if (key && url) p.push({ n, url, key, model }); };
-  add("custom", E.AI_BASE_URL, E.AI_API_KEY, E.AI_MODEL || "default");
   add("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", E.GEMINI_API_KEY, E.GEMINI_MODEL || "gemini-2.5-flash");
   add("groq", "https://api.groq.com/openai/v1", E.GROQ_API_KEY, E.GROQ_MODEL || "llama-3.1-8b-instant");
+  add("xai", "https://api.x.ai/v1", E.XAI_API_KEY, E.XAI_MODEL || "grok-4"); // optional: xAI Grok (set XAI_API_KEY)
   add("openrouter", "https://openrouter.ai/api/v1", E.OPENROUTER_API_KEY, E.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free");
   add("openrouter2", "https://openrouter.ai/api/v1", E.OPENROUTER_API_KEY_2, E.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free");
   add("openrouter3", "https://openrouter.ai/api/v1", E.OPENROUTER_API_KEY_3, E.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free");
@@ -173,6 +173,7 @@ function providers() {
   add("huggingface", "https://router.huggingface.co/v1", E.HF_API_KEY, E.HF_MODEL || "Qwen/Qwen2.5-72B-Instruct");
   add("sambanova", "https://api.sambanova.ai/v1", E.SAMBANOVA_API_KEY, E.SAMBANOVA_MODEL || "Meta-Llama-3.3-70B-Instruct");
   if (E.CLOUDFLARE_API_KEY && E.CLOUDFLARE_ACCOUNT_ID) add("cloudflare", "https://api.cloudflare.com/client/v4/accounts/" + E.CLOUDFLARE_ACCOUNT_ID + "/ai/v1", E.CLOUDFLARE_API_KEY, E.CLOUDFLARE_MODEL || "@cf/meta/llama-3.1-8b-instruct");
+  add("custom", E.AI_BASE_URL, E.AI_API_KEY, E.AI_MODEL || "default");
   return p;
 }
 const llmReady = () => providers().length > 0;
@@ -191,10 +192,34 @@ async function chat(messages, opt) {
       });
       if (!r.ok) { cooldown.set(p.n, Date.now() + (r.status === 429 || r.status === 402 ? 10 * 60 * 1000 : r.status === 401 || r.status === 403 ? 60 * 60 * 1000 : 2 * 60 * 1000)); throw new Error("HTTP " + r.status); }
       const j = await r.json(), txt = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (txt && txt.trim()) return { text: txt.trim(), by: p.n };
+      if (txt && txt.trim()) {
+        if (opt && opt.accept && !opt.accept(txt.trim())) continue; // a weak model echoed the question or answered with nonsense: ask the next AI
+        return { text: txt.trim(), by: p.n };
+      }
     } catch (e) { if (!cooldown.get(p.n) || cooldown.get(p.n) < Date.now()) cooldown.set(p.n, Date.now() + 60 * 1000); /* try the next provider */ } finally { clearTimeout(t); }
   }
   return null;
+}
+
+// Real Gemini with Google Search grounding (the native Gemini API, not the compatibility endpoint): it searches the web by itself for every question and returns the sources it used.
+async function geminiSearch(messages, opt) {
+  const key = E.GEMINI_API_KEY; if (!key || (cooldown.get("gemini-search") || 0) > Date.now()) return null;
+  const model = E.GEMINI_MODEL || "gemini-2.5-flash";
+  const sys = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const contents = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content) }] }));
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), (opt && opt.timeout) || 25000);
+  try {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+      method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents, tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: (opt && opt.max) || 1500, temperature: opt && opt.temp != null ? opt.temp : 0.5 } }),
+    });
+    if (!r.ok) { cooldown.set("gemini-search", Date.now() + (r.status === 429 ? 10 : r.status === 401 || r.status === 403 ? 60 : 3) * 60 * 1000); return null; }
+    const j = await r.json(), c = j.candidates && j.candidates[0];
+    const text = c && c.content && c.content.parts ? c.content.parts.map((x) => x.text || "").join("").trim() : "";
+    if (!text || (opt && opt.accept && !opt.accept(text))) return null;
+    const links = ((c.groundingMetadata || {}).groundingChunks || []).map((g) => g.web && g.web.uri ? { uri: g.web.uri, title: g.web.title || "" } : null).filter(Boolean);
+    return { text, by: "gemini+search", links: links.slice(0, 6) };
+  } catch (e) { cooldown.set("gemini-search", Date.now() + 2 * 60 * 1000); return null; } finally { clearTimeout(t); }
 }
 
 // ---------- the answer pipeline ----------
@@ -276,4 +301,4 @@ function stats() {
     ai: providers().map((p) => p.n), top: Object.values(store.asked).sort((a, b) => b.n - a.n).slice(0, 10).map((x) => ({ q: x.q, n: x.n })),
   };
 }
-module.exports = { answer, lookup, loadNews, refresh, start, stats, llmReady, isQuestion, scrub, tokens, topFacts, chat, _store: () => store };
+module.exports = { geminiSearch, answer, lookup, loadNews, refresh, start, stats, llmReady, isQuestion, scrub, tokens, topFacts, chat, _store: () => store };
