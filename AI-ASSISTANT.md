@@ -90,3 +90,45 @@ No new variables, packages or tables. Replace `client/` (app.js) and `server/cli
 - **Predictions**: for "who will win..." the robot gathers the latest team news and form, gives a lean with rough probabilities and the reasons, says clearly nobody can know and upsets are common, and never encourages betting. Prediction answers are never served from the saved-answer cache.
 - The 5 daily research digests now include sports and technology/AI (8 topics) and the headlines of every news category.
 - Creator view: Train > Research > Auto-learn shows "self-study: sports x/23, tech and AI y/26 (n/24 today, last: ...)". Deploy: replace `client/app.js` and `server/client/` (bot.js, news.js, server.js), redeploy.
+
+## v21: research for every question + a free-flowing Chat Room
+**AI research (bot.js, knowledge.js)**
+- Every real question is researched the moment it is asked, in parallel: weather, exchange rates, dictionary, Wikipedia AND DuckDuckGo together (new `KB.lookupAll`), plus news headlines for anything time-sensitive ("latest", "who is", "what happened", prices, scores). The notes are given to every AI engine (including Gemini with Google Search), and the answer ends with a "Sources:" line.
+- Saved answers are no longer served instantly: they are only a fallback when every engine and online source fails. Greetings, thanks, writing/code/translation tasks and app questions are not researched.
+- The system prompt now tells the AI to build the answer from the fresh notes, compare sources and say so when they disagree or look thin.
+- `@ai <question>` in any chat or in the Chat Room now uses the same robot (research first), so everybody in the room can ask it.
+- Honest limit: without an AI key the free sources are shallow; Gemini or Groq keys give the best accuracy.
+
+**Chat Room (server.js, client/app.js)**
+- Private chat from the room: tapping a member and "Message privately" opens a chat at once, no admin approval (it still respects blocks). Other groups keep the approval rule.
+- No more 1.5 s slow mode: up to 12 messages per 10 s per person (stops floods, never blocks normal chatting).
+- People you reply to get a push in the room (before only @mentions did).
+- In a room with over 300 members, every message now carries its sender's name and photo, so people outside the 300 on the member list no longer show as "Former member". Group info shows the real member count.
+- Everything else in the message box (voice notes, files, photos, polls, replies, reactions, edit/delete, pins, @mentions, calls) already worked in groups and works in the room.
+- Deploy: replace `client/app.js` and `server/client/` (server.js, bot.js, knowledge.js), redeploy. No new variables or tables.
+
+## v22: Room tab, creator-only How-to videos, WhatsApp bubbles
+- **Room tab**: new "Room" button in the bottom bar (between Chats and Calls) opens the Chat Room directly. (The room is also still pinned in the Chats list.)
+- **Tools > How to**: the box now shows only YouTube videos posted by the creator (thumbnail + title; tap opens YouTube). The creator sees an "Add YouTube video" card (title + link) and a small x on each video to remove it. Everyone else only watches. The server enforces this: `GET /api/howto` (anyone signed in), `POST /api/creator/howto` and `DELETE /api/creator/howto/:id` (creator only, real YouTube links only, max 30). Videos live in the creator's user record. If there are no videos, other users do not see the section at all. YouTube links in chats are still creator-only, as before.
+- **Chat bubbles** are now WhatsApp style: dark green (#005C4B) for you, dark grey (#202C33) for others, 8 px corners, a small tail on the first bubble of each run, smaller time and ticks bottom right.
+- Deploy: replace `client/app.js` and `server/client/server.js`, redeploy.
+
+## v23: Chat Room without AI, country flags, creator-only room
+- **No AI in the Chat Room**: `aiAfterSend` returns at once for the room, so there are no `@ai` answers, no AI moderator, no assistant auto-replies and no learning from room messages. The AI button/strip in the message box and the Group info "AI moderator" row are hidden there, the AI moderator routes refuse the room, and `joinChatRoom` clears a moderator that was switched on before. Old AI messages (`bot` / `ai`) are hidden from the room (history, chat-list preview and unread count), not deleted. The LetsChat AI robot on the Chats tab is unchanged.
+- **Country flags**: every head in the Chat Room carries a flag badge (top-right of the avatar): next to each message (the sender's head is now shown beside room messages), in Group info, in the @ picker and in the profile sheet ("Chatting from ..."). The country is worked out by the new `server/client/geo.js` (no package, no outside service), strongest first: a country header from the host/CDN (`cf-ipcountry`, `x-vercel-ip-country`, CloudFront...), the phone's time zone, the phone's language region, then the country code of the phone number. The app sends its time zone and language with the socket event `geo:set` on every connect. Saved on the user record as `country`, `countrySrc`, `countryAt` (country only, never an IP address). Only the Chat Room's member list and room messages carry `country`; other groups and chats do not.
+- **Creator only**: in the Chat Room only the `CREATOR_EMAILS` account can change the name, photo, description, members, invite link, disappearing timer and pinned messages (`isGroupBoss` in server.js). Everyone else gets "Only the creator can modify the Chat Room." and the controls are hidden; the admin badge reads "Creator". Members can still leave the room.
+- Deploy: replace `client/app.js` and `server/client/server.js`, add `server/client/geo.js`, redeploy Render and the website. No new variables, packages or tables.
+- `client/app.jsx` was not changed (it is older than `app.js`, see the note above).
+
+## v24: live research on every question
+- `needsResearch` in `bot.js` now returns true for every real question (only chit-chat, secrets and pure write/code/translate tasks are skipped), and `researchNow` always adds the news search and a "latest ..." search, so every answer is built from fresh notes. App-feature questions still use the built-in Letschat guide.
+- Cost: more outbound lookups per question (each limited to 8 s, run in parallel). Deploy: replace `server/client/bot.js`, redeploy.
+
+## v24b: usage limits removed
+Removed/raised: `@ai` 20-per-hour cap, robot chat 12-per-minute cap, 1000-character message cap (now 8000; `@ai` 4000), answer length cap (1500-1800 -> 8000 tokens), assistant auto-reply caps (45 s gap and 6 per 6 h -> 3 s and 1000). Safety guards were kept on purpose: it still never handles passwords/OTPs/PINs/card numbers, still warns about scams, still never answers other AI messages (prevents loops), and the Chat Room still has no AI. Provider quotas of the free AI keys still apply.
+
+## v24c: Lighthouse fixes (website, `client/`)
+- **document.write removed**: Firebase 10 is now two normal `defer` script tags. Very old phones that cannot run it get Firebase 8 from the backup loader in `responsive.js`.
+- **Render-blocking**: `polyfills.js`, `compat.js`, `responsive.js` are `defer` (same order). `config.js` stays blocking on purpose (the wake-up script reads it).
+- **Legacy JavaScript**: `build.js` now ships two bundles: `app.js` (modern, no ES5 helpers, smaller) and `app.legacy.js` (ES5, for phones without `CSS inset` support). `responsive.js` picks one and falls back to `app.js` if the legacy file is missing.
+- **Unused JavaScript**: the modern bundle removes a lot of helper code, but the app is still one large file. Real splitting into lazy-loaded screens needs a bigger refactor.
