@@ -136,8 +136,24 @@ function normalizePhone(phone) {
 function findByPhone(db, phone) {
   return phone ? db.users.find((u) => u.phone && normalizePhone(u.phone) === phone) : null;
 }
-// Usernames: 3-20 characters, a-z 0-9 _ . and at least one letter (so they can never be mistaken for a phone number).
-const USERNAME_RE = /^(?=.*[a-z])[a-z0-9_.]{3,20}$/;
+// Nicknames (usernames): 3-20 characters. Letters, numbers and symbols are all allowed (no spaces, no "@"). They must contain at least one
+// character that is not a digit, + - ( ) so a nickname can never be mistaken for a phone number. Every nickname is unique (not case sensitive).
+const USERNAME_RE = /^(?=.*[^0-9+\-()])[\x21-\x3F\x41-\x7E]{3,20}$/;
+const USERNAME_RULE = "Nickname must be 3 to 20 characters: letters, numbers or symbols, no spaces or @ (not only digits)";
+const isUsernameTaken = (db, name, selfId) => db.users.some((u) => u.id !== selfId && u.username === name);
+// Free nicknames close to the one that was taken, e.g. "ayo" -> "ayo27", "ayo_41", "ayo.305"
+function suggestUsernames(db, wanted, selfId, count = 3) {
+  let base = String(wanted || "").trim().replace(/^@/, "").toLowerCase().replace(/[^\x21-\x3F\x41-\x7E]/g, "").slice(0, 16);
+  if (base.length < 3) base = (base + "user").slice(0, 16);
+  const rnd = (n) => String(Math.floor(Math.random() * Math.pow(10, n))).padStart(n, "0");
+  const makers = [() => base + rnd(2), () => base + "_" + rnd(2), () => base + "." + rnd(3), () => base + rnd(3), () => base + "#" + rnd(2), () => base + "_" + rnd(3), () => base + "-" + rnd(2)];
+  const out = [];
+  for (let i = 0; i < 60 && out.length < count; i++) {
+    const c = makers[i % makers.length]().slice(0, 20);
+    if (USERNAME_RE.test(c) && !isUsernameTaken(db, c, selfId) && !out.includes(c)) out.push(c);
+  }
+  return out;
+}
 const normalizeUsername = (s) => String(s || "").trim().replace(/^@/, "").toLowerCase();
 function findByUsername(db, name) {
   const n = normalizeUsername(name);
@@ -148,7 +164,7 @@ function findByContact(db, query) {
   const q = String(query || "").trim();
   if (q.startsWith("@")) return findByUsername(db, q);
   if (q.includes("@")) return db.users.find((u) => u.email === q.toLowerCase());
-  if (/[a-z]/i.test(q)) return findByUsername(db, q);
+  if (/[^0-9+\-()\s]/.test(q)) return findByUsername(db, q); // anything besides phone characters is a nickname
   return findByPhone(db, normalizePhone(q));
 }
 const NOT_FOUND_MSG = "No Letschat Africa user with that username, phone number or email";
@@ -709,6 +725,15 @@ function cleanBusiness(b) {
     return { value: out };
   } catch (e) { return { error: e.message }; }
 }
+// Live check while typing a nickname: is it valid, is it free, and what could the person use instead?
+app.get("/api/me/username-check", authMiddleware, (req, res) => {
+  const db = readDB();
+  const n = normalizeUsername(req.query.u);
+  if (!n) return res.json({ valid: false, available: false, message: "Type a nickname", suggestions: [] });
+  if (!USERNAME_RE.test(n)) return res.json({ valid: false, available: false, message: USERNAME_RULE, suggestions: [] });
+  if (isUsernameTaken(db, n, req.user.id)) return res.json({ valid: true, available: false, message: "\"" + n + "\" has already been used", suggestions: suggestUsernames(db, n, req.user.id) });
+  res.json({ valid: true, available: true, message: "\"" + n + "\" is available", suggestions: [] });
+});
 app.patch("/api/me", authMiddleware, (req, res) => {
   const db = readDB();
   const user = db.users.find((u) => u.id === req.user.id);
@@ -726,8 +751,11 @@ app.patch("/api/me", authMiddleware, (req, res) => {
   let newUsername; // undefined = unchanged, "" = remove
   if (username !== undefined && username !== null) {
     newUsername = normalizeUsername(username);
-    if (newUsername && !USERNAME_RE.test(newUsername)) return res.status(400).json({ error: "Username must be 3 to 20 characters: letters, numbers, _ or . (at least one letter)" });
-    if (newUsername && db.users.some((u) => u.id !== user.id && u.username === newUsername)) return res.status(409).json({ error: "That username is already taken" });
+    if (newUsername && !USERNAME_RE.test(newUsername)) return res.status(400).json({ error: USERNAME_RULE });
+    if (newUsername && isUsernameTaken(db, newUsername, user.id)) {
+      const tips = suggestUsernames(db, newUsername, user.id);
+      return res.status(409).json({ error: "\"" + newUsername + "\" has already been used." + (tips.length ? " Try: " + tips.join(", ") : " Please choose another nickname.") });
+    }
   }
   let newBiz;
   if (req.body.business !== undefined && req.body.business !== null) {
@@ -1825,6 +1853,9 @@ const aiOf = (u) => {
 // "AI business" is switched on per chat (u.ai.chats[conversationId]): the AI learns from that chat and may answer in it for the owner
 const aiChatOn = (u, cid) => !!(u && u.ai && u.ai.chats && u.ai.chats[cid]);
 const aiActive = (u, cid) => !!(u && u.ai && (u.ai.on || aiChatOn(u, cid)));
+// Autolearn: the AI studies everyone's one-to-one chats in the background (writing style, topics, usual replies). Learning is separate from
+// replying: it only answers for someone when their AI / AI business is switched on.
+const aiLearns = (u) => !!(u && !u.suspended);
 const aiNameWords = (u) => String((u && u.name) || "").toLowerCase().split(/[^a-z0-9\u00C0-\uFFFF]+/).filter((w) => w.length >= 3);
 function aiAddPair(a, incoming, reply, avoid) {
   const inc = String(incoming || "").trim(), rep = String(reply || "").trim();
@@ -1859,7 +1890,7 @@ const aiPlain = (m) => m && !m.deleted && !m.system && !m.auto && !m.bot && type
 // study one message the owner just sent (DMs only): pair it with what they were answering
 function aiLearnSent(db, convo, message, owner) {
   const a = aiOf(owner);
-  if (!aiActive(owner, convo.id) || convo.isGroup || !aiPlain(message)) return;
+  if (!aiLearns(owner) || convo.isGroup || !aiPlain(message)) return;
   let prev = null;
   for (let i = db.messages.length - 1; i >= 0; i--) {
     const m = db.messages[i];
@@ -1872,12 +1903,12 @@ function aiLearnSent(db, convo, message, owner) {
   if (prev && aiPlain(prev) && message.time - prev.time < 30 * 60 * 1000) aiAddPair(a, prev.text, message.text, aiNameWords(db.users.find((u) => u.id === prev.senderId)));
 }
 // study a message that arrived for someone who has the AI on (topics only, never stored word for word)
-function aiObserve(db, convo, message) {
+function aiObserve(db, convo, message, skip) {
   if (convo.isGroup || !aiPlain(message)) return;
   for (const id of convo.participantIds) {
     if (id === message.senderId) continue;
     const u = db.users.find((x) => x.id === id);
-    if (!u || !aiActive(u, convo.id)) continue;
+    if (!u || !aiLearns(u) || (skip && skip.has(id))) continue;
     const a = aiOf(u);
     a.learn.seen++;
     if (!AI_SENSITIVE.test(message.text)) aiTopics(a, message.text);
@@ -2049,10 +2080,13 @@ function aiAfterSend(db, convo, message, userId) {
   if (askAi && aiPlain(message)) aiPublicAsk(convo.id, message, askAi[1]).catch((e) => console.error("ai ask failed", e.message));
   if (convo.isGroup) { aiModerate(db, convo, message); }
   const sender = db.users.find((u) => u.id === userId);
-  const had = aiActive(sender, convo.id);
+  // first message since autolearn: study each person's existing direct chats once (this message is included in that)
+  const studiedNow = new Set();
+  if (!convo.isGroup) for (const id of convo.participantIds) { const pu = db.users.find((x) => x.id === id); if (pu && aiLearns(pu) && !aiOf(pu).learn.studied) { aiStudyHistory(db, pu); studiedNow.add(id); } }
+  const had = aiLearns(sender) && !studiedNow.has(userId);
   if (had) aiLearnSent(db, convo, message, sender);
-  aiObserve(db, convo, message);
-  if (had || convo.participantIds.some((id) => aiActive(db.users.find((x) => x.id === id), convo.id))) writeDB(db);
+  aiObserve(db, convo, message, studiedNow);
+  if (!convo.isGroup) writeDB(db);
   aiRespond(db, convo, message);
 }
 
@@ -2113,16 +2147,8 @@ app.post("/api/me/ai/reset", authMiddleware, (req, res) => {
   writeDB(db);
   res.json(aiView(u));
 });
-app.get("/api/me/ai/suggest", authMiddleware, (req, res) => {
-  const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
-  const a = aiOf(u);
-  const convo = db.conversations.find((c) => c.id === String(req.query.conversationId || ""));
-  if (!a.on || !convo || !convo.participantIds.includes(u.id)) return res.json({ on: !!a.on, suggestions: [] });
-  let last = null;
-  for (let i = db.messages.length - 1; i >= 0; i--) { const m = db.messages[i]; if (m.conversationId === convo.id && m.senderId !== u.id && aiPlain(m)) { last = m; break; } }
-  if (!last) return res.json({ on: true, suggestions: [] });
-  res.json({ on: true, suggestions: AI_SENSITIVE.test(last.text) ? [] : aiCandidates(u, last.text, 4) });
-});
+// Reply suggestions are switched off: the app no longer offers AI suggestions in chats.
+app.get("/api/me/ai/suggest", authMiddleware, (req, res) => res.json({ on: false, suggestions: [] }));
 
 // ---- Letschat AI agent (business-agent style) ----
 // The owner chats with the agent to give it instructions and knowledge. It also feeds itself: it reads the owner's profile, business catalogue
