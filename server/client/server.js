@@ -2903,6 +2903,200 @@ const GAME_RULES = {
     next: (s) => s.nx,
   },
 };
+// ===================== 8-BALL POOL (vs the computer) =====================
+// Plain JS on purpose (no JSX). Table is W x H "pool pixels" (portrait, like the iMessage game); balls are numbered 1-15 + cue (index 0).
+const POOL = { W: 400, H: 800, R: 10.5, RAIL: 34, SUB: 8, PULL: 150, MAXV: 25 };
+const POOL_COLORS = ["#FFFFFF", "#F2C230", "#2458C8", "#D8332A", "#6A2C98", "#F08A24", "#1E9450", "#8E1F24", "#15171B"];
+const POOL_POCKETS = [
+    { x: -5, y: -5, r: 25 }, { x: POOL.W + 5, y: -5, r: 25 },
+    { x: -9, y: POOL.H / 2, r: 22 }, { x: POOL.W + 9, y: POOL.H / 2, r: 22 },
+    { x: -5, y: POOL.H + 5, r: 25 }, { x: POOL.W + 5, y: POOL.H + 5, r: 25 },
+];
+const POOL_GAP = 24; // length of the pocket mouth (cushions stop here)
+const POOL_KNOBS = (() => {
+    const W = POOL.W, H = POOL.H, g = POOL_GAP;
+    return [[0, g], [g, 0], [W, g], [W - g, 0], [0, H - g], [g, H], [W, H - g], [W - g, H], [0, H / 2 - g], [0, H / 2 + g], [W, H / 2 - g], [W, H / 2 + g]];
+})();
+function poolGroup(n) { return n === 8 ? "eight" : n < 8 ? "solid" : "stripe"; }
+function poolNewBalls() {
+    const R = POOL.R, W = POOL.W, H = POOL.H;
+    const B = [{ n: 0, x: W / 2, y: H * 0.75, vx: 0, vy: 0, on: true, fall: 0 }];
+    const rest = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15];
+    for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
+    const dy = R * 1.7320508 + 0.4, dx = R * 2 + 0.2, apexY = H * 0.27;
+    let k = 0;
+    for (let row = 0; row < 5; row++) for (let c = 0; c <= row; c++) {
+        const n = (row === 2 && c === 1) ? 8 : rest[k++];
+        B.push({ n, x: W / 2 + (c - row / 2) * dx, y: apexY - row * dy, vx: 0, vy: 0, on: true, fall: 0 });
+    }
+    return B;
+}
+function poolNewEvent() { return { first: null, pocketed: [], cue: false, rail: false, snd: [] }; }
+function poolStep(B, ev, h) {
+    const W = POOL.W, H = POOL.H, R = POOL.R, G = POOL_GAP;
+    for (let i = 0; i < B.length; i++) { const b = B[i]; if (b.on) { b.x += b.vx * h; b.y += b.vy * h; } }
+    for (let i = 0; i < B.length; i++) {
+        const a = B[i]; if (!a.on) continue;
+        for (let j = i + 1; j < B.length; j++) {
+            const b = B[j]; if (!b.on) continue;
+            let dx = b.x - a.x, dy = b.y - a.y; const d2 = dx * dx + dy * dy;
+            if (d2 >= 4 * R * R) continue;
+            let d = Math.sqrt(d2); if (d < 0.0001) { dx = 1; dy = 0; d = 1; }
+            const nx = dx / d, ny = dy / d, ov = (2 * R - d) / 2;
+            a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
+            const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+            if (vn > 0) {
+                const J = vn * (1 + 0.96) / 2;
+                a.vx -= J * nx; a.vy -= J * ny; b.vx += J * nx; b.vy += J * ny;
+                if (ev.snd.length < 12) ev.snd.push({ k: "ball", v: vn });
+            }
+            if (i === 0 && ev.first == null) ev.first = b.n;
+        }
+    }
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        // cushions (they stop at the pocket mouths)
+        if (b.x < R && !(b.y < G || b.y > H - G || Math.abs(b.y - H / 2) < G)) { b.x = R; if (b.vx < 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: -b.vx }); b.vx = -b.vx * 0.8; b.vy *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.x > W - R && !(b.y < G || b.y > H - G || Math.abs(b.y - H / 2) < G)) { b.x = W - R; if (b.vx > 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: b.vx }); b.vx = -b.vx * 0.8; b.vy *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.y < R && !(b.x < G || b.x > W - G)) { b.y = R; if (b.vy < 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: -b.vy }); b.vy = -b.vy * 0.8; b.vx *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.y > H - R && !(b.x < G || b.x > W - G)) { b.y = H - R; if (b.vy > 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: b.vy }); b.vy = -b.vy * 0.8; b.vx *= 0.99; if (ev.first != null) ev.rail = true; } }
+        // pocket jaws
+        for (let k = 0; k < POOL_KNOBS.length; k++) {
+            const kx = POOL_KNOBS[k][0], ky = POOL_KNOBS[k][1];
+            const dx = b.x - kx, dy = b.y - ky, rr = R + 2.5, d2 = dx * dx + dy * dy;
+            if (d2 < rr * rr && d2 > 0.0001) {
+                const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+                b.x = kx + nx * rr; b.y = ky + ny * rr;
+                const vn = b.vx * nx + b.vy * ny;
+                if (vn < 0) { b.vx -= 1.75 * vn * nx; b.vy -= 1.75 * vn * ny; if (ev.first != null) ev.rail = true; }
+            }
+        }
+        // pockets
+        let hit = -1;
+        for (let k = 0; k < POOL_POCKETS.length; k++) { const p = POOL_POCKETS[k]; if (Math.hypot(b.x - p.x, b.y - p.y) < p.r) { hit = k; break; } }
+        if (hit < 0 && (b.x < -4 || b.x > W + 4 || b.y < -4 || b.y > H + 4)) {
+            let best = 1e9; for (let k = 0; k < POOL_POCKETS.length; k++) { const d = Math.hypot(b.x - POOL_POCKETS[k].x, b.y - POOL_POCKETS[k].y); if (d < best) { best = d; hit = k; } }
+        }
+        if (hit >= 0) {
+            b.on = false; b.vx = 0; b.vy = 0; b.fall = 0; b.pk = hit; b.fx = b.x; b.fy = b.y;
+            if (b.n === 0) ev.cue = true; else ev.pocketed.push(b.n);
+            if (ev.snd.length < 12) ev.snd.push({ k: "pocket", v: 5 });
+        }
+    }
+}
+function poolFrame(B, ev) {
+    const h = 1 / POOL.SUB;
+    for (let k = 0; k < POOL.SUB; k++) poolStep(B, ev, h);
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const s = Math.hypot(b.vx, b.vy); if (s === 0) continue;
+        let ns = s * 0.9885 - 0.012; if (ns < 0.05) ns = 0;
+        const k = ns / s; b.vx *= k; b.vy *= k;
+    }
+}
+function poolMoving(B) { for (let i = 0; i < B.length; i++) if (B[i].on && (B[i].vx !== 0 || B[i].vy !== 0)) return true; return false; }
+function poolRemaining(B, grp) { let c = 0; for (let i = 1; i < B.length; i++) if (B[i].on && poolGroup(B[i].n) === grp) c++; return c; }
+function poolFree(B, x, y, skip) {
+    const R = POOL.R;
+    if (x < R || x > POOL.W - R || y < R || y > POOL.H - R) return false;
+    for (let i = 0; i < B.length; i++) { const b = B[i]; if (!b.on || b.n === skip) continue; if (Math.hypot(b.x - x, b.y - y) < 2 * R + 0.5) return false; }
+    return true;
+}
+// Follow a shot line: first thing it touches (a ball, or a cushion).
+function poolTrace(B, x, y, ang) {
+    const R = POOL.R, dx = Math.cos(ang), dy = Math.sin(ang);
+    let t = 1e9, hit = null;
+    if (dx > 1e-6) t = Math.min(t, (POOL.W - R - x) / dx); else if (dx < -1e-6) t = Math.min(t, (R - x) / dx);
+    if (dy > 1e-6) t = Math.min(t, (POOL.H - R - y) / dy); else if (dy < -1e-6) t = Math.min(t, (R - y) / dy);
+    for (let i = 1; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const px = b.x - x, py = b.y - y, tb = px * dx + py * dy; if (tb <= 0) continue;
+        const perp2 = px * px + py * py - tb * tb; if (perp2 >= 4 * R * R) continue;
+        const tt = tb - Math.sqrt(4 * R * R - perp2);
+        if (tt < t) { t = tt; hit = b; }
+    }
+    return { t: Math.max(0, t), hit, x: x + dx * Math.max(0, t), y: y + dy * Math.max(0, t) };
+}
+// ---- rules: called once every ball has stopped. g = {B, turn, groups, broke, ev, cleared}; returns what happened ----
+function poolResolve(g) {
+    const ev = g.ev, p = g.turn, B = g.B, me = g.groups[p];
+    const pocketed = ev.pocketed.slice();
+    let foul = false, reason = "";
+    if (ev.cue) { foul = true; reason = "cue ball potted"; }
+    else if (ev.first == null) { foul = true; reason = "missed every ball"; }
+    else {
+        const fg = poolGroup(ev.first);
+        if (me) { const need = g.cleared ? "eight" : me; if (fg !== need) { foul = true; reason = need === "eight" ? "must hit the 8-ball" : "hit the wrong ball first"; } }
+        else if (fg === "eight") { foul = true; reason = "hit the 8-ball first"; }
+    }
+    if (!foul && pocketed.length === 0 && !ev.rail) { foul = true; reason = "no ball reached a cushion"; }
+    const out = { foul, reason, pocketed, winner: null, respot8: false, switched: false, assigned: false, cont: false };
+    if (pocketed.indexOf(8) >= 0) {
+        if (!g.broke) { out.respot8 = true; }
+        else if (foul || !g.cleared) { out.winner = 1 - p; out.why = ev.cue ? "scratched on the 8-ball" : (g.cleared ? "fouled on the 8-ball" : "potted the 8-ball too early"); }
+        else { out.winner = p; }
+    }
+    if (out.winner == null) {
+        if (g.broke && !me && !foul) {
+            const first = pocketed.filter((n) => n !== 8)[0];
+            if (first) { g.groups[p] = poolGroup(first); g.groups[1 - p] = g.groups[p] === "solid" ? "stripe" : "solid"; out.assigned = true; }
+        }
+        const mine = g.groups[p];
+        const own = pocketed.filter((n) => n !== 8 && (mine ? poolGroup(n) === mine : true));
+        out.cont = !foul && own.length > 0;
+        if (out.respot8 && !foul) out.cont = own.length > 0;
+        if (!out.cont) { out.switched = true; }
+    }
+    return out;
+}
+
+// ---- 8-ball pool: shared rules for online play (the server runs the real physics; clients replay the shot as an animation) ----
+// State: b = [x, y, on] for balls 0..15 (flat), nx = whose shot, g = [group of player 0, group of player 1], k = 1 once the break was taken,
+// hand = 1 when nx has the cue ball in hand, t = shots taken, w = winner (-1 while playing), last = what the previous shot did.
+// A move is a free-form shot: { a: angle in 1/1000 rad, v: speed in 1/10 units (1..250), x, y: where the cue ball was placed (only with ball in hand) }.
+function poolPack(B) { const o = []; for (let i = 0; i < 16; i++) o.push(B[i].x, B[i].y, B[i].on ? 1 : 0); return o; }
+function poolUnpack(a) {
+    const B = [];
+    for (let n = 0; n < 16; n++) B.push({ n, x: a[n * 3], y: a[n * 3 + 1], vx: 0, vy: 0, on: a[n * 3 + 2] === 1, fall: a[n * 3 + 2] === 1 ? 0 : 1 });
+    return B;
+}
+function poolInitState() { return { b: poolPack(poolNewBalls()), nx: 0, g: [null, null], k: 0, hand: 0, t: 0, w: -1, last: null }; }
+function poolValid(s, m, p) {
+    if (!s || s.w >= 0 || s.nx !== p || !m || typeof m !== "object") return false;
+    if (!Number.isInteger(m.a) || Math.abs(m.a) > 6400 || !Number.isInteger(m.v) || m.v < 1 || m.v > 250) return false;
+    if (m.x == null && m.y == null) return true;
+    if (!s.hand || !Number.isInteger(m.x) || !Number.isInteger(m.y)) return false;
+    const R = POOL.R; if (m.x < R || m.x > POOL.W - R || m.y < R || m.y > POOL.H - R) return false;
+    const B = poolUnpack(s.b);
+    for (let i = 1; i < 16; i++) if (B[i].on && Math.hypot(B[i].x - m.x, B[i].y - m.y) < 2 * R - 1) return false;
+    return true;
+}
+function poolPlay(s, m) {
+    const B = poolUnpack(s.b), p = s.nx, ev = poolNewEvent();
+    if (s.hand && m.x != null) { B[0].x = m.x; B[0].y = m.y; }
+    B[0].on = true; B[0].fall = 0;
+    const g = { B, turn: p, groups: s.g.slice(), broke: !!s.k, ev, cleared: false };
+    const me = g.groups[p]; g.cleared = !!me && poolRemaining(B, me) === 0;
+    const sp = m.v / 10, ang = m.a / 1000; B[0].vx = Math.cos(ang) * sp; B[0].vy = Math.sin(ang) * sp;
+    for (let f = 0; f < 3000 && poolMoving(B); f++) poolFrame(B, ev);
+    for (let i = 0; i < 16; i++) { B[i].vx = 0; B[i].vy = 0; }
+    const r = poolResolve(g);
+    if (r.respot8) { const b8 = B[8]; let y = POOL.H * 0.27 - POOL.R * 3.6; for (let k = 0; k < 40 && !poolFree(B, POOL.W / 2, y, 8); k++) y -= POOL.R * 2.1; b8.on = true; b8.x = POOL.W / 2; b8.y = y; }
+    if (!B[0].on) { const c = B[0]; c.on = true; c.x = POOL.W / 2; c.y = POOL.H * 0.75; for (let k = 0; k < 60 && !poolFree(B, c.x, c.y, 0); k++) c.y -= POOL.R * 2.2; }
+    let nx = p, hand = 0, w = -1;
+    if (r.winner != null) w = r.winner; else { if (r.switched) nx = 1 - p; hand = r.foul ? 1 : 0; }
+    return { b: poolPack(B), nx, g: g.groups, k: 1, hand, t: s.t + 1, w, last: { by: p, m, first: ev.first, pot: r.pocketed, foul: r.foul ? 1 : 0, why: r.foul ? r.reason : (r.why || ""), res: r.respot8 ? 1 : 0, asg: r.assigned ? 1 : 0 } };
+}
+const POOL_RULES = {
+    init: poolInitState,
+    moves: (s, p) => (s.w < 0 && s.nx === p ? [0] : []), // shots are free-form, so they are checked by valid() instead of being listed
+    valid: poolValid,
+    play: (s, m) => poolPlay(s, m),
+    win: (s) => (s.w >= 0 ? { p: s.w, line: null } : null),
+    next: (s) => s.nx,
+    draw: (s) => s.t > 300,
+};
+GAME_RULES.pool = POOL_RULES;
 const GAME_IDS = Object.keys(GAME_RULES);
 const COUNTRY_PREFIX = [["234","NG"],["233","GH"],["254","KE"],["255","TZ"],["256","UG"],["27","ZA"],["20","EG"],["44","GB"],["1","US"]];
 const countryOf = (u) => { const d = String(u.phone || "").replace(/\D/g, ""); const hit = COUNTRY_PREFIX.find(([p]) => d.startsWith(p)); return hit ? hit[1] : ""; };
@@ -3003,7 +3197,7 @@ function registerGames(socket) {
   socket.on("game:move", ({ room: rid, move } = {}) => {
     const room = gRooms.get(rid); if (!room || room.over) return;
     const idx = room.players.indexOf(me); if (idx !== room.turn) return;
-    const R = GAME_RULES[room.game]; if (!R.moves(room.state, idx).includes(move)) return;
+    const R = GAME_RULES[room.game]; if (!(R.valid ? R.valid(room.state, move, idx) : R.moves(room.state, idx).includes(move))) return;
     room.state = R.play(room.state, move, idx, Math.random);
     const w = R.win(room.state); const full = R.draw ? R.draw(room.state) : R.moves(room.state).length === 0;
     if (w || full) {
