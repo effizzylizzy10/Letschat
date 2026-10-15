@@ -845,12 +845,12 @@ function NewChatModal({ token, onClose, onStarted }) {
         <div style={{ width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 18px" }} />
         <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Start a new chat</div>
         <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 }}>
-          Enter the username, email or phone number (with country code) of the person you want to message. They need to have signed in to Letschat Africa at least once.
+          Enter the nickname, email or phone number (with country code) of the person you want to message. They need to have signed in to Letschat Africa at least once.
         </div>
         {error && <Banner text={error} />}
         <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
-          <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }}
-            placeholder="@username, email or phone" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
+          <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[^0-9+\-()\s]/.test(v) ? v : v.replace(/\D/g, "")); }}
+            placeholder="@nickname, email or phone" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
         </div>
         <button onClick={start} disabled={busy || !phone.trim()} style={{
           width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
@@ -1158,7 +1158,7 @@ function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, las
 
     sheet === "add" && gsheet("Add members", [
       ce("div", { key: "ph", style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", alignItems: "center", padding: "0 20px 8px" } },
-        ce("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } }, ce("input", { value: phone, onChange: (e) => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[a-zA-Z]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@username, email or phone", style: { ...inputEl, fontSize: 13.5 } })),
+        ce("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } }, ce("input", { value: phone, onChange: (e) => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[^0-9+\-()\s]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@nickname, email or phone", style: { ...inputEl, fontSize: 13.5 } })),
         ce("button", { onClick: addByPhone, disabled: busy === "phone" || !phone.trim(), style: smallBtn }, busy === "phone" ? "…" : "Add")),
       error && ce("div", { key: "er", style: { padding: "0 4px" } }, ce(Banner, { text: error, onClose: () => setError("") })),
       ce("div", { key: "ls", style: { padding: "0 22px" } },
@@ -2936,7 +2936,7 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
           <div style={{ padding: "50px 30px", textAlign: "center" }}>
             <MessageCircle size={34} color="#262E3A" style={{ marginBottom: 12 }} />
             <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 }}>No chats yet</div>
-            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8A96A5" }}>Tap the pencil to message someone by their username, email or phone number.</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8A96A5" }}>Tap the pencil to message someone by their nickname, email or phone number.</div>
           </div>
         )}
         {!loading && showArchived && ordered.length === 0 && (
@@ -4992,7 +4992,7 @@ function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, 
             others.map(rowFor))));
 }
 const FAQ = [
-  ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a username, email or phone number with country code, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
+  ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a nickname, email or phone number with country code, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
   ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
   ["How do I send a photo, file or voice note?", "Use the paperclip for files (up to 3 MB), the camera to take a photo and the microphone to record. Tap the mic again, or the send button, to send the voice note."],
   ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members and share an invite link from Group info."],
@@ -6531,30 +6531,69 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     playSound("send");
     socket.emit("message:send", { conversationId: conversation.id, text: String(text).slice(0, MAX_MSG_CHARS), replyTo: rid }, (ack) => { if (ack && ack.error) setError(ack.error); });
   };
-  const shareLocation = () => {
+const vcfText = (c) => {
+    const esc = (v) => String(v || "").replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/;/g, "\\;").replace(/,/g, "\\,");
+    const name = String(c.name || "Contact").trim() || "Contact";
+    const parts = name.split(/\s+/), last = parts.length > 1 ? parts.pop() : "", first = parts.join(" ");
+    const lines = ["BEGIN:VCARD", "VERSION:3.0", "N:" + esc(last) + ";" + esc(first) + ";;;", "FN:" + esc(name)];
+    if (c.tel) lines.push("TEL;TYPE=CELL:" + esc(c.tel));
+    if (c.email) lines.push("EMAIL;TYPE=INTERNET:" + esc(c.email));
+    if (c.username) lines.push("NICKNAME:" + esc(c.username));
+    lines.push("NOTE:Shared from Letschat Africa", "END:VCARD");
+    return lines.join("\r\n") + "\r\n";
+};
+// A shared contact goes out as a real .vcf file (opens straight in the phone's Contacts app). A contact needs a phone number or an email.
+const sendContactCard = (c) => {
+    if (!c || (!c.tel && !c.email)) return setError("That contact has no phone number or email to share");
+    const base = String(c.name || "contact").replace(/[\\/:*?"<>|\x00-\x1f]/g, "").trim().slice(0, 40) || "contact";
+    let file;
+    try { file = new File([vcfText(c)], base + ".vcf", { type: "text/vcard" }); }
+    catch (e) { return setError("Could not create the contact file on this device"); }
+    return sendFile(file, "\uD83D\uDC64 " + (c.name || "Contact"));
+};
+const shareLocation = async () => {
     if (!navigator.geolocation) return setError("Location is not supported on this device");
+    if (window.isSecureContext === false) return setError("Location only works on a secure (https) connection");
+    const blockedMsg = "Location is blocked. Close any screen recorder or floating bubble on your phone, tap the lock icon next to the address bar, set Location to Allow, then try again.";
+    try {
+        if (navigator.permissions && navigator.permissions.query) {
+            const st = await navigator.permissions.query({ name: "geolocation" });
+            if (st && st.state === "denied") return setError(blockedMsg);
+        }
+    } catch (e) { }
     setSending(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => { setSending(false); sendPlain("\uD83D\uDCCD My location\nhttps://www.google.com/maps?q=" + pos.coords.latitude.toFixed(6) + "," + pos.coords.longitude.toFixed(6)); },
-      () => { setSending(false); setError("Allow location access to share your location"); },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
-  };
-  const shareContact = async () => {
+    let finished = false;
+    const done = (pos) => {
+        if (finished) return; finished = true; setSending(false);
+        sendPlain("\uD83D\uDCCD My location\nhttps://www.google.com/maps?q=" + pos.coords.latitude.toFixed(6) + "," + pos.coords.longitude.toFixed(6));
+    };
+    const fail = (err) => {
+        if (finished) return; finished = true; setSending(false);
+        const code = err && err.code;
+        setError(code === 1 ? blockedMsg : code === 2 ? "Your phone could not find your location. Turn on Location (GPS) in your phone settings and try again." : "Finding your location took too long. Check that Location is on, then try again.");
+    };
+    setTimeout(() => fail({ code: 3 }), 45000);
+    // precise GPS fix first; if the phone cannot get one (indoors, weak GPS) fall back to a network-based fix instead of failing
+    navigator.geolocation.getCurrentPosition(done, (e1) => {
+        if (e1 && e1.code === 1) return fail(e1);
+        navigator.geolocation.getCurrentPosition(done, fail, { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 });
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+};
+const shareContact = async () => {
     // one contact only: the phone's own picker when it has one, otherwise a list of the person's contacts
     try {
-      if (navigator.contacts && navigator.contacts.select) {
-        const r = await navigator.contacts.select(["name", "tel"], { multiple: false });
-        if (!r || !r.length) return;
-        const name = (r[0].name && r[0].name[0]) || "Contact", tel = (r[0].tel && r[0].tel[0]) || "";
-        if (!tel) return setError("That contact has no phone number");
-        return sendPlain("\uD83D\uDC64 Contact\n" + name + "\n" + tel);
-      }
+        if (navigator.contacts && navigator.contacts.select) {
+            const r = await navigator.contacts.select(["name", "tel", "email"], { multiple: false });
+            if (!r || !r.length) return;
+            const c = r[0];
+            return sendContactCard({ name: (c.name && c.name[0]) || "Contact", tel: (c.tel && c.tel[0]) || "", email: (c.email && c.email[0]) || "" });
+        }
     } catch (e) { if (e && e.name === "AbortError") return; }
     const list = (contacts || []).filter((u) => u && u.name);
     if (!list.length) return setError("You have no contacts to share yet");
     const fmt = (p) => (p ? (/^\d+$/.test(String(p)) ? "+" + p : String(p)) : "");
-    setPickSheet({ kind: "contact", title: "Share a contact", multi: false, empty: "You have no contacts yet", raw: list, items: list.map((u) => ({ id: u.id, title: u.name, sub: fmt(u.phone) })) });
-  };
+    setPickSheet({ kind: "contact", title: "Share a contact", multi: false, empty: "You have no contacts yet", raw: list, items: list.map((u) => ({ id: u.id, title: u.name, sub: fmt(u.phone) || u.email || "" })) });
+};
   const shareCatalogue = async () => {
     setSending(true);
     try {
@@ -6571,8 +6610,7 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     if (ps.kind === "contact") {
       const u = ps.raw.find((x) => x.id === ids[0]); if (!u) return;
       const tel = u.phone ? (/^\d+$/.test(String(u.phone)) ? "+" + u.phone : String(u.phone)) : "";
-      if (!tel) return setError("That contact has no phone number saved");
-      return sendPlain("\uD83D\uDC64 Contact\n" + u.name + "\n" + tel);
+      return sendContactCard({ name: u.name, tel, email: u.email || "", username: u.username || "" });
     }
     if (ps.kind === "catalogue") {
       const chosen = ps.raw.filter((it) => ids.includes(it.id));
@@ -7087,7 +7125,7 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
   const rows = [
     { label: "Name", value: profile.name },
     { label: "About", value: profile.about },
-    { label: "Username", value: profile.username ? "@" + profile.username : "Not set (tap to add)" },
+    { label: "Nickname", value: profile.username ? "@" + profile.username : "Not set (tap to add)" },
     profile.phone ? { label: "Phone", value: "+" + profile.phone, ro: true } : { label: "Email", value: profile.email || "", ro: true },
   ];
 
@@ -7375,7 +7413,21 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
     const [cropFile, setCropFile] = useState(null);
     const [sheet, setSheet] = useState(null); // "cats" | "hours" | "preview"
     const [learn, setLearn] = useState(false);
-    const galleryRef = useRef(null);
+    const [nick, setNick] = useState({ state: "idle", message: "", tips: [] });
+    useEffect(() => {
+        const u = f.username.trim();
+        if (!u || u === (profile.username || "")) { setNick({ state: "idle", message: "", tips: [] }); return; }
+        let dead = false;
+        setNick({ state: "checking", message: "Checking\u2026", tips: [] });
+        const t = setTimeout(async () => {
+            try {
+                const d = await api("/api/v1/me/username-check?u=" + encodeURIComponent(u), { token });
+                if (!dead) setNick({ state: d.available ? "ok" : "bad", message: d.message || "", tips: d.suggestions || [] });
+            } catch (e) { if (!dead) setNick({ state: "idle", message: "", tips: [] }); }
+        }, 450);
+        return () => { dead = true; clearTimeout(t); };
+    }, [f.username]);
+        const galleryRef = useRef(null);
     const cameraRef = useRef(null);
     const dirty = avatarChanged || JSON.stringify(f) !== JSON.stringify(init);
     const flashNote = (m) => { setNote(m); setTimeout(() => setNote(""), 2200); };
@@ -7408,7 +7460,8 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
         try {
             const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name: f.name, about: f.about, username: f.username.trim(), business, ...(avatarChanged ? { avatar } : {}) } });
             onSave(user);
-        } catch (e) { setError(e.message); }
+        } catch (e) { setError(e.message);
+            if (/already been used/i.test(e.message || "")) { try { const d = await api("/api/v1/me/username-check?u=" + encodeURIComponent(f.username.trim()), { token }); setNick({ state: "bad", message: d.message || "", tips: d.suggestions || [] }); } catch (x) { } } }
         finally { setSaving(false); }
     };
 
@@ -7478,8 +7531,8 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
             head("Business information"),
             field("name", icon(User), f.name, "name", "Name", { max: 60 }),
             rowBox("user", icon(AtSign), ce("div", null,
-                ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "username", onChange: (e) => set({ username: e.target.value.replace(/^@/, "").replace(/[^a-zA-Z0-9_.]/g, "").toLowerCase().slice(0, 20) }), autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })),
-                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, "Username \u00B7 3 to 20 letters, numbers, _ or ."))),
+                ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "nickname", onChange: (e) => set({ username: e.target.value.replace(/^@/, "").replace(/[^\x21-\x3F\x41-\x7E]/g, "").toLowerCase().slice(0, 20) }), autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, marginTop: 2, color: nick.state === "bad" ? "#FF8A80" : nick.state === "ok" ? "#35D0BA" : "#8891A0" } }, nick.state !== "idle" && nick.message ? nick.message : "Nickname \u00B7 3 to 20 letters, numbers or symbols. Must be unique."), nick.state === "bad" && nick.tips.length ? ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 } }, nick.tips.map((t) => ce("button", { key: t, onClick: () => set({ username: t }), style: { background: "rgba(53,208,186,.14)", color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 999, padding: "5px 12px", fontFamily: "Inter", fontSize: 13, cursor: "pointer" } }, "@" + t))) : null)),
             rowBox("cat", icon(EpShapes), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: f.cats.length ? "#F5F7FA" : "#5B6673", lineHeight: 1.35 } }, f.cats.length ? f.cats.join(", ") : "Category"), () => setSheet("cats")),
             ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, counterIncrement: "lcgap-22", padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") },
                 ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 5 } }, icon(ClockIcon)),
