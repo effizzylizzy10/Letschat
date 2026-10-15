@@ -6907,7 +6907,9 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
             row("addgrp", React.createElement(GroupIconRound, { photo: (addable.find((g) => g.avatar) || {}).avatar }), "Add to group", addable.length === 0 ? "Groups you manage appear here" : addable.length === 1 ? "1 group you manage" : addable.length + " groups you manage", { onClick: () => setPcSheet("addgroup") }),
             row("newgrp", React.createElement(GroupIconRound, null), "Create group with " + u.name, null, { onClick: () => onNewGroup(u.id) }),
             line("l4"),
-            row("clear", React.createElement(Trash2, { size: 22, color: "#FF6B5D" }), "Clear chat", null, { color: "#FF6B5D", onClick: onClear })),
+            row("clear", React.createElement(Trash2, { size: 22, color: "#FF6B5D" }), "Clear chat", null, { color: "#FF6B5D", onClick: onClear }),
+            row("block", React.createElement(Ban, { size: 22, color: "#FF6B5D" }), (iBlocked ? "Unblock " : "Block ") + u.name, null, { color: "#FF6B5D", onClick: onBlock }),
+            row("report", React.createElement(ThumbsDown, { size: 22, color: "#FF6B5D" }), "Report " + u.name, null, { color: "#FF6B5D", onClick: onReport })),
         React.createElement(ProfileChatSheets, { sheet: pcSheet, chatId: conversation.id, token: token, contact: u, addable: addable, mediaVis: mv, onMediaVis: (v) => { saveJSON("mediaVis:" + conversation.id, v); setMv(v); }, onNote: onNote, onClose: () => setPcSheet(null) }),
         noteOpen && (React.createElement(SheetFrame, { title: "Notes about " + u.name, onClose: () => setNoteOpen(false) },
             React.createElement("textarea", { value: noteText, onChange: e => setNoteText(e.target.value), maxLength: 500, rows: 5, placeholder: "Only you can see these notes", style: { width: "100%", boxSizing: "border-box", background: "#0E1116", border: "1px solid #2B3544", borderRadius: 12, padding: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", resize: "none" } }),
@@ -7429,7 +7431,7 @@ function ProfileChatOptions({ chatId, token, muted, onNotifications, onLock, set
   const priv = loadJSON("chatpriv:" + chatId, {});
   const lockGo = () => { onLock(); setTimeout(() => bump((n) => n + 1), 50); };
   const aiRows = [
-    token && biz !== "na" ? pcRow("pc-biz", h(PcBriefcase, { size: 22, color: biz === true ? "#35D0BA" : "#8891A0" }), "AI business", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
+    token && biz !== "na" ? pcRow("pc-biz", h(AiBotAvatar, { size: 26, style: { filter: biz === true ? "none" : "grayscale(1)", opacity: biz === true ? 1 : 0.7 } }), "AI business", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
       h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: biz === true, disabled: biz === null, onChange: (v) => bizSet(v) }))) : null,
   ];
   return h(React.Fragment, null,
@@ -8190,6 +8192,10 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     catch (e) { } }, 250); };
     const pressEnd = () => clearTimeout(pressRef.current);
     const [emojiOpen, setEmojiOpen] = useState(false);
+    // AI business button in the typing area: per-chat on/off (same server setting as the toggle in the contact profile)
+    const [bizOn, setBizOn] = useState(null); // null = loading, "na" = not available for this chat, true / false
+    useEffect(() => { let live = true; setBizOn(null); if (token && conversation && conversation.id && !conversation.isGroup && !conversation.chatRoom) api("/api/v1/me/ai/chat/" + conversation.id, { token }).then((d) => { if (live) setBizOn(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBizOn("na"); }); else setBizOn("na"); return () => { live = false; }; }, [conversation && conversation.id, token]);
+    const bizToggle = () => { if (bizOn === null || bizOn === "na") return; const was = bizOn, v = !bizOn; setBizOn(v); api("/api/v1/me/ai/chat/" + conversation.id, { method: "PUT", token, body: { on: v } }).then((d) => { setBizOn(!!(d && d.on)); flashNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBizOn(was); flashNote((e && e.message) || "Could not change AI business"); }); };
     const [attachOpen, setAttachOpen] = useState(false);
     const [pickSheet, setPickSheet] = useState(null);
     const [pendingMedia, setPendingMedia] = useState(null);
@@ -8750,9 +8756,6 @@ const shareContact = async () => {
                             setPeerInfo(true); } },
                     { label: "Search", run: () => { close(); setFText(""); setFIdx(0); } },
                     { label: isPinned ? "Unpin chat" : "Pin chat", run: () => { close(); onTogglePin(conversation.id); } },
-                    { label: "Report", run: () => { close(); reportChat(); } },
-                    ...(isGroup ? [] : [{ label: iBlocked ? "Unblock" : "Block", run: () => { close(); if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you."))
-                                onBlock(conversation.other.id, !iBlocked); } }]),
                     { label: muteUntil ? "Unmute notifications" : "Mute notifications", run: () => { close(); if (muteUntil)
                             onMute(conversation.id, "off");
                         else
@@ -8976,6 +8979,9 @@ const shareContact = async () => {
                     return (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0" } },
                         React.createElement("div", { style: { flex: 1 } }),
                         conversation.isGroup && !editing && !rec && React.createElement("button", { "aria-label": "Mention a member", onMouseDown: e => e.preventDefault(), onClick: () => { setEmojiOpen(false); setDraft(d => /(^|\s)@[^\s@]*$/.test(d) ? d : (d && !/\s$/.test(d) ? d + " @" : d + "@")); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, style: { ...ib, color: "#9BA7B4", fontFamily: "Sora", fontWeight: 700, fontSize: 21, lineHeight: "24px", alignItems: "center", justifyContent: "center", minWidth: 40 } }, "@"),
+                        !editing && !rec && !isRoom && !conversation.isGroup && token && (bizOn === true || bizOn === false) && React.createElement("button", { "aria-label": bizOn ? "AI business is on. Tap to turn off" : "AI business is off. Tap to turn on", "aria-pressed": bizOn === true, onMouseDown: e => e.preventDefault(), onClick: bizToggle, style: { ...ib, padding: "2px 7px", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } },
+                            React.createElement(AiBotAvatar, { size: 26, style: { border: bizOn ? "2px solid #35D0BA" : "2px solid transparent", boxSizing: "border-box", filter: bizOn ? "none" : "grayscale(1)", opacity: bizOn ? 1 : 0.6, transition: "opacity .15s, filter .15s" } }),
+                            React.createElement("span", { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 9, lineHeight: "10px", letterSpacing: 0.3, color: bizOn ? "#35D0BA" : "#8891A0" } }, bizOn ? "AI ON" : "AI OFF")),
                         React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: ib },
                             React.createElement(Smile, { size: 25, color: emojiOpen ? "#35D0BA" : "#9BA7B4" })),
                         !editing && !isRoom && !conversation.isGroup && conversation.other && React.createElement("button", { "aria-label": "Games", onClick: () => { setEmojiOpen(false); setGameOpen(true); }, style: ib },

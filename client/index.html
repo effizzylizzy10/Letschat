@@ -324,19 +324,46 @@
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         var hadController = !!navigator.serviceWorker.controller, shown = false;
-        // a new version took over: offer a refresh instead of reloading in the middle of a chat or call
+        // Enforced update page: a new version took over, so the full-screen "Update available" picture blocks the app until the person taps
+        // "Click Here". The tap area sits invisibly over the button in the picture; the link itself (LETSCHAT_CONFIG.UPDATE_URL) is never shown.
+        function showUpdatePage() {
+          if (document.getElementById("lc-update")) return;
+          var cfg = window.LETSCHAT_CONFIG || {}, busy = false;
+          var o = document.createElement("div");
+          o.id = "lc-update"; o.setAttribute("role", "dialog"); o.setAttribute("aria-modal", "true"); o.setAttribute("aria-label", "Update available");
+          o.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483000;background:#1553e8;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none";
+          var w = document.createElement("div"); w.style.cssText = "position:relative;flex:none";
+          function size() { var s = Math.min(window.innerWidth || 360, window.innerHeight || 640); w.style.width = s + "px"; w.style.height = s + "px"; }
+          size(); window.addEventListener("resize", size);
+          var img = document.createElement("img"); img.src = "icons/update-banner.jpg"; img.alt = "Update available. A new update is now available."; img.draggable = false;
+          img.style.cssText = "display:block;width:100%;height:100%;user-select:none;-webkit-user-select:none;pointer-events:none";
+          var b = document.createElement("button"); b.type = "button"; b.setAttribute("aria-label", "Update now");
+          b.style.cssText = "position:absolute;left:17.9%;top:81.2%;width:64.2%;height:13.7%;background:transparent;border:0;border-radius:999px;padding:0;margin:0;cursor:pointer;outline:none;-webkit-tap-highlight-color:rgba(255,255,255,.28)";
+          function go() {
+            var url = cfg.UPDATE_URL || (location.origin + "/");
+            url += (url.indexOf("?") < 0 ? "?" : "&") + "u=" + new Date().getTime();
+            window.location.replace(url);
+          }
+          b.onclick = function () {
+            if (busy) return; busy = true;
+            var t = setTimeout(go, 1500), tasks = [];
+            try { if (window.Promise && window.caches && caches.keys) tasks.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.indexOf("letschat-shell") === 0; }).map(function (k) { return caches.delete(k); })); })); } catch (e) {}
+            try { if (window.Promise && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) tasks.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); })); } catch (e) {}
+            if (window.Promise && tasks.length) Promise.all(tasks).then(function () { clearTimeout(t); go(); }, function () { clearTimeout(t); go(); }); else { clearTimeout(t); go(); }
+          };
+          w.appendChild(img); w.appendChild(b); o.appendChild(w); document.body.appendChild(o);
+          document.addEventListener("keydown", function (e) { if (document.getElementById("lc-update") && e.target !== b) { e.stopPropagation(); if (e.key === "Escape") e.preventDefault(); } }, true);
+          try { b.focus(); } catch (e) {}
+        }
+        window.lcShowUpdatePage = showUpdatePage;
+        // a new version took over (every deploy changes sw.js): show the update page, even if the app was in the background
         navigator.serviceWorker.addEventListener("controllerchange", function () {
           if (!hadController || shown) return;
-          shown = true;
-          if (document.hidden) { window.location.reload(); return; } // updated while the app is in the background: refresh quietly
-          var b = document.createElement("button");
-          b.textContent = "Letschat was updated. Tap to refresh";
-          b.style.cssText = "position:fixed;left:0;right:0;margin:0 auto;width:max-content;max-width:90%;animation:lcFadeUp .25s ease-out;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:100000;background:#35D0BA;color:#0E1116;border:0;border-radius:22px;padding:11px 18px;font:600 14px Inter,system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.45);cursor:pointer";
-          b.onclick = function () { window.location.reload(); };
-          document.body.appendChild(b);
+          shown = true; showUpdatePage();
         });
         navigator.serviceWorker.register("./sw.js" + (window.__lcLite ? "?lite=1" : "")).then(function (reg) {
           var check = function () { reg.update().catch(function () {}); };
+          check();
           // installed app on Chrome/Edge: let the browser wake the server every so often even while the app is closed
           try { if (reg.periodicSync && reg.periodicSync.register) reg.periodicSync.register("keep-warm", { minInterval: 12 * 60 * 60 * 1000 }).catch(function () {}); } catch (e) {}
           document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
