@@ -1,7 +1,30 @@
 // AUTO-GENERATED from app.jsx
 "use strict";
 // ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
-const { useState, useRef, useEffect, useCallback } = React;
+const { useState, useRef, useEffect, useCallback, useLayoutEffect } = React;
+// ---- speed helpers (v29) ----
+const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
+(function perfCss() {
+    try {
+        const st = document.createElement("style");
+        st.setAttribute("data-lc-perf", "1");
+        st.textContent = "html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%;-webkit-tap-highlight-color:transparent}" +
+            "button,a,[role=button],input,textarea,select,label{touch-action:manipulation}" + // no 300 ms tap delay / double-tap zoom on iPhone
+            "body{overscroll-behavior-y:none}" +
+            "@supports (-webkit-touch-callout:none){input,textarea,select{font-size:max(16px,1em)!important}}"; // iOS zooms the page when a text box is under 16px
+        document.head.appendChild(st);
+    } catch (e) { }
+})();
+const MSG_WINDOW = IS_IOS ? 40 : 80; // newest messages drawn at once; older ones load as you scroll up
+const MSG_PAGE = 40;
+const _richCache = new Map();
+const richMsg = (text, mnList) => { // formatting + links are worked out once per message text
+    if (mnList && mnList.length) return withLinks(withMentions(richText(text), mnList));
+    let v = _richCache.get(text);
+    if (v === undefined) { v = withLinks(withMentions(richText(text), [])); if (_richCache.size > 600) _richCache.delete(_richCache.keys().next().value); _richCache.set(text, v); }
+    return v;
+};
+const scrollToEnd = (el) => { if (!el) return; el.scrollTop = el.scrollHeight; requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; }); };
 const MAX_MSG_CHARS = 15000; // ~2,000+ words per message (keep in step with the server)
 // ---- Typo suggestions while typing (plain JS on purpose: the same block is used in app.jsx and the compiled index.html) ----
 // Never changes text by itself: it only offers tappable corrections for the last finished word that looks misspelled.
@@ -327,8 +350,8 @@ function clearJSON(key) {
     catch { }
 }
 // ---- API helper ----
-// ---- nicknames: up to 15 characters, any letters, numbers, symbols or emoji (no spaces) ----
-const NICK_MAX = 15;
+// ---- nicknames: up to 20 characters, any letters, numbers, symbols or emoji (no spaces) ----
+const NICK_MAX = 20;
 const NICK_EMOJI = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\u{1F1E6}-\u{1F1FF}]|[\uFE0E\uFE0F\u200D\u20E3]|[\u{1F3FB}-\u{1F3FF}]/gu;
 const stripEmoji = (v) => { try { return String(v == null ? "" : v).replace(NICK_EMOJI, ""); } catch (e) { return String(v == null ? "" : v); } };
 const nickClean = (v) => Array.from(stripEmoji(v).replace(/^@+/, "").replace(/[\s\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202F\u2060\uFEFF]/g, "")).slice(0, NICK_MAX).join("").toLowerCase();
@@ -379,9 +402,36 @@ function useSimilarNicks(value, token, own) {
     return list;
 }
 const SimilarNicks = ({ list }) => list.length ? React.createElement("div", { style: { margin: "0 0 12px" } }, React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", marginBottom: 6 } }, "Similar nicknames already registered:"), React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, list.map((u) => React.createElement("span", { key: u.username, style: { background: "#1E2530", border: "1px solid #262E3A", color: "#F5F7FA", borderRadius: 999, padding: "5px 12px", fontFamily: "Inter", fontSize: 13 } }, "@" + u.username + (u.name ? " \u00B7 " + u.name : ""))))) : null;
+// registered users whose nickname matches what is typed (needs GET /api/v1/users/search-nickname?q= -> { users: [{ id, name, username, avatar }] })
+function useNickSearch(value, token) {
+    const [list, setList] = useState([]);
+    useEffect(() => {
+        const q = stripEmoji(String(value || "")).trim().replace(/^@+/, "");
+        if (!token || nickLen(q) < 2 || /[\s@]/.test(q) || (/^[0-9+()\-]+$/.test(q) && q.length > 5)) { setList([]); return; }
+        let dead = false;
+        const t = setTimeout(async () => {
+            try {
+                const d = await api("/api/v1/users/search-nickname?q=" + encodeURIComponent(q), { token });
+                if (!dead) setList((d.users || []).filter((u) => u && u.username).slice(0, 8));
+            } catch (e) { if (!dead) setList([]); }
+        }, 350);
+        return () => { dead = true; clearTimeout(t); };
+    }, [value, token]);
+    return list;
+}
 // Nickname box with counter (used by the pop-up and the Tools screen)
 function NicknameEditor({ token, user, onSaved, onCancel, mandatory, intro }) {
     const ce = React.createElement;
+    if (user && user.username) { // a saved nickname is permanent
+        return ce("div", null,
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, "Your nickname"),
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 10 } },
+                ce("span", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 16 } }, "@"),
+                ce("span", { style: { flex: 1, minWidth: 0, color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, overflowWrap: "anywhere" } }, user.username),
+                ce(Lock, { size: 16, color: "#8891A0" })),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 14, lineHeight: 1.45 } }, "Your nickname is permanent and cannot be changed. Friends can search for you with it."),
+            onCancel && ce("button", { onClick: onCancel, style: { width: "100%", padding: 13, borderRadius: 12, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, "Close"));
+    }
     const [v, setV] = useState(() => nickClean(user && user.username));
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
@@ -401,7 +451,7 @@ function NicknameEditor({ token, user, onSaved, onCancel, mandatory, intro }) {
     const ready = nickValid(v) && !busy && chk.state !== "bad";
     return ce("div", null,
         ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 } }, mandatory ? "Add your nickname" : "Nickname"),
-        ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 14, lineHeight: 1.45 } }, intro || "Friends can find and message you with your nickname. Use up to " + NICK_MAX + " letters, numbers or symbols (no emoji). It must be unique."),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 14, lineHeight: 1.45 } }, intro || "Friends can find and message you with your nickname. Use up to " + NICK_MAX + " letters, numbers or symbols (no emoji). It must be unique. Once saved it can never be changed."),
         err && ce(Banner, { text: err, onClose: () => setErr("") }),
         ce("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "#1E2530", border: "1px solid " + (chk.state === "bad" ? "#FF8A80" : "#262E3A"), borderRadius: 12, padding: "12px 14px", marginBottom: 6 } },
             ce("span", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 16 } }, "@"),
@@ -419,7 +469,7 @@ function NicknamePrompt({ token, user, onSaved }) {
         React.createElement("div", { style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "92%", overflowY: "auto" } },
             React.createElement("div", { style: { width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 14px" } }),
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, fontWeight: 700, color: "#35D0BA", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 } }, "New in this update"),
-            React.createElement(NicknameEditor, { token, user, mandatory: true, onSaved, intro: "Every Letschat Africa account now has a nickname. Friends can search for you with it, so you don’t have to share your phone number or email. Use up to " + NICK_MAX + " letters, numbers or symbols (no emoji)." })));
+            React.createElement(NicknameEditor, { token, user, mandatory: true, onSaved, intro: "Every Letschat Africa account now has a nickname. Friends can search for you with it, so you don’t have to share your phone number or email. Use up to " + NICK_MAX + " letters, numbers or symbols (no emoji). Choose carefully: once saved, your nickname can never be changed." })));
 }
 async function api(path, { method = "GET", token, body, timeoutMs } = {}) {
     // Cold-start proof: when the free server is asleep the first requests fail ("Failed to fetch") or get a 502/503 from the host. Instead of
@@ -894,7 +944,8 @@ function PhonebookView({ token, onBack, onStarted }) {
     const invite = (e) => {
         const link = window.location.origin + window.location.pathname;
         const msg = link + "\n\nHey " + (e.name.split(" ")[0] || "there") + ", I'm on Letschat Africa. Join me here!";
-        window.open("https://wa.me/" + e.phone + "?text=" + encodeURIComponent(msg), "_blank");
+        if (navigator.share) { navigator.share({ title: "Letschat Africa", text: msg }).catch(() => { }); return; } // the phone's own share menu
+        try { navigator.clipboard.writeText(msg).then(() => window.alert("Invite message copied. Paste it to " + (e.name.split(" ")[0] || "your friend") + ".")); } catch (x) { window.prompt("Copy this invite message:", msg); } // computers without a share menu
     };
     const needle = q.trim().toLowerCase();
     const needleDigits = q.replace(/\D/g, "");
@@ -946,6 +997,13 @@ function NewChatModal({ token, onClose, onStarted }) {
     const [phone, setPhone] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
+    const found = useNickSearch(phone, token);
+    const startWith = async (u) => {
+        setBusy(true); setError("");
+        try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: u.id } }); onStarted(conversation); }
+        catch (e) { setError(e.message); }
+        finally { setBusy(false); }
+    };
     const start = async () => {
         if (!phone.trim())
             return;
@@ -980,6 +1038,14 @@ function NewChatModal({ token, onClose, onStarted }) {
             error && React.createElement(Banner, { text: error }),
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 } },
                 React.createElement("input", { value: phone, onChange: e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[^0-9+\-()\s]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@nickname, email or phone", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 } })),
+            found.length > 0 && React.createElement("div", { style: { marginBottom: 12, maxHeight: 220, overflowY: "auto", border: "1px solid #262E3A", borderRadius: 12, background: "#10151C" } },
+                React.createElement("div", { style: { padding: "8px 12px 4px", fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: "#8891A0", textTransform: "uppercase", letterSpacing: 0.5 } }, "Registered users"),
+                found.map((u) => React.createElement("div", { key: u.id || u.username, onClick: () => !busy && u.id && startWith(u), style: { display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", cursor: "pointer", borderTop: "1px solid #1B212B" } },
+                    React.createElement(Ring, { size: 36, color: "#35D0BA", initials: initialsOf(u.name || u.username), photo: u.avatar || null }),
+                    React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                        React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14, color: "#F5F7FA", overflowWrap: "anywhere" } }, "@" + u.username),
+                        u.name && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, u.name)),
+                    React.createElement("span", { style: { ...smallBtn, padding: "5px 10px" } }, "Chat")))),
             React.createElement("button", { onClick: start, disabled: busy || !phone.trim(), style: {
                     width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
                     background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1,
@@ -6311,7 +6377,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
         { title: "Reach out with status", bg: "linear-gradient(135deg,#243B6B,#6E8BFF)", body: "Status updates reach your contacts for 24 hours.\n\n1. Open the Updates tab.\n2. Tap the green camera button and post a photo, or the pencil for a text update.\n3. Come back to Tools to see how many people viewed it.", go: "Open Status", act: () => onTab("status") },
     ];
     const aiRow = ce("div", { key: "ai-assistant", style: { display: "flex", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "12px 16px" } }, ce("div", { onClick: () => onOpen("ai"), style: { display: "flex", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", flex: 1, minWidth: 0, cursor: "pointer" } }, ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(ToolAi, { size: 21, color: "#35D0BA" })), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "AI assistant"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35 } }, ai && ai.on ? "On \u00B7 learning your chats and replying when you\u2019re offline" : "Learns your chats and replies for you when you\u2019re offline"))), ce(Toggle, { on: !!(ai && ai.on), onChange: toggleAi, disabled: !ai || aiBusy }));
-    const nickRow = ce("div", { key: "nickname", onClick: () => setNickOpen(true), style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" } }, ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(AtSign, { size: 21, color: "#35D0BA" })), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Nickname"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35, overflowWrap: "anywhere" } }, user && user.username ? "@" + user.username + " \u00B7 friends can search for you with it" : "Not set \u00B7 tap to add")));
+    const nickRow = ce("div", { key: "nickname", onClick: () => setNickOpen(true), style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" } }, ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(AtSign, { size: 21, color: "#35D0BA" })), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Nickname"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35, overflowWrap: "anywhere" } }, user && user.username ? "@" + user.username + " \u00B7 permanent, friends can search for you with it" : "Not set \u00B7 tap to add")));
     const nickSheet = nickOpen && ce("div", { onClick: () => setNickOpen(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 60 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "92%", overflowY: "auto" } }, ce(NicknameEditor, { token, user: user || {}, onCancel: () => setNickOpen(false), onSaved: (u) => { if (u) onUserChange(u); setNickOpen(false); } })));
     const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
     return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }), menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } }, menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))), nickSheet, ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } }, "Last 7 days performance", ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))), info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "0 16px" } }, stat(ToolMsg, String(started), "Conversations started"), stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"), stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")), !promoOff && heading("For you"), !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } }, ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })), ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", paddingRight: 24 } }, ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })), ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))), ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")), heading("Grow your business"), row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")), row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile), row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")), heading("Your nickname"), nickRow, heading("Organize your chats"), row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")), aiRow, row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")), row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")), row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")), heading("Manage your account"), row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile), row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")), row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()), row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")), (isCreator || videos.length) ? [heading("How to"), ce("div", { key: "vids", style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", overflowX: "auto", padding: "4px 16px 8px" } },
@@ -6692,19 +6758,77 @@ function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, 
     const rowFor = (c) => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } }, React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }), React.createElement("div", { style: { flex: 1, minWidth: 0 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, (c.members ? c.members.length : 0) + " members \u00B7 " + (c.members ? c.members.filter(m => m.id === myId || presence[m.id]).length : 0) + " online")), c.adminId === myId && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#35D0BA", border: "1px solid #35D0BA55", background: "#35D0BA18", borderRadius: 8, padding: "2px 8px" } }, "Admin"), c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread)));
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, React.createElement(TopBar, { title: "Communities", onBack: onBack, right: React.createElement("button", { onClick: onNewGroup, style: smallBtn }, "New group") }), React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, groups.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } }, React.createElement(Users, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }), React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No groups yet"), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8A96A5" } }, "Tap \u201CNew group\u201D to create one, or open an invite link from a friend to join theirs."))), mine.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you manage \u00B7 " + mine.length), mine.map(rowFor), others.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you\u2019re in \u00B7 " + others.length), others.map(rowFor))));
 }
-const FAQ = [
-    ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a nickname, email or phone number with country code, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
-    ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
-    ["How do I send a photo, file or voice note?", "Use the paperclip for files (up to 3 MB), the camera to take a photo and the microphone to record. Tap the mic again, or the send button, to send the voice note."],
-    ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members and share an invite link from Group info."],
-    ["How do I share my profile link?", "Go to Tools → Profile → Profile link. Anyone who opens your link can start a direct message with you. Tap Reset to make the old link stop working."],
-    ["How do favourites work?", "Open a chat, tap the three dots and choose Add to favourites. Find all of them in Tools → Favourites."],
-    ["How do I block someone?", "Open their chat, tap the three dots and choose Block. They can no longer message you. You can unblock them in Tools → Privacy."],
-    ["What do read receipts and last seen do?", "In Tools → Privacy you can switch off blue ticks and hide when you were last online. If you hide yours, you won’t see receipts from others either."],
-    ["I changed my photo but it hasn’t updated.", "Pull the app fresh by closing and reopening it. New photos show for everyone after a moment."],
-    ["Messages are slow or not sending.", "Check your internet connection. The server can take up to a minute to wake up after a quiet period, then everything speeds up."],
+const HELP_TOUR = [
+    ["Chats", "all your one-to-one chats and groups. The LetsChat AI robot sits above the pencil button."],
+    ["Room", "the Chat Room, one big public room where every Letschat Africa member can talk."],
+    ["Calls", "voice and video calls, call history and scheduled calls."],
+    ["Updates", "status updates that disappear after 24 hours (photos, text and video)."],
+    ["Market", "buy and sell: post products with photos and prices, comment and rate sellers."],
+    ["Games", "play games with friends and see the rankings."],
+    ["Tools", "your nickname, profile, privacy, business tools, backups and this Help Center."],
+];
+const FAQ_SECTIONS = [
+    { title: "Getting started", items: [
+        ["What is Letschat Africa?", "Letschat Africa is a free chat app for everyone. You can send messages, photos, files and voice notes, make voice and video calls, post status updates, join the Chat Room, buy and sell in Market, play games and use the built-in AI assistant. Use the bottom bar to move between Chats, Room, Calls, Updates, Market, Games and Tools."],
+        ["What is a nickname and why do I need one?", "Your nickname is your unique name on Letschat Africa, up to 20 characters (letters, numbers and symbols, no emoji). Friends type it in the search box or the pencil button to find and message you, so you never have to share your email. Choose it carefully: once it is saved to your account it can never be changed. It must be unique, so if someone already has it, pick another."],
+        ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a nickname (for example @ayo), an email or a phone number with country code, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa. You can also search by name or nickname in the Chats search box."],
+        ["How do I invite a friend who isn’t on the app?", "Open the pencil button → “Find friends from my phonebook”, then tap Invite next to their name. Your phone’s share menu opens with a ready message and the Letschat Africa link. Send it, and they can join and find you by your nickname."],
+        ["How do I log in or sign up?", "Use your email and password, or tap Continue with Google. When you create an account you choose your name and a nickname. For email accounts we send a verification link first. If you forget your password, tap “Forgot password?” on the login page."],
+    ] },
+    { title: "Chatting", items: [
+        ["How do I send a photo, file, voice note or location?", "Tap the paperclip for Gallery, Document, Contact, Location, Poll or Schedule. Files can be up to 3 MB. Use the camera to take a photo and hold or tap the microphone to record a voice note; tap again or tap send to send it. Share location asks your phone for permission first and only sends when you tap Send."],
+        ["How do I reply, react, edit, delete or forward a message?", "Swipe a message to the right to reply. Press and hold it to select it: you can react with an emoji, star it, copy, forward, or delete it. Delete for me removes it on your phone; Delete for everyone removes it for the other person too. You can edit your own text messages for 15 minutes after sending."],
+        ["What do the ticks mean?", "One grey tick means sent, two grey ticks mean delivered, and two green ticks mean the person has read it. A clock means the message is still sending. If it shows “Not sent”, tap it to retry."],
+        ["How do I find an old message or media?", "Open the chat, tap the three dots and choose Search to look inside the chat. “Media, links and docs” lists all photos, files and links. Starred messages keeps the ones you saved."],
+        ["What are disappearing messages and view once?", "Disappearing messages delete themselves after the time you pick: open the chat, tap the three dots → Disappearing messages. View once photos and videos can be opened only one time and then they are gone."],
+        ["Can I schedule a message or a call?", "Yes. Tap the paperclip → Schedule to write a message that is sent later at the time you choose. In the Calls tab you can schedule a call too."],
+        ["How do I pin, mute, archive or lock a chat?", "In the Chats list, press and hold a chat to select it, then use the buttons at the top to pin, mute or archive it. You can also swipe a chat sideways to archive it. Archived chats are kept in the Archived list. Inside a chat, the three dots lets you mute notifications and change the chat theme. Tap the person’s name to open their profile, where you can switch on Chat lock for that chat."],
+        ["How do I export or clear a chat?", "Open the chat and tap the three dots (or the person’s name to open their profile) to find Export chat, which saves the conversation, and Clear chat, which removes the messages from your phone. You can also back up all your chats from Tools → Back up to device and bring them back with Restore from backup."],
+    ] },
+    { title: "Groups and the Chat Room", items: [
+        ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members, change the group photo and description, and share an invite link from Group info. Anyone who opens the invite link can join."],
+        ["How do I mention someone in a group?", "Tap the @ button in the message box (or type @ and a name), pick the member and send. The person gets a notification that they were mentioned."],
+        ["What is the Chat Room?", "The Room tab opens the Chat Room: one room where every Letschat Africa member is added automatically. You can chat, @mention people, see the country flag of each member and tap a member to message them privately. You can leave the room if you don’t want it. Only the creator can change the room’s name, photo and settings."],
+        ["What is the AI moderator in groups?", "Group admins can switch on an AI moderator in Group info. It reminds members of the group rules, warns people who break them (links, spam, insults and similar) and can remove people who keep breaking the rules. Admins are never moderated."],
+    ] },
+    { title: "Calls", items: [
+        ["How do I make a voice or video call?", "Open the chat and tap the phone or camera icon at the top, or use the Calls tab and tap the new call button. Allow microphone and camera access when your phone asks. Use the buttons on the call screen to mute yourself or turn the camera on or off. Group voice chats start from Group info."],
+        ["Why can’t I hear or see the other person?", "Check that both of you have a good internet connection and have allowed microphone and camera permission for the app in your phone settings. Try closing and reopening the call. Turning off Data saver helps too."],
+    ] },
+    { title: "Updates (status)", items: [
+        ["How do I post a status update?", "Open the Updates tab. Tap the green camera button to post a photo or video, or the pencil for a text update. In the editor you can crop, add text and choose who sees it. Updates last 24 hours."],
+        ["Who can see my status and who viewed it?", "Choose who can see your updates in Status privacy. Open your own update to see everyone who viewed it. You can also see your total status views in Tools."],
+        ["Can I share someone else’s update?", "Yes. Open the update, tap the three dots and choose Reshare to my status. It appears on your status with a “Reshared from” label showing who posted it first."],
+    ] },
+    { title: "Market and business tools", items: [
+        ["How do I sell something in Market?", "Open the Market tab and tap the + button. Add photos, a price and a description. Buyers can message you, comment and rate you. When it is gone tap Mark sold, or Remove to delete the listing. Tools → Manage listings shows all your listings."],
+        ["How do I buy safely?", "Chat with the seller first, meet in a public place and check the item before you pay. Never send money to someone you don’t know and never share your passwords, PIN or codes with anyone. Letschat Africa staff will never ask for them. Use Report if something looks like a scam."],
+        ["What are Catalog, Greeting, Away message and Quick replies?", "They are in Tools. Catalog shows your products and services on your profile. Greeting message welcomes new customers automatically. Away message answers for you when you are busy. Quick replies save messages you send often so you can reuse them in one tap."],
+        ["How do I share my profile link?", "Go to Tools → Profile, then use the share button or Advertise to share your profile link. Anyone who opens it can start a chat with you. Tap Reset to make the old link stop working."],
+    ] },
+    { title: "AI assistant and games", items: [
+        ["What is LetsChat AI?", "LetsChat AI is the robot above the pencil button on the Chats tab. Ask it questions, get help writing, translating or learning, or just chat. You can also type @ai followed by a question inside a chat. Check important facts yourself because AI can make mistakes."],
+        ["What is the AI assistant in Tools and the AI button in a chat?", "In Tools → AI assistant you can let the AI learn how you chat and reply for you when you are offline. Replies begin with “AI:” so people know. The AI picture next to the message box switches the AI on or off for that one chat. It never handles money, passwords or codes."],
+        ["How do I play games?", "Open the Games tab to play on your own or challenge a friend. You can also send a game invite from a chat. Rankings show daily, weekly and monthly winners."],
+    ] },
+    { title: "Privacy and safety", items: [
+        ["How do I block someone?", "Open their profile (tap their name in the chat), scroll down and choose Block. They can no longer message or call you. You can unblock them in Tools → Privacy. Use Report in the same place if someone is bothering you."],
+        ["What do read receipts and last seen do?", "In Tools → Privacy you can switch off read receipts (green ticks) and choose who can see when you were last online. If you hide yours, you won’t see theirs either."],
+        ["How do favourites work?", "Open a chat, tap the three dots and choose Add to favourites. All your favourites are in Tools → Lists."],
+        ["How do I control notifications and sounds?", "Go to Tools, tap the three dots at the top, then Notifications to choose alerts for messages and groups and the notification sound. Sounds & features lets you turn on or off typing sounds, calls, disappearing messages, view once, polls and more."],
+        ["Is my account safe?", "Never share your password or any code that is sent to you. Use a password only you know. Log out on shared phones. You can read what is allowed in Tools → Rules & guidelines. To remove your account and data go to Tools → Delete account."],
+    ] },
+    { title: "Troubleshooting", items: [
+        ["Messages are slow or not sending.", "Check your internet connection first. If you were away for a while the server may need up to a minute to wake up, then everything is fast again. Messages you send while offline show a clock and go out by themselves when you reconnect. If one says “Not sent”, tap it to retry."],
+        ["I changed my photo but it hasn’t updated.", "Close the app completely and open it again. New photos show for everyone after a moment."],
+        ["The app looks old or something is missing.", "Close the app and open it twice so the newest version installs. If an “Update available” page appears, tap Click Here to update."],
+        ["I can’t find my friend.", "Ask them for their nickname and type it with or without the @ in the pencil button. They must have an account on Letschat Africa. You can also use “Find friends from my phonebook”."],
+        ["How do I contact support?", "Use “Chat with support on Letschat Africa” below to message us inside the app, or Email support. Tap Copy my support info and paste it in your message so we can help faster."],
+    ] },
 ];
 // ---- Tools > About the developer ----
+const CREATOR_NICK = String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.CREATOR_NICKNAME) || "letschatcreator").replace(/^@+/, "").trim();
+const CREATOR_EMAIL = String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.CREATOR_EMAIL) || "effizzylizzy10@gmail.com").trim();
 function AboutDeveloperScreen({ onBack }) {
     const PHONE_LOCAL = "08135351804", PHONE_INTL = "2348135351804";
     const skills = ["Web Apps", "Mobile Apps", "AI Solutions", "Databases", "Cloud & Hosting"];
@@ -6712,7 +6836,7 @@ function AboutDeveloperScreen({ onBack }) {
     const label = { fontFamily: "Sora", fontWeight: 700, fontSize: 12, letterSpacing: 1, color: "#F5C518", marginBottom: 8 };
     const body = { fontFamily: "Inter", fontSize: 14, lineHeight: 1.55, color: "#C9D1DA" };
     const action = (bg, fg, border) => ({ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8", padding: "13px 10px", borderRadius: 14, border: border || "none", background: bg, color: fg, fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer", textDecoration: "none" });
-    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "About the developer", onBack }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 28 } }, ce("div", { style: { position: "relative", height: 430, overflow: "hidden", background: "#0E1116" } }, ce("img", { src: "icons/developer.jpg", alt: "Abdullahi Salawu", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 3%", display: "block" } }), ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(to top, #0E1116 4%, rgba(14,17,22,0) 60%)" } }), ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 12 } }, ce("span", { style: { display: "inline-block", background: "#F5C518", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 6, marginBottom: 6 } }, "Developer"), ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 28, lineHeight: 1.1, color: "#F5F7FA" } }, "Abdullahi ", ce("span", { style: { color: "#F5C518" } }, "Salawu")))), ce("div", { style: { padding: "12px 16px 0", fontFamily: "Sora", fontWeight: 600, fontSize: 16, lineHeight: 1.4, color: "#F5F7FA" } }, "Building smart apps for a connected and better Africa."), ce("div", { style: card }, ce("div", { style: label }, "MY MISSION"), ce("div", { style: body }, "To build innovative, intelligent, and impactful applications that connect people, solve real-world problems, and showcase the power of African technology to the world.")), ce("div", { style: card }, ce("div", { style: label }, "WHAT I BUILD"), ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, counterIncrement: "lcgap-8" } }, skills.map((s) => ce("span", { key: s, style: { padding: "6px 12px", borderRadius: 999, border: "1px solid #2B3544", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13 } }, s)))), ce("div", { style: card }, ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12", marginBottom: 14 } }, ce(MapPin, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }), ce("div", null, ce("div", { style: label }, "LOCATION"), ce("div", { style: body }, "Okerube, Ikotun, Lagos State, Nigeria."))), ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12" } }, ce(Phone, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }), ce("div", null, ce("div", { style: label }, "CONTACT"), ce("div", { style: { ...body, fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#F5F7FA" } }, PHONE_LOCAL)))), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", margin: "14px 16px 0" } }, ce("a", { href: "https://wa.me/" + PHONE_INTL, target: "_blank", rel: "noopener noreferrer", style: action("#35D0BA", "#0E1116") }, ce(MessageCircle, { size: 18, color: "#0E1116" }), "WhatsApp"), ce("a", { href: "tel:" + PHONE_LOCAL, style: action("none", "#F5F7FA", "1px solid #2B3544") }, ce(Phone, { size: 18, color: "#F5F7FA" }), "Call")), ce("div", { style: { textAlign: "center", margin: "22px 16px 0", fontFamily: "Sora", fontStyle: "italic", fontWeight: 600, fontSize: 14, color: "#8891A0" } }, "African Technology · Global Impact")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "About the developer", onBack }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 28 } }, ce("div", { style: { position: "relative", height: 430, overflow: "hidden", background: "#0E1116" } }, ce("img", { src: "icons/developer.jpg", alt: "Abdullahi Salawu", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 3%", display: "block" } }), ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(to top, #0E1116 4%, rgba(14,17,22,0) 60%)" } }), ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 12 } }, ce("span", { style: { display: "inline-block", background: "#F5C518", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 6, marginBottom: 6 } }, "Developer"), ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 28, lineHeight: 1.1, color: "#F5F7FA" } }, "Abdullahi ", ce("span", { style: { color: "#F5C518" } }, "Salawu")))), ce("div", { style: { padding: "12px 16px 0", fontFamily: "Sora", fontWeight: 600, fontSize: 16, lineHeight: 1.4, color: "#F5F7FA" } }, "Building smart apps for a connected and better Africa."), ce("div", { style: card }, ce("div", { style: label }, "MY MISSION"), ce("div", { style: body }, "To build innovative, intelligent, and impactful applications that connect people, solve real-world problems, and showcase the power of African technology to the world.")), ce("div", { style: card }, ce("div", { style: label }, "WHAT I BUILD"), ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, counterIncrement: "lcgap-8" } }, skills.map((s) => ce("span", { key: s, style: { padding: "6px 12px", borderRadius: 999, border: "1px solid #2B3544", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13 } }, s)))), ce("div", { style: card }, ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12", marginBottom: 14 } }, ce(MapPin, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }), ce("div", null, ce("div", { style: label }, "LOCATION"), ce("div", { style: body }, "Okerube, Ikotun, Lagos State, Nigeria."))), ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12" } }, ce(Phone, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }), ce("div", null, ce("div", { style: label }, "CONTACT"), ce("div", { style: { ...body, fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#F5F7FA" } }, PHONE_LOCAL)))), (CREATOR_NICK || CREATOR_EMAIL) && ce("div", { style: card }, ce("div", { style: label }, "FIND THE CREATOR ON LETSCHAT AFRICA"), CREATOR_NICK && ce("div", { style: { display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", ...body } }, ce("span", { style: { color: "#8891A0" } }, "Nickname"), ce("span", { style: { color: "#F5F7FA", fontWeight: 600, overflowWrap: "anywhere", textAlign: "right" } }, "@" + CREATOR_NICK)), CREATOR_EMAIL && ce("div", { style: { display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", ...body } }, ce("span", { style: { color: "#8891A0" } }, "Email"), ce("a", { href: "mailto:" + CREATOR_EMAIL, style: { color: "#35D0BA", fontWeight: 600, overflowWrap: "anywhere", textAlign: "right", textDecoration: "none" } }, CREATOR_EMAIL))), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", margin: "14px 16px 0" } }, ce("a", { href: "https://wa.me/" + PHONE_INTL, target: "_blank", rel: "noopener noreferrer", style: action("#35D0BA", "#0E1116") }, ce(MessageCircle, { size: 18, color: "#0E1116" }), "WhatsApp"), ce("a", { href: "tel:" + PHONE_LOCAL, style: action("none", "#F5F7FA", "1px solid #2B3544") }, ce(Phone, { size: 18, color: "#F5F7FA" }), "Call")), ce("div", { style: { textAlign: "center", margin: "22px 16px 0", fontFamily: "Sora", fontStyle: "italic", fontWeight: 600, fontSize: 14, color: "#8891A0" } }, "African Technology · Global Impact")));
 }
 // ---- Creator panel: only shown to the creator account (server re-checks every request) ----
 function CreatorScreen({ onBack, token }) {
@@ -6833,12 +6957,15 @@ function RulesScreen({ onBack, token }) {
     ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "16px", fontFamily: "Inter", fontSize: 14.5, lineHeight: 1.6, color: "#DDE3EA", whiteSpace: "pre-wrap" } }, err || (text === null ? "Loading..." : text)));
 }
 
-function HelpScreen({ onBack, user }) {
-    const [open, setOpen] = useState(-1);
+function HelpScreen({ onBack, user, onChatSupport }) {
+    const [open, setOpen] = useState("");
     const [copied, setCopied] = useState(false);
+    const [q, setQ] = useState("");
+    const [supBusy, setSupBusy] = useState(false);
+    const [supErr, setSupErr] = useState("");
     const info = [
         "Letschat Africa support info",
-        "User: " + (user && user.name) + " (" + (user && user.phone ? "+" + String(user.phone).replace(/\D/g, "") : "no phone") + ")",
+        "User: " + (user && user.name) + (user && user.username ? " (@" + user.username + ")" : user && user.phone ? " (+" + String(user.phone).replace(/\D/g, "") + ")" : ""),
         "App: " + window.location.origin,
         "Browser: " + navigator.userAgent,
         "Time: " + new Date().toISOString(),
@@ -6849,22 +6976,35 @@ function HelpScreen({ onBack, user }) {
         setTimeout(() => setCopied(false), 2000);
     }
     catch (e) { } };
-    const wa = () => window.open("https://wa.me/" + SUPPORT.whatsapp + "?text=" + encodeURIComponent("Hi Letschat Africa support, I need help with:\n\n\n" + info), "_blank");
+    const chatSupport = async () => { if (!onChatSupport) return; setSupBusy(true); setSupErr(""); try { await onChatSupport(); } catch (e) { setSupErr((e && e.message) || "Support chat is not available right now. Please use Email support."); } finally { setSupBusy(false); } };
     const mail = () => { window.location.href = "mailto:" + SUPPORT.email + "?subject=" + encodeURIComponent("Letschat Africa support") + "&body=" + encodeURIComponent("Hi, I need help with:\n\n\n" + info); };
+    const needle = q.trim().toLowerCase();
+    const sections = FAQ_SECTIONS.map((sec) => ({ ...sec, items: sec.items.map((it, i) => ({ q: it[0], a: it[1], key: sec.title + i })).filter((it) => !needle || (it.q + " " + it.a).toLowerCase().includes(needle)) })).filter((sec) => sec.items.length);
     return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
         React.createElement(TopBar, { title: "Help", onBack: onBack }),
         React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
-            React.createElement("div", { style: { ...sectionTitle, margin: "6px 16px" } }, "Frequently asked questions"),
-            FAQ.map(([q, ans], i) => (React.createElement("div", { key: i, style: { borderBottom: "1px solid #1B212B" } },
-                React.createElement("div", { onClick: () => setOpen(open === i ? -1 : i), style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "14px 16px", cursor: "pointer" } },
-                    React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA" } }, q),
-                    React.createElement(ChevronRight, { size: 17, color: "#5B6673", style: { transform: open === i ? "rotate(90deg)" : "none", transition: "transform .15s" } })),
-                open === i && React.createElement("div", { style: { padding: "0 16px 16px", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#9BA7B4" } }, ans)))),
+            React.createElement("div", { style: { padding: "4px 16px 10px" } },
+                React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search help (for example nickname, group, backup)", "aria-label": "Search help", style: { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } })),
+            !needle && React.createElement("div", { style: { margin: "4px 16px 8px", padding: "14px 14px 10px", background: "#161B22", border: "1px solid #262E3A", borderRadius: 16 } },
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", marginBottom: 4 } }, "Welcome to Letschat Africa"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#9BA7B4", lineHeight: 1.5, marginBottom: 10 } }, "A free chat app made for Africa. Here is what each button on the bottom bar does:"),
+                HELP_TOUR.map(([name, text]) => React.createElement("div", { key: name, style: { display: "flex", gap: 8, padding: "5px 0", fontFamily: "Inter", fontSize: 13, color: "#C9D1DA", lineHeight: 1.45 } },
+                    React.createElement("b", { style: { color: "#35D0BA", minWidth: 62, fontFamily: "Sora", fontWeight: 600 } }, name),
+                    React.createElement("span", null, text)))),
+            sections.map((sec) => React.createElement("div", { key: sec.title },
+                React.createElement("div", { style: { ...sectionTitle, margin: "18px 16px 4px" } }, sec.title),
+                sec.items.map((it) => (React.createElement("div", { key: it.key, style: { borderBottom: "1px solid #1B212B" } },
+                    React.createElement("div", { onClick: () => setOpen(open === it.key ? "" : it.key), style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "14px 16px", cursor: "pointer" } },
+                        React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA" } }, it.q),
+                        React.createElement(ChevronRight, { size: 17, color: "#5B6673", style: { transform: open === it.key || needle ? "rotate(90deg)" : "none", transition: "transform .15s" } })),
+                    (open === it.key || (needle && sections.reduce((n, x) => n + x.items.length, 0) <= 4)) && React.createElement("div", { style: { padding: "0 16px 16px", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.55, color: "#9BA7B4" } }, it.a)))))),
+            needle && !sections.length && React.createElement("div", { style: { padding: "30px 24px", textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Nothing matches that. Try another word, or contact support below."),
             React.createElement("div", { style: { ...sectionTitle, margin: "22px 16px 8px" } }, "Contact us"),
             React.createElement("div", { style: { padding: "0 16px", display: "flex", flexDirection: "column", gap: 10, counterIncrement: "lcgap-10" } },
-                SUPPORT.whatsapp && React.createElement("button", { onClick: wa, style: primaryBtn(false) }, "Chat with support on WhatsApp"),
+                supErr && React.createElement(Banner, { text: supErr, onClose: () => setSupErr("") }),
+                onChatSupport && React.createElement("button", { onClick: chatSupport, disabled: supBusy, style: primaryBtn(supBusy) }, supBusy ? "Opening chat\u2026" : "Chat with support on Letschat Africa"),
                 SUPPORT.email && React.createElement("button", { onClick: mail, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, "Email support"),
-                React.createElement("button", { onClick: copyInfo, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, copied ? "Copied ✓" : "Copy my support info"),
+                React.createElement("button", { onClick: copyInfo, style: { ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" } }, copied ? "Copied \u2713" : "Copy my support info"),
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8A96A5", textAlign: "center", marginTop: 4 } }, "Letschat Africa \u00B7 secure chat for everyone")))));
 }
 // ---- emoji tray for the message box ----
@@ -7902,6 +8042,9 @@ function MediaCaptionSheet({ file, url, onSend, onCancel }) {
 }
 function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, onMute = () => { }, onReport = () => { }, onNewGroup = () => { }, focus = null, pinned = [], onTogglePin = () => { } }) {
     const [msgs, setMsgs] = useState([]);
+    const [winSize, setWinSize] = useState(MSG_WINDOW); // how many of the newest messages are drawn
+    const winAnchor = useRef(null);
+    const atBottomShown = useRef(true);
     const [gameOpen, setGameOpen] = useState(false);
     const [draft, setDraft] = useState(() => LCX.draft(conversation.id));
     const [loading, setLoading] = useState(true);
@@ -8250,13 +8393,15 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
                 setUnseenN(n => n + grew);
             return;
         } // reading older messages: don't yank the list down
-        endRef.current?.scrollIntoView();
+        if (listEl.current) scrollToEnd(listEl.current); else endRef.current?.scrollIntoView();
     }, [msgs, peerTyping]);
     useEffect(() => { onLocalUpdate(conversation.id, msgs); }, [msgs]);
+    const typingSentAt = useRef(0);
     const notifyTyping = (isTyping) => {
         if (!socket || !featOn("typingStatus"))
             return;
-        socket.emit("typing", { conversationId: conversation.id, typing: isTyping, kind: "typing" });
+        const nowT = Date.now();
+        if (!isTyping || nowT - (typingSentAt.current || 0) > 2500) { typingSentAt.current = isTyping ? nowT : 0; socket.emit("typing", { conversationId: conversation.id, typing: isTyping, kind: "typing" }); }
         clearTimeout(typingTimeout.current);
         if (isTyping)
             typingTimeout.current = setTimeout(() => socket.emit("typing", { conversationId: conversation.id, typing: false, kind: "typing" }), 1500);
@@ -8425,8 +8570,7 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
             flashNote("Chat locked. It asks for your PIN next time.");
         }
     };
-    const jumpTo = (id) => { const el = fEls.current[id]; if (!el)
-        return; el.scrollIntoView({ block: "center", behavior: "smooth" }); setHl(id); setTimeout(() => setHl(null), 1600); };
+    const jumpTo = (id) => { const el = fEls.current[id]; if (!el) { const i = msgs.findIndex((x) => x.id === id); if (i >= 0) { setWinSize(msgs.length - i + 20); setTimeout(() => jumpTo(id), 120); } return; } el.scrollIntoView({ block: "center", behavior: "smooth" }); setHl(id); setTimeout(() => setHl(null), 1600); };
     // keep the emoji pill on screen: if the selected message is near the top of the list, show it underneath instead
     useEffect(() => {
         if (!(picked.length === 1))
@@ -8816,6 +8960,11 @@ const shareContact = async () => {
             stopRec(false); return x + 1; }), 1000);
         return () => clearInterval(t);
     }, [rec]);
+    // which messages are drawn: the newest `winSize`; everything while searching / picking / jumping to a message; and always from the first unread
+    const wUnreadIdx = unreadDiv ? msgs.findIndex((x) => x.id === unreadDiv.id) : -1;
+    const wStart = (fQ || picking || focusId) ? 0 : Math.max(0, Math.min(msgs.length - winSize, wUnreadIdx >= 0 ? wUnreadIdx - 3 : Infinity));
+    const loadOlder = () => { const el = listEl.current; if (el) winAnchor.current = { h: el.scrollHeight, t: el.scrollTop }; setWinSize((n) => n + MSG_PAGE); };
+    useLayoutEffect(() => { const a = winAnchor.current, el = listEl.current; if (a && el) { el.scrollTop = a.t + (el.scrollHeight - a.h); } winAnchor.current = null; }, [winSize]);
     const isGroup = !!conversation.isGroup;
     const isRoom = !!conversation.chatRoom; // the Chat Room: no AI, a flag on every head, only the creator can change it
     const online = !!presence[conversation.other.id];
@@ -8942,7 +9091,7 @@ const shareContact = async () => {
                 React.createElement("i", { style: { background: "#F2B84B" } }),
                 React.createElement("i", { style: { background: "#F2B84B" } })),
             (typeof navigator !== "undefined" && navigator.onLine === false ? "Waiting for network. Your messages will send when you are back online." : "Connecting to the server\u2026 your messages will send in a moment.")),
-        React.createElement("div", { ref: listEl, onScroll: (e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; setAtBottom(nb); if (nb)
+        React.createElement("div", { ref: listEl, onScroll: (e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; if (nb !== atBottomShown.current) { atBottomShown.current = nb; setAtBottom(nb); } if (el.scrollTop < 160 && wStart > 0 && !winAnchor.current) loadOlder(); if (nb)
                 setUnseenN(0); }, style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8", background: chatBg } },
             loading && React.createElement("div", { style: { margin: "auto", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading conversation\u2026"),
             error && React.createElement(Banner, { text: error, onClose: () => setError("") }),
@@ -8952,7 +9101,9 @@ const shareContact = async () => {
                 "Say hello to ",
                 isGroup ? "the group" : conversation.other.name.split(" ")[0],
                 " \uD83D\uDC4B")),
+            wStart > 0 && !loading && React.createElement("button", { key: "older", onClick: loadOlder, style: { alignSelf: "center", background: "#1E2530", border: "1px solid #262E3A", color: "#35D0BA", borderRadius: 999, padding: "6px 14px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", flexShrink: 0 } }, "Load earlier messages (" + wStart + ")"),
             msgs.flatMap((m, mIdx) => {
+                if (mIdx < wStart) return [];
                 const sepEl = dayDivider(msgs, mIdx);
                 const bubbleEl = (() => {
                     if (m.system)
@@ -9003,8 +9154,8 @@ const shareContact = async () => {
                                                             React.createElement("span", { style: { display: "block", fontSize: 11.5, color: "#B9C2CC" } },
                                                                 fmtSize(m.file.size),
                                                                 " \u00B7 tap to download")))) : bigEmoji(m.text) ? React.createElement("div", { className: "lc-bigemoji" + (liveIds.current.has(m.id) ? " live" : ""), style: { fontSize: 44 } }, m.text.trim())
-                                                        : React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, withLinks(withMentions(richText(m.text), mnList))),
-                            m.file && m.file.data && /^data:(image|video)\//.test(m.file.data) && m.text && !/^(\uD83D\uDCF7 Photo|\uD83D\uDCCE )/.test(m.text) && React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 6 } }, withLinks(richText(m.text))),
+                                                        : React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, richMsg(m.text, mnList)),
+                            m.file && m.file.data && /^data:(image|video)\//.test(m.file.data) && m.text && !/^(\uD83D\uDCF7 Photo|\uD83D\uDCCE )/.test(m.text) && React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 6 } }, richMsg(m.text, null)),
                             m.failed && React.createElement("div", { onClick: () => retrySend(m), role: "button", style: { marginTop: 4, fontSize: 12, color: "#FF9B91", fontWeight: 600, cursor: "pointer" } }, "Not sent \u00B7 Tap to retry"),
                             !m.deleted && lpIds.has(m.id) && React.createElement(LinkPreview, { url: firstPreviewUrl(m.text), token: token }),
                             window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine),
@@ -9699,7 +9850,7 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
         setSaving(true);
         setError("");
         try {
-            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name: f.name, about: f.about, username: f.username.trim(), business, ...(avatarChanged ? { avatar } : {}) } });
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name: f.name, about: f.about, ...(profile.username ? {} : { username: f.username.trim() }), business, ...(avatarChanged ? { avatar } : {}) } });
             onSave(user);
         }
         catch (e) {
@@ -9731,7 +9882,7 @@ function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => {
     const prevLine = (I, t) => t ? ce("div", { key: t, style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", padding: "7px 0", fontFamily: "Inter", fontSize: 14, color: "#C5CDD8" } }, ce(I, { size: 18, color: "#8891A0" }), ce("span", { style: { overflowWrap: "anywhere" } }, t)) : null;
     const hoursSummary = (() => { const d = f.days; return d.every((x) => x.mode === "24h") ? "Open 24 hours" : "Hours set"; })();
     const previewSheet = () => sheetWrap("How customers see your profile", ce("div", null, ce("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "6px 0 12px" } }, ce(Ring, { size: 84, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true }), ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 10 } }, f.name || "Your name"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, f.about)), prevLine(ShoppingBag, f.cats.join(", ")), prevLine(ClockIcon, hoursSummary), prevLine(EpDoc, f.description), prevLine(MapPin, f.address), prevLine(EpGlobe, f.website), prevLine(EpInstagram, f.instagram), prevLine(EpFacebook, f.facebook), prevLine(EpMail, f.email)));
-    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "14px 16px", flexShrink: 0, background: "#0E1116" } }, ce("button", { onClick: back, "aria-label": "Back", style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } }, ce(ArrowLeft, { size: 22 })), ce("div", { style: { flex: 1, fontFamily: "Inter", fontWeight: 500, fontSize: 20, color: "#F5F7FA" } }, "Edit profile"), ce("button", { onClick: shareLink, "aria-label": "Advertise your profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(ToolMegaphone, { size: 22, color: "#F5F7FA" })), ce("button", { onClick: shareLink, "aria-label": "Share profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpShare, { size: 22, color: "#F5F7FA" })), ce("button", { onClick: () => setSheet("preview"), "aria-label": "Preview your profile", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpUserCircle, { size: 24, color: "#F5F7FA" }))), menu && ce(PhotoMenu, { hasPhoto: !!avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => { setAvatar(null); setAvatarChanged(true); } }), cropFile && ce(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); } }), sheet === "cats" && catSheet(), sheet === "hours" && hoursSheet(), sheet === "preview" && previewSheet(), note && ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 84, zIndex: 40, background: "#1B212B", border: "1px solid #262E3A", color: "#F5F7FA", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center" } }, note), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: dirty ? 84 : 24 } }, ce("div", { style: { position: "relative", height: 190, background: "linear-gradient(180deg,#1C2429 0%,#151B20 100%)" } }, avatar && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden" } }, ce("div", { style: { position: "absolute", top: -20, right: -20, bottom: -20, left: -20, backgroundImage: "url(" + avatar + ")", backgroundSize: "cover", backgroundPosition: "center", filter: "blur(22px) brightness(.45)" } })), ce("button", { onClick: () => setMenu(true), "aria-label": "Change cover and photo", style: { position: "absolute", right: 14, top: 98, width: 32, height: 32, borderRadius: "50%", background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" })), ce("div", { style: { position: "absolute", left: "50%", bottom: -52, transform: "translateX(-50%)", zIndex: 2 } }, ce("div", { style: { position: "relative" } }, ce(Ring, { size: 136, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true, onClick: () => setMenu(true) }), ce("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: { position: "absolute", bottom: 4, right: 4, width: 36, height: 36, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" }))), ce("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }), ce("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }))), ce("div", { style: { marginTop: 62, textAlign: "center", fontFamily: "Inter", fontSize: 26, color: "#F5F7FA", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6" } }, ce("span", { style: { overflowWrap: "anywhere" } }, f.name || "Your name"), profile.verified ? ce(VerifiedBadge, { size: 20 }) : ce("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#8891A0", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", style: { flexShrink: 0 } }, ce("circle", { cx: 12, cy: 12, r: 10, strokeDasharray: "3 3" }), ce("path", { d: "m8.5 12.3 2.4 2.4 4.6-5" }))), ce("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "10px 20px 18px" } }, "Your profile is public. ", ce("span", { onClick: () => setLearn(!learn), style: { color: "#35D0BA", fontWeight: 700, cursor: "pointer" } }, "Learn more")), learn && ce("div", { style: { margin: "0 18px 14px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#9BA7B4", lineHeight: 1.45 } }, "People you chat with can see your name, photo, status and the business details you add here. Leave a field empty to keep it private."), error && ce(Banner, { text: error, onClose: () => setError("") }), rule(), head("Business information"), field("name", icon(User), f.name, "name", "Name", { max: 60 }), rowBox("user", icon(AtSign), ce("div", null, ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "nickname", onChange: (e) => set({ username: nickClean(e.target.value) }), autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })), ce("div", { style: { fontFamily: "Inter", fontSize: 13, marginTop: 2, color: nick.state === "bad" ? "#FF8A80" : nick.state === "ok" ? "#35D0BA" : "#8891A0" } }, nick.state !== "idle" && nick.message ? nick.message : "Nickname \u00B7 up to 15 letters, numbers or symbols (no emoji). Must be unique."), nick.state === "bad" && nick.tips.length ? ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 } }, nick.tips.map((t) => ce("button", { key: t, onClick: () => set({ username: t }), style: { background: "rgba(53,208,186,.14)", color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 999, padding: "5px 12px", fontFamily: "Inter", fontSize: 13, cursor: "pointer" } }, "@" + t))) : null)), rowBox("cat", icon(EpShapes), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: f.cats.length ? "#F5F7FA" : "#5B6673", lineHeight: 1.35 } }, f.cats.length ? f.cats.join(", ") : "Category"), () => setSheet("cats")), ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, counterIncrement: "lcgap-22", padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") }, ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 5 } }, icon(ClockIcon)), ce("div", { style: { flex: 1 } }, f.days.map((d, i) => ce("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "5px 0", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, ce("span", null, EP_DAYS[i]), ce("span", null, epDayLabel(d)))))), rowBox("desc", icon(EpDoc), ce("textarea", { value: f.description, placeholder: "Description", rows: 1, maxLength: 256, onChange: (e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; set({ description: e.target.value }); }, style: { ...inputStyle, resize: "none", overflow: "hidden", lineHeight: 1.4 } })), field("addr", icon(MapPin), f.address, "address", "Address", { max: 200 }), rule(), head("Products and services"), rowBox("catalog", icon(Grid3x3), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), onCatalog), rule(), head("Links"), field("web", icon(EpGlobe), f.website, "website", "Website", { max: 200, mode: "url" }), field("ig", icon(EpInstagram), f.instagram, "instagram", "Instagram", { max: 200 }), field("fb", icon(EpFacebook), f.facebook, "facebook", "Facebook", { max: 200 }), rule(), head("Contact information"), field("mail", icon(EpMail), f.email, "email", "Business email", { max: 120, type: "email", mode: "email" }), profile.phone && rowBox("phone", icon(Phone), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "+" + String(profile.phone).replace(/\D/g, ""))), rowBox("about", icon(ToolInfo), ce("input", { value: f.about, placeholder: "Available", maxLength: 139, onChange: (e) => set({ about: e.target.value }), style: inputStyle }))), dirty && ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 16px 14px", background: "linear-gradient(180deg,rgba(14,17,22,0),#0E1116 40%)", zIndex: 30 } }, ce("button", { onClick: save, disabled: saving, style: { width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 26, padding: "13px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: saving ? "default" : "pointer" } }, saving ? "Saving\u2026" : "Save changes")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "14px 16px", flexShrink: 0, background: "#0E1116" } }, ce("button", { onClick: back, "aria-label": "Back", style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } }, ce(ArrowLeft, { size: 22 })), ce("div", { style: { flex: 1, fontFamily: "Inter", fontWeight: 500, fontSize: 20, color: "#F5F7FA" } }, "Edit profile"), ce("button", { onClick: shareLink, "aria-label": "Advertise your profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(ToolMegaphone, { size: 22, color: "#F5F7FA" })), ce("button", { onClick: shareLink, "aria-label": "Share profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpShare, { size: 22, color: "#F5F7FA" })), ce("button", { onClick: () => setSheet("preview"), "aria-label": "Preview your profile", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpUserCircle, { size: 24, color: "#F5F7FA" }))), menu && ce(PhotoMenu, { hasPhoto: !!avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => { setAvatar(null); setAvatarChanged(true); } }), cropFile && ce(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); } }), sheet === "cats" && catSheet(), sheet === "hours" && hoursSheet(), sheet === "preview" && previewSheet(), note && ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 84, zIndex: 40, background: "#1B212B", border: "1px solid #262E3A", color: "#F5F7FA", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center" } }, note), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: dirty ? 84 : 24 } }, ce("div", { style: { position: "relative", height: 190, background: "linear-gradient(180deg,#1C2429 0%,#151B20 100%)" } }, avatar && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden" } }, ce("div", { style: { position: "absolute", top: -20, right: -20, bottom: -20, left: -20, backgroundImage: "url(" + avatar + ")", backgroundSize: "cover", backgroundPosition: "center", filter: "blur(22px) brightness(.45)" } })), ce("button", { onClick: () => setMenu(true), "aria-label": "Change cover and photo", style: { position: "absolute", right: 14, top: 98, width: 32, height: 32, borderRadius: "50%", background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" })), ce("div", { style: { position: "absolute", left: "50%", bottom: -52, transform: "translateX(-50%)", zIndex: 2 } }, ce("div", { style: { position: "relative" } }, ce(Ring, { size: 136, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true, onClick: () => setMenu(true) }), ce("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: { position: "absolute", bottom: 4, right: 4, width: 36, height: 36, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" }))), ce("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }), ce("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }))), ce("div", { style: { marginTop: 62, textAlign: "center", fontFamily: "Inter", fontSize: 26, color: "#F5F7FA", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6" } }, ce("span", { style: { overflowWrap: "anywhere" } }, f.name || "Your name"), profile.verified ? ce(VerifiedBadge, { size: 20 }) : ce("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#8891A0", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", style: { flexShrink: 0 } }, ce("circle", { cx: 12, cy: 12, r: 10, strokeDasharray: "3 3" }), ce("path", { d: "m8.5 12.3 2.4 2.4 4.6-5" }))), ce("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "10px 20px 18px" } }, "Your profile is public. ", ce("span", { onClick: () => setLearn(!learn), style: { color: "#35D0BA", fontWeight: 700, cursor: "pointer" } }, "Learn more")), learn && ce("div", { style: { margin: "0 18px 14px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#9BA7B4", lineHeight: 1.45 } }, "People you chat with can see your name, photo, status and the business details you add here. Leave a field empty to keep it private."), error && ce(Banner, { text: error, onClose: () => setError("") }), rule(), head("Business information"), field("name", icon(User), f.name, "name", "Name", { max: 60 }), rowBox("user", icon(AtSign), ce("div", null, ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "nickname", readOnly: !!profile.username, "aria-readonly": !!profile.username, onChange: (e) => { if (!profile.username) set({ username: nickClean(e.target.value) }); }, autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })), ce("div", { style: { fontFamily: "Inter", fontSize: 13, marginTop: 2, color: nick.state === "bad" ? "#FF8A80" : nick.state === "ok" ? "#35D0BA" : "#8891A0" } }, profile.username ? "Nickname \u00B7 permanent, it cannot be changed." : nick.state !== "idle" && nick.message ? nick.message : "Nickname \u00B7 up to 20 letters, numbers or symbols (no emoji). Must be unique. It cannot be changed later."), nick.state === "bad" && nick.tips.length ? ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 } }, nick.tips.map((t) => ce("button", { key: t, onClick: () => set({ username: t }), style: { background: "rgba(53,208,186,.14)", color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 999, padding: "5px 12px", fontFamily: "Inter", fontSize: 13, cursor: "pointer" } }, "@" + t))) : null)), rowBox("cat", icon(EpShapes), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: f.cats.length ? "#F5F7FA" : "#5B6673", lineHeight: 1.35 } }, f.cats.length ? f.cats.join(", ") : "Category"), () => setSheet("cats")), ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, counterIncrement: "lcgap-22", padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") }, ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 5 } }, icon(ClockIcon)), ce("div", { style: { flex: 1 } }, f.days.map((d, i) => ce("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "5px 0", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, ce("span", null, EP_DAYS[i]), ce("span", null, epDayLabel(d)))))), rowBox("desc", icon(EpDoc), ce("textarea", { value: f.description, placeholder: "Description", rows: 1, maxLength: 256, onChange: (e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; set({ description: e.target.value }); }, style: { ...inputStyle, resize: "none", overflow: "hidden", lineHeight: 1.4 } })), field("addr", icon(MapPin), f.address, "address", "Address", { max: 200 }), rule(), head("Products and services"), rowBox("catalog", icon(Grid3x3), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), onCatalog), rule(), head("Links"), field("web", icon(EpGlobe), f.website, "website", "Website", { max: 200, mode: "url" }), field("ig", icon(EpInstagram), f.instagram, "instagram", "Instagram", { max: 200 }), field("fb", icon(EpFacebook), f.facebook, "facebook", "Facebook", { max: 200 }), rule(), head("Contact information"), field("mail", icon(EpMail), f.email, "email", "Business email", { max: 120, type: "email", mode: "email" }), profile.phone && rowBox("phone", icon(Phone), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "+" + String(profile.phone).replace(/\D/g, ""))), rowBox("about", icon(ToolInfo), ce("input", { value: f.about, placeholder: "Available", maxLength: 139, onChange: (e) => set({ about: e.target.value }), style: inputStyle }))), dirty && ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 16px 14px", background: "linear-gradient(180deg,rgba(14,17,22,0),#0E1116 40%)", zIndex: 30 } }, ce("button", { onClick: save, disabled: saving, style: { width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 26, padding: "13px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: saving ? "default" : "pointer" } }, saving ? "Saving\u2026" : "Save changes")));
 }
 // [ISO code, name, dial code]; the first four are shown first
 const COUNTRIES = [
@@ -9952,7 +10103,7 @@ function LoginScreen({ onContinue }) {
             React.createElement("span", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 16 } }, "@"),
             React.createElement("input", { value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
             React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", flexShrink: 0 } }, nickLen(nickname) + "/" + NICK_MAX)),
-        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-8px 4px 14px", lineHeight: 1.4 } }, "Up to " + NICK_MAX + " characters: letters, numbers or symbols. No emoji. Friends use it to find you."), React.createElement(SimilarNicks, { list: similarNicks }));
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-8px 4px 14px", lineHeight: 1.4 } }, "Up to " + NICK_MAX + " characters: letters, numbers or symbols. No emoji. Friends use it to find you. It can\u2019t be changed later."), React.createElement(SimilarNicks, { list: similarNicks }));
     const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
     const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
     const subs = {
@@ -10179,6 +10330,8 @@ function App() {
             refreshBusy.current = null;
         }
     }, [fetchConversations]);
+    const refreshTimer = useRef(null);
+    const refreshSoon = useCallback(() => { clearTimeout(refreshTimer.current); refreshTimer.current = setTimeout(() => { refreshConversations(); }, 300); }, [refreshConversations]);
     // connect socket once logged in
     useEffect(() => {
         if (!session)
@@ -10195,11 +10348,11 @@ function App() {
             if (ts)
                 setLastSeen(prev => ({ ...prev, [userId]: ts }));
         });
-        socket.on("message:new", (m) => { refreshConversations(); if (m && !m.system && m.senderId !== session.user.id && !isMutedChat(mutedRef.current, m.conversationId))
+        socket.on("message:new", (m) => { refreshSoon(); if (m && !m.system && m.senderId !== session.user.id && !isMutedChat(mutedRef.current, m.conversationId))
             alertIncoming(m, convosRef.current.find(c => c.id === m.conversationId), !!(activeRef.current && activeRef.current.id === m.conversationId)); });
-        socket.on("message:updated", () => refreshConversations()); // edited / deleted message: refresh the chat list preview
-        socket.on("conversation:added", () => refreshConversations());
-        socket.on("conversation:update", () => refreshConversations());
+        socket.on("message:updated", () => refreshSoon()); // edited / deleted message: refresh the chat list preview
+        socket.on("conversation:added", () => refreshSoon());
+        socket.on("conversation:update", () => refreshSoon());
         socket.on("tagged", (d) => { if (d)
             flash((d.by || "Someone") + " tagged " + (d.group ? "the group " + d.group : "you") + " in a " + (d.kind === "market" ? "market post" : d.kind === "comment" ? "market comment" : "status")); });
         socket.on("user:update", (u) => {
@@ -10509,7 +10662,11 @@ function App() {
     else if (toolsView === "rules") {
     body = React.createElement(RulesScreen, { token: session.token, onBack: () => setToolsView(null) });
   } else if (toolsView === "help") {
-        body = React.createElement(HelpScreen, { user: session.user, onBack: () => setToolsView(null) });
+        body = React.createElement(HelpScreen, { user: session.user, onBack: () => setToolsView(null), onChatSupport: async () => {
+            const target = String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_LETSCHAT) || "2348135351804"); // nickname, email or phone of the support account
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token: session.token, body: { phone: target } });
+            setToolsView(null); setTab("chats"); handleNewChatStarted(conversation);
+        } });
     }
     else if (showEdit) {
         body = React.createElement(EditProfileScreen, { profile: session.user, token: session.token, onCatalog: () => setShowCatalog(true), onBack: () => setShowEdit(false), onSave: (user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); } });
