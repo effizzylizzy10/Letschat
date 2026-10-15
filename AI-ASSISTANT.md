@@ -165,3 +165,26 @@ Other places that use bot.js (the `@ai` command in chats and the Tools AI assist
 - Emoji are stripped as you type in sign up, the pop-up, Tools > Nickname and Edit profile (letters, numbers, symbols and other unicode are still fine).
 - Search ignores emoji in what you type and in older nicknames that still contain one (`personMatch`).
 - After 8 characters the app shows "Similar nicknames already registered" (`useSimilarNicks`). **Server needed**: public `GET /api/v1/users/similar-nickname?q=` returning `{ users: [{ username, name }] }` (prefix/fuzzy match, max ~6, emoji ignored). Until it exists the list stays empty. Server should also strip emoji and reject them in username-check / PATCH /me / auth.
+
+## v29: faster messaging (iPhone focus), all in `client/app.js`
+- **Only the newest messages are drawn** (40 on iPhone/iPad, 80 elsewhere, `MSG_WINDOW`). Older ones load 40 at a time when you scroll to the top (or tap "Load earlier messages"), keeping your scroll position. Everything is drawn while searching in the chat, selecting messages, or jumping to a reply/search result; the chat still opens at the first unread message. This is the main fix: typing, swiping and sending no longer re-draw hundreds of bubbles.
+- **Message text formatting/links are cached** (`richMsg`) instead of re-parsed on every keystroke or tick.
+- **Scrolling**: new messages scroll the list directly (`scrollToEnd`) instead of `scrollIntoView`, which is janky on iOS Safari; the "scroll to latest" state only updates when it actually changes.
+- **Typing indicator** is sent at most once every 2.5 s (was one socket message per key press).
+- **Chat list refresh** after socket events is merged into one request (300 ms) instead of one request per event.
+- **iPhone CSS**: no 300 ms tap delay / double-tap zoom (`touch-action: manipulation`), text boxes at least 16 px so Safari stops zooming the page when you tap them, no rubber-band over-scroll of the whole page.
+- Sending was already instant (message shows at once as "sending"); unchanged.
+- Not changed: server (not in the zip). Server-side ideas if still slow: gzip/brotli on the API, send chat history in pages of 50, and keep Render awake (see "Waking the server").
+- Deploy: replace `client/app.js`, redeploy, open the app twice so the new service worker takes over.
+
+## v30: Help Center rewritten
+- Tools > Help Center now has a welcome card (what each bottom tab does), a search box, and 8 groups of questions (Getting started, Chatting, Groups and the Chat Room, Calls, Updates, Market and business tools, AI assistant and games, Privacy and safety, Troubleshooting). Edit them in `FAQ_SECTIONS` / `HELP_TOUR` in `client/app.js`.
+- WhatsApp is no longer mentioned: "Chat with support on Letschat Africa" opens an in-app chat with the support account (`SUPPORT_LETSCHAT` in `config.js`: nickname, email or phone; default is the developer's number 2348135351804, which must belong to a registered account). Friend invites use the phone's share menu (copy to clipboard on computers).
+- If you add or rename features, update the Help text too.
+
+## v31: permanent nicknames, 20 characters, user search, creator contact
+- Nickname limit is now **20** (`NICK_MAX`). Once a nickname is saved it is permanent: Edit profile shows it read-only, Tools > Nickname shows it with a lock, and the app no longer sends `username` in profile saves when one exists. **The server must enforce this too** (reject any change to an existing `username`, accept up to 20 characters).
+- **Search registered users by nickname**: typing in the new-chat box (pencil) lists matching registered users ("Registered users", tap to chat). Server needed: `GET /api/v1/users/search-nickname?q=` (signed in) returning `{ users: [{ id, name, username, avatar }] }`, matching nicknames that contain the text, emoji ignored, max ~8.
+- **About the developer** shows the creator's nickname and email when set in `client/config.js`: `CREATOR_NICKNAME: "yournick"`, `CREATOR_EMAIL: "you@example.com"` (inside `window.LETSCHAT_CONFIG`). Nothing shows until they are filled in.
+
+v31 note: the creator nickname (letschatcreator) and email (effizzylizzy10@gmail.com) are built in as defaults; config.js CREATOR_NICKNAME / CREATOR_EMAIL override them.
