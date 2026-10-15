@@ -149,3 +149,19 @@ Other places that use bot.js (the `@ai` command in chats and the Tools AI assist
 - Chat Room picture: `client/icons/chat-room.jpg` is used until the creator sets another picture (`CHAT_ROOM_IMG` in app.js).
 - Share location (paperclip > Location): opens a sheet, asks the phone for the position inside the tap (so the Allow prompt shows), shows the result, and sends only when you tap Send. Permission denied shows the steps to allow it with Try again. `Permissions-Policy: geolocation=(self)` added to `_headers` and `vercel.json`. In the Play Store app turn on Location delegation (see PLAY-STORE.md).
 - v27b share location: removed the app's own 40 s timer (it fired while the phone's Allow prompt was still waiting). After 7 s with no answer the sheet says to close screen recorders / floating bubbles (Android blocks the Allow prompt while one is on screen: "This site can't ask for your permission"). Timeouts are now 15 s (GPS) then 25 s (network, accepts a fix up to 10 min old). Failure messages list the exact Chrome > Permissions > Location steps.
+
+## v28: nicknames
+- **Sign up**: a required Nickname box (max 15 characters, letters, numbers, symbols, emoji; no spaces) on Create account (email) and on the name step for new phone/Google users. The button stays off until it is filled. The app sends it to `/api/v1/auth/firebase` as `username`/`nickname`, and if the server ignores it, saves it with `PATCH /api/v1/me`.
+- **Pop-up**: after the update, anyone without a nickname gets a "New in this update" pop-up that cannot be closed until a nickname is saved (`NicknamePrompt`).
+- **Tools > Nickname**: new section to view/change the nickname (`NicknameEditor`). Edit profile uses the same 15-character rule.
+- **Search by nickname**: chat search, calls search, forward list, broadcast/contact pickers, group member search, phonebook matches and the new-chat box (`@nickname`) match name or nickname (`personMatch`).
+- **Server must match** (server.js not in this zip): accept unicode/symbols, max 15 characters, unique (case-insensitive), in `/api/v1/me/username-check`, `PATCH /api/v1/me` and `/api/v1/auth/firebase`; return `username` on conversation `other`/member objects so search can match it; resolve `@nickname` in `POST /api/v1/conversations`.
+- Deploy: replace `client/app.js`, redeploy.
+
+## v28b: phone login hidden
+`PHONE_LOGIN = false` in LoginScreen hides the phone-number and code screens. Login is email + password with a Continue with Google button. Set it to `true` to bring phone login back.
+
+## v28c: no emoji in nicknames
+- Emoji are stripped as you type in sign up, the pop-up, Tools > Nickname and Edit profile (letters, numbers, symbols and other unicode are still fine).
+- Search ignores emoji in what you type and in older nicknames that still contain one (`personMatch`).
+- After 8 characters the app shows "Similar nicknames already registered" (`useSimilarNicks`). **Server needed**: public `GET /api/v1/users/similar-nickname?q=` returning `{ users: [{ username, name }] }` (prefix/fuzzy match, max ~6, emoji ignored). Until it exists the list stays empty. Server should also strip emoji and reject them in username-check / PATCH /me / auth.
