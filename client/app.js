@@ -8543,25 +8543,29 @@ const shareLocation = () => {
     const id = ++locReq.current;
     if (!navigator.geolocation) return setLoc({ st: "err", msg: "Location is not supported on this phone or browser." });
     if (window.isSecureContext === false) return setLoc({ st: "err", msg: "Location only works on a secure (https) connection." });
-    setLoc({ st: "find" });
-    let finished = false, tm = 0;
+    setLoc({ st: "find", slow: false });
+    let finished = false, tm = 0, slowTm = 0;
+    const stop = () => { clearTimeout(tm); clearTimeout(slowTm); };
     const done = (pos) => {
-        if (finished || id !== locReq.current) return; finished = true; clearTimeout(tm);
+        if (finished || id !== locReq.current) return; finished = true; stop();
         setLoc({ st: "ready", lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy || 0) });
     };
     const fail = (err) => {
-        if (finished || id !== locReq.current) return; finished = true; clearTimeout(tm);
+        if (finished || id !== locReq.current) return; finished = true; stop();
         const code = err && err.code;
         if (code === 1) setLoc({ st: "denied" });
-        else if (code === 2) setLoc({ st: "err", msg: "Your phone could not find your location. Turn on Location (GPS) in your phone settings, then try again." });
-        else setLoc({ st: "err", msg: "Finding your location took too long. Check that Location is on and you have a signal, then try again." });
+        else setLoc({ st: "err", help: true, msg: code === 2 ? "Your phone could not find your location." : "No location came back." });
     };
-    tm = setTimeout(() => fail({ code: 3 }), 40000);
-    // precise GPS fix first; if the phone cannot get one (indoors, weak GPS) fall back to a network-based fix
+    // After 7 seconds with no answer the Allow prompt is probably being blocked by a floating bubble / screen recorder: say so.
+    slowTm = setTimeout(() => { if (!finished && id === locReq.current) setLoc({ st: "find", slow: true }); }, 7000);
+    // safety net only (the browser's own timeouts below do not count the time spent waiting for the person to tap Allow)
+    tm = setTimeout(() => fail({ code: 3 }), 120000);
+    try { if (navigator.permissions && navigator.permissions.query) navigator.permissions.query({ name: "geolocation" }).then((st) => { if (st && st.state === "denied") fail({ code: 1 }); }).catch(() => { }); } catch (e) { }
+    // precise GPS fix first; if the phone cannot get one (indoors, weak GPS) fall back to a network-based fix, and accept a recent saved one
     navigator.geolocation.getCurrentPosition(done, (e1) => {
         if (e1 && e1.code === 1) return fail(e1);
-        navigator.geolocation.getCurrentPosition(done, fail, { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 });
-    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+        navigator.geolocation.getCurrentPosition(done, fail, { enableHighAccuracy: false, timeout: 25000, maximumAge: 600000 });
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
 };
 const closeLoc = () => { locReq.current++; setLoc(null); };
 const sendLocation = () => {
@@ -9013,18 +9017,18 @@ const shareContact = async () => {
         attachOpen && React.createElement(AttachSheet, { onClose: () => setAttachOpen(false), onPick: onPickAttach }),
         loc && React.createElement(SheetFrame, { title: "Share location", onClose: closeLoc },
             React.createElement("div", { style: { padding: "4px 20px 18px", fontFamily: "Inter", color: "#F5F7FA" } },
-                loc.st === "find" && React.createElement("div", { style: { fontSize: 15, lineHeight: 1.5, color: "#C9D1DC", padding: "8px 0 14px" } }, "Finding your location\u2026 If your phone asks for permission, tap ", React.createElement("b", null, "Allow"), "."),
+                loc.st === "find" && React.createElement("div", { style: { fontSize: 15, lineHeight: 1.5, color: "#C9D1DC", padding: "8px 0 14px" } }, "Finding your location\u2026 If your phone asks for permission, tap ", React.createElement("b", null, "Allow"), ".", loc.slow && React.createElement("div", { style: { marginTop: 10, color: "#F5B83D", fontSize: 14 } }, "No prompt on screen? Close any screen recorder or floating bubble (Android blocks the Allow prompt while one is showing), then tap Try again.")),
                 loc.st === "ready" && React.createElement("div", { style: { padding: "6px 0 14px" } },
                     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } },
                         React.createElement("span", { style: { width: 44, height: 44, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, React.createElement(MapPin, { size: 22, color: "#0E1116" })),
                         React.createElement("div", { style: { minWidth: 0 } }, React.createElement("div", { style: { fontWeight: 600, fontSize: 16 } }, "Location found"), React.createElement("div", { style: { fontSize: 13, color: "#9BA7B4", marginTop: 2 } }, loc.lat.toFixed(5) + ", " + loc.lng.toFixed(5) + (loc.acc ? "  \u00B7  accurate to about " + loc.acc + " m" : "")))),
                     React.createElement("a", { href: "https://www.google.com/maps?q=" + loc.lat.toFixed(6) + "," + loc.lng.toFixed(6), target: "_blank", rel: "noopener noreferrer", style: { display: "inline-block", marginTop: 10, fontSize: 13.5, color: "#6FB3FF" } }, "Check it on the map")),
-                loc.st === "denied" && React.createElement("div", { style: { fontSize: 14.5, lineHeight: 1.55, color: "#C9D1DC", padding: "8px 0 14px" } }, React.createElement("b", { style: { color: "#FF6B5D" } }, "Location permission is off. "), "Allow it, then tap Try again:", React.createElement("br", null), "\u2022 In the app: phone Settings \u203A Apps \u203A Letschat \u203A Permissions \u203A Location \u203A Allow.", React.createElement("br", null), "\u2022 In the browser: tap the lock icon next to the address bar \u203A Permissions \u203A Location \u203A Allow.", React.createElement("br", null), "\u2022 Also make sure Location (GPS) is switched on in your phone's quick settings."),
-                loc.st === "err" && React.createElement("div", { style: { fontSize: 14.5, lineHeight: 1.5, color: "#C9D1DC", padding: "8px 0 14px" } }, loc.msg),
+                loc.st === "denied" && React.createElement("div", { style: { fontSize: 14.5, lineHeight: 1.55, color: "#C9D1DC", padding: "8px 0 14px" } }, React.createElement("b", { style: { color: "#FF6B5D" } }, "Location permission is off. "), "Allow it, then tap Try again:", React.createElement("br", null), "\u2022 Phone Settings \u203A Apps \u203A Chrome \u203A Permissions \u203A Location \u203A Allow (Precise).", React.createElement("br", null), "\u2022 Chrome \u203A \u22EE \u203A Settings \u203A Site settings \u203A Location: this site must not be blocked.", React.createElement("br", null), "\u2022 Switch Location (GPS) on in your phone's quick settings."),
+                loc.st === "err" && React.createElement("div", { style: { fontSize: 14.5, lineHeight: 1.55, color: "#C9D1DC", padding: "8px 0 14px" } }, loc.msg, loc.help && React.createElement("div", { style: { marginTop: 8 } }, "Check these, then tap Try again:", React.createElement("br", null), "\u2022 Close any screen recorder or floating bubble (they block the Allow prompt).", React.createElement("br", null), "\u2022 Phone Settings \u203A Apps \u203A Chrome \u203A Permissions \u203A Location \u203A Allow (Precise).", React.createElement("br", null), "\u2022 Location is on, and Google Location Accuracy is on in your phone's Location settings.", React.createElement("br", null), "\u2022 Try near a window or outside for a stronger signal.")),
                 React.createElement("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
                     React.createElement("button", { onClick: closeLoc, style: { flex: 1, padding: "13px 0", borderRadius: 14, border: "1px solid #2B3544", background: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, "Cancel"),
                     loc.st === "ready" && React.createElement("button", { onClick: sendLocation, style: { flex: 1.4, padding: "13px 0", borderRadius: 14, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Send location"),
-                    (loc.st === "denied" || loc.st === "err") && React.createElement("button", { onClick: shareLocation, style: { flex: 1.4, padding: "13px 0", borderRadius: 14, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Try again")))),
+                    (loc.st === "denied" || loc.st === "err" || (loc.st === "find" && loc.slow)) && React.createElement("button", { onClick: shareLocation, style: { flex: 1.4, padding: "13px 0", borderRadius: 14, border: "none", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Try again")))),
         pickSheet && React.createElement(PickSheet, { title: pickSheet.title, items: pickSheet.items, multi: pickSheet.multi, empty: pickSheet.empty, onClose: () => setPickSheet(null), onDone: onPickDone }),
         pendingMedia && React.createElement(MediaCaptionSheet, { file: pendingMedia.file, url: pendingMedia.url, onSend: sendPending, onCancel: cancelPending }),
         sel && (React.createElement("div", { onClick: () => { if (Date.now() - openedAt.current > 500)
