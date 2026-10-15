@@ -1566,12 +1566,479 @@ function Game2048({ best, onScore }) {
   );
 }
 
+// ===================== 8-BALL POOL (vs the computer) =====================
+// Plain JS on purpose (no JSX). Table is W x H "pool pixels" (portrait, like the iMessage game); balls are numbered 1-15 + cue (index 0).
+const POOL = { W: 400, H: 800, R: 10.5, RAIL: 34, SUB: 8, PULL: 150, MAXV: 25 };
+const POOL_COLORS = ["#FFFFFF", "#F2C230", "#2458C8", "#D8332A", "#6A2C98", "#F08A24", "#1E9450", "#8E1F24", "#15171B"];
+const POOL_POCKETS = [
+    { x: -5, y: -5, r: 25 }, { x: POOL.W + 5, y: -5, r: 25 },
+    { x: -9, y: POOL.H / 2, r: 22 }, { x: POOL.W + 9, y: POOL.H / 2, r: 22 },
+    { x: -5, y: POOL.H + 5, r: 25 }, { x: POOL.W + 5, y: POOL.H + 5, r: 25 },
+];
+const POOL_GAP = 24; // length of the pocket mouth (cushions stop here)
+const POOL_KNOBS = (() => {
+    const W = POOL.W, H = POOL.H, g = POOL_GAP;
+    return [[0, g], [g, 0], [W, g], [W - g, 0], [0, H - g], [g, H], [W, H - g], [W - g, H], [0, H / 2 - g], [0, H / 2 + g], [W, H / 2 - g], [W, H / 2 + g]];
+})();
+function poolGroup(n) { return n === 8 ? "eight" : n < 8 ? "solid" : "stripe"; }
+function poolNewBalls() {
+    const R = POOL.R, W = POOL.W, H = POOL.H;
+    const B = [{ n: 0, x: W / 2, y: H * 0.75, vx: 0, vy: 0, on: true, fall: 0 }];
+    const rest = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15];
+    for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
+    const dy = R * 1.7320508 + 0.4, dx = R * 2 + 0.2, apexY = H * 0.27;
+    let k = 0;
+    for (let row = 0; row < 5; row++) for (let c = 0; c <= row; c++) {
+        const n = (row === 2 && c === 1) ? 8 : rest[k++];
+        B.push({ n, x: W / 2 + (c - row / 2) * dx, y: apexY - row * dy, vx: 0, vy: 0, on: true, fall: 0 });
+    }
+    return B;
+}
+function poolNewEvent() { return { first: null, pocketed: [], cue: false, rail: false, snd: [] }; }
+function poolStep(B, ev, h) {
+    const W = POOL.W, H = POOL.H, R = POOL.R, G = POOL_GAP;
+    for (let i = 0; i < B.length; i++) { const b = B[i]; if (b.on) { b.x += b.vx * h; b.y += b.vy * h; } }
+    for (let i = 0; i < B.length; i++) {
+        const a = B[i]; if (!a.on) continue;
+        for (let j = i + 1; j < B.length; j++) {
+            const b = B[j]; if (!b.on) continue;
+            let dx = b.x - a.x, dy = b.y - a.y; const d2 = dx * dx + dy * dy;
+            if (d2 >= 4 * R * R) continue;
+            let d = Math.sqrt(d2); if (d < 0.0001) { dx = 1; dy = 0; d = 1; }
+            const nx = dx / d, ny = dy / d, ov = (2 * R - d) / 2;
+            a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
+            const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+            if (vn > 0) {
+                const J = vn * (1 + 0.96) / 2;
+                a.vx -= J * nx; a.vy -= J * ny; b.vx += J * nx; b.vy += J * ny;
+                if (ev.snd.length < 12) ev.snd.push({ k: "ball", v: vn });
+            }
+            if (i === 0 && ev.first == null) ev.first = b.n;
+        }
+    }
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        // cushions (they stop at the pocket mouths)
+        if (b.x < R && !(b.y < G || b.y > H - G || Math.abs(b.y - H / 2) < G)) { b.x = R; if (b.vx < 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: -b.vx }); b.vx = -b.vx * 0.8; b.vy *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.x > W - R && !(b.y < G || b.y > H - G || Math.abs(b.y - H / 2) < G)) { b.x = W - R; if (b.vx > 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: b.vx }); b.vx = -b.vx * 0.8; b.vy *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.y < R && !(b.x < G || b.x > W - G)) { b.y = R; if (b.vy < 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: -b.vy }); b.vy = -b.vy * 0.8; b.vx *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.y > H - R && !(b.x < G || b.x > W - G)) { b.y = H - R; if (b.vy > 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: b.vy }); b.vy = -b.vy * 0.8; b.vx *= 0.99; if (ev.first != null) ev.rail = true; } }
+        // pocket jaws
+        for (let k = 0; k < POOL_KNOBS.length; k++) {
+            const kx = POOL_KNOBS[k][0], ky = POOL_KNOBS[k][1];
+            const dx = b.x - kx, dy = b.y - ky, rr = R + 2.5, d2 = dx * dx + dy * dy;
+            if (d2 < rr * rr && d2 > 0.0001) {
+                const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+                b.x = kx + nx * rr; b.y = ky + ny * rr;
+                const vn = b.vx * nx + b.vy * ny;
+                if (vn < 0) { b.vx -= 1.75 * vn * nx; b.vy -= 1.75 * vn * ny; if (ev.first != null) ev.rail = true; }
+            }
+        }
+        // pockets
+        let hit = -1;
+        for (let k = 0; k < POOL_POCKETS.length; k++) { const p = POOL_POCKETS[k]; if (Math.hypot(b.x - p.x, b.y - p.y) < p.r) { hit = k; break; } }
+        if (hit < 0 && (b.x < -4 || b.x > W + 4 || b.y < -4 || b.y > H + 4)) {
+            let best = 1e9; for (let k = 0; k < POOL_POCKETS.length; k++) { const d = Math.hypot(b.x - POOL_POCKETS[k].x, b.y - POOL_POCKETS[k].y); if (d < best) { best = d; hit = k; } }
+        }
+        if (hit >= 0) {
+            b.on = false; b.vx = 0; b.vy = 0; b.fall = 0; b.pk = hit; b.fx = b.x; b.fy = b.y;
+            if (b.n === 0) ev.cue = true; else ev.pocketed.push(b.n);
+            if (ev.snd.length < 12) ev.snd.push({ k: "pocket", v: 5 });
+        }
+    }
+}
+function poolFrame(B, ev) {
+    const h = 1 / POOL.SUB;
+    for (let k = 0; k < POOL.SUB; k++) poolStep(B, ev, h);
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const s = Math.hypot(b.vx, b.vy); if (s === 0) continue;
+        let ns = s * 0.9885 - 0.012; if (ns < 0.05) ns = 0;
+        const k = ns / s; b.vx *= k; b.vy *= k;
+    }
+}
+function poolMoving(B) { for (let i = 0; i < B.length; i++) if (B[i].on && (B[i].vx !== 0 || B[i].vy !== 0)) return true; return false; }
+function poolRemaining(B, grp) { let c = 0; for (let i = 1; i < B.length; i++) if (B[i].on && poolGroup(B[i].n) === grp) c++; return c; }
+function poolFree(B, x, y, skip) {
+    const R = POOL.R;
+    if (x < R || x > POOL.W - R || y < R || y > POOL.H - R) return false;
+    for (let i = 0; i < B.length; i++) { const b = B[i]; if (!b.on || b.n === skip) continue; if (Math.hypot(b.x - x, b.y - y) < 2 * R + 0.5) return false; }
+    return true;
+}
+// Follow a shot line: first thing it touches (a ball, or a cushion).
+function poolTrace(B, x, y, ang) {
+    const R = POOL.R, dx = Math.cos(ang), dy = Math.sin(ang);
+    let t = 1e9, hit = null;
+    if (dx > 1e-6) t = Math.min(t, (POOL.W - R - x) / dx); else if (dx < -1e-6) t = Math.min(t, (R - x) / dx);
+    if (dy > 1e-6) t = Math.min(t, (POOL.H - R - y) / dy); else if (dy < -1e-6) t = Math.min(t, (R - y) / dy);
+    for (let i = 1; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const px = b.x - x, py = b.y - y, tb = px * dx + py * dy; if (tb <= 0) continue;
+        const perp2 = px * px + py * py - tb * tb; if (perp2 >= 4 * R * R) continue;
+        const tt = tb - Math.sqrt(4 * R * R - perp2);
+        if (tt < t) { t = tt; hit = b; }
+    }
+    return { t: Math.max(0, t), hit, x: x + dx * Math.max(0, t), y: y + dy * Math.max(0, t) };
+}
+// ---- rules: called once every ball has stopped. g = {B, turn, groups, broke, ev, cleared}; returns what happened ----
+function poolResolve(g) {
+    const ev = g.ev, p = g.turn, B = g.B, me = g.groups[p];
+    const pocketed = ev.pocketed.slice();
+    let foul = false, reason = "";
+    if (ev.cue) { foul = true; reason = "cue ball potted"; }
+    else if (ev.first == null) { foul = true; reason = "missed every ball"; }
+    else {
+        const fg = poolGroup(ev.first);
+        if (me) { const need = g.cleared ? "eight" : me; if (fg !== need) { foul = true; reason = need === "eight" ? "must hit the 8-ball" : "hit the wrong ball first"; } }
+        else if (fg === "eight") { foul = true; reason = "hit the 8-ball first"; }
+    }
+    if (!foul && pocketed.length === 0 && !ev.rail) { foul = true; reason = "no ball reached a cushion"; }
+    const out = { foul, reason, pocketed, winner: null, respot8: false, switched: false, assigned: false, cont: false };
+    if (pocketed.indexOf(8) >= 0) {
+        if (!g.broke) { out.respot8 = true; }
+        else if (foul || !g.cleared) { out.winner = 1 - p; out.why = ev.cue ? "scratched on the 8-ball" : (g.cleared ? "fouled on the 8-ball" : "potted the 8-ball too early"); }
+        else { out.winner = p; }
+    }
+    if (out.winner == null) {
+        if (g.broke && !me && !foul) {
+            const first = pocketed.filter((n) => n !== 8)[0];
+            if (first) { g.groups[p] = poolGroup(first); g.groups[1 - p] = g.groups[p] === "solid" ? "stripe" : "solid"; out.assigned = true; }
+        }
+        const mine = g.groups[p];
+        const own = pocketed.filter((n) => n !== 8 && (mine ? poolGroup(n) === mine : true));
+        out.cont = !foul && own.length > 0;
+        if (out.respot8 && !foul) out.cont = own.length > 0;
+        if (!out.cont) { out.switched = true; }
+    }
+    return out;
+}
+// ---- computer player ----
+function poolGauss() { return (Math.random() + Math.random() + Math.random() - 1.5) * 1.1547; }
+function poolSegClear(B, ax, ay, bx, by, rad, s1, s2) {
+    const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy;
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on || b.n === s1 || b.n === s2 || b.n === 0) continue;
+        let t = L2 > 0 ? ((b.x - ax) * vx + (b.y - ay) * vy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+        if (Math.hypot(ax + vx * t - b.x, ay + vy * t - b.y) < rad) return false;
+    }
+    return true;
+}
+function poolTargets(B, grp, cleared) {
+    const out = [];
+    for (let i = 1; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const g = poolGroup(b.n);
+        if (cleared) { if (g === "eight") out.push(b); } else if (grp ? g === grp : g !== "eight") out.push(b);
+    }
+    return out;
+}
+const POOL_AIMPTS = [[7, 7], [POOL.W - 7, 7], [3, POOL.H / 2], [POOL.W - 3, POOL.H / 2], [7, POOL.H - 7], [POOL.W - 7, POOL.H - 7]];
+function poolBestShot(B, cx, cy, targets) {
+    const R = POOL.R; let best = null;
+    for (const t of targets) for (let pi = 0; pi < POOL_AIMPTS.length; pi++) {
+        const a = POOL_AIMPTS[pi], ddx = a[0] - t.x, ddy = a[1] - t.y, dist2 = Math.hypot(ddx, ddy), ux = ddx / dist2, uy = ddy / dist2;
+        const gx = t.x - ux * 2 * R, gy = t.y - uy * 2 * R;
+        if (gx < R || gx > POOL.W - R || gy < R || gy > POOL.H - R) continue;
+        const vx = gx - cx, vy = gy - cy, dist1 = Math.hypot(vx, vy); if (dist1 < 2) continue;
+        const cos = (vx * ux + vy * uy) / dist1; if (cos < 0.3) continue;
+        if (!poolSegClear(B, cx, cy, gx, gy, 2 * R - 1, t.n, -1)) continue;
+        if (!poolSegClear(B, t.x, t.y, a[0], a[1], 2 * R - 1, t.n, -1)) continue;
+        const score = cos * 70 - dist1 * 0.035 - dist2 * 0.06 - (pi === 2 || pi === 3 ? 4 : 0);
+        if (!best || score > best.score) best = { score, ang: Math.atan2(vy, vx), d1: dist1, d2: dist2, cos, t };
+    }
+    if (best) best.speed = Math.max(5, Math.min(POOL.MAXV * 0.92, (best.d2 * 0.0128 + 1.6) / (best.cos * 0.93) + best.d1 * 0.0118));
+    return best;
+}
+const POOL_LEVELS = { easy: { aim: 0.05, pw: 0.18, tries: 6 }, normal: { aim: 0.02, pw: 0.1, tries: 14 }, hard: { aim: 0.006, pw: 0.05, tries: 30 }, expert: { aim: 0.003, pw: 0.03, tries: 40 } };
+function poolPlan(B, grp, cleared, hand, level) {
+    const L = POOL_LEVELS[level] || POOL_LEVELS.normal, targets = poolTargets(B, grp, cleared), cue = B[0];
+    let cx = cue.x, cy = cue.y, shot = null;
+    if (hand) {
+        let bestPos = null;
+        for (let k = 0; k < L.tries * 3; k++) {
+            const x = POOL.R + Math.random() * (POOL.W - 2 * POOL.R), y = POOL.R + Math.random() * (POOL.H - 2 * POOL.R);
+            if (!poolFree(B, x, y, 0)) continue;
+            const s = poolBestShot(B, x, y, targets);
+            if (s && (!bestPos || s.score > bestPos.s.score)) bestPos = { x, y, s };
+        }
+        if (bestPos) { cx = bestPos.x; cy = bestPos.y; shot = bestPos.s; }
+        else { for (let k = 0; k < 200; k++) { const x = POOL.R + Math.random() * (POOL.W - 2 * POOL.R), y = POOL.H * 0.6 + Math.random() * POOL.H * 0.35; if (poolFree(B, x, y, 0)) { cx = x; cy = y; break; } } }
+    } else shot = poolBestShot(B, cx, cy, targets);
+    if (!shot) { // no clean pot: hit the nearest ball of ours, softly
+        let near = null, nd = 1e9; for (const t of targets) { const d = Math.hypot(t.x - cx, t.y - cy); if (d < nd) { nd = d; near = t; } }
+        shot = near ? { ang: Math.atan2(near.y - cy, near.x - cx), speed: 9 + Math.random() * 4, score: -99 } : { ang: -Math.PI / 2, speed: 10, score: -99 };
+    }
+    return { place: hand ? { x: cx, y: cy } : null, ang: shot.ang + poolGauss() * L.aim, speed: Math.max(3, Math.min(POOL.MAXV, shot.speed * (1 + poolGauss() * L.pw))), good: shot.score > -50 };
+}
+
+// ---- 8-ball pool: drawing + the game screen ----
+let poolAudio = null;
+function poolBlip(kind, v) {
+    try {
+        if (!poolAudio) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; poolAudio = new AC(); }
+        if (poolAudio.state === "suspended") poolAudio.resume();
+        const t = poolAudio.currentTime, o = poolAudio.createOscillator(), gn = poolAudio.createGain();
+        const vol = Math.min(0.25, 0.02 + v * 0.012);
+        o.type = kind === "rail" ? "triangle" : "sine";
+        o.frequency.setValueAtTime(kind === "ball" ? 900 + Math.random() * 200 : kind === "rail" ? 180 : 110, t);
+        o.frequency.exponentialRampToValueAtTime(kind === "ball" ? 400 : 70, t + 0.08);
+        gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + (kind === "pocket" ? 0.22 : 0.09));
+        o.connect(gn); gn.connect(poolAudio.destination); o.start(t); o.stop(t + 0.25);
+    } catch (e) { }
+}
+function poolBuildTable() {
+    const W = POOL.W, H = POOL.H, T = POOL.RAIL, S = 2; // drawn at 2x, then scaled
+    const cv = document.createElement("canvas"); cv.width = (W + 2 * T) * S; cv.height = (H + 2 * T) * S;
+    const c = cv.getContext("2d"); c.scale(S, S);
+    const rr = (x, y, w, h, r) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+    // wooden frame
+    let g = c.createLinearGradient(0, 0, W + 2 * T, 0); g.addColorStop(0, "#5a1a1d"); g.addColorStop(0.5, "#7d2a2c"); g.addColorStop(1, "#5a1a1d");
+    rr(0, 0, W + 2 * T, H + 2 * T, 22); c.fillStyle = g; c.fill(); c.lineWidth = 2; c.strokeStyle = "#2b0c0e"; c.stroke();
+    rr(4, 4, W + 2 * T - 8, H + 2 * T - 8, 18); c.lineWidth = 1.5; c.strokeStyle = "rgba(255,200,170,0.22)"; c.stroke();
+    // felt with the cushion edge
+    rr(T - 7, T - 7, W + 14, H + 14, 8); c.fillStyle = "#0f6f63"; c.fill();
+    g = c.createRadialGradient(T + W / 2, T + H / 2, 40, T + W / 2, T + H / 2, H * 0.62); g.addColorStop(0, "#21a692"); g.addColorStop(1, "#16856f");
+    c.fillStyle = g; c.fillRect(T, T, W, H);
+    c.fillStyle = "rgba(0,0,0,0.18)"; c.fillRect(T - 1, T - 1, W + 2, 3); c.fillRect(T - 1, T + H - 2, W + 2, 3); c.fillRect(T - 1, T - 1, 3, H + 2); c.fillRect(T + W - 2, T - 1, 3, H + 2);
+    // head string + spots
+    c.strokeStyle = "rgba(255,255,255,0.18)"; c.lineWidth = 1; c.beginPath(); c.moveTo(T, T + H * 0.75 - 40); c.lineTo(T + W, T + H * 0.75 - 40); c.stroke();
+    c.fillStyle = "rgba(255,255,255,0.3)"; [[W / 2, H * 0.75], [W / 2, H * 0.27]].forEach((p) => { c.beginPath(); c.arc(T + p[0], T + p[1], 2.2, 0, 7); c.fill(); });
+    // rail diamonds
+    c.fillStyle = "#e9d8b4";
+    for (let i = 1; i <= 7; i++) { if (i === 4) continue; const y = T + H * i / 8; [T / 2 - 1, T + W + T / 2 + 1].forEach((x) => { c.beginPath(); c.arc(x, y, 2.4, 0, 7); c.fill(); }); }
+    for (let i = 1; i <= 3; i++) { const x = T + W * i / 4; [T / 2 - 1, T + H + T / 2 + 1].forEach((y) => { c.beginPath(); c.arc(x, y, 2.4, 0, 7); c.fill(); }); }
+    // pockets with cream plates (like the iMessage table)
+    POOL_POCKETS.forEach((p, i) => {
+        const x = T + p.x, y = T + p.y, side = i === 2 || i === 3;
+        c.fillStyle = "#d8cfbd"; c.beginPath(); c.arc(x, y, p.r + (side ? 9 : 12), 0, 7); c.fill();
+        c.fillStyle = "#b8ab92"; c.beginPath(); c.arc(x, y, p.r + 4, 0, 7); c.fill();
+        const gg = c.createRadialGradient(x, y, 2, x, y, p.r + 2); gg.addColorStop(0, "#000"); gg.addColorStop(1, "#14110f");
+        c.fillStyle = gg; c.beginPath(); c.arc(x, y, p.r + 1, 0, 7); c.fill();
+    });
+    return cv;
+}
+function poolDrawBall(c, b, x, y, sc, alpha) {
+    const R = POOL.R * sc; if (R < 0.5) return;
+    const n = b.n, stripe = n > 8, col = POOL_COLORS[n > 8 ? n - 8 : n];
+    c.save(); c.globalAlpha = alpha;
+    c.fillStyle = "rgba(0,0,0,0.28)"; c.beginPath(); c.ellipse(x + R * 0.18, y + R * 0.28, R * 1.02, R * 0.95, 0, 0, 7); c.fill();
+    c.beginPath(); c.arc(x, y, R, 0, 7); c.save(); c.clip();
+    c.fillStyle = n === 0 || stripe ? "#f4f1ea" : col; c.fillRect(x - R, y - R, 2 * R, 2 * R);
+    if (stripe) { c.fillStyle = col; c.fillRect(x - R, y - R * 0.56, 2 * R, R * 1.12); }
+    if (n > 0) {
+        c.fillStyle = "#fbfaf6"; c.beginPath(); c.arc(x, y, R * 0.47, 0, 7); c.fill();
+        c.fillStyle = "#111"; c.font = "700 " + Math.round(R * 0.7) + "px Inter, sans-serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(String(n), x, y + R * 0.04);
+    }
+    const g = c.createRadialGradient(x - R * 0.35, y - R * 0.4, R * 0.05, x, y, R * 1.05);
+    g.addColorStop(0, "rgba(255,255,255,0.65)"); g.addColorStop(0.35, "rgba(255,255,255,0)"); g.addColorStop(0.75, "rgba(0,0,0,0.05)"); g.addColorStop(1, "rgba(0,0,0,0.4)");
+    c.fillStyle = g; c.fillRect(x - R, y - R, 2 * R, 2 * R);
+    c.restore(); c.restore();
+}
+function poolDraw(c, g, tableCv, ts) {
+    const W = POOL.W, H = POOL.H, T = POOL.RAIL, R = POOL.R, B = g.B;
+    c.clearRect(0, 0, W + 2 * T, H + 2 * T);
+    c.drawImage(tableCv, 0, 0, W + 2 * T, H + 2 * T);
+    c.save(); c.translate(T, T);
+    // balls being swallowed by a pocket
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (b.on || b.fall >= 1) continue;
+        const p = POOL_POCKETS[b.pk], f = b.fall, e = f * f;
+        poolDrawBall(c, b, b.fx + (p.x - b.fx) * e, b.fy + (p.y - b.fy) * e, 1 - f * 0.55, 1 - f * f);
+    }
+    for (let i = 1; i < B.length; i++) if (B[i].on) poolDrawBall(c, B[i], B[i].x, B[i].y, 1, 1);
+    const cue = B[0], aim = g.aim, mine = g.phase === "aim" || g.phase === "cpuAim" || g.phase === "cpu";
+    if (cue.on) {
+        if (g.hand && g.phase === "aim") {
+            const pulse = 0.5 + 0.5 * Math.sin(ts / 220);
+            c.strokeStyle = "rgba(255,255,255," + (0.35 + 0.4 * pulse) + ")"; c.lineWidth = 2; c.setLineDash([5, 4]); c.beginPath(); c.arc(cue.x, cue.y, R + 8 + pulse * 3, 0, 7); c.stroke(); c.setLineDash([]);
+        }
+        if (g.phase === "aim" || g.phase === "cpuAim") {
+            const tr = poolTrace(B, cue.x, cue.y, aim.ang), dx = Math.cos(aim.ang), dy = Math.sin(aim.ang);
+            c.lineCap = "round"; c.strokeStyle = "rgba(255,255,255,0.85)"; c.lineWidth = 1.6; c.setLineDash([7, 6]);
+            c.beginPath(); c.moveTo(cue.x + dx * R, cue.y + dy * R); c.lineTo(tr.x, tr.y); c.stroke(); c.setLineDash([]);
+            c.strokeStyle = "rgba(255,255,255,0.95)"; c.lineWidth = 1.6; c.beginPath(); c.arc(tr.x, tr.y, R, 0, 7); c.stroke();
+            if (tr.hit) {
+                let nx = tr.hit.x - tr.x, ny = tr.hit.y - tr.y; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+                c.strokeStyle = "rgba(255,255,255,0.55)"; c.lineWidth = 1.6; c.beginPath(); c.moveTo(tr.hit.x + nx * R, tr.hit.y + ny * R); c.lineTo(tr.hit.x + nx * 60, tr.hit.y + ny * 60); c.stroke();
+                const dot = dx * nx + dy * ny; let tx = dx - nx * dot, ty = dy - ny * dot; const tl = Math.hypot(tx, ty);
+                if (tl > 0.05) { tx /= tl; ty /= tl; c.strokeStyle = "rgba(255,255,255,0.3)"; c.beginPath(); c.moveTo(tr.x + tx * R, tr.y + ty * R); c.lineTo(tr.x + tx * 38, tr.y + ty * 38); c.stroke(); }
+            }
+            // the cue stick, pulled back as the shot gets stronger
+            const back = R + 5 + aim.pow * 70, len = 330, sx = cue.x - dx * back, sy = cue.y - dy * back, ex = sx - dx * len, ey = sy - dy * len;
+            c.lineCap = "round"; c.strokeStyle = "rgba(0,0,0,0.25)"; c.lineWidth = 7; c.beginPath(); c.moveTo(sx + 3, sy + 4); c.lineTo(ex + 3, ey + 4); c.stroke();
+            c.strokeStyle = "#e7c48b"; c.lineWidth = 5; c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx - dx * len * 0.6, sy - dy * len * 0.6); c.stroke();
+            c.strokeStyle = "#3b2418"; c.lineWidth = 6.5; c.beginPath(); c.moveTo(sx - dx * len * 0.6, sy - dy * len * 0.6); c.lineTo(ex, ey); c.stroke();
+            c.strokeStyle = "#8fd0ff"; c.lineWidth = 5; c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx - dx * 5, sy - dy * 5); c.stroke();
+            c.lineCap = "butt";
+        }
+    }
+    if (cue.on) poolDrawBall(c, cue, cue.x, cue.y, 1, 1);
+    c.restore();
+    // power bar on the bottom rail
+    const bw = 180, bx = (W + 2 * T) / 2 - bw / 2, by = H + T + 11;
+    if (g.phase === "aim" || g.phase === "cpuAim") {
+        c.fillStyle = "rgba(0,0,0,0.45)"; c.fillRect(bx, by, bw, 9);
+        const pw = aim.pow, gr = c.createLinearGradient(bx, 0, bx + bw, 0); gr.addColorStop(0, "#5fe08a"); gr.addColorStop(0.6, "#f2c230"); gr.addColorStop(1, "#e5483b");
+        c.fillStyle = gr; c.fillRect(bx, by, bw * pw, 9);
+        c.strokeStyle = "rgba(255,255,255,0.4)"; c.lineWidth = 1; c.strokeRect(bx + 0.5, by + 0.5, bw - 1, 8);
+    }
+}
+const POOL_LEVEL_LABEL = { easy: "Easy", normal: "Normal", hard: "Hard" };
+function PoolMini({ n, size }) {
+    const stripe = n > 8, col = POOL_COLORS[stripe ? n - 8 : n];
+    return gh("div", { style: { width: size, height: size, borderRadius: "50%", background: stripe ? "linear-gradient(180deg,#f4f1ea 0 22%," + col + " 22% 78%,#f4f1ea 78%)" : col, flexShrink: 0, boxShadow: "inset -2px -2px 3px rgba(0,0,0,.35), inset 1px 1px 2px rgba(255,255,255,.4)" } });
+}
+function PoolGame({ stats, onResult }) {
+    const wrapRef = useRef(null), cvRef = useRef(null), tableRef = useRef(null);
+    const resultCb = useRef(onResult); resultCb.current = onResult;
+    const G = useRef(null);
+    const [level, setLevel] = useState("normal");
+    const levelRef = useRef(level); levelRef.current = level;
+    const [hud, setHud] = useState({ turn: 0, groups: [null, null], pot: [[], []], msg: "Break! Pull back anywhere and let go to shoot.", over: null, hand: false });
+    const [sz, setSz] = useState({ w: 300, h: 560 });
+    const newGame = () => ({ B: poolNewBalls(), turn: 0, groups: [null, null], broke: false, hand: false, phase: "aim", ev: poolNewEvent(), cleared: false, aim: { ang: -Math.PI / 2, pow: 0, drag: null, sx: 0, sy: 0 }, cpu: null, over: null });
+    if (!G.current) G.current = newGame();
+    // size the canvas to the screen
+    useEffect(() => {
+        const fit = () => {
+            const wrap = wrapRef.current; if (!wrap) return;
+            const TW = POOL.W + 2 * POOL.RAIL, TH = POOL.H + 2 * POOL.RAIL;
+            const availW = Math.max(200, wrap.clientWidth - 8), availH = Math.max(280, (window.innerHeight || 700) - 255);
+            const k = Math.min(availW / TW, availH / TH); setSz({ w: Math.floor(TW * k), h: Math.floor(TH * k) });
+        };
+        fit(); window.addEventListener("resize", fit); window.addEventListener("orientationchange", fit);
+        return () => { window.removeEventListener("resize", fit); window.removeEventListener("orientationchange", fit); };
+    }, []);
+    const hudMsg = useRef("");
+    const potLists = (g) => { const o = [[], []]; for (let p = 0; p < 2; p++) if (g.groups[p]) for (let i = 1; i < g.B.length; i++) if (!g.B[i].on && poolGroup(g.B[i].n) === g.groups[p]) o[p].push(g.B[i].n); o[0].sort((a, b) => a - b); o[1].sort((a, b) => a - b); return o; };
+    const sync = (msg) => { const g = G.current; setHud({ turn: g.turn, groups: g.groups.slice(), pot: potLists(g), msg: msg == null ? hudMsg.current : msg, over: g.over, hand: g.hand }); if (msg != null) hudMsg.current = msg; };
+    const timers = useRef([]);
+    const later = (fn, ms) => { const id = setTimeout(fn, ms); timers.current.push(id); };
+    const shoot = (ang, speed) => {
+        const g = G.current, me = g.groups[g.turn];
+        g.cleared = !!me && poolRemaining(g.B, me) === 0;
+        g.ev = poolNewEvent(); g.B[0].vx = Math.cos(ang) * speed; g.B[0].vy = Math.sin(ang) * speed; g.phase = "rolling"; g.hand = false; g.aim.pow = 0;
+        poolBlip("ball", speed * 0.6); sync(g.turn === 0 ? "…" : "CPU shoots…");
+    };
+    const startTurn = () => {
+        const g = G.current;
+        if (g.turn === 0) { g.phase = "aim"; g.aim.pow = 0; return; }
+        g.phase = "cpu";
+        later(() => {
+            const gg = G.current; if (!gg || gg.over) return;
+            const me = gg.groups[1], cleared = !!me && poolRemaining(gg.B, me) === 0;
+            const plan = poolPlan(gg.B, me, cleared, gg.hand, levelRef.current);
+            if (plan.place) { gg.B[0].x = plan.place.x; gg.B[0].y = plan.place.y; }
+            gg.cpu = { t0: performance.now(), from: gg.aim.ang, ang: plan.ang, speed: plan.speed };
+            gg.phase = "cpuAim";
+        }, 700);
+    };
+    const finish = () => {
+        const g = G.current, p = g.turn, B = g.B, r = poolResolve(g);
+        let msg = "";
+        const who = p === 0 ? "You" : "CPU", whom = p === 0 ? "CPU" : "You";
+        if (!g.broke) g.broke = true;
+        if (r.respot8) { const b8 = B.find((b) => b.n === 8); b8.on = true; b8.fall = 1; b8.vx = b8.vy = 0; let y = POOL.H * 0.27 - POOL.R * 3.6; for (let k = 0; k < 40 && !poolFree(B, POOL.W / 2, y, 8); k++) y -= POOL.R * 2.1; b8.x = POOL.W / 2; b8.y = y; }
+        if (r.winner != null) {
+            g.over = r.winner === 0 ? "w" : "l"; g.phase = "over";
+            msg = r.winner === 0 ? (r.why ? "CPU " + r.why + " — you win!" : "You sank the 8-ball — you win!") : (r.why ? who + " " + r.why + " — CPU wins." : "CPU sank the 8-ball — you lose.");
+            if (B[0].on === false) { B[0].on = true; B[0].fall = 1; }
+            sync(msg); resultCb.current(g.over); return;
+        }
+        if (B[0].on === false) { const c = B[0]; c.on = true; c.fall = 1; c.vx = c.vy = 0; c.x = POOL.W / 2; c.y = POOL.H * 0.75; for (let k = 0; k < 60 && !poolFree(B, c.x, c.y, 0); k++) c.y -= POOL.R * 2.2; }
+        const names = r.pocketed.length ? " · potted " + r.pocketed.join(", ") : "";
+        if (r.assigned) msg = who + " " + (p === 0 ? "are" : "is") + " " + (g.groups[p] === "solid" ? "solids" : "stripes") + names;
+        if (r.foul) { msg = "Foul: " + r.reason + ". " + (p === 0 ? "CPU gets" : "You get") + " the cue ball in hand."; if (p === 1) msg = "CPU fouled (" + r.reason + "). Cue ball in hand — drag it anywhere."; }
+        else if (r.cont) msg = msg || (p === 0 ? "Nice shot" + names + " — shoot again." : "CPU potted" + (r.pocketed.length ? " " + r.pocketed.join(", ") : "") + " and shoots again.");
+        else msg = msg || (p === 0 ? "No pot" + names + ". CPU's turn." : "CPU missed. Your turn.");
+        if (r.assigned && !r.foul && r.cont) msg += p === 0 ? " — shoot again." : ". Shoots again.";
+        g.hand = r.foul; if (r.switched) g.turn = 1 - p;
+        sync(msg); startTurn();
+    };
+    // the animation loop
+    useEffect(() => {
+        const cv = cvRef.current; if (!cv) return;
+        tableRef.current = poolBuildTable();
+        let raf = 0, last = 0, acc = 0, alive = true;
+        const tick = (ts) => {
+            if (!alive) return; raf = requestAnimationFrame(tick);
+            const g = G.current, c = cv.getContext("2d"); if (!g) return;
+            const dt = Math.min(64, ts - (last || ts)); last = ts; acc += dt;
+            while (acc >= 16.667) {
+                acc -= 16.667;
+                if (g.phase === "rolling") {
+                    poolFrame(g.B, g.ev);
+                    if (g.ev.snd.length) { const s = g.ev.snd; for (let i = 0; i < s.length && i < 3; i++) poolBlip(s[i].k, s[i].v); g.ev.snd = []; }
+                }
+                for (let i = 0; i < g.B.length; i++) { const b = g.B[i]; if (!b.on && b.fall < 1) b.fall = Math.min(1, b.fall + 0.07); }
+                if (g.phase === "rolling" && !poolMoving(g.B)) { g.phase = "settle"; later(() => { if (G.current === g) finish(); }, 450); }
+            }
+            if (g.phase === "cpuAim" && g.cpu) {
+                const t = performance.now() - g.cpu.t0, k1 = Math.min(1, t / 650);
+                const e = k1 * k1 * (3 - 2 * k1);
+                g.aim.ang = g.cpu.from + (g.cpu.ang - g.cpu.from) * e;
+                g.aim.pow = t < 650 ? 0 : Math.min(1, (t - 650) / 450) * (g.cpu.speed / POOL.MAXV);
+                if (t > 1250) { const sp = g.cpu.speed; g.cpu = null; shoot(g.aim.ang, sp); }
+            }
+            const k = cv.width / (POOL.W + 2 * POOL.RAIL); c.setTransform(k, 0, 0, k, 0, 0);
+            poolDraw(c, g, tableRef.current, ts);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => { alive = false; cancelAnimationFrame(raf); timers.current.forEach(clearTimeout); timers.current = []; };
+    }, []);
+    // pointer: pull back anywhere to aim and set power; drag the cue ball itself when you have it in hand
+    const pos = (e) => { const r = cvRef.current.getBoundingClientRect(), k = (POOL.W + 2 * POOL.RAIL) / r.width; return { x: (e.clientX - r.left) * k - POOL.RAIL, y: (e.clientY - r.top) * k - POOL.RAIL }; };
+    const onDown = (e) => {
+        const g = G.current; if (g.phase !== "aim" || g.turn !== 0) return;
+        try { cvRef.current.setPointerCapture(e.pointerId); } catch (x) { }
+        const p = pos(e), c = g.B[0];
+        if (g.hand && Math.hypot(p.x - c.x, p.y - c.y) < 48) g.aim.drag = "place";
+        else { g.aim.drag = "aim"; g.aim.sx = p.x; g.aim.sy = p.y; g.aim.pow = 0; }
+        poolBlip("pocket", 0);
+    };
+    const onMove = (e) => {
+        const g = G.current, a = g.aim; if (!a.drag || g.phase !== "aim") return;
+        const p = pos(e);
+        if (a.drag === "place") { const x = Math.max(POOL.R, Math.min(POOL.W - POOL.R, p.x)), y = Math.max(POOL.R, Math.min(POOL.H - POOL.R, p.y)); if (poolFree(g.B, x, y, 0)) { g.B[0].x = x; g.B[0].y = y; } return; }
+        const dx = p.x - a.sx, dy = p.y - a.sy, len = Math.hypot(dx, dy);
+        if (len < 7) { a.pow = 0; return; }
+        a.ang = Math.atan2(-dy, -dx); a.pow = Math.min(1, (len - 7) / POOL.PULL);
+    };
+    const onUp = () => {
+        const g = G.current, a = g.aim, d = a.drag; a.drag = null;
+        if (d !== "aim" || g.phase !== "aim") return;
+        if (a.pow < 0.05) { a.pow = 0; return; }
+        shoot(a.ang, Math.max(1.5, a.pow * POOL.MAXV));
+    };
+    const rematch = () => { timers.current.forEach(clearTimeout); timers.current = []; G.current = newGame(); setHud({ turn: 0, groups: [null, null], pot: [[], []], msg: "Break! Pull back anywhere and let go to shoot.", over: null, hand: false }); hudMsg.current = ""; };
+    const lab = (grp) => (grp === "solid" ? "Solids" : grp === "stripe" ? "Stripes" : "Open table");
+    const side = (p, name) => gh("div", { style: { flex: 1, minWidth: 0, background: hud.turn === p && !hud.over ? "#1c2b2a" : "#161B22", border: "1.5px solid " + (hud.turn === p && !hud.over ? "#35D0BA" : "#262E3A"), borderRadius: 14, padding: "8px 10px", transition: "all .2s" } },
+        gh("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 } },
+            gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA" } }, name),
+            gh("div", { style: { fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#8891A0" } }, lab(hud.groups[p]))),
+        gh("div", { style: { display: "flex", gap: 3, minHeight: 16, marginTop: 5, flexWrap: "wrap" } }, hud.pot[p].map((n) => gh(PoolMini, { key: n, n, size: 15 }))));
+    return gh("div", { ref: wrapRef, style: { padding: "0 12px 14px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 } },
+        gh("div", { style: { display: "flex", gap: 10, width: "100%", maxWidth: 520 } }, side(0, "You"), side(1, "CPU")),
+        gh("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+            ["easy", "normal", "hard"].map((id) => gh("button", { key: id, onClick: () => setLevel(id), style: { ...gameBtn, padding: "5px 12px", fontSize: 12.5, background: level === id ? "#35D0BA" : "#1E2530", color: level === id ? "#0E1116" : "#F5F7FA" } }, POOL_LEVEL_LABEL[id]))),
+        gh("div", { style: { position: "relative", width: sz.w, height: sz.h } },
+            gh("canvas", { ref: cvRef, width: sz.w * 2, height: sz.h * 2, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp, style: { width: sz.w, height: sz.h, display: "block", touchAction: "none", borderRadius: 18, boxShadow: "0 8px 28px rgba(0,0,0,.45)", userSelect: "none", WebkitUserSelect: "none" } }),
+            hud.over && gh("div", { style: { position: "absolute", inset: 0, borderRadius: 18, background: "rgba(8,12,16,.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 20, textAlign: "center" } },
+                gh("div", { style: { fontSize: 46 } }, hud.over === "w" ? "🏆" : "😤"),
+                gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, hud.over === "w" ? "You win!" : "CPU wins"),
+                gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#C5CCD6" } }, hud.msg),
+                gh("button", { onClick: rematch, style: { ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none", padding: "11px 26px" } }, "Rematch"))),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C5CCD6", textAlign: "center", minHeight: 36, maxWidth: 420 } }, hud.over ? "" : hud.msg),
+        stats && (stats.w || stats.l) ? gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Record vs CPU: " + (stats.w || 0) + " won · " + (stats.l || 0) + " lost") : null);
+}
+
 // ---------- the Games tab ----------
 const GAME_LIST = [
   { id: "ttt", name: "Tic-Tac-Toe", emoji: "❌", blurb: "Beat the computer", color: "#8B7CF6" },
   { id: "memory", name: "Memory Match", emoji: "🧠", blurb: "Find all the pairs", color: "#35D0BA" },
   { id: "snake", name: "Snake", emoji: "🐍", blurb: "Eat, grow, don't crash", color: "#4FA8E0" },
   { id: "g2048", name: "2048", emoji: "🔢", blurb: "Slide and merge tiles", color: "#F2B84B" },
+  { id: "pool", name: "8-Ball Pool", emoji: "🎱", blurb: "Pot your balls, sink the 8", color: "#1E9450" },
 ];
 function GamesScreen({ myId }) {
   const [scores, setScores] = useState(() => loadJSON("games:" + myId, {}));
@@ -1581,6 +2048,7 @@ function GamesScreen({ myId }) {
     const cur = prev[id];
     let next;
     if (id === "ttt") { const t = cur || { w: 0, d: 0, l: 0 }; next = { ...t, [v]: t[v] + 1 }; }
+    else if (id === "pool") { const t = cur || { w: 0, l: 0 }; next = { ...t, [v]: (t[v] || 0) + 1 }; }
     else if (id === "memory") next = { best: cur && cur.best ? Math.min(cur.best, v) : v };
     else next = { best: Math.max((cur && cur.best) || 0, v) };
     const all = { ...prev, [id]: next };
@@ -1589,6 +2057,7 @@ function GamesScreen({ myId }) {
   });
   const line = (id) => {
     const s = scores[id];
+    if (id === "pool") return s ? "Won " + (s.w || 0) + " · Lost " + (s.l || 0) : "Not played yet";
     if (id === "ttt") return s ? "W " + s.w + " · D " + s.d + " · L " + s.l : "Not played yet";
     return s && s.best ? "Best: " + s.best + (id === "memory" ? " moves" : "") : "Not played yet";
   };
@@ -1606,6 +2075,7 @@ function GamesScreen({ myId }) {
           {playing === "ttt" && <TicTacToeGame key={round} stats={scores.ttt} onResult={(r) => record("ttt", r)} />}
           {playing === "memory" && <MemoryGame key={round} best={best} onScore={(v) => record("memory", v)} />}
           {playing === "snake" && <SnakeGame key={round} best={best} onScore={(v) => v > 0 && record("snake", v)} />}
+          {playing === "pool" && <PoolGame key={round} stats={scores.pool} onResult={(r) => record("pool", r)} />}
           {playing === "g2048" && <Game2048 key={round} best={best} onScore={(v) => record("g2048", v)} />}
         </div>
       </div>
@@ -1878,6 +2348,164 @@ const GAME_RULES = {
     next: (s) => s.nx,
   },
 };
+// ---- 8-ball pool: shared rules for online play (the server runs the real physics; clients replay the shot as an animation) ----
+// State: b = [x, y, on] for balls 0..15 (flat), nx = whose shot, g = [group of player 0, group of player 1], k = 1 once the break was taken,
+// hand = 1 when nx has the cue ball in hand, t = shots taken, w = winner (-1 while playing), last = what the previous shot did.
+// A move is a free-form shot: { a: angle in 1/1000 rad, v: speed in 1/10 units (1..250), x, y: where the cue ball was placed (only with ball in hand) }.
+function poolPack(B) { const o = []; for (let i = 0; i < 16; i++) o.push(B[i].x, B[i].y, B[i].on ? 1 : 0); return o; }
+function poolUnpack(a) {
+    const B = [];
+    for (let n = 0; n < 16; n++) B.push({ n, x: a[n * 3], y: a[n * 3 + 1], vx: 0, vy: 0, on: a[n * 3 + 2] === 1, fall: a[n * 3 + 2] === 1 ? 0 : 1 });
+    return B;
+}
+function poolInitState() { return { b: poolPack(poolNewBalls()), nx: 0, g: [null, null], k: 0, hand: 0, t: 0, w: -1, last: null }; }
+function poolValid(s, m, p) {
+    if (!s || s.w >= 0 || s.nx !== p || !m || typeof m !== "object") return false;
+    if (!Number.isInteger(m.a) || Math.abs(m.a) > 6400 || !Number.isInteger(m.v) || m.v < 1 || m.v > 250) return false;
+    if (m.x == null && m.y == null) return true;
+    if (!s.hand || !Number.isInteger(m.x) || !Number.isInteger(m.y)) return false;
+    const R = POOL.R; if (m.x < R || m.x > POOL.W - R || m.y < R || m.y > POOL.H - R) return false;
+    const B = poolUnpack(s.b);
+    for (let i = 1; i < 16; i++) if (B[i].on && Math.hypot(B[i].x - m.x, B[i].y - m.y) < 2 * R - 1) return false;
+    return true;
+}
+function poolPlay(s, m) {
+    const B = poolUnpack(s.b), p = s.nx, ev = poolNewEvent();
+    if (s.hand && m.x != null) { B[0].x = m.x; B[0].y = m.y; }
+    B[0].on = true; B[0].fall = 0;
+    const g = { B, turn: p, groups: s.g.slice(), broke: !!s.k, ev, cleared: false };
+    const me = g.groups[p]; g.cleared = !!me && poolRemaining(B, me) === 0;
+    const sp = m.v / 10, ang = m.a / 1000; B[0].vx = Math.cos(ang) * sp; B[0].vy = Math.sin(ang) * sp;
+    for (let f = 0; f < 3000 && poolMoving(B); f++) poolFrame(B, ev);
+    for (let i = 0; i < 16; i++) { B[i].vx = 0; B[i].vy = 0; }
+    const r = poolResolve(g);
+    if (r.respot8) { const b8 = B[8]; let y = POOL.H * 0.27 - POOL.R * 3.6; for (let k = 0; k < 40 && !poolFree(B, POOL.W / 2, y, 8); k++) y -= POOL.R * 2.1; b8.on = true; b8.x = POOL.W / 2; b8.y = y; }
+    if (!B[0].on) { const c = B[0]; c.on = true; c.x = POOL.W / 2; c.y = POOL.H * 0.75; for (let k = 0; k < 60 && !poolFree(B, c.x, c.y, 0); k++) c.y -= POOL.R * 2.2; }
+    let nx = p, hand = 0, w = -1;
+    if (r.winner != null) w = r.winner; else { if (r.switched) nx = 1 - p; hand = r.foul ? 1 : 0; }
+    return { b: poolPack(B), nx, g: g.groups, k: 1, hand, t: s.t + 1, w, last: { by: p, m, first: ev.first, pot: r.pocketed, foul: r.foul ? 1 : 0, why: r.foul ? r.reason : (r.why || ""), res: r.respot8 ? 1 : 0, asg: r.assigned ? 1 : 0 } };
+}
+const POOL_RULES = {
+    init: poolInitState,
+    moves: (s, p) => (s.w < 0 && s.nx === p ? [0] : []), // shots are free-form, so they are checked by valid() instead of being listed
+    valid: poolValid,
+    play: (s, m) => poolPlay(s, m),
+    win: (s) => (s.w >= 0 ? { p: s.w, line: null } : null),
+    next: (s) => s.nx,
+    draw: (s) => s.t > 300,
+};
+
+// ---- 8-ball pool inside the game room (online + vs Robot) ----
+const poolBusy = { n: 0 }; // > 0 while a shot is being replayed on screen, so the robot waits for the animation
+function poolRobotMove(s, me, level) {
+    const B = poolUnpack(s.b), grp = s.g[me], cleared = !!grp && poolRemaining(B, grp) === 0;
+    const plan = poolPlan(B, grp, cleared, !!s.hand, ["easy", "normal", "hard", "expert"][Math.max(0, Math.min(3, level | 0))]);
+    let a = plan.ang; while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI;
+    const m = { a: Math.round(a * 1000), v: Math.max(1, Math.min(250, Math.round(plan.speed * 10))) };
+    if (s.hand && plan.place) { m.x = Math.round(plan.place.x); m.y = Math.round(plan.place.y); }
+    return m;
+}
+function poolGroupLabel(s, i) { const g = s.g && s.g[i]; return g === "solid" ? "Solids" : g === "stripe" ? "Stripes" : "Open table"; }
+function poolStatusText(s, you, myTurn) {
+    const l = s.last;
+    if (s.w >= 0) return l && l.why ? (l.by === you ? "You " : "Opponent ") + l.why + "." : "Game over.";
+    if (!l) return myTurn ? "Break! Pull back anywhere and let go to shoot." : "Your opponent is breaking…";
+    const who = l.by === you ? "You" : "Opponent";
+    let t = who + (l.pot.length ? " potted " + l.pot.join(", ") : " missed");
+    if (l.asg) t += " · " + (l.by === you ? "you are " : "they are ") + (s.g[l.by] === "solid" ? "solids" : "stripes");
+    if (l.foul) t += " · Foul: " + l.why + (s.nx === you ? " — ball in hand, drag the cue ball anywhere" : " — they get ball in hand");
+    else if (s.nx === l.by) t += " · " + (l.by === you ? "shoot again" : "they shoot again");
+    return t;
+}
+function PoolBoard({ s, you, myTurn, onTap, fit }) {
+    const cvRef = useRef(null), tableRef = useRef(null), L = useRef(null);
+    const [pot, setPot] = useState(0);
+    if (!L.current) L.current = { B: poolUnpack(s.b), prev: s, phase: "idle", ev: null, aim: { ang: -Math.PI / 2, pow: 0, drag: null, sx: 0, sy: 0 }, sent: 0, spin: 0 };
+    const S = useRef(s), MT = useRef(myTurn), ON = useRef(onTap), YOU = useRef(you);
+    S.current = s; MT.current = myTurn; ON.current = onTap; YOU.current = you;
+    // a new state arrived: replay the shot that produced it (both players see the same shot), then settle on the server's positions
+    useEffect(() => {
+        const l = L.current, prev = l.prev; if (s === prev) return;
+        l.prev = s; l.sent = 0; l.aim.pow = 0; l.aim.drag = null;
+        const m = s.last && s.last.m;
+        if (m && s.t === prev.t + 1) {
+            const B = poolUnpack(prev.b);
+            if (prev.hand && m.x != null) { B[0].x = m.x; B[0].y = m.y; }
+            B[0].on = true; B[0].fall = 0;
+            B[0].vx = Math.cos(m.a / 1000) * m.v / 10; B[0].vy = Math.sin(m.a / 1000) * m.v / 10;
+            if (l.phase !== "rolling") poolBusy.n++;
+            l.B = B; l.ev = poolNewEvent(); l.phase = "rolling"; l.frames = 0; poolBlip("ball", m.v / 18);
+        } else { l.B = poolUnpack(s.b); if (l.phase === "rolling") poolBusy.n = Math.max(0, poolBusy.n - 1); l.phase = "idle"; }
+        setPot((x) => x + 1);
+    }, [s]);
+    useEffect(() => () => { if (L.current.phase === "rolling") poolBusy.n = Math.max(0, poolBusy.n - 1); }, []);
+    const TW = POOL.W + 2 * POOL.RAIL, TH = POOL.H + 2 * POOL.RAIL;
+    const k = Math.max(0.2, Math.min(Math.max(120, fit.w) / TW, Math.max(180, fit.h - 66) / TH)), w = Math.floor(TW * k), h = Math.floor(TH * k);
+    useEffect(() => {
+        const cv = cvRef.current; if (!cv) return;
+        tableRef.current = poolBuildTable();
+        let raf = 0, last = 0, acc = 0, alive = true;
+        const tick = (ts) => {
+            if (!alive) return; raf = requestAnimationFrame(tick);
+            const l = L.current, c = cv.getContext("2d"), dt = Math.min(64, ts - (last || ts)); last = ts; acc += dt;
+            while (acc >= 16.667) {
+                acc -= 16.667;
+                if (l.phase === "rolling") {
+                    poolFrame(l.B, l.ev); l.frames++;
+                    if (l.ev.snd.length) { for (let i = 0; i < l.ev.snd.length && i < 3; i++) poolBlip(l.ev.snd[i].k, l.ev.snd[i].v); l.ev.snd = []; }
+                    if (!poolMoving(l.B) || l.frames > 2500) { // done: settle on the server's final positions
+                        const fall = l.B.map((b) => b.fall);
+                        l.B = poolUnpack(S.current.b); l.B.forEach((b, i) => { if (!b.on) b.fall = Math.max(b.fall, fall[i] || 0); });
+                        l.phase = "idle"; poolBusy.n = Math.max(0, poolBusy.n - 1); setPot((x) => x + 1);
+                    }
+                }
+                for (let i = 0; i < l.B.length; i++) { const b = l.B[i]; if (!b.on && b.fall < 1) b.fall = Math.min(1, b.fall + 0.07); }
+            }
+            const can = MT.current && l.phase === "idle" && !l.sent && S.current.w < 0;
+            const g = { B: l.B, aim: l.aim, hand: can && !!S.current.hand, phase: can ? "aim" : l.phase === "rolling" ? "rolling" : "wait" };
+            c.setTransform(cv.width / TW, 0, 0, cv.width / TW, 0, 0);
+            poolDraw(c, g, tableRef.current, ts);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => { alive = false; cancelAnimationFrame(raf); };
+    }, []);
+    const pos = (e) => { const r = cvRef.current.getBoundingClientRect(), q = TW / r.width; return { x: (e.clientX - r.left) * q - POOL.RAIL, y: (e.clientY - r.top) * q - POOL.RAIL }; };
+    const canShoot = () => { const l = L.current; return MT.current && l.phase === "idle" && !l.sent && S.current.w < 0; };
+    const onDown = (e) => {
+        if (!canShoot()) return; const l = L.current, a = l.aim, p = pos(e), c = l.B[0];
+        try { cvRef.current.setPointerCapture(e.pointerId); } catch (x) { }
+        if (S.current.hand && Math.hypot(p.x - c.x, p.y - c.y) < 48) a.drag = "place"; else { a.drag = "aim"; a.sx = p.x; a.sy = p.y; a.pow = 0; }
+        poolBlip("pocket", 0);
+    };
+    const onMove = (e) => {
+        const l = L.current, a = l.aim; if (!a.drag || !canShoot()) return; const p = pos(e);
+        if (a.drag === "place") { const x = Math.max(POOL.R, Math.min(POOL.W - POOL.R, p.x)), y = Math.max(POOL.R, Math.min(POOL.H - POOL.R, p.y)); if (poolFree(l.B, x, y, 0)) { l.B[0].x = x; l.B[0].y = y; } return; }
+        const dx = p.x - a.sx, dy = p.y - a.sy, len = Math.hypot(dx, dy);
+        if (len < 7) { a.pow = 0; return; }
+        a.ang = Math.atan2(-dy, -dx); a.pow = Math.min(1, (len - 7) / POOL.PULL);
+    };
+    const onUp = () => {
+        const l = L.current, a = l.aim, d = a.drag; a.drag = null;
+        if (d !== "aim" || !canShoot()) return;
+        if (a.pow < 0.05) { a.pow = 0; return; }
+        let ang = a.ang; while (ang > Math.PI) ang -= 2 * Math.PI; while (ang < -Math.PI) ang += 2 * Math.PI;
+        const m = { a: Math.round(ang * 1000), v: Math.max(1, Math.min(250, Math.round(a.pow * POOL.MAXV * 10))) };
+        if (S.current.hand) { m.x = Math.round(l.B[0].x); m.y = Math.round(l.B[0].y); }
+        l.sent = 1; const t0 = S.current.t; setTimeout(() => { if (S.current.t === t0) L.current.sent = 0; }, 5000); // not accepted? let them shoot again
+        ON.current(m);
+    };
+    const mini = (p) => {
+        const grp = s.g[p], list = [];
+        if (grp) for (let n = 1; n < 16; n++) if (poolGroup(n) === grp && !s.b[n * 3 + 2]) list.push(n);
+        return gh("div", { style: { display: "flex", gap: 2, alignItems: "center", minHeight: 16, flex: 1, justifyContent: p === you ? "flex-start" : "flex-end", flexWrap: "wrap" } }, gh("span", { style: { fontFamily: "Inter", fontSize: 10.5, fontWeight: 600, color: PCOL[p], marginRight: 3 } }, poolGroupLabel(s, p)), list.map((n) => gh(PoolMini, { key: n, n, size: 13 })));
+    };
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: "100%" } },
+        gh("div", { style: { display: "flex", gap: 8, width: w, minHeight: 18 } }, mini(you), mini(1 - you)),
+        gh("canvas", { ref: cvRef, width: w * 2, height: h * 2, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp, style: { width: w, height: h, display: "block", touchAction: "none", borderRadius: 16, boxShadow: "0 6px 22px rgba(0,0,0,.45)", userSelect: "none", WebkitUserSelect: "none" } }),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#C5CCD6", textAlign: "center", minHeight: 30, width: w, lineHeight: "15px" } }, poolStatusText(s, you, myTurn)));
+}
+
+GAME_RULES.pool = POOL_RULES;
 const HUB_GAMES = [
   { id: "ttt", name: "Tic-Tac-Toe", emoji: "✖️", color: "#35D0BA", blurb: "Three in a row", ready: true },
   { id: "c4", name: "Connect 4", emoji: "🔴", color: "#FF4FA3", blurb: "Drop discs, link four", ready: true },
@@ -1887,6 +2515,7 @@ const HUB_GAMES = [
   { id: "checkers", name: "Checkers", emoji: "⚫", color: "#4C8DFF", blurb: "Nigerian rules", ready: true },
   { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Roll, race, capture", ready: true },
   { id: "race", name: "Turbo Racer", emoji: "🏎️", color: "#FF3B5C", blurb: "Race, dodge, nitro", ready: true },
+  { id: "pool", name: "8-Ball Pool", emoji: "🎱", color: "#1E9450", blurb: "Pot yours, sink the 8", ready: true },
   { id: "dominoes", name: "Dominoes", emoji: "🧩", color: "#2DD4A0", blurb: "Match the tiles" },
 ];
 const hubName = (id) => (HUB_GAMES.find((g) => g.id === id) || { name: id }).name;
@@ -1917,6 +2546,7 @@ function robotPick(game, s, me, level) {
   if (game === "snl") return -1;
   if (game === "chess") return chPick(s, me, level);
   if (game === "whot") return whotPick(s, me, level);
+  if (game === "pool") return poolRobotMove(s, me, level);
   if (game === "checkers") return ckPick(s, me, level);
   const R = GAME_RULES[game], mv = R.moves(s);
   if (Math.random() < [0.7, 0.35, 0.1, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
@@ -1984,6 +2614,7 @@ const RULES_TEXT = {
   checkers: "Nigerian rules: men capture backwards too, kings fly across the board, and you must take the route that captures the most pieces. Captured pieces come off when your move ends. Reach the far row to be crowned.",
   whot: "Nigerian rules: match the shape or number. 1 Hold on and 8 Suspension play again. 2 and 5 make the other player pick; pass it on with the same number. 14 is General Market. 20 Whot calls a shape. With 2 cards left, call Last card before you play or you pick 2. Empty your hand to win.",
   chess: "Castling, en passant and promotion are included. A game is drawn by stalemate, 50 quiet moves or too few pieces.",
+  pool: "Pot all your solids (1-7) or stripes (9-15), then sink the 8-ball. Pull back anywhere on the table and let go to shoot: the pull direction aims and the pull length sets the power. Keep shooting while you pot your own balls. A foul (cue ball potted, wrong ball hit first, or nothing reaching a cushion) gives your opponent the cue ball in hand. Potting the 8-ball early loses.",
   race: "Tap left or right (or A / D, arrow keys) to change lane, space for nitro. Dodge cars and cones, avoid oil, grab ⚡ and boost pads, and tuck in behind your rival for a slipstream. First across the line wins.",
 };
 function RulesSheet({ game, color, onClose }) {
@@ -2492,13 +3123,12 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
   };
   const place = (m, idx) => { const state = R.play(gRef.current.state, m, idx, Math.random); finish(state, R.win(state), idx); };
   const tap = (m) => {
-    if (g.over || g.turn !== g.you || !R.moves(g.state, g.you).includes(m)) return;
+    if (g.over || g.turn !== g.you || !(R.valid ? R.valid(g.state, m, g.you) : R.moves(g.state, g.you).includes(m))) return;
     if (robot) place(m, g.you); else socket.emit("game:move", { room: cfg.room, move: m });
   };
   useEffect(() => {
     if (!robot || g.over || g.turn !== robotIdx) return;
-    const t = setTimeout(() => { const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null) place(m, robotIdx); }, 550 + Math.random() * 500);
-    return () => clearTimeout(t);
+    let t; const go = () => { if (cfg.game === "pool" && poolBusy.n > 0) { t = setTimeout(go, 300); return; } const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null) place(m, robotIdx); }; t = setTimeout(go, 550 + Math.random() * 500); return () => clearTimeout(t);
   }, [g.turn, g.over, g.state]);
   useEffect(() => { if (!robot && !g.over && g.turn === g.you) hubPing(); }, [g.turn]);
   useEffect(() => {
@@ -2529,7 +3159,7 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
       gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
       gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
         gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (i === g.you ? "You" : p.name)),
-        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (cfg.game === "ttt" ? (i ? "O" : "X") : cfg.game === "chess" ? (i ? "Black" : "White") : (i ? "Pink" : "Teal")) + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (cfg.game === "ttt" ? (i ? "O" : "X") : cfg.game === "pool" ? poolGroupLabel(g.state, i) : cfg.game === "chess" ? (i ? "Black" : "White") : (i ? "Pink" : "Teal")) + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
       gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 20, color: "#F5F7FA" } }, g.score[i]));
   };
   const hit = (i) => g.line && g.line.includes(i);
@@ -2546,7 +3176,7 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
     hubStatusRow(() => setRules(true), gh("div", { role: "status", key: g.over ? "over" : "t" + g.turn, className: g.over ? "lc-status lc-over" : "lc-status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…"))),
     g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
     gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative" } },
-      cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "checkers" ? gh(CheckersBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "whot" ? gh(WhotBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "chess" ? gh(ChessBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : gh(GameFrame, { color: gc }, gh("div", { style: { width: gw, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells)),
+      cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "checkers" ? gh(CheckersBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "whot" ? gh(WhotBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "chess" ? gh(ChessBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "pool" ? gh(PoolBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : gh(GameFrame, { color: gc }, gh("div", { style: { width: gw, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells)),
       floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e)), rules ? gh(RulesSheet, { game: cfg.game, color: gc, onClose: () => setRules(false) }) : null),
     gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } },
       gh("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", alignItems: "center", marginBottom: 6 } },
@@ -2651,7 +3281,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
         gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, gm.name), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: gm.ready ? "#9BA7B4" : "#F5B83D", marginTop: 2 } }, gm.ready ? gm.blurb : "Coming soon")))),
       gh("button", { onClick: () => setArcade(true), style: { textAlign: "left", padding: 0, border: "1px solid rgba(255,255,255,.14)", borderRadius: 20, overflow: "hidden", cursor: "pointer", background: "#121821" } },
         gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "rgba(255,255,255,0.06)" } }, "🕹️"),
-        gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, "Solo arcade"), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Snake, 2048, Memory")))));
+        gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, "Solo arcade"), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Pool, Snake, 2048, Memory")))));
 
   const lobbyTab = gh("div", null,
     gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 16 } }, [["Online", others.length, "#35D0BA"], ["Playing", others.filter((p) => p.status === "playing").length, "#FF4FA3"], ["Looking", others.filter((p) => p.status === "looking").length, "#F5B83D"]].map(([l, n, c]) => gh("div", { key: l, style: { ...GLASS, flex: 1, padding: "10px 6px", textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 22, color: c } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, l)))),
