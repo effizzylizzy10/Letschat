@@ -1822,6 +1822,9 @@ const aiOf = (u) => {
   if (!a.replied) a.replied = {};
   return a;
 };
+// "AI business" is switched on per chat (u.ai.chats[conversationId]): the AI learns from that chat and may answer in it for the owner
+const aiChatOn = (u, cid) => !!(u && u.ai && u.ai.chats && u.ai.chats[cid]);
+const aiActive = (u, cid) => !!(u && u.ai && (u.ai.on || aiChatOn(u, cid)));
 const aiNameWords = (u) => String((u && u.name) || "").toLowerCase().split(/[^a-z0-9\u00C0-\uFFFF]+/).filter((w) => w.length >= 3);
 function aiAddPair(a, incoming, reply, avoid) {
   const inc = String(incoming || "").trim(), rep = String(reply || "").trim();
@@ -1856,7 +1859,7 @@ const aiPlain = (m) => m && !m.deleted && !m.system && !m.auto && !m.bot && type
 // study one message the owner just sent (DMs only): pair it with what they were answering
 function aiLearnSent(db, convo, message, owner) {
   const a = aiOf(owner);
-  if (!a.on || convo.isGroup || !aiPlain(message)) return;
+  if (!aiActive(owner, convo.id) || convo.isGroup || !aiPlain(message)) return;
   let prev = null;
   for (let i = db.messages.length - 1; i >= 0; i--) {
     const m = db.messages[i];
@@ -1874,16 +1877,16 @@ function aiObserve(db, convo, message) {
   for (const id of convo.participantIds) {
     if (id === message.senderId) continue;
     const u = db.users.find((x) => x.id === id);
-    if (!u || !u.ai || !u.ai.on) continue;
+    if (!u || !aiActive(u, convo.id)) continue;
     const a = aiOf(u);
     a.learn.seen++;
     if (!AI_SENSITIVE.test(message.text)) aiTopics(a, message.text);
   }
 }
 // first time it is switched on: study the person's existing direct chats (their last ~600 messages)
-function aiStudyHistory(db, owner) {
+function aiStudyHistory(db, owner, onlyConvoId) {
   const a = aiOf(owner);
-  const mine = new Set(db.conversations.filter((c) => !c.isGroup && c.participantIds.includes(owner.id)).map((c) => c.id));
+  const mine = new Set(db.conversations.filter((c) => !c.isGroup && c.participantIds.includes(owner.id) && (!onlyConvoId || c.id === onlyConvoId)).map((c) => c.id));
   const byC = new Map();
   for (const m of db.messages) if (mine.has(m.conversationId)) { let l = byC.get(m.conversationId); if (!l) byC.set(m.conversationId, (l = [])); l.push(m); }
   let budget = 600;
@@ -1928,9 +1931,9 @@ function aiRespond(db, convo, incoming) {
   const ownerIds = convo.isGroup ? (incoming.mentions || []) : convo.participantIds.filter((id) => id !== incoming.senderId);
   for (const ownerId of ownerIds) {
     const owner = db.users.find((u) => u.id === ownerId);
-    if (!owner || owner.suspended || ownerId === incoming.senderId || !owner.ai || !owner.ai.on) continue;
+    if (!owner || owner.suspended || ownerId === incoming.senderId || !aiActive(owner, convo.id)) continue;
     const a = aiOf(owner);
-    if (a.autoReply === false) continue;
+    if (a.autoReply === false && !aiChatOn(owner, convo.id)) continue;
     const live = userSockets.get(owner.id);
     if (live && live.size && !aiAlways(owner)) continue; // they are online: they answer themselves (unless they chose "reply even when I am online")
     if ((owner.blocked || []).includes(incoming.senderId)) continue;
@@ -2046,10 +2049,10 @@ function aiAfterSend(db, convo, message, userId) {
   if (askAi && aiPlain(message)) aiPublicAsk(convo.id, message, askAi[1]).catch((e) => console.error("ai ask failed", e.message));
   if (convo.isGroup) { aiModerate(db, convo, message); }
   const sender = db.users.find((u) => u.id === userId);
-  const had = sender && sender.ai && sender.ai.on;
+  const had = aiActive(sender, convo.id);
   if (had) aiLearnSent(db, convo, message, sender);
   aiObserve(db, convo, message);
-  if (had || convo.participantIds.some((id) => { const u = db.users.find((x) => x.id === id); return u && u.ai && u.ai.on; })) writeDB(db);
+  if (had || convo.participantIds.some((id) => aiActive(db.users.find((x) => x.id === id), convo.id))) writeDB(db);
   aiRespond(db, convo, message);
 }
 
@@ -2079,10 +2082,32 @@ app.put("/api/me/ai", authMiddleware, (req, res) => {
   writeDB(db);
   res.json(aiView(u));
 });
+app.get("/api/me/ai/chat/:cid", authMiddleware, (req, res) => {
+  const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
+  const convo = db.conversations.find((c) => c.id === String(req.params.cid));
+  if (!u || !convo || !convo.participantIds.includes(u.id)) return res.status(404).json({ error: "Chat not found" });
+  res.json({ on: aiChatOn(u, convo.id), available: !convo.isGroup && !convo.chatRoom });
+});
+// AI business for one chat: while on, the AI learns from this chat and may reply in it for the owner (replies start with "AI:" and the other person is told)
+app.put("/api/me/ai/chat/:cid", authMiddleware, (req, res) => {
+  const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
+  const convo = db.conversations.find((c) => c.id === String(req.params.cid));
+  if (!u || !convo || !convo.participantIds.includes(u.id)) return res.status(404).json({ error: "Chat not found" });
+  if (convo.isGroup || convo.chatRoom) return res.status(400).json({ error: "AI business works in one-to-one chats" });
+  const a = aiOf(u), was = aiChatOn(u, convo.id), on = req.body.on === true;
+  if (!a.chats) a.chats = {};
+  if (on) a.chats[convo.id] = 1; else delete a.chats[convo.id];
+  if (on && !was) {
+    aiStudyHistory(db, u, convo.id);
+    groupNotice(db, convo, nameOf(db, u.id) + " turned on AI business in this chat. It learns from this chat and may reply for them. Replies start with \"AI:\".");
+  } else if (!on && was) groupNotice(db, convo, nameOf(db, u.id) + " turned off AI business in this chat.");
+  writeDB(db);
+  res.json({ on: aiChatOn(u, convo.id), available: true });
+});
 app.post("/api/me/ai/reset", authMiddleware, (req, res) => {
   const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
   const a = aiOf(u);
-  u.ai = { on: !!a.on, autoReply: a.autoReply !== false, ...(a.always !== undefined ? { always: a.always } : {}), ...(a.agent ? { agent: a.agent } : {}) };
+  u.ai = { on: !!a.on, autoReply: a.autoReply !== false, ...(a.always !== undefined ? { always: a.always } : {}), ...(a.agent ? { agent: a.agent } : {}), ...(a.chats ? { chats: a.chats } : {}) };
   aiOf(u);
   if (u.ai.on) aiStudyHistory(db, u);
   writeDB(db);
