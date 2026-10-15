@@ -6642,13 +6642,16 @@ const EMOJI_TABS = [
 ];
 // ---- tap the name/photo area in a chat header to see that person's profile (full screen, header collapses as you scroll) ----
 const PROFILE_HERO = 190, PROFILE_BAR = 58;
-function ContactProfileSheet({ u, online, lastSeen, conversation, conversations = [], msgs = [], myId, isFav, iBlocked, muted, onVoice, onVideo, onToggleFavorite, onNotifications, onBlock, onReport, onOpenMedia, onOpenImage, onNewGroup, onNote, token, onClose }) {
+function ContactProfileSheet({ u, online, lastSeen, conversation, conversations = [], msgs = [], myId, isFav, iBlocked, muted, onVoice, onVideo, onToggleFavorite, onNotifications, onBlock, onReport, onOpenMedia, onOpenImage, onNewGroup, onNote, onClear, onLock, token, onClose }) {
     const [zoom, setZoom] = useState(false);
     const [p, setP] = useState(0); // 0 = header fully open, 1 = collapsed into the top bar
     const [menu, setMenu] = useState(false);
     const [noteOpen, setNoteOpen] = useState(false);
     const [noteText, setNoteText] = useState(() => loadJSON("contactNote:" + u.id, ""));
     const [savedNote, setSavedNote] = useState(noteText);
+  const [pcSheet, setPcSheet] = useState(null);
+  const [mv, setMv] = useState(() => loadJSON("mediaVis:" + conversation.id, "show"));
+  const hideMedia = mv === "hide";
     const RANGE = PROFILE_HERO - PROFILE_BAR;
     const onScroll = (e) => { const np = Math.min(1, Math.max(0, e.currentTarget.scrollTop / RANGE)); setP(prev => (Math.abs(prev - np) > 0.004 ? np : prev)); };
     const heroH = PROFILE_HERO - p * RANGE;
@@ -6665,8 +6668,9 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
         linkCount += (m.text.match(/https?:\/\/[^\s]+/g) || []).length; });
     const total = media.length + docs.length + linkCount;
     const bytes = live.reduce((n, m) => n + (m.file && m.file.size ? m.file.size : 0), 0);
-    const tiles = media.slice(-8).reverse();
+    const tiles = hideMedia ? [] : media.slice(-8).reverse();
     const groups = conversations.filter(c => c.isGroup && (c.members || []).some(m => m.id === u.id));
+  const addable = conversations.filter(c => c.isGroup && !c.chatRoom && c.adminId === myId && !(c.members || []).some(m => m.id === u.id));
     const biz = u.business || null;
     const subtitle = u.phone ? "+" + String(u.phone).replace(/\D/g, "") : u.email || (u.username ? "@" + u.username : "");
     const share = async () => {
@@ -6719,7 +6723,7 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
         React.createElement("div", { onClick: u.avatar ? () => setZoom(true) : undefined, style: { position: "absolute", top, left, width: size, height: size, zIndex: 5, borderRadius: "50%", boxSizing: "border-box", border: (3 - 1.5 * p) + "px solid #35D0BA", background: "#0E1116", cursor: u.avatar ? "pointer" : "default" } }, u.avatar ? React.createElement("img", { loading: "lazy", decoding: "async", src: photoSrc(u.avatar), alt: "", draggable: false, onContextMenu: e => e.preventDefault(), style: { width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block" } })
             : React.createElement("div", { style: { width: "100%", height: "100%", borderRadius: "50%", background: u.color + "26", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 } }, u.initials)),
         menu && (React.createElement("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 8 } },
-            React.createElement("div", { onClick: e => e.stopPropagation(), style: { position: "absolute", top: PROFILE_BAR - 8, right: 10, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)" } }, [["Share", () => share()], [iBlocked ? "Unblock" : "Block", () => onBlock()], ["Report", () => onReport()]].map(([label, fn]) => (React.createElement("div", { key: label, onClick: () => { setMenu(false); fn(); }, style: { padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: "#F5F7FA", cursor: "pointer" } }, label)))))),
+            React.createElement("div", { onClick: e => e.stopPropagation(), style: { position: "absolute", top: PROFILE_BAR - 8, right: 10, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)" } }, [["Share", () => share()], [iBlocked ? "Unblock" : "Block", () => onBlock()], ["Report", () => onReport()]].map(([label, fn]) => (React.createElement("div", { key: label, onClick: () => { setMenu(false); fn(); }, style: { padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: pcDanger(label) ? "#FF6B5D" : "#F5F7FA", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } }, pcDanger(label) ? React.createElement(pcDanger(label), { size: 18, color: "#FF6B5D" }) : null, label)))))),
         React.createElement("div", { onScroll: onScroll, style: { flex: 1, minHeight: 0, overflowY: "auto", paddingTop: PROFILE_HERO + 52, paddingBottom: 30 } },
             React.createElement("div", { style: { textAlign: "center", padding: "0 24px" } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", overflowWrap: "anywhere" } },
@@ -6749,25 +6753,28 @@ function ContactProfileSheet({ u, online, lastSeen, conversation, conversations 
                 React.createElement("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Media, links, and docs"),
                 React.createElement("span", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 } }, total),
                 React.createElement(ChevronRight, { size: 18, color: "#8891A0" })),
-            (tiles.length > 0 || docs.length > 0) && (React.createElement("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
+            !hideMedia && (tiles.length > 0 || docs.length > 0) && (React.createElement("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
                 tiles.map(m => React.createElement("img", { loading: "lazy", decoding: "async", key: m.id, src: m.file.data, alt: m.file.name, onClick: () => onOpenImage(m.file.data), style: { width: 84, height: 84, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } })),
                 tiles.length === 0 && docs.slice(-6).reverse().map(m => (React.createElement("div", { key: m.id, onClick: onOpenMedia, style: { width: 84, height: 84, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", padding: 6, boxSizing: "border-box", cursor: "pointer" } },
                     React.createElement(Paperclip, { size: 20, color: "#35D0BA" }),
                     React.createElement("span", { style: { fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.file.name)))))),
             row("storage", ico(FolderIcon), "Manage storage", bytes ? fmtSize(bytes) : "0 KB", { onClick: onOpenMedia }),
-            row("notif", ico(Bell), "Notifications", muted ? "Muted" : "On", { onClick: onNotifications }),
+            React.createElement(ProfileChatOptions, { chatId: conversation.id, token: token, onNote: onNote, muted: muted, onNotifications: onNotifications, onLock: onLock, setSheet: setPcSheet, mediaHidden: hideMedia }),
             line("l2"),
             React.createElement("div", { style: { padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "About"),
             React.createElement("div", { style: { padding: "4px 22px 12px", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" } }, u.about || "Hey there! I am using Letschat Africa."),
             line("l3"),
             groups.length > 0 && React.createElement("div", { style: { padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, groups.length === 1 ? "1 group in common" : groups.length + " groups in common"),
-            row("newgrp", React.createElement("span", { style: { width: 40, height: 40, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" } },
-                React.createElement(Users, { size: 20, color: "#0E1116" })), "Create group with " + u.name, null, { onClick: () => onNewGroup(u.id) }),
             groups.map(g => row("g" + g.id, React.createElement("span", { style: { margin: "-8px 0", display: "flex" } },
                 React.createElement(Ring, { size: 40, color: "#7B6CF6", initials: (g.name || "G").slice(0, 1).toUpperCase(), photo: g.avatar })), g.name, (g.members || []).filter(m => m.id !== myId).map(m => m.name).join(", "))),
+            row("addgrp", React.createElement("span", { style: { width: 40, height: 40, borderRadius: "50%", background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" } }, React.createElement(Users, { size: 20, color: "#35D0BA" })), "Add to group", addable.length === 0 ? "Groups you manage appear here" : addable.length === 1 ? "1 group you manage" : addable.length + " groups you manage", { onClick: () => setPcSheet("addgroup") }),
+            row("newgrp", React.createElement("span", { style: { width: 40, height: 40, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" } },
+                React.createElement(Users, { size: 20, color: "#0E1116" })), "Create group with " + u.name, null, { onClick: () => onNewGroup(u.id) }),
             line("l4"),
+            row("clear", React.createElement(Trash2, { size: 22, color: "#FF6B5D" }), "Clear chat", null, { color: "#FF6B5D", onClick: onClear }),
             row("block", React.createElement(Ban, { size: 22, color: "#FF6B5D" }), (iBlocked ? "Unblock " : "Block ") + u.name, null, { color: "#FF6B5D", onClick: onBlock }),
             row("report", React.createElement(ThumbsDown, { size: 22, color: "#FF6B5D" }), "Report " + u.name, null, { color: "#FF6B5D", onClick: onReport })),
+        React.createElement(ProfileChatSheets, { sheet: pcSheet, chatId: conversation.id, token: token, contact: u, addable: addable, mediaVis: mv, onMediaVis: (v) => { saveJSON("mediaVis:" + conversation.id, v); setMv(v); }, onNote: onNote, onClose: () => setPcSheet(null) }),
         noteOpen && (React.createElement(SheetFrame, { title: "Notes about " + u.name, onClose: () => setNoteOpen(false) },
             React.createElement("textarea", { value: noteText, onChange: e => setNoteText(e.target.value), maxLength: 500, rows: 5, placeholder: "Only you can see these notes", style: { width: "100%", boxSizing: "border-box", background: "#0E1116", border: "1px solid #2B3544", borderRadius: 12, padding: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", resize: "none" } }),
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8A96A5", margin: "6px 2px 14px" } }, "Saved on this device only."),
@@ -7109,7 +7116,7 @@ function PinnedBar({ pins, idx, onOpen }) {
 }
 // ---- chat extras kept on this device: drafts, "marked as unread" flags and chat lock ----
 const LCX = {
-    _c: {},
+    _c: {}, _m: {}, rd(k) { try { const v = LCX.rd(k); if (v !== null) return v; } catch (e) { } return LCX._m[k] === undefined ? null : LCX._m[k]; }, wr(k, v) { LCX._m[k] = v; try { localStorage.setItem(k, v); } catch (e) { } },
     get(k, d) {
         try {
             const raw = localStorage.getItem(k);
@@ -7127,7 +7134,7 @@ const LCX = {
         }
     },
     put(k, v) { try {
-        localStorage.setItem(k, JSON.stringify(v));
+        LCX.wr(k, JSON.stringify(v));
     }
     catch (e) { } },
     fire() { try {
@@ -7152,7 +7159,7 @@ const LCX = {
         delete d[id]; LCX.put("lcx:locked", d); LCX.fire(); },
     unlocked: new Set(),
     hasPin() { try {
-        return !!localStorage.getItem("lcx:pin");
+        return !!LCX.rd("lcx:pin");
     }
     catch (e) {
         return false;
@@ -7171,11 +7178,11 @@ const LCX = {
         }
     },
     async setPin(pin) { try {
-        localStorage.setItem("lcx:pin", await LCX.hash(pin));
+        LCX.wr("lcx:pin", await LCX.hash(pin));
     }
     catch (e) { } },
     async check(pin) { try {
-        return localStorage.getItem("lcx:pin") === (await LCX.hash(pin));
+        return LCX.rd("lcx:pin") === (await LCX.hash(pin));
     }
     catch (e) {
         return false;
@@ -7183,6 +7190,7 @@ const LCX = {
     preview(c, base) {
         if (LCX.locked(c.id))
             return "\uD83D\uDD12 Locked chat";
+    if (loadJSON("chatpriv:" + c.id, {}).hidePreview) return "Message hidden";
         const d = LCX.draft(c.id);
         return d ? "Draft: " + d.replace(/\s+/g, " ").slice(0, 80) : base;
     },
@@ -7252,6 +7260,81 @@ function LockPrompt({ mode, onDone, onCancel }) {
     return React.createElement("div", { role: "dialog", "aria-modal": "true", "aria-label": title, style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 100, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 } }, React.createElement("div", { style: { width: "100%", maxWidth: 340, textAlign: "center", fontFamily: "Inter, sans-serif" } }, React.createElement("div", { "aria-hidden": "true", style: { fontSize: 34, marginBottom: 8 } }, "\uD83D\uDD12"), React.createElement("div", { style: { fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginBottom: 6 } }, title), React.createElement("div", { style: { fontSize: 13, color: "#9BA7B4", marginBottom: 16 } }, hint), React.createElement("input", { type: "password", inputMode: "numeric", autoComplete: "off", autoFocus: true, maxLength: 6, value: pin, "aria-label": "PIN", onChange: (e) => { setPin(e.target.value.replace(/\D/g, "")); setErr(""); }, onKeyDown: (e) => { if (e.key === "Enter")
             submit(); }, style: { width: "100%", boxSizing: "border-box", textAlign: "center", letterSpacing: "0.5em", fontSize: 24, padding: "12px 10px", borderRadius: 12, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", outline: "none" } }), err ? React.createElement("div", { role: "alert", style: { color: "#FF8A7D", fontSize: 13, marginTop: 10 } }, err) : null, React.createElement("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginTop: 18 } }, React.createElement("button", { onClick: onCancel, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: "#1E2530", color: "#F5F7FA", fontWeight: 600, fontSize: 15, cursor: "pointer" } }, "Cancel"), React.createElement("button", { onClick: submit, disabled: busy, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: "#35D0BA", color: "#05070A", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, mode === "enter" ? "Unlock" : first ? "Confirm" : "Next"))));
 }
+// ---- contact profile chat options: chat lock toggle, media visibility, notifications, advanced chat privacy, security (plain JS on purpose: the same block is used in app.jsx and the compiled app.js) ----
+const PcBriefcase = makeIcon([["r", 2, 7, 20, 14, 2], ["p", "M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"]]);
+const PcShield = makeIcon([["p", "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"]]);
+const PcEyeOff = makeIcon([["p", "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"], ["p", "M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"], ["p", "m1 1 22 22"]]);
+function pcRow(key, icon, title, sub, onClick, right) {
+  const h = React.createElement;
+  return h("div", { key: key, onClick: onClick, style: { display: "flex", alignItems: "center", gap: 22, counterIncrement: "lcgap-22", padding: "13px 22px", cursor: onClick ? "pointer" : "default" } },
+    h("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
+    h("div", { style: { flex: 1, minWidth: 0 } },
+      h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" } }, title),
+      sub ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, overflowWrap: "anywhere" } }, sub) : null),
+    right || null);
+}
+function ProfileChatOptions({ chatId, token, muted, onNotifications, onLock, setSheet, mediaHidden, onNote }) {
+  const h = React.createElement;
+  const [, bump] = useState(0);
+  const [biz, setBiz] = useState(null); // AI business for this chat: null = loading
+  useEffect(() => { let live = true; if (token) api("/api/v1/me/ai/chat/" + chatId, { token }).then((d) => { if (live) setBiz(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBiz("na"); }); return () => { live = false; }; }, [chatId, token]);
+  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change AI business"); }); };
+  useEffect(() => { const f = () => bump((n) => n + 1); window.addEventListener("lcx", f); return () => window.removeEventListener("lcx", f); }, []);
+  const ico = (I) => h(I, { size: 22, color: "#8891A0" });
+  const lockOn = LCX.locked(chatId);
+  const priv = loadJSON("chatpriv:" + chatId, {});
+  const lockGo = () => { onLock(); setTimeout(() => bump((n) => n + 1), 50); };
+  const aiRows = [
+    token ? pcRow("pc-ai", h(AiBotAvatar, { size: 26 }), "Letschat AI", "Ask your AI assistant", () => setSheet("ai"), h(ChevronRight, { size: 18, color: "#8891A0" })) : null,
+    token && biz !== "na" ? pcRow("pc-biz", h(PcBriefcase, { size: 22, color: biz === true ? "#35D0BA" : "#8891A0" }), "AI business", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
+      h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: biz === true, disabled: biz === null, onChange: (v) => bizSet(v) }))) : null,
+  ];
+  return h(React.Fragment, null,
+    aiRows,
+    featOn("chatLock") ? pcRow("pc-lock", ico(Lock), "Chat lock", lockOn ? "This chat asks for your PIN to open" : "Ask for a PIN to open this chat", lockGo,
+      h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: lockOn, onChange: lockGo }))) : null,
+    pcRow("pc-media", ico(GalleryIcon), "Media visibility", mediaHidden ? "Hidden" : "Shown", () => setSheet("media"), h(ChevronRight, { size: 18, color: "#8891A0" })),
+    pcRow("pc-notif", ico(Bell), "Notifications", muted ? "Muted" : "On", onNotifications, h(ChevronRight, { size: 18, color: "#8891A0" })),
+    pcRow("pc-priv", ico(PcEyeOff), "Advanced chat privacy", priv.hidePreview ? "Message preview hidden" : "Off", () => setSheet("privacy"), h(ChevronRight, { size: 18, color: "#8891A0" })),
+    pcRow("pc-sec", ico(PcShield), "Security", LCX.hasPin() ? "PIN set on this device" : "No PIN set yet", () => setSheet("security"), h(ChevronRight, { size: 18, color: "#8891A0" })));
+}
+function ProfileChatSheets({ sheet, chatId, token, contact, addable = [], mediaVis, onMediaVis, onNote, onClose }) {
+  const h = React.createElement;
+  const [priv, setPriv] = useState(() => loadJSON("chatpriv:" + chatId, {}));
+  const [pinAsk, setPinAsk] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const setKey = (k, v) => { const n = { ...priv, [k]: v }; setPriv(n); saveJSON("chatpriv:" + chatId, n); LCX.fire(); };
+  const txt = { fontFamily: "Inter", fontSize: 13, color: "#8891A0", margin: "0 2px 10px" };
+  const opt = (val, label, hint) => h("div", { key: val, onClick: () => { onMediaVis(val); onClose(); onNote(val === "hide" ? "Media hidden for this chat" : "Media shown for this chat"); }, style: { display: "flex", alignItems: "center", padding: "14px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+    h("div", { style: { flex: 1 } }, h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, label), h("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, hint)),
+    (mediaVis === "hide" ? "hide" : "show") === val ? h(Check, { size: 20, color: "#35D0BA", strokeWidth: 3 }) : null);
+  if (pinAsk) return h(LockPrompt, { mode: "enter", onCancel: () => setPinAsk(false), onDone: () => { LCX.put("lcx:locked", {}); LCX.wr("lcx:pin", ""); LCX.unlocked.clear(); LCX.fire(); setPinAsk(false); onClose(); onNote("PIN removed. All chats are unlocked"); } });
+  if (sheet === "addgroup") return h(SheetFrame, { title: "Add " + contact.name + " to a group", onClose: onClose },
+    addable.length === 0 ? h("div", { style: txt }, "You can add people only to groups you manage, and " + contact.name + " is already in all of yours.") :
+    h("div", { style: { overflowY: "auto" } }, addable.map((g) => h("div", { key: g.id, onClick: () => { if (busy) return; setBusy(g.id); api("/api/v1/conversations/" + g.id + "/members", { method: "POST", token: token, body: { userIds: [contact.id] } }).then(() => { setBusy(null); onClose(); onNote(contact.name + " added to " + g.name); }).catch((e) => { setBusy(null); onNote((e && e.message) || "Could not add to the group"); }); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "12px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer", opacity: busy && busy !== g.id ? 0.5 : 1 } },
+      h(Ring, { size: 40, color: "#7B6CF6", initials: (g.name || "G").slice(0, 1).toUpperCase(), photo: g.avatar }),
+      h("div", { style: { flex: 1, minWidth: 0 } }, h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" } }, g.name), h("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, (g.members || []).length + " members")),
+      busy === g.id ? h("span", { style: { fontSize: 13, color: "#8891A0" } }, "Adding...") : null))));
+  if (sheet === "ai") return h(AiBotScreen, { token: token, onClose: onClose });
+  if (sheet === "media") return h(SheetFrame, { title: "Media visibility", onClose: onClose },
+    h("div", { style: txt }, "Choose whether photos and videos from this chat show as previews in the contact info screen. Saved on this device only."),
+    opt("show", "Show media", "Previews appear under Media, links, and docs"), opt("hide", "Hide media", "No previews are shown on this screen"));
+  if (sheet === "privacy") return h(SheetFrame, { title: "Advanced chat privacy", onClose: onClose },
+    h("div", { style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 4px" } },
+      h("div", { style: { flex: 1 } }, h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Hide message preview"), h("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Show \"Message hidden\" in your chat list instead of the latest message.")),
+      h(Toggle, { on: !!priv.hidePreview, onChange: (v) => setKey("hidePreview", v) })),
+    h("div", { style: Object.assign({}, txt, { marginTop: 8 }) }, "Saved on this device only."));
+  if (sheet === "security") {
+    const n = Object.keys(LCX.get("lcx:locked", {})).length, has = LCX.hasPin();
+    return h(SheetFrame, { title: "Security", onClose: onClose },
+      pcRow("s1", h(Lock, { size: 22, color: "#8891A0" }), "Chat lock PIN", has ? "Set. It is stored scrambled on this device and is not sent to Letschat." : "Not set yet. You choose one the first time you lock a chat."),
+      pcRow("s2", h(PcShield, { size: 22, color: "#8891A0" }), "Locked chats", n === 1 ? "1 chat on this device" : n + " chats on this device"),
+      h("div", { style: Object.assign({}, txt, { padding: "4px 22px" }) }, "Locked chats hide their preview and ask for your PIN each time you open them or come back to the app."),
+      has ? h("button", { onClick: () => setPinAsk(true), style: { width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: "none", background: "#1E2530", color: "#FF8A7D", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, "Remove PIN and unlock all chats") : null);
+  }
+  return null;
+}
+function pcDanger(l) { return l === "Clear chat" ? Trash2 : (l === "Block" || l === "Unblock") ? Ban : l === "Report" ? ThumbsDown : null; } // red menu items with icons
 function MuteSheet({ onPick, onClose }) {
     const opts = [["8h", "8 hours"], ["1w", "1 week"], ["always", "Always"]];
     return (React.createElement(SheetFrame, { title: "Mute notifications", onClose: onClose },
@@ -7672,6 +7755,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
     const [hl, setHl] = useState(null); // search result being highlighted
     const [pinIdx, setPinIdx] = useState(0);
     const [needPin, setNeedPin] = useState(() => featOn("chatLock") && LCX.locked(conversation.id) && !LCX.unlocked.has(conversation.id));
+useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") && LCX.locked(conversation.id)) setNeedPin(true); }; document.addEventListener("visibilitychange", h); return () => document.removeEventListener("visibilitychange", h); }, [conversation.id]);
     useEffect(() => { const t = setTimeout(() => { if (!editing)
         LCX.setDraft(conversation.id, draft); }, 150); return () => clearTimeout(t); }, [draft, conversation.id]);
     useEffect(() => { if (LCX.mark(conversation.id))
@@ -8527,8 +8611,8 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                     React.createElement("div", { onClick: close, style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 } }),
                     React.createElement("div", { role: "menu", style: { position: "absolute", top: 62, right: 6, zIndex: 41, minWidth: menuPage === "more" ? 236 : 208, maxWidth: "calc(100% - 12px)", background: "#12161B", border: "1px solid #1E252E", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" } }, items.map((it, i) => it.divider
                         ? React.createElement("div", { key: "d" + i, style: { height: 1, background: "#232B37", margin: "6px 0" } })
-                        : React.createElement("div", { key: it.label, role: "menuitem", onClick: it.run, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" } },
-                            React.createElement("span", null, it.label),
+                        : React.createElement("div", { key: it.label, role: "menuitem", onClick: it.run, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: pcDanger(it.label) ? "#FF6B5D" : "#F5F7FA" } },
+                            React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" } }, pcDanger(it.label) ? React.createElement(pcDanger(it.label), { size: 20, color: "#FF6B5D" }) : null, it.label),
                             it.more && React.createElement("svg", { width: "7", height: "11", viewBox: "0 0 6 10", style: { marginLeft: 16 } },
                                 React.createElement("path", { d: "M0 0v10l6-5z", fill: "#9BA7B4" })))))));
             })(),
@@ -8795,7 +8879,7 @@ function ChatDetail({ conversations = [], conversation, myId, socket, token, onB
                 onMute(conversation.id, "off");
             else
                 setSheetName("mute"); }, onBlock: () => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you."))
-                onBlock(conversation.other.id, !iBlocked); }, onReport: reportChat, onOpenMedia: () => setSheetName("media"), onOpenImage: setViewer, onNewGroup: (id) => onNewGroup(id), onNote: flashNote, onClose: () => setPeerInfo(false) }),
+                onBlock(conversation.other.id, !iBlocked); }, onReport: reportChat, onOpenMedia: () => setSheetName("media"), onOpenImage: setViewer, onNewGroup: (id) => onNewGroup(id), onNote: flashNote, onClear: clearChat, onLock: lockToggle, onClose: () => setPeerInfo(false) }),
         info && isGroup && React.createElement(GroupInfoScreen, { conversation: conversation, myId: myId, token: token, contacts: contacts, presence: presence, lastSeen: lastSeen, msgs: msgs, isFav: isFav, muted: !!muteUntil, onToggleFavorite: () => onToggleFavorite(conversation.id), onNotifications: () => { if (muteUntil)
                 onMute(conversation.id, "off");
             else
@@ -10040,7 +10124,7 @@ function App() {
         body = React.createElement(LoginScreen, { onContinue: handleLogin });
     }
     else if (activeConvo) {
-        body = (React.createElement(ChatDetail, { conversations: conversations, pinned: pinned, onTogglePin: togglePin, onMute: setMuted, onReport: reportChat, onNewGroup: (withId) => { setActiveConvo(null); setNewGroupWith(typeof withId === "string" ? withId : null); setShowNewGroup(true); }, conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, focus: focusMsg, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked, onCall: startCall }));
+        body = (React.createElement(ChatDetail, { key: activeConvo.id, conversations: conversations, pinned: pinned, onTogglePin: togglePin, onMute: setMuted, onReport: reportChat, onNewGroup: (withId) => { setActiveConvo(null); setNewGroupWith(typeof withId === "string" ? withId : null); setShowNewGroup(true); }, conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, focus: focusMsg, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked, onCall: startCall }));
     }
     else if (toolsView === "catalog") {
         body = React.createElement(CatalogScreen, { token: session.token, onBack: () => setToolsView(null) });
