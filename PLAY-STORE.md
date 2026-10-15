@@ -19,3 +19,10 @@ Installing from the browser ("Install app" / "Add to Home screen") never shows t
 7. Fill `SUPPORT_EMAIL` in `client/config.js` so the policy pages show a contact email.
 8. New personal developer accounts must run a closed test with testers for a set period before production. Check the
    current rule in Play Console.
+
+## Share location inside the Play Store app (Trusted Web Activity)
+Location works in the browser and the home-screen app by default. In the Play Store (TWA) app Android only passes the location
+permission to the web page when **location delegation** is switched on in the Android package:
+- Bubblewrap: in `play-store/twa-manifest.json` add `"features": { "locationDelegation": { "enabled": true } }`, then run `bubblewrap update` and `bubblewrap build`.
+- PWABuilder: in the Android package options turn on **Location delegation**, then generate the package again.
+Upload the new `.aab`. Without this, "Share location" shows "Location permission is off" in the app even when the person allows it.

@@ -143,3 +143,8 @@ Other places that use bot.js (the `@ai` command in chats and the Tools AI assist
 - **Typing area**: a LetsChat AI bot picture (icons/ai-bot-128.png) with "AI ON / AI OFF" under it sits in the message box row of every one-to-one chat. Tap it to turn AI business on or off for that chat (same server setting as the toggle in the contact profile, which now also uses the bot picture instead of the briefcase).
 - **Three-dot menu**: Report and Block removed. They are back in the contact profile, under Clear chat.
 - **Update page**: when a new version takes over (every deploy changes sw.js), a full-screen "Update available" picture (`icons/update-banner.jpg`) blocks the app. The invisible tap area over "Click Here" clears the saved copy and opens `UPDATE_URL` from `client/config.js` (change it to your APK / Play Store link if you want). Code: `showUpdatePage` in `client/index.html`.
+
+## v27: group buttons, Chat Room picture, share location
+- Group info: the **Add** and new **Invite link** buttons are round (54 px circles, same row as Voice chat and Search).
+- Chat Room picture: `client/icons/chat-room.jpg` is used until the creator sets another picture (`CHAT_ROOM_IMG` in app.js).
+- Share location (paperclip > Location): opens a sheet, asks the phone for the position inside the tap (so the Allow prompt shows), shows the result, and sends only when you tap Send. Permission denied shows the steps to allow it with Try again. `Permissions-Policy: geolocation=(self)` added to `_headers` and `vercel.json`. In the Play Store app turn on Location delegation (see PLAY-STORE.md).
