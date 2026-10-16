@@ -20,7 +20,7 @@ console.log("Copied " + n + " items to client/dist");
 // anything makes phones fetch the new copy (no more forgetting to bump the version number by hand).
 try {
   const crypto = require("crypto"), h = crypto.createHash("sha1");
-  for (const f of ["index.html", "app.js", "config.js", "push.js", "reactions.js", "responsive.js", "responsive.css", "compat.js", "device.js", "polyfills.js", "manifest.json", "sw.js"]) {
+  for (const f of ["index.html", "app.js", "config.js", "push.js", "reactions.js", "live.js", "responsive.js", "responsive.css", "compat.js", "device.js", "polyfills.js", "manifest.json", "sw.js"]) {
     const fp = path.join(out, f); if (fs.existsSync(fp)) h.update(fs.readFileSync(fp));
   }
   const swp = path.join(out, "sw.js"), sw = fs.readFileSync(swp, "utf8"), tag = h.digest("hex").slice(0, 8);
@@ -36,7 +36,7 @@ try {
   let ts = null, esbuild = null;
   try { ts = require("typescript"); } catch (e) { console.log("typescript not installed: using esbuild (ES2015) for older phones"); }
   try { esbuild = require("esbuild"); } catch (e) { if (!ts) console.log("esbuild not installed: skipping old-phone transpile"); }
-  for (const f of ["app.js", "push.js", "reactions.js", "config.js", "device.js", "compat.js", "responsive.js", "sw.js"]) {
+  for (const f of ["app.js", "push.js", "reactions.js", "live.js", "config.js", "device.js", "compat.js", "responsive.js", "sw.js"]) {
     const file = path.join(out, f);
     if (!fs.existsSync(file)) continue;
     if (f === "app.js") { // v24: keep a modern copy for modern phones (smaller, no ES5 helpers); the ES5 build below becomes app.legacy.js

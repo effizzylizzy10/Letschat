@@ -18,4 +18,15 @@ window.LETSCHAT_CONFIG = {
   UPDATE_URL: "https://letschatafrican.netlify.app/",
   SUPPORT_WHATSAPP: "",
   SUPPORT_EMAIL: "",
+  // Video/voice calls and Letschat Live: ICE servers. STUN is free and always on. TURN helps people on strict mobile networks connect.
+  // Fill in the three TURN fields (from Metered Open Relay or any TURN provider); leave them empty to use STUN only.
+  TURN_URLS: [],       // example: ["turn:YOUR-HOST:80", "turn:YOUR-HOST:443", "turns:YOUR-HOST:443?transport=tcp"]
+  TURN_USERNAME: "",
+  TURN_CREDENTIAL: "",
 };
+// Builds ICE_SERVERS from the fields above (app.js and live.js read window.LETSCHAT_CONFIG.ICE_SERVERS).
+(function (c) {
+  var ice = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+  if (c.TURN_URLS && c.TURN_URLS.length && c.TURN_USERNAME && c.TURN_CREDENTIAL) ice.push({ urls: c.TURN_URLS, username: c.TURN_USERNAME, credential: c.TURN_CREDENTIAL });
+  if (!c.ICE_SERVERS) c.ICE_SERVERS = ice;
+})(window.LETSCHAT_CONFIG);

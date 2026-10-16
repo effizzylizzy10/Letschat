@@ -756,6 +756,7 @@ function TabBar({ active, setActive, onRoom }) {
         { id: "chats", icon: MessageCircle, label: "Chats" },
         { id: "room", icon: Users, label: "Room" },
         { id: "calls", icon: PhoneCall, label: "Calls" },
+        { id: "live", icon: Video, label: "Live" },
         { id: "status", icon: Radio, label: "Updates" },
         { id: "market", icon: ShoppingBag, label: "Market" },
         { id: "games", icon: Gamepad2, label: "Games" },
@@ -5359,7 +5360,7 @@ function CallLayer({ socket, apiRef, notify }) {
             start: async (conversation, video) => {
                 if (!socket)
                     return notify("Not connected yet. Try again in a moment.");
-                if (callRef.current || (window.__lcGroupBusy && window.__lcGroupBusy()))
+                if (callRef.current || (window.__lcGroupBusy && window.__lcGroupBusy()) || (window.__lcLiveBusy && window.__lcLiveBusy()))
                     return notify("You are already in a call");
                 const peer = conversation.other;
                 begin({ id: null, peer, conversationId: conversation.id, video: !!video, dir: "out", phase: "calling", muted: false, camOff: false });
@@ -5402,7 +5403,7 @@ function CallLayer({ socket, apiRef, notify }) {
             const off = video ? !featOn("videoCalls") : !featOn("voiceCalls");
             if (callRef.current && callRef.current.id === callId)
                 return; // a repeat of the same ring
-            if (callRef.current || off || (window.__lcGroupBusy && window.__lcGroupBusy())) {
+            if (callRef.current || off || (window.__lcGroupBusy && window.__lcGroupBusy()) || (window.__lcLiveBusy && window.__lcLiveBusy())) {
                 socket.emit("call:answer", { callId, accept: false, reason: "unavailable" });
                 return;
             }
@@ -11319,6 +11320,7 @@ function App() {
                 tab === "chats" && (React.createElement(ChatsScreen, { token: session.token, profile: session.user, conversations: conversations, loading: convLoading, error: convError, presence: presence, onOpenChat: (c, hit) => { setFocusMsg(hit || null); setActiveConvo(c); }, onProfile: () => setShowProfile(true), onNewChat: () => setShowNewChat(true), onNewGroup: () => setShowNewGroup(true), favorites: settings.favorites, pinned: pinned, onSetPinned: setPins, muted: settings.muted, onMute: setMuted })),
                 tab === "calls" && React.createElement(CallsScreen, { conversations: conversations, onCall: startCall, favorites: settings.favorites, token: session.token }),
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
+                window.LetschatLive && React.createElement(window.LetschatLive.Screen, { active: tab === "live", me: session.user }),
                 React.createElement(GamesHub, { active: tab === "games", myId: session.user.id, me: session.user, socketRef: socketRef, conversations: conversations, onCall: startCall, goGames: () => setTab("games"), pendingStartRef: pendingGameRef }),
                 tab === "status" && React.createElement(StatusScreen, { profile: session.user, token: session.token, contacts: contacts, onSettings: () => setTab("tools"), onChat: messageSeller }),
                 tab === "tools" && React.createElement(ToolsScreen, { isCreator: !!session.user.creator, onProfile: () => setShowEdit(true), onOpen: setToolsView, onTab: setTab, settings: settings, token: session.token, conversations: conversations, user: session.user, onUserChange: updateUser }),

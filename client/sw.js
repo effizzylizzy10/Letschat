@@ -22,7 +22,7 @@ var MAX_IMAGES = LITE ? 60 : 400;
 // SHELL = the files the app cannot start without (install fails if one is missing, so the old working version stays). EXTRAS = nice to have: a missing
 // icon, sound or picture never blocks an update.
 var SHELL = ["./", "./index.html", "./app.js", "./config.js", "./polyfills.js", "./compat.js", "./responsive.js", "./responsive.css", "./device.js", "./manifest.json"];
-if (!LITE) SHELL.push("./push.js", "./reactions.js");
+if (!LITE) SHELL.push("./push.js", "./reactions.js", "./live.js");
 var EXTRAS = ["./icons/icon-192.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE ? [] : ["./icons/icon-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
 
 // Third-party files whose URL contains an exact version number: safe to keep forever.

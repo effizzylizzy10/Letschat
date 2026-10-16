@@ -95,7 +95,7 @@
     if (usedBackup) { var b = d.getElementById("error-box"); if (b && /FAILED TO LOAD SCRIPT/.test(b.textContent || "")) { b.style.display = "none"; b.textContent = ""; } }
     if (!lite) {
       var f = d.createElement("link"); f.rel = "stylesheet"; f.href = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap"; d.head.appendChild(f);
-      inject("push.js"); inject("reactions.js"); // optional extras: the app works without them
+      inject("push.js"); inject("reactions.js"); inject("live.js"); // optional extras: the app works without them
     }
     // modern phones get the small modern bundle; old ones the ES5 bundle (build.js makes app.legacy.js). If it is missing, app.js is used.
     if (modern) inject("app.js"); else { var L = d.createElement("script"); L.src = "app.legacy.js"; L.async = false; L.onerror = function () { inject("app.js"); }; d.body.appendChild(L); }
