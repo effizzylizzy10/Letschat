@@ -2524,6 +2524,9 @@ const io = new Server(server, {
 });
 
 const userSockets = new Map();
+// Letschat Live (live video, meetings with a join code, comments, gifts, stickers): see live.js
+let live = { attach() {} };
+try { live = require("./live")({ io, readDB, memberView, nanoid, isCreator, userSockets }); } catch (e) { console.error("Live module not loaded:", e.message); }
 // Greeting message (first message from someone new) and away message (you are offline; at most once per chat every 12 hours).
 const AWAY_GAP_MS = 12 * 60 * 60 * 1000;
 function autoReply(db, convo, incoming) {
@@ -3369,6 +3372,7 @@ io.on("connection", (socket) => {
   if (!userSockets.has(userId)) userSockets.set(userId, new Set());
   userSockets.get(userId).add(socket.id);
   socket.join(`user:${userId}`);
+  try { live.attach(socket); } catch (e) { console.error("live attach failed", e.message); }
   deliverPendingCall(userId);
   socket.on("presence:get", (ack) => { if (typeof ack === "function") ack(presenceSnapshot(userId)); });
   socket.data.visible = true;
