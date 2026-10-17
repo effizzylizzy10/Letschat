@@ -754,9 +754,7 @@ const stripRich = (t) => (typeof t === "string" ? (GAME_TAG_RE.test(t) ? "\uD83C
 function TabBar({ active, setActive, onRoom }) {
     const tabs = [
         { id: "chats", icon: MessageCircle, label: "Chats" },
-        { id: "room", icon: Users, label: "Room" },
         { id: "calls", icon: PhoneCall, label: "Calls" },
-        { id: "live", icon: Video, label: "Live" },
         { id: "status", icon: Radio, label: "Updates" },
         { id: "market", icon: ShoppingBag, label: "Market" },
         { id: "games", icon: Gamepad2, label: "Games" },
@@ -2566,7 +2564,7 @@ const GAME_RULES = {
       },
     snl: {
         // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
-        init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
+        init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0, rv: 0 }),
         moves: (s, p) => (s.nx === p ? [-1] : []),
         play: (s, m, p, rnd) => {
             const d = 1 + Math.floor(rnd() * 6), pos = s.p.slice();
@@ -2577,7 +2575,7 @@ const GAME_RULES = {
             if (jump)
                 np = jump;
             pos[p] = np;
-            return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev };
+            return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev, rv: (s.rv || 0) + 1 };
         },
         win: (s) => { for (const p of [0, 1])
             if (s.p[p] === 100)
@@ -3016,7 +3014,6 @@ const HUB_GAMES = [
     { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Roll, race, capture", ready: true },
     { id: "race", name: "Turbo Racer", emoji: "🏎️", color: "#FF3B5C", blurb: "Race, dodge, nitro", ready: true },
     { id: "pool", name: "8-Ball Pool", emoji: "🎱", color: "#1E9450", blurb: "Pot yours, sink the 8", ready: true },
-    { id: "dominoes", name: "Dominoes", emoji: "🧩", color: "#2DD4A0", blurb: "Match the tiles" },
 ];
 const hubName = (id) => (HUB_GAMES.find((g) => g.id === id) || { name: id }).name;
 const LEVELS = ["Easy", "Medium", "Hard", "Expert"];
@@ -3418,9 +3415,74 @@ function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
         gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, rolling ? "Rolling…" : myTurn ? (!dv ? "Tap the dice to roll." : usable.length === 0 ? "No moves with these dice." : usable.length > 1 ? "Tap a die to pick it, then tap a glowing piece." : "Tap a glowing piece to move it.") : "Waiting for the other player.")));
 }
 // ---- Snakes & Ladders: board ----
+function snlCss() {
+    if (document.getElementById("lc-snl-css"))
+        return;
+    const st = document.createElement("style");
+    st.id = "lc-snl-css";
+    st.textContent = "@keyframes snlHop{0%{transform:translateY(0) scale(1,1)}45%{transform:translateY(-0.45px) scale(.94,1.12)}80%{transform:translateY(0) scale(1.14,.86)}100%{transform:translateY(0) scale(1,1)}}" +
+        "@keyframes snlShake{0%,100%{transform:translateX(0)}15%{transform:translateX(-5px) rotate(-.6deg)}30%{transform:translateX(5px) rotate(.6deg)}45%{transform:translateX(-4px)}60%{transform:translateX(4px)}80%{transform:translateX(-2px)}}" +
+        "@keyframes snlPop{0%{transform:scale(.3);opacity:0}25%{transform:scale(1.25);opacity:1}70%{transform:scale(1);opacity:1}100%{transform:scale(1.1) translateY(-14px);opacity:0}}" +
+        "@media (prefers-reduced-motion:reduce){.lc-ld,.lc-ld *{animation:none!important}}";
+    document.head.appendChild(st);
+}
 function snlXY(n) { const r = Math.floor((n - 1) / 10), c = r % 2 ? 9 - ((n - 1) % 10) : (n - 1) % 10; return [c + 0.5, 9 - r + 0.5]; }
 function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
-    const canRoll = myTurn;
+    ludoCss();
+    // every roll (yours or the other player's) tumbles in 3D for about a second, then lands on the real face
+    const rv = s.rv || 0, prevRv = useRef(rv), [rolling, setRolling] = useState(false), [landed, setLanded] = useState(false), [face, setFace] = useState(1);
+    useEffect(() => {
+        if (rv === prevRv.current)
+            return;
+        prevRv.current = rv;
+        setRolling(true);
+        setLanded(false);
+        const iv = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 80), t1 = setTimeout(() => { clearInterval(iv); setRolling(false); setLanded(true); }, 900), t2 = setTimeout(() => setLanded(false), 1300);
+        return () => { clearInterval(iv); clearTimeout(t1); clearTimeout(t2); };
+    }, [rv]);
+    const canRoll = myTurn && !rolling;
+    snlCss();
+    // pawns hop square by square after the die lands; ladders sparkle, snakes shake the board, 6 pops, winning rains confetti
+    const [disp, setDisp] = useState(() => s.p.slice()), [fx, setFx] = useState([]), [shake, setShake] = useState(0), [six, setSix] = useState(0), prevP = useRef(s.p.slice()), timers = useRef([]), fxId = useRef(0), seenRv = useRef(rv);
+    const sigP = s.p.join(",");
+    useEffect(() => {
+        const base = prevP.current.slice(), cur = s.p.slice(), isRoll = rv !== seenRv.current;
+        prevP.current = cur;
+        seenRv.current = rv;
+        timers.current.forEach(clearTimeout);
+        timers.current = [];
+        const sched = (fn, ms) => { timers.current.push(setTimeout(fn, ms)); };
+        const setPos = (p, v) => setDisp((d) => { if (d[p] === v) return d; const n = d.slice(); n[p] = v; return n; });
+        const addFx = (type, n, color) => {
+            const id = ++fxId.current, [x, y] = snlXY(Math.max(1, n)), parts = [], N = type === "win" ? 70 : type === "ladder" ? 22 : type === "snake" ? 18 : 8;
+            const pal = type === "ladder" ? ["#FFE08A", "#F5B83D", "#FFFFFF"] : type === "snake" ? ["#FF4FA3", "#FF5A4D", "#FFB3D1"] : [color, "#FFE08A", "#FFFFFF"];
+            for (let j = 0; j < N; j++) {
+                const a = Math.random() * 6.283, d = 0.5 + Math.random() * (type === "ladder" ? 1.3 : 0.9);
+                parts.push({ dx: type === "win" ? (Math.random() - 0.5) * 6 : Math.cos(a) * d, dy: Math.sin(a) * d - (type === "ladder" ? 0.5 : 0), x: type === "win" ? Math.random() * 10 : 0, r: 0.05 + Math.random() * 0.07, rot: Math.round(Math.random() * 720 - 360), c: pal[j % 3] });
+            }
+            setFx((f) => f.concat({ id, type, x, y, parts }));
+            sched(() => setFx((f) => f.filter((o) => o.id !== id)), type === "win" ? 3000 : 1100);
+        };
+        const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { } };
+        const mover = [0, 1].find((p) => base[p] !== cur[p]);
+        if (!isRoll || mover === undefined) { setDisp(cur); return; }
+        const from = base[mover], d = s.last, land = from + d <= 100 ? from + d : from, jump = SNL_JUMPS[land], STEP = 170, T0 = 950;
+        setDisp(base);
+        for (let r = from + 1; r <= land; r++)
+            sched(() => setPos(mover, r), T0 + (r - from) * STEP);
+        let end = T0 + (land - from) * STEP;
+        if (d === 6) sched(() => { setSix((n) => n + 1); }, T0);
+        if (from === 0 && land > 0) sched(() => addFx("dust", land, PCOL[mover]), T0 + STEP);
+        if (jump) {
+            sched(() => { addFx(jump > land ? "ladder" : "snake", land, PCOL[mover]); if (jump < land) { setShake((n) => n + 1); buzz(40); } }, end + 40);
+            sched(() => { setPos(mover, jump); addFx(jump > land ? "ladder" : "snake", jump, PCOL[mover]); }, end + 420);
+            end += 900;
+        }
+        if (cur[mover] === 100) sched(() => { addFx("win", 100, PCOL[mover]); buzz([60, 40, 60, 40, 120]); }, end + 150);
+        else if (!jump && land === from && d > 0) { /* overshoot: stays */ }
+        return undefined;
+    }, [sigP, rv]);
+    useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
     const kids = [];
     for (let n = 1; n <= 100; n++) {
         const [x, y] = snlXY(n);
@@ -3435,9 +3497,19 @@ function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
             kids.push(gh("g", { key: "S" + a, opacity: 0.9 }, gh("path", { d: "M" + x1 + " " + y1 + " Q" + ((x1 + x2) / 2 + px * 1.1) + " " + ((y1 + y2) / 2 + py * 1.1) + " " + x2 + " " + y2, fill: "none", stroke: "#FF4FA3", strokeWidth: 0.17, strokeLinecap: "round" }), gh("circle", { cx: x1, cy: y1, r: 0.2, fill: "#FF4FA3" }), gh("circle", { cx: x1 - 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" }), gh("circle", { cx: x1 + 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" })));
         }
     });
-    [0, 1].forEach((p) => { const n = s.p[p], [x, y] = n === 0 ? [p ? 9.6 : 0.4, 10.35] : snlXY(n), off = n > 0 && s.p[0] === s.p[1] ? (p ? 0.18 : -0.18) : 0; kids.push(gh("circle", { key: "t" + p, cx: x + off, cy: y, r: 0.3, fill: PCOL[p], stroke: "#0B0F16", strokeWidth: 0.07, style: { filter: "drop-shadow(0 0 0.25px " + PCOL[p] + ")", transition: "all .35s" } })); });
+    [0, 1].forEach((p) => { const n = disp[p], [x, y] = n === 0 ? [p ? 9.6 : 0.4, 10.35] : snlXY(n), off = n > 0 && disp[0] === disp[1] ? (p ? 0.18 : -0.18) : 0; kids.push(gh("g", { key: "t" + p, style: { transform: "translate(" + (x + off) + "px," + y + "px)", transition: "transform .32s cubic-bezier(.3,1.4,.5,1)" } }, gh("ellipse", { cx: 0, cy: 0.27, rx: 0.24, ry: 0.07, fill: "rgba(0,0,0,.5)" }), gh("circle", { key: n, cx: 0, cy: 0, r: 0.3, fill: PCOL[p], stroke: "#0B0F16", strokeWidth: 0.07, style: { filter: "drop-shadow(0 0 0.25px " + PCOL[p] + ")", animation: "snlHop .3s ease-out", transformBox: "fill-box", transformOrigin: "center" } }), gh("circle", { cx: -0.09, cy: -0.1, r: 0.07, fill: "rgba(255,255,255,.55)" }))); });
+    // effects
+    fx.forEach((f) => {
+        if (f.type === "win") {
+            f.parts.forEach((q, j) => kids.push(gh("rect", { key: "fx" + f.id + "_" + j, x: q.x, y: -0.5, width: 0.18, height: 0.3, fill: q.c, style: { "--dx": q.dx + "px", "--rot": q.rot + "deg", animation: "lcConf " + (1.6 + (j % 7) * 0.2) + "s ease-in " + (j % 10) * 0.05 + "s forwards", pointerEvents: "none" } })));
+            return;
+        }
+        const ringC = f.type === "snake" ? "#FF4FA3" : f.type === "ladder" ? "#FFE08A" : "#E5DCC4";
+        kids.push(gh("circle", { key: "fr" + f.id, cx: f.x, cy: f.y, r: 0.45, fill: "none", stroke: ringC, strokeWidth: f.type === "dust" ? 0.05 : 0.1, style: { animation: "lcBurst " + (f.type === "dust" ? 0.45 : 0.7) + "s ease-out forwards", transformBox: "fill-box", transformOrigin: "center", pointerEvents: "none" } }));
+        f.parts.forEach((q, j) => kids.push(gh("circle", { key: "fp" + f.id + "_" + j, cx: f.x, cy: f.y, r: q.r, fill: q.c, style: { "--dx": q.dx + "px", "--dy": q.dy + "px", animation: "lcPart " + (f.type === "dust" ? 0.5 : 0.9) + "s ease-out forwards", transformBox: "fill-box", transformOrigin: "center", pointerEvents: "none" } })));
+    });
     const side = Math.max(120, Math.floor(Math.min(fit.w - 20, (fit.h - 66 - 20) / 1.08)));
-    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("snl") }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids)), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } }, gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player."))));
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("snl") }, gh("div", { key: "sh" + shake, className: "lc-ld", style: { position: "relative", animation: shake ? "snlShake .5s ease-out" : "none" } }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids), six > 0 && gh("div", { key: "six" + six, className: "lc-ld", style: { position: "absolute", left: 0, right: 0, top: "38%", textAlign: "center", pointerEvents: "none", fontFamily: "Sora, Inter, sans-serif", fontWeight: 900, fontSize: 38, color: "#FFE08A", textShadow: "0 0 18px rgba(245,184,61,.9), 0 3px 8px rgba(0,0,0,.6)", animation: "snlPop 1s ease-out forwards" } }, "SIX! \uD83C\uDF89"))), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } }, gh("div", { style: { padding: "6px 10px", borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.14)" : "rgba(255,255,255,.04)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.45)" : "none" } }, gh(LudoDie, { key: rv + (rolling ? "r" : landed ? "l" : "s"), v: rolling ? 1 : (s.last >= 1 && s.last <= 6 ? s.last : 1), size: 50, mode: rolling ? "roll" : landed ? "land" : "", which: 0, onClick: canRoll ? () => onTap(-1) : undefined, label: "Roll the dice" + (s.last ? ", last roll " + s.last : "") })), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (rolling ? "Rolling…" : (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player.")))));
 }
 // ---- Draughts: robot brain and board ----
 function ckEval(s, p) { let v = 0; s.b.forEach((x, i) => { if (x == null)
@@ -4569,7 +4641,7 @@ const GAME_ART_CSS = ".ga-tile{transition:transform .15s ease}.ga-tile:active{tr
   "@keyframes gaDrop{0%{transform:translateY(-60px);opacity:0}12%{opacity:1}34%,86%{transform:none;opacity:1}100%{transform:none;opacity:0}}" +
   "@keyframes gaHop{0%,100%{transform:translate(0,0)}25%{transform:translate(10px,-16px) rotate(8deg)}50%{transform:translate(20px,0)}75%{transform:translate(8px,-12px) rotate(-8deg)}}" +
   "@keyframes gaSlide{0%,15%{transform:translate(0,0)}45%,70%{transform:translate(14px,-14px)}100%{transform:translate(0,0)}}" +
-  "@keyframes gaRoll{0%{transform:rotate(0) scale(1)}30%{transform:rotate(180deg) scale(1.15)}60%,100%{transform:rotate(360deg) scale(1)}}" +
+  "@keyframes gaRoll{0%{transform:perspective(160px) rotateX(0) rotateY(0) scale(1)}30%{transform:perspective(160px) rotateX(180deg) rotateY(200deg) scale(1.15)}60%,100%{transform:perspective(160px) rotateX(360deg) rotateY(360deg) scale(1)}}" +
   "@keyframes gaDash{to{stroke-dashoffset:-24}}@keyframes gaBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}" +
   "@keyframes gaFlip{0%,40%{transform:scaleX(1)}50%{transform:scaleX(0)}60%,100%{transform:scaleX(1)}}";
 function GameArt({ id, color, emoji }) {
@@ -4791,7 +4863,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     const section = (title, list, empty) => gh("div", { style: { marginBottom: 18 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, title + " (" + list.length + ")"), list.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8" } }, list.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ mode: "friend", player: p, kind: "invite" }), onChallenge: () => go({ mode: "friend", player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", padding: "2px 2px" } }, empty));
     const xpInLevel = meCard.xp % 100;
     const badges = [["🏆", "Champion", "Win 10 games", meCard.w >= 10], ["🔥", "Win Streak", "Win 3 in a row", meCard.best >= 3], ["🎯", "Master Player", "Reach level 5", meCard.level >= 5], ["👑", "Top Player", "Be #1 on a leaderboard", board.rows[0] && board.rows[0].user.id === myId], ["⭐", "Rising Star", "Win 3 games", meCard.w >= 3]];
-    const playTab = gh("div", null, gh("div", { style: { ...GLASS, padding: 14, display: "flex", gap: 12, counterIncrement: "lcgap-12", alignItems: "center", marginBottom: 14, boxShadow: "0 0 24px rgba(139,92,246,.18)" } }, gh(Ring, { size: 52, color: meCard.color, initials: meCard.initials, photo: meCard.avatar, online: true }), gh("div", { style: { flex: 1 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, "Level " + meCard.level + " " + rankName(meCard.level)), gh("div", { style: { height: 7, borderRadius: 4, background: "rgba(255,255,255,0.1)", margin: "7px 0 5px", overflow: "hidden" } }, gh("div", { style: { width: xpInLevel + "%", height: "100%", background: "linear-gradient(90deg,#35D0BA,#8B5CF6)", transition: "width .6s" } })), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, xpInLevel + "/100 XP · " + meCard.w + "W " + meCard.l + "L · 🔥 " + meCard.streak))), gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginBottom: 10 } }, hubBtn("👥 Find a Player", () => go({ mode: "friend" }), { style: { flex: 1 } }), hubBtn("🎲 Random Player", () => go({ mode: "random" }), { style: { flex: 1 }, bg: "linear-gradient(135deg,#FF4FA3,#FF8FC4)", glow: "rgba(255,79,163,.45)" })), gh("button", { onClick: () => go({ mode: "robot" }), style: { width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid rgba(139,92,246,.5)", borderRadius: 22, padding: "18px 18px", marginBottom: 18, background: "linear-gradient(135deg,rgba(139,92,246,.35),rgba(53,208,186,.18))", boxShadow: "0 0 26px rgba(139,92,246,.3)", display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" } }, gh("div", { style: { fontSize: 44 } }, "🤖"), gh("div", null, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 19, color: "#F5F7FA" } }, "Play vs Robot"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", marginTop: 2 } }, "Easy to Expert. Starts right away."))), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 10px" } }, "Pick a game"), gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, counterIncrement: "lcgap-12" } }, HUB_GAMES.map((gm, gi) => gh("button", { key: gm.id, className: "ga-tile", disabled: !gm.ready, onClick: () => go({ game: gm.id, mode: null }), "aria-label": gm.name + (gm.ready ? "" : " coming soon"), style: { textAlign: "left", padding: 0, border: "1px solid " + gm.color + "55", borderRadius: 20, overflow: "hidden", cursor: gm.ready ? "pointer" : "default", background: "#121821", opacity: gm.ready ? 1 : 0.6, animation: "gaPop .5s cubic-bezier(.2,1.4,.4,1) both", animationDelay: (gi * 45) + "ms" } }, gh("div", { style: { height: 84, background: "linear-gradient(145deg," + gm.color + "66," + gm.color + "14)" } }, gh(GameArt, { id: gm.id, color: gm.color, emoji: gm.emoji })), gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, gm.name), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: gm.ready ? "#9BA7B4" : "#F5B83D", marginTop: 2 } }, gm.ready ? gm.blurb : "Coming soon")))), gh("button", { onClick: () => setArcade(true), style: { textAlign: "left", padding: 0, border: "1px solid rgba(255,255,255,.14)", borderRadius: 20, overflow: "hidden", cursor: "pointer", background: "#121821" } }, gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "rgba(255,255,255,0.06)" } }, "🕹️"), gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, "Solo arcade"), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Pool, Snake, 2048, Memory")))));
+    const playTab = gh("div", null, gh("div", { style: { ...GLASS, padding: 14, display: "flex", gap: 12, counterIncrement: "lcgap-12", alignItems: "center", marginBottom: 14, boxShadow: "0 0 24px rgba(139,92,246,.18)" } }, gh(Ring, { size: 52, color: meCard.color, initials: meCard.initials, photo: meCard.avatar, online: true }), gh("div", { style: { flex: 1 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, "Level " + meCard.level + " " + rankName(meCard.level)), gh("div", { style: { height: 7, borderRadius: 4, background: "rgba(255,255,255,0.1)", margin: "7px 0 5px", overflow: "hidden" } }, gh("div", { style: { width: xpInLevel + "%", height: "100%", background: "linear-gradient(90deg,#35D0BA,#8B5CF6)", transition: "width .6s" } })), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, xpInLevel + "/100 XP · " + meCard.w + "W " + meCard.l + "L · 🔥 " + meCard.streak))), gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginBottom: 10 } }, hubBtn("👥 Find a Player", () => go({ mode: "friend" }), { style: { flex: 1 } }), hubBtn("🎲 Random Player", () => go({ mode: "random" }), { style: { flex: 1 }, bg: "linear-gradient(135deg,#FF4FA3,#FF8FC4)", glow: "rgba(255,79,163,.45)" })), gh("button", { onClick: () => go({ mode: "robot" }), style: { width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid rgba(139,92,246,.5)", borderRadius: 22, padding: "18px 18px", marginBottom: 18, background: "linear-gradient(135deg,rgba(139,92,246,.35),rgba(53,208,186,.18))", boxShadow: "0 0 26px rgba(139,92,246,.3)", display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" } }, gh("div", { style: { fontSize: 44 } }, "🤖"), gh("div", null, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 19, color: "#F5F7FA" } }, "Play vs Robot"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", marginTop: 2 } }, "Easy to Expert. Starts right away."))), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 10px" } }, "Pick a game"), gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, counterIncrement: "lcgap-12" } }, HUB_GAMES.map((gm, gi) => gh("button", { key: gm.id, className: "ga-tile", disabled: !gm.ready, onClick: () => go({ game: gm.id, mode: null }), "aria-label": gm.name + (gm.ready ? "" : " coming soon"), style: { textAlign: "left", padding: 0, border: "1px solid " + gm.color + "55", borderRadius: 20, overflow: "hidden", cursor: gm.ready ? "pointer" : "default", background: "#121821", opacity: gm.ready ? 1 : 0.6, animation: "gaPop .5s cubic-bezier(.2,1.4,.4,1) both", animationDelay: (gi * 45) + "ms" } }, gh("div", { style: { height: 84, background: "linear-gradient(145deg," + gm.color + "66," + gm.color + "14)" } }, gh(GameArt, { id: gm.id, color: gm.color, emoji: gm.emoji })), gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, gm.name), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: gm.ready ? "#9BA7B4" : "#F5B83D", marginTop: 2 } }, gm.ready ? gm.blurb : "Coming soon"))))));
     const lobbyTab = gh("div", null, gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 16 } }, [["Online", others.length, "#35D0BA"], ["Playing", others.filter((p) => p.status === "playing").length, "#FF4FA3"], ["Looking", others.filter((p) => p.status === "looking").length, "#F5B83D"]].map(([l, n, c]) => gh("div", { key: l, style: { ...GLASS, flex: 1, padding: "10px 6px", textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 22, color: c } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, l)))), section("Friends available", others.filter((p) => dmOf(p.id) && p.status !== "playing"), "None of your chat friends are free right now."), section("Looking for opponents", others.filter((p) => p.status === "looking"), "Nobody is waiting. Tap Random Player to be the first."), section("Playing now", others.filter((p) => p.status === "playing"), "No games running."), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, "Recently played"), lobby.recent.length ? lobby.recent.map((r, i) => gh("div", { key: i, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: "#C9D1DC" } }, hubName(r.game) + ": " + (r.aName || "Player") + " vs " + (r.bName || "Player") + (r.w ? " · " + (r.w === r.a ? r.aName : r.bName) + " won" : " · draw"))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Finished games show up here."));
     const ranksTab = gh("div", null, gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]].map(([k, l]) => gh("button", { key: k, onClick: () => setPeriod(k), style: { flex: 1, padding: "9px 0", borderRadius: 999, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "1px solid " + (period === k ? "#35D0BA" : "rgba(255,255,255,.14)"), background: period === k ? "rgba(53,208,186,.18)" : "transparent", color: period === k ? "#35D0BA" : "#9BA7B4" } }, l))), board.rows.length ? board.rows.map((r) => gh("div", { key: r.user.id, style: { ...GLASS, padding: "9px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", borderColor: r.user.id === myId ? "#35D0BA" : "rgba(255,255,255,.11)" } }, gh("div", { style: { width: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: r.rank === 1 ? "#F5B83D" : "#9BA7B4" } }, r.rank === 1 ? "👑" : r.rank), gh(Ring, { size: 38, color: r.user.color, initials: r.user.initials, photo: r.user.avatar }), gh("div", { style: { flex: 1, minWidth: 0 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA" } }, r.user.id === myId ? "You" : r.user.username || r.user.name), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, "Lv " + r.user.level + " · " + r.xp + " XP earned")), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "right" } }, r.w + "W " + r.l + "L"))) : gh("div", { style: { ...GLASS, padding: 18, textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 14 } }, "No ranked games yet this " + period + ". Beat a real player to take the first spot."), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "14px 2px 8px" } }, "Your badges"), gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, counterIncrement: "lcgap-10" } }, badges.map(([e, n, how, got]) => gh("div", { key: n, style: { ...GLASS, padding: 12, opacity: got ? 1 : 0.5, borderColor: got ? "#F5B83D" : "rgba(255,255,255,.11)" } }, gh("div", { style: { fontSize: 26, filter: got ? "none" : "grayscale(1)" } }, e), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginTop: 4 } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, got ? "Unlocked" : how)))));
     // setup sheet (one question at a time: game → how → difficulty / player)

@@ -38,6 +38,8 @@
     var s = document.createElement("style"); s.id = "lc-live-css";
     s.textContent = "@keyframes lcFloat{0%{transform:translateY(0) scale(.7);opacity:0}15%{opacity:1}100%{transform:translateY(-260px) scale(1.25);opacity:0}}" +
       "@keyframes lcGift{0%{transform:scale(.4);opacity:0}15%{transform:scale(1.1);opacity:1}80%{opacity:1}100%{transform:scale(1);opacity:0}}" +
+      "@keyframes lcBubble{0%{transform:translate(0,0) scale(.5);opacity:0}12%{opacity:var(--lc-o,.5)}50%{transform:translate(var(--lc-dx,-14px),-45vh) scale(1)}100%{transform:translate(calc(var(--lc-dx,-14px) * -1),-95vh) scale(1.15);opacity:0}}" +
+      "@media (prefers-reduced-motion:reduce){.lc-bubble{display:none!important}}" +
       "@keyframes lcPulse{0%,100%{opacity:1}50%{opacity:.45}}" +
       "@media (prefers-reduced-motion:reduce){.lc-fx,.lc-gift,.lc-pulse{animation:none!important}}";
     document.head.appendChild(s);
@@ -67,7 +69,7 @@
   function Room(p) {
     var info = p.info, me = p.me, socket = p.socket;
     var code = info.code, kind = info.kind;
-    var st = useState(function () { return { chat: info.chat || [], viewers: info.viewers || 1, gifts: info.gifts || 0, hostId: info.hostId, host: info.host, media: info.media }; }), S = st[0], setS = st[1];
+    var st = useState(function () { return { chat: info.chat || [], viewers: info.viewers || 1, gifts: info.gifts || 0, hostId: info.hostId, host: info.host, media: info.media, pinned: info.pinned || null }; }), S = st[0], setS = st[1];
     var rs = useState({}), remotes = rs[0], setRemotes = rs[1];                 // userId -> MediaStream
     var ps = useState(function () { var m = {}; (info.peers || []).forEach(function (u) { if (u) m[u.id] = u; }); if (info.host) m[info.host.id] = info.host; return m; }), people = ps[0], setPeople = ps[1];
     var ls = useState(null), local = ls[0], setLocal = ls[1];
@@ -82,6 +84,9 @@
     var ts = useState(""), toast = ts[0], setToast = ts[1];
     var pcs = useRef({}), pend = useRef({}), localRef = useRef(null), inputRef = useRef(null), logRef = useRef(null), fxId = useRef(0), alive = useRef(true);
     var isHost = S.hostId === me.id;
+    var canPin = isHost || !!me.creator;
+    var bubbles = useRef(null);
+    if (!bubbles.current) { var pal = [[124,92,255],[53,208,186],[255,107,157],[255,212,59],[77,171,247],[255,146,43],[105,219,124]]; bubbles.current = []; for (var bi = 0; bi < 12; bi++) { var c = pal[bi % pal.length], sz = 18 + Math.round(Math.random() * 36); bubbles.current.push({ id: bi, c: c, size: sz, right: Math.round(Math.random() * 70), dur: 5 + Math.random() * 5, delay: -Math.random() * 10, dx: Math.round((Math.random() * 40 - 20)), o: (0.3 + Math.random() * 0.3).toFixed(2) }); } }
     var flash = function (t) { setToast(t); setTimeout(function () { if (alive.current) setToast(""); }, 2600); };
 
     // ---- WebRTC ----
@@ -324,6 +329,7 @@
         setPeople(function (x) { if (x[m.msg.user.id]) return x; var n = Object.assign({}, x); n[m.msg.user.id] = m.msg.user; return n; });
         setS(function (s) { return Object.assign({}, s, { chat: s.chat.concat([m.msg]).slice(-80) }); });
       };
+      var onPinned = function (m) { if (m.code === code) setS(function (s) { return Object.assign({}, s, { pinned: m.pinned || null }); }); };
       var onMsgReact = function (m) { if (m.code !== code) return; setS(function (s) { return Object.assign({}, s, { chat: s.chat.map(function (c) { return c.id === m.msgId ? Object.assign({}, c, { reactions: m.reactions }) : c; }) }); }); };
       var onFx = function (m) {
         if (m.code !== code) return;
@@ -339,12 +345,12 @@
         socket.emit("live:join", { code: code }, function (r) {
           if (!r || r.error) return p.onClose((r && r.error) || "This live has ended");
           Object.keys(pcs.current).forEach(closePeer);
-          setS(function (s) { return Object.assign({}, s, { viewers: r.viewers, gifts: r.gifts, hostId: r.hostId, chat: r.chat || s.chat }); });
+          setS(function (s) { return Object.assign({}, s, { viewers: r.viewers, gifts: r.gifts, hostId: r.hostId, chat: r.chat || s.chat, pinned: r.pinned || null }); });
           if (kind === "meeting") (r.peers || []).forEach(function (u) { if (u && u.id !== me.id) offerTo(u.id, true, false); });
           else if (r.hostId !== me.id && r.media) offerTo(r.hostId, false, true);
         });
       };
-      var evs = { "live:joined": onJoined, "live:left": onLeft, "live:count": onCount, "live:chat": onChat, "live:msgreact": onMsgReact, "live:fx": onFx, "live:mention": onMention, "live:share": onShare, "live:ended": onEnded, "live:signal": onSignal };
+      var evs = { "live:joined": onJoined, "live:left": onLeft, "live:count": onCount, "live:chat": onChat, "live:msgreact": onMsgReact, "live:pinned": onPinned, "live:fx": onFx, "live:mention": onMention, "live:share": onShare, "live:ended": onEnded, "live:signal": onSignal };
       for (var k in evs) socket.on(k, evs[k]);
       var firstConnect = true;
       var onConn = function () { if (firstConnect) { firstConnect = false; return; } onReconnect(); };
@@ -363,6 +369,7 @@
       setText(""); setReplyTo(null); setPicked(null);
     }
     var fxSend = function (kindName, value) { socket.emit("live:fx", { code: code, kind: kindName, value: value }, function (r) { if (r && r.error) flash(r.error); }); };
+    var pinMsg = function (m) { socket.emit("live:pin", { code: code, msgId: m ? m.id : null }, function (r) { if (r && r.error) flash(r.error); }); setPicked(null); };
     var reactMsg = function (m, e) { socket.emit("live:msgreact", { code: code, msgId: m.id, emoji: e }); setPicked(null); };
     var toggleMic = function () { var s = localRef.current; if (!s) return; var on = !mediaState.mic; s.getAudioTracks().forEach(function (t) { t.enabled = on; }); setMedia(Object.assign({}, mediaState, { mic: on })); };
     var toggleCam = function () { setLook(modeRef.current.mode === "off" ? "camera" : "off"); };
@@ -397,7 +404,8 @@
             chips(m))),
         sel && h("div", { style: { display: "flex", gap: 2, alignItems: "center", marginTop: 4, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 8px", width: "fit-content", maxWidth: "100%", overflowX: "auto" } },
           EMOJIS.slice(0, 7).map(function (e) { return h("button", { key: e, onClick: function () { reactMsg(m, e); }, style: { background: "none", border: "none", fontSize: 22, padding: "0 3px", cursor: "pointer" } }, e); }),
-          h("button", { onClick: function () { setReplyTo(m); setPicked(null); if (inputRef.current) inputRef.current.focus(); }, style: { background: C.teal, color: "#0E1116", border: "none", borderRadius: 999, padding: "5px 10px", fontWeight: 700, fontSize: 12.5, marginLeft: 4, cursor: "pointer", flexShrink: 0 } }, "Reply")));
+          h("button", { onClick: function () { setReplyTo(m); setPicked(null); if (inputRef.current) inputRef.current.focus(); }, style: { background: C.teal, color: "#0E1116", border: "none", borderRadius: 999, padding: "5px 10px", fontWeight: 700, fontSize: 12.5, marginLeft: 4, cursor: "pointer", flexShrink: 0 } }, "Reply"),
+          canPin && h("button", { onClick: function () { pinMsg(S.pinned && S.pinned.id === m.id ? null : m); }, style: { background: "#FFD43B", color: "#0E1116", border: "none", borderRadius: 999, padding: "5px 10px", fontWeight: 700, fontSize: 12.5, marginLeft: 4, cursor: "pointer", flexShrink: 0 } }, S.pinned && S.pinned.id === m.id ? "Unpin" : "\uD83D\uDCCC Pin")));
     };
 
     var teaching = isHost && vmode === "screen" && CAN_PIPE;
@@ -444,11 +452,21 @@
       // floating emojis / stickers
       h("div", { style: { position: "absolute", right: 0, bottom: 150, width: "55%", height: 280, pointerEvents: "none", zIndex: 6, overflow: "hidden" } },
         floaters.map(function (f) { return h("div", { key: f.id, className: "lc-fx", style: { position: "absolute", bottom: 0, left: f.x + "%", fontSize: f.big ? 46 : 32, fontWeight: 900, color: "#FFD43B", textShadow: "0 2px 8px rgba(0,0,0,.6)", animation: "lcFloat 2.6s ease-out forwards" } }, f.g); })),
+      // colourful see-through bubbles rising on the right side (Go Live only)
+      kind === "live" && h("div", { "aria-hidden": "true", style: { position: "absolute", right: 0, top: 70, bottom: 150, width: "38%", pointerEvents: "none", zIndex: 4, overflow: "hidden" } },
+        bubbles.current.map(function (b) { var rgb = b.c.join(","); return h("span", { key: b.id, className: "lc-bubble", style: { position: "absolute", bottom: -60, right: b.right + "%", width: b.size, height: b.size, borderRadius: "50%", background: "radial-gradient(circle at 30% 28%, rgba(255,255,255,.55), rgba(" + rgb + ",.28) 45%, rgba(" + rgb + ",.12) 100%)", border: "1px solid rgba(" + rgb + ",.55)", boxShadow: "inset 0 0 8px rgba(255,255,255,.25), 0 0 10px rgba(" + rgb + ",.25)", "--lc-dx": b.dx + "px", "--lc-o": b.o, opacity: 0, animation: "lcBubble " + b.dur.toFixed(1) + "s linear " + b.delay.toFixed(1) + "s infinite" } }); })),
       // gift banners
       h("div", { style: { position: "absolute", left: 0, right: 0, top: "30%", zIndex: 7, pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 } },
         gifts.map(function (g) { return h("div", { key: g.id, className: "lc-gift", style: { background: "rgba(124,92,255,.9)", color: "#fff", borderRadius: 999, padding: "8px 18px", display: "flex", alignItems: "center", gap: 10, fontWeight: 700, animation: "lcGift 3s ease forwards" } }, h("span", { style: { fontSize: 38 } }, g.glyph), h("span", null, (g.user && g.user.name) + " sent a gift!")); })),
       toast && h("div", { style: { position: "absolute", left: 16, right: 16, top: 110, zIndex: 9, background: "#1E2530", color: C.text, border: "1px solid #2B3544", borderRadius: 12, padding: "10px 14px", textAlign: "center", fontSize: 13.5 } }, toast),
       h("div", { style: { flex: 1 } }),
+      // pinned message (set by the host), shown on top of the chat
+      S.pinned && h("div", { style: { position: "relative", zIndex: 6, margin: "0 10px 6px", display: "flex", alignItems: "center", gap: 8, background: "rgba(30,37,48,.92)", border: "1px solid #FFD43B", borderRadius: 12, padding: "6px 8px" } },
+        h("span", { style: { fontSize: 16 } }, "\uD83D\uDCCC"),
+        h("div", { style: { minWidth: 0, flex: 1, fontFamily: "Inter, sans-serif", fontSize: 13, color: C.text, lineHeight: 1.35, wordBreak: "break-word", maxHeight: 64, overflowY: "auto" } },
+          h("div", { style: { color: "#FFD43B", fontSize: 11.5, fontWeight: 700 } }, "Pinned by ", S.pinned.by || "host", " \u00B7 ", S.pinned.user && S.pinned.user.name),
+          S.pinned.gift ? h("span", null, "sent a gift ", glyph(GIFTS, S.pinned.gift)) : renderText(S.pinned.text)),
+        canPin && h("button", { "aria-label": "Unpin message", onClick: function () { pinMsg(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 16, cursor: "pointer", flexShrink: 0 } }, "\u2715")),
       // comments
       chatOpen && h("div", { ref: logRef, style: { position: "relative", zIndex: 5, maxHeight: kind === "meeting" ? "40%" : "34%", overflowY: "auto", padding: "0 10px 6px", background: kind === "meeting" ? C.bg : "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.45))", WebkitOverflowScrolling: "touch" } },
         S.chat.length ? S.chat.map(comment) : h("div", { style: { color: C.dim, fontSize: 13, padding: "6px 4px" } }, "No comments yet. Say hi \uD83D\uDC4B")),
