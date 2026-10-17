@@ -13,6 +13,7 @@ const EMOJIS = ["\u{1F44D}", "\u2764\uFE0F", "\u{1F602}", "\u{1F62E}", "\u{1F622
 
 module.exports = function setupLive(ctx) {
   const { io, readDB, memberView, nanoid, isCreator } = ctx;
+  const notifiedAt = new Map(); // hostId -> when their chats were last told (one alert per 10 minutes at most)
   const rooms = new Map();      // code -> room
   const userRoom = new Map();   // userId -> code
   const lastAct = new Map();    // `${userId}:${kind}` -> timestamp (simple flood guard)
@@ -26,10 +27,35 @@ module.exports = function setupLive(ctx) {
   const publicRoom = (room) => ({ code: room.code, kind: room.kind, title: room.title, video: room.video, host: view(room.host), viewers: count(room), started: room.started, gifts: room.giftCount });
   const tellCount = (room) => emitRoom(room, "live:count", { code: room.code, viewers: count(room), gifts: room.giftCount });
 
+  // Everyone who shares a chat with the host (people and groups; not the all-users Chat Room) is told when a live starts.
+  function tellChatMembers(room) {
+    try {
+      const now = Date.now();
+      if (now - (notifiedAt.get(room.host) || 0) < 10 * 60 * 1000) return;
+      notifiedAt.set(room.host, now);
+      const db = readDB(), host = db.users.find((u) => u.id === room.host);
+      if (!host) return;
+      const hostView = memberView(host), payload = { code: room.code, title: room.title, host: hostView };
+      const shared = new Map(); // userId -> [conversation ids shared with the host]
+      for (const c of db.conversations) {
+        if (c.chatRoom || !(c.participantIds || []).includes(room.host)) continue;
+        for (const pid of c.participantIds) if (pid !== room.host) { if (!shared.has(pid)) shared.set(pid, []); shared.get(pid).push(c.id); }
+      }
+      for (const [pid, convIds] of shared) {
+        const u = db.users.find((x) => x.id === pid);
+        if (!u || (u.blocked || []).includes(room.host) || (host.blocked || []).includes(pid)) continue;
+        const muted = ctx.mutedOf ? ctx.mutedOf(db, u) : {};
+        if (convIds.every((id) => muted[id] !== undefined)) continue; // they muted every chat they share with the host
+        io.to("user:" + pid).emit("live:started", payload);
+        if (ctx.pushLive && !(ctx.userIsActive && ctx.userIsActive(pid))) ctx.pushLive(pid, hostView, room.title, "live-" + room.code);
+      }
+    } catch (e) { console.error("live notify failed", e.message); }
+  }
   function dropFromRoom(userId, code, reason) {
     const room = rooms.get(code || userRoom.get(userId));
     if (!room || !room.members.has(userId)) return;
     room.members.delete(userId);
+    if (room.sharing && room.sharing.delete(userId)) emitRoom(room, "live:share", { code: room.code, userId, on: false });
     if (userRoom.get(userId) === room.code) userRoom.delete(userId);
     if (room.kind === "live" && userId === room.host) return endRoom(room, "The host ended the live");
     if (room.kind === "meeting" && userId === room.host && room.members.size) room.host = [...room.members.keys()][0]; // meeting carries on with the next person as host
@@ -55,15 +81,17 @@ module.exports = function setupLive(ctx) {
         if (!me) return ack(cb, { error: "Sign in again" });
         if (userRoom.has(userId)) return ack(cb, { error: "You are already in a live. Leave it first.", code: userRoom.get(userId) });
         const k = kind === "meeting" ? "meeting" : "live";
-        const room = { code: newCode(), kind: k, title: clean(title, LIMITS.titleMax) || (k === "meeting" ? "Live Meeting" : "Live now"), video: video !== false, host: userId, started: Date.now(), members: new Map([[userId, { at: Date.now(), media: true }]]), chat: [], banned: new Set(), giftCount: 0 };
+        const room = { code: newCode(), kind: k, title: clean(title, LIMITS.titleMax) || (k === "meeting" ? "Live Meeting" : "Live now"), video: video !== false, host: userId, started: Date.now(), members: new Map([[userId, { at: Date.now(), media: true }]]), chat: [], banned: new Set(), giftCount: 0, sharing: new Set() };
         rooms.set(room.code, room); userRoom.set(userId, room.code);
         ack(cb, { code: room.code, kind: k, title: room.title, host: view(userId) });
+        if (k === "live") tellChatMembers(room);
       });
 
-      socket.on("live:join", ({ code } = {}, cb) => {
+      socket.on("live:join", ({ code, manual } = {}, cb) => {
         code = clean(code, 8).toUpperCase().replace(/[^A-Z0-9]/g, "");
         const room = rooms.get(code);
         if (!room) return ack(cb, { error: "No live found for that code. Check it and try again." });
+        if (manual && room.kind === "live") return ack(cb, { error: "Codes are for Live Meetings. To watch a live, pick it from the list." });
         if (room.banned.has(userId)) return ack(cb, { error: "The host removed you from this live" });
         if (userRoom.has(userId) && userRoom.get(userId) !== code) return ack(cb, { error: "You are already in another live. Leave it first." });
         if (room.members.has(userId) && userId !== room.host) dropFromRoom(userId, code); // reconnecting: clear the old seat first (the host keeps the room open)
@@ -77,7 +105,7 @@ module.exports = function setupLive(ctx) {
         userRoom.set(userId, code);
         emitRoom(room, "live:joined", { code, user: me, media }, userId);
         tellCount(room);
-        ack(cb, { code, kind: room.kind, title: room.title, video: room.video, host: view(room.host), hostId: room.host, media, peers, viewers: count(room), gifts: room.giftCount, chat: room.chat.slice(-30), started: room.started, isHost: userId === room.host });
+        ack(cb, { code, kind: room.kind, title: room.title, video: room.video, host: view(room.host), hostId: room.host, media, peers, viewers: count(room), gifts: room.giftCount, sharing: [...room.sharing], chat: room.chat.slice(-30), started: room.started, isHost: userId === room.host });
       });
 
       socket.on("live:leave", ({ code } = {}) => dropFromRoom(userId, clean(code, 8).toUpperCase()));
@@ -106,6 +134,14 @@ module.exports = function setupLive(ctx) {
         if (!room || !room.members.has(userId) || !room.members.has(to) || !data || typeof data !== "object") return;
         if (JSON.stringify(data).length > 20000) return;
         io.to("user:" + to).emit("live:signal", { code: room.code, from: userId, data });
+      });
+
+      // screen sharing: only the host of a live, or anyone in a meeting; everybody else is told so the picture is shown whole
+      socket.on("live:share", ({ code, on } = {}) => {
+        const room = rooms.get(clean(code, 8).toUpperCase());
+        if (!room || !room.members.has(userId) || !(room.kind === "meeting" || userId === room.host)) return;
+        if (on) room.sharing.add(userId); else room.sharing.delete(userId);
+        emitRoom(room, "live:share", { code: room.code, userId, on: !!on }, userId);
       });
 
       // comments, with optional reply-to and @mentions

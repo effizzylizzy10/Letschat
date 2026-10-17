@@ -2526,7 +2526,7 @@ const io = new Server(server, {
 const userSockets = new Map();
 // Letschat Live (live video, meetings with a join code, comments, gifts, stickers): see live.js
 let live = { attach() {} };
-try { live = require("./live")({ io, readDB, memberView, nanoid, isCreator, userSockets }); } catch (e) { console.error("Live module not loaded:", e.message); }
+try { live = require("./live")({ io, readDB, memberView, nanoid, isCreator, userSockets, mutedOf, pushLive, userIsActive }); } catch (e) { console.error("Live module not loaded:", e.message); }
 // Greeting message (first message from someone new) and away message (you are offline; at most once per chat every 12 hours).
 const AWAY_GAP_MS = 12 * 60 * 60 * 1000;
 function autoReply(db, convo, incoming) {
@@ -2570,6 +2570,21 @@ function endCall(callId, reason) {
   for (const id of [c.from, c.to]) io.to(`user:${id}`).emit("call:ended", { callId, reason });
 }
 
+// ---- push alert when someone goes live: a normal (non-ringing) notification, kept for 10 minutes ----
+function pushLive(toId, fromUser, title, tag) {
+  if (!PUSH_ON) return;
+  const db = readDB(), u = db.users.find((x) => x.id === toId);
+  if (!u || !(u.pushSubs || []).length) return;
+  for (const sub of u.pushSubs) {
+    webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title: ((fromUser && fromUser.name) || "Someone") + " is live now", body: title || "Tap to watch", tag, url: "./" }), { TTL: 600, urgency: "normal" })
+      .catch((err) => {
+        if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+          const d2 = readDB(), u2 = d2.users.find((x) => x.id === toId);
+          if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
+        }
+      });
+  }
+}
 // ---- push alert for a call: wakes the other phone even when the app is closed (short TTL so a stale ring never shows later) ----
 function pushCall(toId, fromUser, label, tag) {
   if (!PUSH_ON) return;
@@ -2662,6 +2677,11 @@ function joinUserToRoom(userId, room) {
 
 // ===================== GAMES HUB (matchmaking, invites, rooms, rankings) =====================
 // Rules are shared word-for-word with the client (GAME_RULES in app.jsx) so both sides agree.
+// Ludo with two dice: roll both, then use each die on any piece (tap a die to choose which). A 6 on either die brings a piece out of base.
+// A 6, a capture or a piece reaching home earns another roll once both dice are used. (Old one-die games still in progress keep working.)
+function ludoDice(s) { if (s.dv) return { dv: s.dv, u: s.u || [false, false] }; if (s.d != null) return { dv: [s.d], u: [false] }; return { dv: null, u: [] }; }
+function ludoCan(s, p, i, k) { const q = ludoDice(s); if (!q.dv || k >= q.dv.length || q.u[k]) return false; const r = s.t[p][i], v = q.dv[k]; if (r === 56) return false; if (r === -1) return v === 6; return r + v <= 56; }
+function ludoList(s, p) { const q = ludoDice(s), out = []; if (!q.dv) return out; for (let k = 0; k < q.dv.length; k++) for (let i = 0; i < 4; i++) if (ludoCan(s, p, i, k)) out.push(i + 4 * k); return out; }
 const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
 const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
 // ---- chess engine (shared with the server) ----
@@ -2749,26 +2769,33 @@ const GAME_RULES = {
     },
   },
   ludo: {
-    // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
-    init: () => ({ t: [[-1,-1,-1,-1],[-1,-1,-1,-1]], d: null, last: 0, nx: 0 }),
-    can: (s, p, i) => { const r = s.t[p][i], d = s.d; if (r === 56 || d == null) return false; if (r === -1) return d === 6; return r + d <= 56; },
-    moves: (s, p) => (s.nx !== p ? [] : s.d == null ? [-1] : [0,1,2,3].filter((i) => GAME_RULES.ludo.can(s, p, i))),
-    play: (s, m, p, rnd) => {
-      const t = s.t.map((a) => a.slice());
-      if (m === -1) {
-        const d = 1 + Math.floor(rnd() * 6), ns = { t, d, last: d, nx: p };
-        if (![0,1,2,3].some((i) => GAME_RULES.ludo.can(ns, p, i))) { ns.d = null; ns.nx = 1 - p; }
+      // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
+      // A move is piece + 4 * die (die 0 or 1); -1 rolls both dice.
+      init: () => ({ t: [[-1, -1, -1, -1], [-1, -1, -1, -1]], dv: null, u: [false, false], bn: false, last: [0, 0], nx: 0, rv: 0 }),
+      can: (s, p, i, k) => ludoCan(s, p, i, k == null ? 0 : k),
+      moves: (s, p) => (s.nx !== p ? [] : !ludoDice(s).dv ? [-1] : ludoList(s, p)),
+      play: (s, m, p, rnd) => {
+        const t = s.t.map((a) => a.slice());
+        if (m === -1) {
+          const a = 1 + Math.floor(rnd() * 6), b = 1 + Math.floor(rnd() * 6), ns = { t, dv: [a, b], u: [false, false], bn: a === 6 || b === 6, last: [a, b], nx: p, rv: (s.rv || 0) + 1 };
+          if (!ludoList(ns, p).length) { ns.dv = null; ns.nx = ns.bn ? p : 1 - p; ns.bn = false; }
+          return ns;
+        }
+        const cur = ludoDice(s), k = Math.floor(m / 4), i = m % 4, v = cur.dv[k], u = cur.u.slice(), r = t[p][i], nr = r === -1 ? 0 : r + v;
+        let bn = !!s.bn || (!s.dv && s.d === 6); t[p][i] = nr; u[k] = true;
+        if (nr <= 50) {
+          const a = (p * 26 + nr) % 52;
+          if (!LUDO_SAFE.includes(a)) { const q = 1 - p; t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) { t[q][j] = -1; bn = true; } }); }
+        }
+        if (nr === 56) bn = true;
+        const ns = { t, dv: cur.dv, u, bn, last: Array.isArray(s.last) ? s.last : cur.dv.slice(), nx: p, rv: s.rv || 0 };
+        if (!ludoList(ns, p).length) { ns.dv = null; ns.u = [false, false]; ns.nx = bn ? p : 1 - p; ns.bn = false; }
         return ns;
-      }
-      const d = s.d, r = t[p][m], nr = r === -1 ? 0 : r + d; let extra = d === 6; t[p][m] = nr;
-      if (nr <= 50) { const a = (p * 26 + nr) % 52; if (!LUDO_SAFE.includes(a)) { const q = 1 - p; t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) { t[q][j] = -1; extra = true; } }); } }
-      if (nr === 56) extra = true;
-      return { t, d: null, last: d, nx: extra ? p : 1 - p };
+      },
+      win: (s) => { for (const p of [0, 1]) if (s.t[p].every((r) => r === 56)) return { p, line: null }; return null; },
+      next: (s) => s.nx,
+      draw: () => false,
     },
-    win: (s) => { for (const p of [0, 1]) if (s.t[p].every((r) => r === 56)) return { p, line: null }; return null; },
-    next: (s) => s.nx,
-    draw: () => false,
-  },
   snl: {
     // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
     init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
