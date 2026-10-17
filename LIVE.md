@@ -34,3 +34,10 @@ The controls row has a camera button (video on/off) and a sparkle button that op
 ## Teaching tools
 While the person who started the meeting (or the live) is sharing their screen, a toolbar appears above the controls: Mouse, Pen, Highlight, Arrow, Box, Text, Laser pointer, Erase, 6 colours, 3 sizes, Undo and Clear. The marks are drawn into the shared picture itself, so every member sees them (including people who join late) with no extra setup. Marks clear when sharing stops. If the host leaves a meeting, the next person becomes host and gets the tools.
 Normal 1:1 and group calls have screen share but not these tools yet.
+
+## Pinned message and bubbles
+- **Pin:** the host (in a meeting, whoever is host now) and the creator account can select a comment and tap Pin. The message shows at the top of the chat for everyone, including people who join later. Tap Unpin (or the x on the banner) to remove it. Server events: `live:pin` / `live:pinned`.
+- **Bubbles:** in Go Live, colourful see-through bubbles keep floating up the right side of the screen. They are skipped when the phone asks for reduced motion.
+- Files: `client/live.js` and `server/client/live.js` only. Deploy the server first, then the client.
+
+Update: the Room and Live tabs were removed from the bottom bar. Both are still reachable from the icons at the top of the Chats screen (people icon = Room, video icon = Live).

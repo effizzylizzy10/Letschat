@@ -12,3 +12,10 @@
 - Pawns hop square by square, captured pawns fly back to their yard, and there are dust, capture, home sparkle and win confetti effects.
 - 3D cube dice with real pips that toss and tumble, then land on the rolled face with a bounce and a shadow.
 - Rules are unchanged; only `LudoBoard`, `LudoDie` and the Ludo CSS in `client/app.js` changed.
+
+Update: the Snakes & Ladders die is now the same 3D cube as Ludo (tumbles about a second on every roll, yours or the other player's, then lands on the rolled face). The Ludo icon in the Games hub also spins in 3D.
+
+Snakes & Ladders effects: after the 3D die lands the pawn hops square by square with a shadow; the first move out of the start gives a dust puff; a ladder gives a gold sparkle burst at the bottom and top; a snake shakes the board (with a short vibration) and bursts pink; a 6 pops a "SIX!" banner; reaching 100 rains confetti. All effects are skipped for people who prefer reduced motion.
+
+Update: the Solo arcade tile and the Dominoes (coming soon) tile were removed from the Games screen.
+
