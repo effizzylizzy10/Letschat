@@ -2341,6 +2341,11 @@ function GamesScreen({ myId }) {
 // ===================== GAMES HUB =====================
 // Plain JS on purpose (no JSX): the same block is used in app.jsx and the compiled index.html.
 const gh = React.createElement;
+// Ludo with two dice: roll both, then use each die on any piece (tap a die to choose which). A 6 on either die brings a piece out of base.
+// A 6, a capture or a piece reaching home earns another roll once both dice are used. (Old one-die games still in progress keep working.)
+function ludoDice(s) { if (s.dv) return { dv: s.dv, u: s.u || [false, false] }; if (s.d != null) return { dv: [s.d], u: [false] }; return { dv: null, u: [] }; }
+function ludoCan(s, p, i, k) { const q = ludoDice(s); if (!q.dv || k >= q.dv.length || q.u[k]) return false; const r = s.t[p][i], v = q.dv[k]; if (r === 56) return false; if (r === -1) return v === 6; return r + v <= 56; }
+function ludoList(s, p) { const q = ludoDice(s), out = []; if (!q.dv) return out; for (let k = 0; k < q.dv.length; k++) for (let i = 0; i < 4; i++) if (ludoCan(s, p, i, k)) out.push(i + 4 * k); return out; }
 const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
 const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
 // ---- chess engine (shared with the server) ----
@@ -2533,44 +2538,32 @@ const GAME_RULES = {
     },
     ludo: {
         // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
-        init: () => ({ t: [[-1, -1, -1, -1], [-1, -1, -1, -1]], d: null, last: 0, nx: 0 }),
-        can: (s, p, i) => { const r = s.t[p][i], d = s.d; if (r === 56 || d == null)
-            return false; if (r === -1)
-            return d === 6; return r + d <= 56; },
-        moves: (s, p) => (s.nx !== p ? [] : s.d == null ? [-1] : [0, 1, 2, 3].filter((i) => GAME_RULES.ludo.can(s, p, i))),
+        // A move is piece + 4 * die (die 0 or 1); -1 rolls both dice.
+        init: () => ({ t: [[-1, -1, -1, -1], [-1, -1, -1, -1]], dv: null, u: [false, false], bn: false, last: [0, 0], nx: 0, rv: 0 }),
+        can: (s, p, i, k) => ludoCan(s, p, i, k == null ? 0 : k),
+        moves: (s, p) => (s.nx !== p ? [] : !ludoDice(s).dv ? [-1] : ludoList(s, p)),
         play: (s, m, p, rnd) => {
-            const t = s.t.map((a) => a.slice());
-            if (m === -1) {
-                const d = 1 + Math.floor(rnd() * 6), ns = { t, d, last: d, nx: p };
-                if (![0, 1, 2, 3].some((i) => GAME_RULES.ludo.can(ns, p, i))) {
-                    ns.d = null;
-                    ns.nx = 1 - p;
-                }
-                return ns;
-            }
-            const d = s.d, r = t[p][m], nr = r === -1 ? 0 : r + d;
-            let extra = d === 6;
-            t[p][m] = nr;
-            if (nr <= 50) {
-                const a = (p * 26 + nr) % 52;
-                if (!LUDO_SAFE.includes(a)) {
-                    const q = 1 - p;
-                    t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) {
-                        t[q][j] = -1;
-                        extra = true;
-                    } });
-                }
-            }
-            if (nr === 56)
-                extra = true;
-            return { t, d: null, last: d, nx: extra ? p : 1 - p };
+          const t = s.t.map((a) => a.slice());
+          if (m === -1) {
+            const a = 1 + Math.floor(rnd() * 6), b = 1 + Math.floor(rnd() * 6), ns = { t, dv: [a, b], u: [false, false], bn: a === 6 || b === 6, last: [a, b], nx: p, rv: (s.rv || 0) + 1 };
+            if (!ludoList(ns, p).length) { ns.dv = null; ns.nx = ns.bn ? p : 1 - p; ns.bn = false; }
+            return ns;
+          }
+          const cur = ludoDice(s), k = Math.floor(m / 4), i = m % 4, v = cur.dv[k], u = cur.u.slice(), r = t[p][i], nr = r === -1 ? 0 : r + v;
+          let bn = !!s.bn || (!s.dv && s.d === 6); t[p][i] = nr; u[k] = true;
+          if (nr <= 50) {
+            const a = (p * 26 + nr) % 52;
+            if (!LUDO_SAFE.includes(a)) { const q = 1 - p; t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) { t[q][j] = -1; bn = true; } }); }
+          }
+          if (nr === 56) bn = true;
+          const ns = { t, dv: cur.dv, u, bn, last: Array.isArray(s.last) ? s.last : cur.dv.slice(), nx: p, rv: s.rv || 0 };
+          if (!ludoList(ns, p).length) { ns.dv = null; ns.u = [false, false]; ns.nx = bn ? p : 1 - p; ns.bn = false; }
+          return ns;
         },
-        win: (s) => { for (const p of [0, 1])
-            if (s.t[p].every((r) => r === 56))
-                return { p, line: null }; return null; },
+        win: (s) => { for (const p of [0, 1]) if (s.t[p].every((r) => r === 56)) return { p, line: null }; return null; },
         next: (s) => s.nx,
         draw: () => false,
-    },
+      },
     snl: {
         // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
         init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
@@ -3105,7 +3098,7 @@ function ludoPick(s, me, level) {
         return mv[Math.floor(Math.random() * mv.length)];
     let best = -1e9, pick = mv[0];
     for (const m of mv) {
-        const ns = R.play(s, m, me, () => 0.5), r0 = s.t[me][m], r1 = ns.t[me][m];
+        const pi = m % 4, ns = R.play(s, m, me, () => 0.5), r0 = s.t[me][pi], r1 = ns.t[me][pi];
         let v = (r1 === 56 ? 40 : 0) + (r0 === -1 ? 25 : 0) + r1 * 0.3 + Math.random();
         ns.t[1 - me].forEach((q, j) => { if (q === -1 && s.t[1 - me][j] !== -1)
             v += 50; });
@@ -3165,7 +3158,7 @@ function GameFrame({ color, children }) {
 const RULES_TEXT = {
     ttt: "Take turns placing X and O. The first to get three in a row wins.",
     c4: "Drop a disc into a column. The first to connect four in a row wins.",
-    ludo: "Roll a 6 to leave base. A 6 or a capture gives another roll. Get all your pieces home first.",
+    ludo: "Roll two dice and use each one on a piece (tap a die to choose it). A 6 on either die brings a piece out. A 6 or a capture gives another roll. Get all your pieces home first.",
     snl: "Reach 100 with an exact roll. A 6 gives another roll. Ladders take you up, snakes slide you down.",
     checkers: "Nigerian rules: men capture backwards too, kings fly across the board, and you must take the route that captures the most pieces. Captured pieces come off when your move ends. Reach the far row to be crowned.",
     whot: "Nigerian rules: match the shape or number. 1 Hold on and 8 Suspension play again. 2 and 5 make the other player pick; pass it on with the same number. 14 is General Market. 20 Whot calls a shape. With 2 cards left, call Last card before you play or you pick 2. Empty your hand to win.",
@@ -3181,8 +3174,43 @@ function hubStatusRow(onRules, status) {
     return gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, counterIncrement: "lcgap-10", padding: "2px 10px 5px" } }, status, gh("button", { onClick: onRules, "aria-label": "Game rules", style: { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", borderRadius: 999, padding: "3px 10px", color: "#C9D1DC", fontFamily: "Inter", fontWeight: 600, fontSize: 11.5, cursor: "pointer" } }, "ⓘ Rules"));
 }
 const roomShell = (gc, bg) => ({ display: "flex", flexDirection: "column", height: "calc(100% - 8px)", margin: "4px 6px", boxSizing: "border-box", border: "2px solid transparent", borderRadius: 22, overflow: "hidden", position: "relative", background: bg + " padding-box, linear-gradient(160deg, " + gc + ", rgba(245,184,61,.6) 50%, " + gc + ") border-box", boxShadow: "0 0 24px " + gc + "55, inset 0 0 30px " + gc + "22" });
+// ---- Ludo dice: real pips, a tumbling roll animation, and a pop when they land ----
+function ludoCss() {
+    if (document.getElementById("lc-dice-css"))
+        return;
+    const st = document.createElement("style");
+    st.id = "lc-dice-css";
+    st.textContent = "@keyframes lcDiceA{0%{transform:translate(0,0) rotate(0) scale(1)}20%{transform:translate(-10px,-26px) rotate(150deg) scale(1.15)}40%{transform:translate(8px,2px) rotate(300deg) scale(.92)}60%{transform:translate(-6px,-14px) rotate(470deg) scale(1.08)}80%{transform:translate(4px,0) rotate(620deg) scale(.97)}100%{transform:translate(0,0) rotate(720deg) scale(1)}}" +
+        "@keyframes lcDiceB{0%{transform:translate(0,0) rotate(0) scale(1)}20%{transform:translate(12px,-22px) rotate(-170deg) scale(1.15)}40%{transform:translate(-8px,4px) rotate(-320deg) scale(.92)}60%{transform:translate(7px,-16px) rotate(-480deg) scale(1.08)}80%{transform:translate(-3px,0) rotate(-640deg) scale(.97)}100%{transform:translate(0,0) rotate(-720deg) scale(1)}}" +
+        "@keyframes lcDiceLand{0%{transform:scale(1.22)}55%{transform:scale(.92)}100%{transform:scale(1)}}" +
+        "@media (prefers-reduced-motion:reduce){.lc-die{animation:none!important}}";
+    document.head.appendChild(st);
+}
+const LUDO_PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+function LudoDie({ v, size = 50, mode, delay = 0, which = 0, dim, ring, onClick, label }) {
+    const pips = LUDO_PIPS[v] || [], anim = mode === "roll" ? (which ? "lcDiceB" : "lcDiceA") + " .9s cubic-bezier(.3,.7,.4,1) " + delay + "s both" : mode === "land" ? "lcDiceLand .35s ease-out " + delay + "s both" : "none";
+    const body = gh("div", { className: "lc-die", style: { width: size, height: size, borderRadius: size * 0.22, background: "linear-gradient(145deg,#FFFFFF,#DCE2EA)", boxShadow: (ring ? "0 0 0 3px #F5B83D, 0 0 18px rgba(245,184,61,.65), " : "") + "0 4px 10px rgba(0,0,0,.5), inset 0 -3px 0 rgba(0,0,0,.14)", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gridTemplateRows: "repeat(3,1fr)", padding: size * 0.14, boxSizing: "border-box", opacity: dim ? 0.32 : 1, animation: anim, transition: "opacity .2s, box-shadow .2s" } }, Array.from({ length: 9 }, (_, i) => gh("div", { key: i, style: { display: "flex", alignItems: "center", justifyContent: "center" } }, pips.includes(i) ? gh("div", { style: { width: size * 0.17, height: size * 0.17, borderRadius: "50%", background: "#1B2330" } }) : null)));
+    return onClick ? gh("button", { onClick, "aria-label": label, style: { background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 } }, body) : gh("div", { role: "img", "aria-label": label, style: { lineHeight: 0 } }, body);
+}
 function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
-    const R = GAME_RULES.ludo, canRoll = myTurn && s.d == null, legal = myTurn && s.d != null ? R.moves(s, you) : [];
+    const R = GAME_RULES.ludo, dd = ludoDice(s), dv = dd.dv, rv = s.rv || 0;
+    ludoCss();
+    const [rolling, setRolling] = useState(false), [landed, setLanded] = useState(false), [face, setFace] = useState([1, 1]), [sel, setSel] = useState(0), prevRv = useRef(rv);
+    // every new roll (yours or the other player's) tumbles for about a second before the numbers are shown
+    useEffect(() => {
+        if (rv === prevRv.current)
+            return;
+        prevRv.current = rv;
+        setRolling(true);
+        setLanded(false);
+        const iv = setInterval(() => setFace([1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)]), 80), t1 = setTimeout(() => { clearInterval(iv); setRolling(false); setLanded(true); }, 900), t2 = setTimeout(() => setLanded(false), 1300);
+        return () => { clearInterval(iv); clearTimeout(t1); clearTimeout(t2); };
+    }, [rv]);
+    const canRoll = myTurn && !dv && !rolling;
+    const usable = dv && myTurn && !rolling ? dv.map((_, k) => k).filter((k) => [0, 1, 2, 3].some((i) => ludoCan(s, you, i, k))) : [];
+    const cur = usable.includes(sel) ? sel : usable[0];
+    const legal = cur == null ? [] : [0, 1, 2, 3].filter((i) => ludoCan(s, you, i, cur));
+    const shown = rolling ? face : dv || (Array.isArray(s.last) ? s.last : s.last ? [s.last] : [0, 0]);
     const kids = [gh("rect", { key: "bg", x: 0, y: 0, width: 15, height: 15, rx: 0.6, fill: "#0F141C" }),
         gh("rect", { key: "b0", x: 0, y: 0, width: 6, height: 6, rx: 0.5, fill: PCOL[0] + "22" }), gh("rect", { key: "b1", x: 9, y: 9, width: 6, height: 6, rx: 0.5, fill: PCOL[1] + "22" }),
         gh("rect", { key: "b2", x: 9, y: 0, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }), gh("rect", { key: "b3", x: 0, y: 9, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }),
@@ -3198,10 +3226,20 @@ function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
         x += n * 0.14;
         y -= n * 0.14;
         const can = p === you && legal.includes(i);
-        kids.push(gh("circle", { key: "t" + p + i, cx: x, cy: y, r: 0.36, fill: PCOL[p], stroke: can ? "#fff" : "#0B0F16", strokeWidth: can ? 0.14 : 0.07, style: { cursor: can ? "pointer" : "default", filter: can ? "drop-shadow(0 0 0.35px #fff)" : "none" }, onClick: can ? () => onTap(i) : undefined, role: can ? "button" : undefined, "aria-label": can ? "Move piece " + (i + 1) : undefined }));
+        kids.push(gh("circle", { key: "t" + p + i, cx: x, cy: y, r: 0.36, fill: PCOL[p], stroke: can ? "#fff" : "#0B0F16", strokeWidth: can ? 0.14 : 0.07, style: { cursor: can ? "pointer" : "default", filter: can ? "drop-shadow(0 0 0.35px #fff)" : "none" }, onClick: can ? () => onTap(i + 4 * cur) : undefined, role: can ? "button" : undefined, "aria-label": can ? "Move piece " + (i + 1) : undefined }));
     }));
     const side = sideOf(fit, 66);
-    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("ludo") }, gh("svg", { viewBox: "0 0 15 15", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } }, gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, myTurn ? (s.d == null ? "Tap the dice to roll." : legal.length > 1 ? "Tap a glowing piece to move it." : "Moving…") : "Waiting for the other player.")));
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("ludo") }, gh("svg", { viewBox: "0 0 15 15", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 0 0" } },
+        gh("div", { style: { display: "flex", gap: 12, alignItems: "center", padding: 6, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.14)" : "rgba(255,255,255,.04)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.45)" : "none" } },
+            [0, 1].map((k) => {
+                const v = shown[k], has = v >= 1 && v <= 6, used = !rolling && dv && dd.u[k];
+                if (!has && !rolling)
+                    return gh("div", { key: k, style: { width: 50, height: 50, borderRadius: 11, border: "2px dashed rgba(255,255,255,.22)" } });
+                const pick = usable.includes(k) && usable.length > 1 ? () => setSel(k) : canRoll ? () => onTap(-1) : undefined;
+                return gh(LudoDie, { key: k + "-" + rv + (rolling ? "r" : landed ? "l" : "s"), v, mode: rolling ? "roll" : landed ? "land" : "", which: k, delay: k * 0.07, dim: used || (!dv && !rolling && !!s.last && myTurn), ring: !rolling && cur === k && usable.length > 1, onClick: pick || (canRoll ? () => onTap(-1) : undefined), label: "Die " + (k + 1) + ": " + v });
+            }),
+            canRoll && gh("button", { onClick: () => onTap(-1), "aria-label": "Roll the dice", style: { border: "none", borderRadius: 12, background: "#F5B83D", color: "#1B1440", fontFamily: "Sora, Inter, sans-serif", fontWeight: 800, fontSize: 14, padding: "10px 14px", cursor: "pointer" } }, "Roll")),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, rolling ? "Rolling…" : myTurn ? (!dv ? "Tap the dice to roll." : usable.length === 0 ? "No moves with these dice." : usable.length > 1 ? "Tap a die to pick it, then tap a glowing piece." : "Tap a glowing piece to move it.") : "Waiting for the other player.")));
 }
 // ---- Snakes & Ladders: board ----
 function snlXY(n) { const r = Math.floor((n - 1) / 10), c = r % 2 ? 9 - ((n - 1) % 10) : (n - 1) % 10; return [c + 0.5, 9 - r + 0.5]; }
@@ -4091,7 +4129,7 @@ function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
     useEffect(() => {
         if (!robot || g.over || g.turn !== robotIdx)
             return;
-        let t; const go = () => { if (cfg.game === "pool" && poolBusy.n > 0) { t = setTimeout(go, 300); return; } const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null) place(m, robotIdx); }; t = setTimeout(go, 550 + Math.random() * 500); return () => clearTimeout(t);
+        let t; const go = () => { if (cfg.game === "pool" && poolBusy.n > 0) { t = setTimeout(go, 300); return; } const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null) place(m, robotIdx); }; t = setTimeout(go, 550 + Math.random() * 500 + (cfg.game === "ludo" && gRef.current.state && gRef.current.state.dv ? 1000 : 0)); return () => clearTimeout(t);
     }, [g.turn, g.over, g.state]);
     useEffect(() => { if (!robot && !g.over && g.turn === g.you)
         hubPing(); }, [g.turn]);
@@ -4177,7 +4215,8 @@ function GameArt({ id, color, emoji }) {
     else k = [...sq, gh("circle", { key: "a", cx: 27.5, cy: 60, r: 7, fill: "#FF4F5E", style: A("gaSlide", 3, 0) }), gh("circle", { key: "b", cx: 72.5, cy: 24, r: 7, fill: "#1A1A22", stroke: "#fff", strokeOpacity: 0.5 }), gh("circle", { key: "c", cx: 57.5, cy: 60, r: 7, fill: "#FF4F5E" })];
   } else if (id === "ludo") {
     const pip = (x, y) => gh("circle", { key: x + "p" + y, cx: x, cy: y, r: 4, fill: "#1B2330" });
-    k = [gh("g", { key: "d", style: A("gaRoll", 2.6, 0) }, gh("rect", { x: 30, y: 22, width: 40, height: 40, rx: 9, fill: "#fff" }), pip(40, 32), pip(60, 32), pip(50, 42), pip(40, 52), pip(60, 52))];
+    const pip2 = (x, y) => gh("circle", { key: x + "q" + y, cx: x, cy: y, r: 3, fill: "#1B2330" });
+    k = [gh("g", { key: "d", style: A("gaRoll", 2.6, 0) }, gh("rect", { x: 10, y: 28, width: 36, height: 36, rx: 8, fill: "#fff" }), pip2(20, 38), pip2(36, 38), pip2(28, 46), pip2(20, 54), pip2(36, 54)), gh("g", { key: "e", style: A("gaRoll", 2.6, 0.3) }, gh("rect", { x: 54, y: 20, width: 36, height: 36, rx: 8, fill: "#fff" }), pip2(64, 30), pip2(80, 46), pip2(72, 38))];
   } else if (id === "snl") {
     k = [gh("path", { key: "l", d: "M72 74L82 12M88 74L98 12M74 58H90M76 42H92M78 26H94", ...line, strokeWidth: 3, stroke: "#FFD36B" }),
       gh("path", { key: "s", d: "M14 72C26 36 46 78 58 34", ...line, stroke: "#3CE08F", strokeWidth: 8, strokeDasharray: "12 7", style: { animation: "gaDash 1s linear infinite" } }),
@@ -4597,7 +4636,7 @@ function AiBotScreen({ token, onClose }) {
             React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 4000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
             React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => send(), disabled: !draft.trim() || typing, style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !draft.trim() || typing ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, React.createElement(Send, { size: 20, color: "#0E1116" }))));
 }
-function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence, favorites = [], pinned = [], onSetPinned = () => { }, muted = {}, onMute = () => Promise.resolve(true) }) {
+function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, onLive, presence, favorites = [], pinned = [], onSetPinned = () => { }, muted = {}, onMute = () => Promise.resolve(true) }) {
     const [aiOpen, setAiOpen] = useState(false);
     const [searching, setSearching] = useState(false);
     const [sel, setSel] = useState([]); // ids of the highlighted (selected) chats
@@ -4621,7 +4660,9 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
     const archivedAll = conversations.filter((c) => away[c.id] && away[c.id].kind === "archived");
     const visible = showArchived ? archivedAll : conversations.filter((c) => !isHidden(c));
     // pinned chats first (in the order they were pinned), then everything else in the normal order
-    const ordered = showArchived ? visible : [...pinned.map((id) => visible.find((c) => c.id === id)).filter(Boolean), ...visible.filter((c) => !pinned.includes(c.id))];
+    const base = showArchived ? visible : [...pinned.map((id) => visible.find((c) => c.id === id)).filter(Boolean), ...visible.filter((c) => !pinned.includes(c.id))];
+    // the Chat Room(s) always stay at the very top of the list
+    const ordered = showArchived ? base : [...base.filter((c) => c.chatRoom), ...base.filter((c) => !c.chatRoom)];
     const selecting = sel.length > 0;
     const clearSel = () => { setSel([]); setMenuOpen(false); };
     const saveAway = (n) => { setAway(n); saveJSON("chatAway", n); };
@@ -4750,6 +4791,8 @@ function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat
         selecting ? selBar : showArchived ? React.createElement(TopBar, { title: "Archived", onBack: () => setShowArchived(false) }) : (React.createElement(TopBar, { title: React.createElement("span", null,
                 "Lets",
                 React.createElement("span", { style: { color: "#35D0BA" } }, "chat")), right: React.createElement("div", { style: { display: "flex", gap: 18, counterIncrement: "lcgap-18", alignItems: "center" } },
+                onLive && React.createElement("div", { onClick: onLive, role: "button", title: "Live video", "aria-label": "Live video", style: { cursor: "pointer", display: "flex" } },
+                    React.createElement(Video, { size: 21, color: "#35D0BA" })),
                 React.createElement("div", { onClick: onNewGroup, title: "New group", style: { cursor: "pointer", display: "flex" } },
                     React.createElement(Users, { size: 21, color: "#9BA7B4" })),
                 React.createElement("div", { onClick: () => setSearching(true), role: "button", "aria-label": "Search", style: { cursor: "pointer", display: "flex" } },
@@ -5224,11 +5267,18 @@ function mediaError(e, video) {
         return "No microphone" + (video ? " or camera" : "") + " found on this device";
     return "Could not start the " + (video ? "camera or " : "") + "microphone";
 }
+// ---- screen sharing (works where the browser offers getDisplayMedia: desktop browsers and some mobile ones) ----
+const screenOK = () => !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.RTCPeerConnection);
+const grabScreen = () => navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 24 } }, audio: false });
+const videoSenderOf = (pc) => pc && pc.getSenders().find((x) => x.track && x.track.kind === "video");
+const stopStream = (st) => { if (st) st.getTracks().forEach((t) => { t.onended = null; try { t.stop(); } catch { } }); };
 function CallLayer({ socket, apiRef, notify }) {
     const [call, setCall] = useState(null);
     const [remoteStream, setRemoteStream] = useState(null);
     const [localStream, setLocalStream] = useState(null);
+    const [remoteShare, setRemoteShare] = useState(false);
     const [secs, setSecs] = useState(0);
+    const shareRef = useRef(null);
     const callRef = useRef(null), pcRef = useRef(null), localRef = useRef(null), pendingRef = useRef([]), candRef = useRef([]), ringRef = useRef(null);
     const begin = (c) => { callRef.current = c; setCall(c); };
     const upd = (patch) => { if (!callRef.current)
@@ -5270,6 +5320,8 @@ function CallLayer({ socket, apiRef, notify }) {
             catch { }
             pcRef.current = null;
         }
+        stopStream(shareRef.current);
+        shareRef.current = null;
         if (localRef.current) {
             localRef.current.getTracks().forEach((t) => t.stop());
             localRef.current = null;
@@ -5279,6 +5331,7 @@ function CallLayer({ socket, apiRef, notify }) {
         callRef.current = null;
         setCall(null);
         setRemoteStream(null);
+        setRemoteShare(false);
         setLocalStream(null);
         setSecs(0);
         return c;
@@ -5322,6 +5375,7 @@ function CallLayer({ socket, apiRef, notify }) {
     };
     const applySignal = async (pc, c, data) => {
         try {
+            if (typeof data.share === "boolean") { setRemoteShare(data.share); return; }
             if (data.sdp) {
                 await pc.setRemoteDescription({ type: data.sdp.type, sdp: data.sdp.sdp });
                 const q = candRef.current;
@@ -5513,6 +5567,47 @@ function CallLayer({ socket, apiRef, notify }) {
         return; localRef.current.getAudioTracks().forEach((t) => { t.enabled = c.muted; }); upd({ muted: !c.muted }); };
     const toggleCam = () => { const c = callRef.current; if (!c || !localRef.current)
         return; localRef.current.getVideoTracks().forEach((t) => { t.enabled = c.camOff; }); upd({ camOff: !c.camOff }); };
+    // share your screen instead of the camera, then go back to the camera when you stop
+    const stopShare = () => {
+        const had = shareRef.current;
+        stopStream(had);
+        shareRef.current = null;
+        const cam = localRef.current && localRef.current.getVideoTracks()[0], snd = videoSenderOf(pcRef.current);
+        if (snd && cam)
+            snd.replaceTrack(cam).catch(() => { });
+        if (localRef.current)
+            setLocalStream(localRef.current);
+        const c = callRef.current;
+        if (c && had) {
+            upd({ sharing: false });
+            if (c.id)
+                socket.emit("call:signal", { callId: c.id, data: { share: false } });
+        }
+    };
+    const startShare = async () => {
+        const c = callRef.current;
+        if (!c || !c.video || c.phase !== "active")
+            return;
+        if (shareRef.current)
+            return stopShare();
+        try {
+            const st = await grabScreen(), tr = st.getVideoTracks()[0], snd = videoSenderOf(pcRef.current);
+            if (!snd || !callRef.current) {
+                stopStream(st);
+                return;
+            }
+            await snd.replaceTrack(tr);
+            shareRef.current = st;
+            tr.onended = () => stopShare();
+            setLocalStream(new MediaStream([tr]));
+            upd({ sharing: true });
+            socket.emit("call:signal", { callId: c.id, data: { share: true } });
+        }
+        catch (e) {
+            if (e && e.name !== "NotAllowedError" && e.name !== "AbortError")
+                notify("Could not share your screen.");
+        }
+    };
     if (!call)
         return null;
     const peer = call.peer, vid = call.video, active = call.phase === "active";
@@ -5520,12 +5615,13 @@ function CallLayer({ socket, apiRef, notify }) {
     const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
     const showRemoteVideo = vid && active && remoteStream;
     return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 95, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" } }, ce("video", { ref: (el) => { if (el && el.srcObject !== remoteStream)
-            el.srcObject = remoteStream; }, autoPlay: true, playsInline: true, style: showRemoteVideo ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", background: "#000" } : { display: "none" } }), vid && localStream && !call.camOff && ce("video", { ref: (el) => { if (el && el.srcObject !== localStream)
-            el.srcObject = localStream; }, autoPlay: true, playsInline: true, muted: true, style: showRemoteVideo ? { position: "absolute", top: 16, right: 16, width: 96, height: 128, objectFit: "cover", borderRadius: 14, border: "2px solid #ffffff55", background: "#000", transform: "scaleX(-1)", zIndex: 2 } : { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, transform: "scaleX(-1)" } }), ce("div", { style: { position: "relative", zIndex: 3, marginTop: showRemoteVideo ? 18 : "16%", textAlign: "center", textShadow: showRemoteVideo ? "0 1px 8px rgba(0,0,0,.8)" : "none" } }, !showRemoteVideo && ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: peer.color || "#35D0BA", initials: peer.initials || "?", photo: peer.avatar, ring: true })), ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: showRemoteVideo ? 18 : 24, color: "#F5F7FA" } }, peer.name), ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: active ? "#35D0BA" : "#9BA7B4", marginTop: 6 } }, status)), ce("div", { style: { flex: 1 } }), ce("div", { style: { position: "relative", zIndex: 3, display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } }, call.dir === "in" && call.phase === "ringing"
+            el.srcObject = remoteStream; }, autoPlay: true, playsInline: true, style: showRemoteVideo ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: remoteShare ? "contain" : "cover", background: "#000" } : { display: "none" } }), vid && localStream && !call.camOff && ce("video", { ref: (el) => { if (el && el.srcObject !== localStream)
+            el.srcObject = localStream; }, autoPlay: true, playsInline: true, muted: true, style: showRemoteVideo ? { position: "absolute", top: 16, right: 16, width: 96, height: 128, objectFit: "cover", borderRadius: 14, border: "2px solid #ffffff55", background: "#000", transform: call.sharing ? "none" : "scaleX(-1)", zIndex: 2 } : { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, transform: "scaleX(-1)" } }), ce("div", { style: { position: "relative", zIndex: 3, marginTop: showRemoteVideo ? 18 : "16%", textAlign: "center", textShadow: showRemoteVideo ? "0 1px 8px rgba(0,0,0,.8)" : "none" } }, !showRemoteVideo && ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: peer.color || "#35D0BA", initials: peer.initials || "?", photo: peer.avatar, ring: true })), ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: showRemoteVideo ? 18 : 24, color: "#F5F7FA" } }, peer.name), ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: active ? "#35D0BA" : "#9BA7B4", marginTop: 6 } }, status)), ce("div", { style: { flex: 1 } }), ce("div", { style: { position: "relative", zIndex: 3, display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } }, call.dir === "in" && call.phase === "ringing"
         ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Decline")),
             ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Accept call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Accept"))]
         : [ce("div", { key: "m", style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.muted ? "Unmute" : "Mute")),
             vid && ce("div", { key: "c", style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.camOff ? "Camera on" : "Camera off")),
+            vid && active && screenOK() && ce("div", { key: "s", style: { textAlign: "center" } }, round(call.sharing ? "#35D0BA" : "#2B3544", startShare, call.sharing ? "Stop sharing screen" : "Share screen", ce("span", { style: { fontSize: 24 } }, "\uD83D\uDDA5")), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.sharing ? "Stop share" : "Share")),
             ce("div", { key: "e", style: { textAlign: "center" } }, round("#FF6B5D", hangUp, "End call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.phase === "calling" || call.phase === "ringing" ? "Cancel" : "End"))]));
 }
 // ---- group voice / video calls: everyone connects to everyone (peer to peer); the server only keeps the room and passes the signals ----
@@ -5536,9 +5632,9 @@ function gcMedia(video) {
     return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } } : false });
 }
 function GCTile({ user, stream, local, video, media, state }) {
-    const u = user || {}, showVid = !!(video && stream && !(media && media.camOff));
+    const u = user || {}, sharing = !!(media && media.sharing), showVid = !!(video && stream && (sharing || !(media && media.camOff)));
     return ce("div", { style: { position: "relative", background: "#141A22", borderRadius: 14, overflow: "hidden", minHeight: 0, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1E2530" } }, stream && ce("video", { ref: (el) => { if (el && el.srcObject !== stream)
-            el.srcObject = stream; }, autoPlay: true, playsInline: true, muted: !!local, style: showVid ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", transform: local ? "scaleX(-1)" : "none" } : { position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" } }), !showVid && ce(Ring, { size: 68, color: u.color || "#35D0BA", initials: u.initials || "?", photo: u.avatar }), ce("div", { style: { position: "absolute", left: 8, right: 8, bottom: 6, display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", fontFamily: "Inter", fontSize: 12.5, color: "#F5F7FA", textShadow: "0 1px 6px rgba(0,0,0,.9)" } }, ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, local ? "You" : String(u.name || "").split(" ")[0]), media && media.muted && ce("span", { style: { background: "rgba(255,107,93,.92)", borderRadius: 8, padding: "1px 6px", fontSize: 11, flexShrink: 0 } }, "Muted"), !local && state && state !== "connected" && ce("span", { style: { color: "#F2B84B", fontSize: 11.5, flexShrink: 0 } }, state === "lost" ? "Lost connection" : "Connecting\u2026")));
+            el.srcObject = stream; }, autoPlay: true, playsInline: true, muted: !!local, style: showVid ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: sharing ? "contain" : "cover", transform: local && !sharing ? "scaleX(-1)" : "none" } : { position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" } }), !showVid && ce(Ring, { size: 68, color: u.color || "#35D0BA", initials: u.initials || "?", photo: u.avatar }), ce("div", { style: { position: "absolute", left: 8, right: 8, bottom: 6, display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", fontFamily: "Inter", fontSize: 12.5, color: "#F5F7FA", textShadow: "0 1px 6px rgba(0,0,0,.9)" } }, ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, local ? "You" : String(u.name || "").split(" ")[0]), media && media.muted && ce("span", { style: { background: "rgba(255,107,93,.92)", borderRadius: 8, padding: "1px 6px", fontSize: 11, flexShrink: 0 } }, "Muted"), !local && state && state !== "connected" && ce("span", { style: { color: "#F2B84B", fontSize: 11.5, flexShrink: 0 } }, state === "lost" ? "Lost connection" : "Connecting\u2026")));
 }
 function GroupCallLayer({ socket, apiRef, notify, me }) {
     const [call, setCall] = useState(null);
@@ -5546,6 +5642,7 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
     const [localStream, setLocalStream] = useState(null);
     const [secs, setSecs] = useState(0);
     const [live, setLive] = useState({}); // conversationId -> the call running there right now
+    const shareRef = useRef(null);
     const callRef = useRef(null), localRef = useRef(null), pcs = useRef({}), cands = useRef({}), ringRef = useRef(null), ringTimer = useRef(null), tilesRef = useRef([]), metRef = useRef(false);
     const begin = (c) => { callRef.current = c; metRef.current = false; setCall(c); };
     const upd = (patch) => { if (!callRef.current)
@@ -5569,6 +5666,8 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
         const c = callRef.current;
         stopRing();
         closeAll();
+        stopStream(shareRef.current);
+        shareRef.current = null;
         if (localRef.current) {
             localRef.current.getTracks().forEach((t) => t.stop());
             localRef.current = null;
@@ -5591,13 +5690,14 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
     };
     const sendTo = (uid, data) => { const c = callRef.current; if (c && c.id && socket)
         socket.emit("gcall:signal", { callId: c.id, to: uid, data }); };
-    const mediaState = () => { const c = callRef.current || {}; return { muted: !!c.muted, camOff: !!c.camOff }; };
+    const mediaState = () => { const c = callRef.current || {}; return { muted: !!c.muted, camOff: !!c.camOff, sharing: !!c.sharing }; };
     const tellMedia = () => { Object.keys(pcs.current).forEach((uid) => sendTo(uid, { media: mediaState() })); };
     const makePeer = (uid) => {
         closePeer(uid);
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         pcs.current[uid] = pc;
         localRef.current.getTracks().forEach((t) => pc.addTrack(t, localRef.current));
+        if (shareRef.current) { const sn = videoSenderOf(pc); if (sn) sn.replaceTrack(shareRef.current.getVideoTracks()[0]).catch(() => { }); }
         pc.onicecandidate = (e) => { if (e.candidate)
             sendTo(uid, { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
         pc.ontrack = (e) => patchTile(uid, { stream: e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]) });
@@ -5849,6 +5949,46 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
         return; localRef.current.getAudioTracks().forEach((t) => { t.enabled = c.muted; }); upd({ muted: !c.muted }); tellMedia(); };
     const toggleCam = () => { const c = callRef.current; if (!c || !localRef.current)
         return; localRef.current.getVideoTracks().forEach((t) => { t.enabled = c.camOff; }); upd({ camOff: !c.camOff }); tellMedia(); };
+    const stopShare = () => {
+        const had = shareRef.current;
+        stopStream(had);
+        shareRef.current = null;
+        const cam = localRef.current && localRef.current.getVideoTracks()[0];
+        if (cam)
+            Object.values(pcs.current).forEach((pc) => { const sn = videoSenderOf(pc); if (sn)
+                sn.replaceTrack(cam).catch(() => { }); });
+        if (localRef.current)
+            setLocalStream(localRef.current);
+        if (had) {
+            upd({ sharing: false });
+            tellMedia();
+        }
+    };
+    const startShare = async () => {
+        const c = callRef.current;
+        if (!c || !c.video || !localRef.current)
+            return;
+        if (shareRef.current)
+            return stopShare();
+        try {
+            const st = await grabScreen(), tr = st.getVideoTracks()[0];
+            if (!callRef.current) {
+                stopStream(st);
+                return;
+            }
+            Object.values(pcs.current).forEach((pc) => { const sn = videoSenderOf(pc); if (sn)
+                sn.replaceTrack(tr).catch(() => { }); });
+            shareRef.current = st;
+            tr.onended = () => stopShare();
+            setLocalStream(new MediaStream([tr]));
+            upd({ sharing: true });
+            tellMedia();
+        }
+        catch (e) {
+            if (e && e.name !== "NotAllowedError" && e.name !== "AbortError")
+                notify("Could not share your screen.");
+        }
+    };
     const running = Object.values(live).filter((st) => st && st.callId && st.count > 0);
     if (!call) {
         const st = running[0];
@@ -5868,10 +6008,10 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
                 ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Join call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), cap("Join"))]
             : ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Cancel", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Cancel"))));
     }
-    const people = [{ id: "me", user: me, stream: localStream, local: true, media: { muted: call.muted, camOff: call.camOff }, state: "connected" }, ...tiles];
+    const people = [{ id: "me", user: me, stream: localStream, local: true, media: { muted: call.muted, camOff: call.camOff, sharing: call.sharing }, state: "connected" }, ...tiles];
     const n = people.length, cols = n <= 1 ? 1 : n === 2 ? (vid ? 1 : 1) : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
     const sub = tiles.length === 0 ? "Waiting for others to join\u2026" : !call.connectedAt ? "Connecting\u2026" : Date.now() - call.connectedAt < 2000 ? "Connected" : fmtDur(secs) + " \u00B7 " + n + " in the call";
-    return ce("div", { style: shell }, ce("div", { style: { width: "100%", textAlign: "center", padding: "16px 16px 8px", flexShrink: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, call.name), ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#35D0BA", marginTop: 3 } }, sub)), ce("div", { style: { flex: 1, minHeight: 0, width: "100%", padding: "6px 10px", boxSizing: "border-box", display: "grid", gap: 8, counterIncrement: "lcgap-8", gridTemplateColumns: "repeat(" + cols + ", minmax(0, 1fr))", gridTemplateRows: "repeat(" + rows + ", minmax(0, 1fr))" } }, people.map((p) => ce(GCTile, { key: p.id, user: p.user, stream: p.stream, local: p.local, video: vid, media: p.media, state: p.state }))), ce("div", { style: { display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "14px 20px 36px", flexShrink: 0 } }, ce("div", { style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), cap(call.muted ? "Unmute" : "Mute")), vid && ce("div", { style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), cap(call.camOff ? "Camera on" : "Camera off")), ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Leave call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Leave"))));
+    return ce("div", { style: shell }, ce("div", { style: { width: "100%", textAlign: "center", padding: "16px 16px 8px", flexShrink: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, call.name), ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#35D0BA", marginTop: 3 } }, sub)), ce("div", { style: { flex: 1, minHeight: 0, width: "100%", padding: "6px 10px", boxSizing: "border-box", display: "grid", gap: 8, counterIncrement: "lcgap-8", gridTemplateColumns: "repeat(" + cols + ", minmax(0, 1fr))", gridTemplateRows: "repeat(" + rows + ", minmax(0, 1fr))" } }, people.map((p) => ce(GCTile, { key: p.id, user: p.user, stream: p.stream, local: p.local, video: vid, media: p.media, state: p.state }))), ce("div", { style: { display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "14px 20px 36px", flexShrink: 0 } }, ce("div", { style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), cap(call.muted ? "Unmute" : "Mute")), vid && ce("div", { style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), cap(call.camOff ? "Camera on" : "Camera off")), vid && screenOK() && ce("div", { style: { textAlign: "center" } }, round(call.sharing ? "#35D0BA" : "#2B3544", startShare, call.sharing ? "Stop sharing screen" : "Share screen", ce("span", { style: { fontSize: 24 } }, "\uD83D\uDDA5")), cap(call.sharing ? "Stop share" : "Share")), ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Leave call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Leave"))));
 }
 // ---- Calls tab (laid out like WhatsApp: round shortcut buttons, "Recent" with grouped calls, green new-call button) ----
 const CallArrowOut = makeIcon([["p", "M7 17 17 7"], ["p", "M8 7h9v9"]]);
@@ -11317,7 +11457,7 @@ function App() {
     else {
         body = (React.createElement(React.Fragment, null,
             React.createElement("div", { style: { flex: 1, overflow: "hidden", position: "relative" } },
-                tab === "chats" && (React.createElement(ChatsScreen, { token: session.token, profile: session.user, conversations: conversations, loading: convLoading, error: convError, presence: presence, onOpenChat: (c, hit) => { setFocusMsg(hit || null); setActiveConvo(c); }, onProfile: () => setShowProfile(true), onNewChat: () => setShowNewChat(true), onNewGroup: () => setShowNewGroup(true), favorites: settings.favorites, pinned: pinned, onSetPinned: setPins, muted: settings.muted, onMute: setMuted })),
+                tab === "chats" && (React.createElement(ChatsScreen, { onLive: () => setTab("live"), token: session.token, profile: session.user, conversations: conversations, loading: convLoading, error: convError, presence: presence, onOpenChat: (c, hit) => { setFocusMsg(hit || null); setActiveConvo(c); }, onProfile: () => setShowProfile(true), onNewChat: () => setShowNewChat(true), onNewGroup: () => setShowNewGroup(true), favorites: settings.favorites, pinned: pinned, onSetPinned: setPins, muted: settings.muted, onMute: setMuted })),
                 tab === "calls" && React.createElement(CallsScreen, { conversations: conversations, onCall: startCall, favorites: settings.favorites, token: session.token }),
                 tab === "market" && React.createElement(MarketScreen, { token: session.token, myId: session.user.id, onMessageSeller: messageSeller }),
                 window.LetschatLive && React.createElement(window.LetschatLive.Screen, { active: tab === "live", me: session.user }),
