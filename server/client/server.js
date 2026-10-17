@@ -2798,12 +2798,12 @@ const GAME_RULES = {
     },
   snl: {
     // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
-    init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
+    init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0, rv: 0 }),
     moves: (s, p) => (s.nx === p ? [-1] : []),
     play: (s, m, p, rnd) => {
       const d = 1 + Math.floor(rnd() * 6), pos = s.p.slice(); let np = pos[p] + d; if (np > 100) np = pos[p];
       const jump = SNL_JUMPS[np], ev = jump ? (jump > np ? 1 : -1) : 0; if (jump) np = jump; pos[p] = np;
-      return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev };
+      return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev, rv: (s.rv || 0) + 1 };
     },
     win: (s) => { for (const p of [0, 1]) if (s.p[p] === 100) return { p, line: null }; return null; },
     next: (s) => s.nx,

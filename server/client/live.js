@@ -81,7 +81,7 @@ module.exports = function setupLive(ctx) {
         if (!me) return ack(cb, { error: "Sign in again" });
         if (userRoom.has(userId)) return ack(cb, { error: "You are already in a live. Leave it first.", code: userRoom.get(userId) });
         const k = kind === "meeting" ? "meeting" : "live";
-        const room = { code: newCode(), kind: k, title: clean(title, LIMITS.titleMax) || (k === "meeting" ? "Live Meeting" : "Live now"), video: video !== false, host: userId, started: Date.now(), members: new Map([[userId, { at: Date.now(), media: true }]]), chat: [], banned: new Set(), giftCount: 0, sharing: new Set() };
+        const room = { code: newCode(), kind: k, title: clean(title, LIMITS.titleMax) || (k === "meeting" ? "Live Meeting" : "Live now"), video: video !== false, host: userId, started: Date.now(), members: new Map([[userId, { at: Date.now(), media: true }]]), chat: [], banned: new Set(), giftCount: 0, sharing: new Set(), pinned: null };
         rooms.set(room.code, room); userRoom.set(userId, room.code);
         ack(cb, { code: room.code, kind: k, title: room.title, host: view(userId) });
         if (k === "live") tellChatMembers(room);
@@ -105,7 +105,7 @@ module.exports = function setupLive(ctx) {
         userRoom.set(userId, code);
         emitRoom(room, "live:joined", { code, user: me, media }, userId);
         tellCount(room);
-        ack(cb, { code, kind: room.kind, title: room.title, video: room.video, host: view(room.host), hostId: room.host, media, peers, viewers: count(room), gifts: room.giftCount, sharing: [...room.sharing], chat: room.chat.slice(-30), started: room.started, isHost: userId === room.host });
+        ack(cb, { code, kind: room.kind, title: room.title, video: room.video, host: view(room.host), hostId: room.host, media, peers, viewers: count(room), gifts: room.giftCount, sharing: [...room.sharing], chat: room.chat.slice(-30), pinned: room.pinned, started: room.started, isHost: userId === room.host });
       });
 
       socket.on("live:leave", ({ code } = {}) => dropFromRoom(userId, clean(code, 8).toUpperCase()));
@@ -160,6 +160,23 @@ module.exports = function setupLive(ctx) {
         emitRoom(room, "live:chat", { code: room.code, msg });
         for (const id of ment) if (id !== userId) io.to("user:" + id).emit("live:mention", { code: room.code, from: me.name, text: t.slice(0, 80), title: room.title });
         ack(cb, { ok: true, id: msg.id });
+      });
+
+      // pin a message at the top of the chat: the host (in a meeting, whoever is host now) or the creator account. msgId null/empty = unpin.
+      socket.on("live:pin", ({ code, msgId } = {}, cb) => {
+        const room = rooms.get(clean(code, 8).toUpperCase());
+        if (!room || !room.members.has(userId)) return ack(cb, { error: "Join the live first" });
+        const me = readDB().users.find((u) => u.id === userId);
+        if (userId !== room.host && !(isCreator && isCreator(me))) return ack(cb, { error: "Only the host can pin messages" });
+        if (!msgId) { room.pinned = null; }
+        else {
+          const m = room.chat.find((x) => x.id === msgId);
+          if (!m) return ack(cb, { error: "That message is no longer available" });
+          const v = view(userId);
+          room.pinned = { id: m.id, user: m.user, text: m.text || "", gift: m.gift || null, by: v ? v.name : "", at: Date.now() };
+        }
+        emitRoom(room, "live:pinned", { code: room.code, pinned: room.pinned });
+        ack(cb, { ok: true });
       });
 
       // react to one comment (one emoji per person, tap the same one again to remove it)
