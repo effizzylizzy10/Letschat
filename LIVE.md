@@ -59,3 +59,5 @@ Update: the Room and Live tabs were removed from the bottom bar. Both are still 
 ## Big stickers and event sounds
 - Stickers now pop in big (about 120 px, text stickers like WOW! 64 px) in the middle of the screen, then float up and fade. Live emojis stay smaller. To change the size edit `fontSize: f.big ? (wide ? 64 : 120) : 40` in `client/live.js`.
 - Live event sounds (same speaker button turns all of them off): someone joins / leaves (meetings, and the host of a live), a new comment, you are @mentioned, a message is pinned, someone starts sharing their screen, a gift (sparkle), and the live ending.
+
+Update: emoji no longer play a sound in Live Meetings (they still animate). Stickers, gifts and the other event sounds are unchanged.

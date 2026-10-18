@@ -19,3 +19,8 @@ Snakes & Ladders effects: after the 3D die lands the pawn hops square by square 
 
 Update: the Solo arcade tile and the Dominoes (coming soon) tile were removed from the Games screen.
 
+
+## Real 3D dice roll (Ludo and Snakes & Ladders)
+- The die is a solid 3D cube (rounded faces over a solid core, real pips). On a roll it is tossed in from the side, arcs up, tumbles on all three axes while slowing down, bounces and settles flat on the rolled face with a small random twist, like a real die. The number is decided first and the tumble ends on it, so nothing snaps at the end.
+- The roll takes about 1.2 seconds (was 0.9). Phones set to reduce motion show the die landing straight away.
+- Files: `client/app.js` only (`LudoDie`, `ludoCss`, and the two places that draw it).
