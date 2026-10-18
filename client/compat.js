@@ -297,3 +297,86 @@
     }
   }, 1200);
 })();
+
+// 9. Keep the screen awake during calls and lives. Battery saver makes the browser refuse the Screen Wake Lock (and drop it when the screen
+//    is turned off and on), so this asks again when the app comes back, on a timer, and after the lock is released. Returns a stop function.
+(function () {
+  var w = window, d = document;
+  w.lcKeepAwake = function () {
+    var lock = null, dead = false, busy = false, timer = 0;
+    function get() {
+      if (dead || busy || d.hidden || !navigator.wakeLock || !navigator.wakeLock.request) return;
+      if (lock && !lock.released) return;
+      busy = true;
+      try {
+        navigator.wakeLock.request("screen").then(function (l) {
+          busy = false;
+          if (dead) { try { l.release(); } catch (e) {} return; }
+          lock = l; try { l.addEventListener("release", function () { if (lock === l) lock = null; }); } catch (e) {}
+        }, function () { busy = false; });
+      } catch (e) { busy = false; }
+    }
+    function vis() { if (!d.hidden) get(); }
+    d.addEventListener("visibilitychange", vis); w.addEventListener("focus", vis); w.addEventListener("pageshow", vis);
+    get(); timer = setInterval(get, 15000);
+    return function () {
+      dead = true; clearInterval(timer);
+      d.removeEventListener("visibilitychange", vis); w.removeEventListener("focus", vis); w.removeEventListener("pageshow", vis);
+      try { if (lock) lock.release(); } catch (e) {} lock = null;
+    };
+  };
+})();
+
+// 10. "Keep Letschat running" tip. A web app cannot switch off Android's battery restriction by itself (only the person can, in Settings), so
+//     after sign-in this shows a small card once: why it matters and the exact steps for the phone brand. "Remind me later" asks again in 7 days,
+//     "Don't show again" never. It also asks the browser to keep the app's saved data safe. window.lcShowBatteryHelp() opens the card on demand.
+(function () {
+  var w = window, d = document, K = "letschat-bs-tip", ua = navigator.userAgent || "";
+  if (!/Android/i.test(ua)) return;
+  var model = ua;
+  try { if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) navigator.userAgentData.getHighEntropyValues(["model"]).then(function (v) { if (v && v.model) model = v.model + " " + ua; }, function () {}); } catch (e) {}
+  function st() { try { return JSON.parse(localStorage.getItem(K) || "{}") || {}; } catch (e) { return {}; } }
+  function put(o) { try { localStorage.setItem(K, JSON.stringify(o)); } catch (e) {} }
+  function signedIn() { try { return !!localStorage.getItem("letschat-africa:session"); } catch (e) { return false; } }
+  function busy() { try { return !!((w.__lcCallBusy && w.__lcCallBusy()) || (w.__lcGroupBusy && w.__lcGroupBusy()) || (w.__lcLiveBusy && w.__lcLiveBusy())); } catch (e) { return false; } }
+  function steps() {
+    var m = model, base = ["Press and hold the Letschat icon, tap App info (or open Settings, Apps, Letschat).", "Tap Battery.", "Choose Unrestricted (some phones say No restrictions, Don't optimise or Allow background activity)."];
+    var extra = "";
+    if (/SM-|Samsung/i.test(m)) extra = "Samsung: also open Settings, Battery, Background usage limits, Never auto sleeping apps, and add Letschat.";
+    else if (/Xiaomi|Redmi|POCO|\bMI \d|M\d{4}[A-Z0-9]+/i.test(m)) extra = "Xiaomi / Redmi / POCO: in App info choose Battery saver, No restrictions, then turn on Autostart.";
+    else if (/TECNO|Infinix|itel/i.test(m)) extra = "Tecno / Infinix / itel: open Phone Master (or Settings, Apps, App launch), allow Auto-start for Letschat, and lock Letschat in the recent apps list.";
+    else if (/OPPO|CPH\d|RMX|realme|vivo|\bV\d{4}/i.test(m)) extra = "Oppo / Realme / Vivo: in App info turn on Auto-launch and Allow background activity.";
+    else if (/HUAWEI|HONOR|\bHONOR/i.test(m)) extra = "Huawei / Honor: open App launch, set Letschat to Manage manually and turn on all three switches.";
+    return { base: base, extra: extra };
+  }
+  function show(force) {
+    if (d.getElementById("lc-bs-tip") || d.getElementById("lc-update")) return;
+    var o = d.createElement("div"); o.id = "lc-bs-tip"; o.setAttribute("role", "dialog"); o.setAttribute("aria-label", "Keep Letschat running");
+    o.style.cssText = "position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:2147482000;max-width:460px;margin:0 auto;background:#161B22;color:#F5F7FA;border:1px solid #35D0BA;border-radius:18px;padding:14px 14px 12px;font-family:Inter,Arial,sans-serif;box-shadow:0 10px 36px rgba(0,0,0,.6)";
+    function el(tag, css, text) { var e = d.createElement(tag); if (css) e.style.cssText = css; if (text) e.textContent = text; return e; }
+    o.appendChild(el("div", "font-family:Sora,Inter,Arial,sans-serif;font-weight:700;font-size:15.5px;margin-bottom:4px", "Keep Letschat running in the background"));
+    o.appendChild(el("div", "font-size:13px;color:#9BA7B4;line-height:1.45;margin-bottom:8px", "Battery saver can stop messages, calls and live alerts from reaching you. Allow Letschat to run without battery limits (only you can do this in your phone settings):"));
+    var sp = steps(), ol = el("ol", "margin:0 0 8px;padding-left:20px;font-size:13px;line-height:1.5;color:#E3E8EE");
+    for (var i = 0; i < sp.base.length; i++) ol.appendChild(el("li", "", sp.base[i]));
+    o.appendChild(ol);
+    if (sp.extra) o.appendChild(el("div", "font-size:12.5px;color:#35D0BA;line-height:1.45;margin-bottom:8px", sp.extra));
+    var row = el("div", "display:flex;gap:8px;flex-wrap:wrap");
+    function btn(label, bg, color, fn) { var b = el("button", "flex:1;min-width:96px;padding:10px 8px;border-radius:12px;border:0;background:" + bg + ";color:" + color + ";font-weight:700;font-size:13px;cursor:pointer", label); b.type = "button"; b.onclick = function () { try { o.parentNode.removeChild(o); } catch (e) {} fn(); }; return b; }
+    row.appendChild(btn("Done", "#35D0BA", "#0E1116", function () { put({ never: true, done: true }); }));
+    row.appendChild(btn("Remind me later", "#2B3544", "#F5F7FA", function () { put({ until: new Date().getTime() + 7 * 86400000 }); }));
+    row.appendChild(btn("Don't show again", "#1E2530", "#9BA7B4", function () { put({ never: true }); }));
+    o.appendChild(row); d.body.appendChild(o);
+  }
+  w.lcShowBatteryHelp = function () { show(true); };
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  var tries = 0;
+  function check() {
+    if (++tries > 12) return;
+    var s = st();
+    if (s.never) return;
+    if (s.until && new Date().getTime() < s.until) return;
+    if (signedIn() && !d.hidden && !busy()) { show(false); return; }
+    setTimeout(check, 30000);
+  }
+  setTimeout(check, 25000);
+})();
