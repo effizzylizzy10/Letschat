@@ -3195,14 +3195,15 @@ function FullScreenShell({ children }) {
 }
 // ---- Ludo: realistic board, 3D tumbling dice, hopping pawns, capture / home / win effects ----
 function ludoCss() {
-    if (document.getElementById("lc-ludo-css-2"))
+    if (document.getElementById("lc-ludo-css-3"))
         return;
     const st = document.createElement("style");
-    st.id = "lc-ludo-css-2";
+    st.id = "lc-ludo-css-3";
     st.textContent =
         "@keyframes lcTumble{0%{transform:rotateX(0) rotateY(0) rotateZ(0)}100%{transform:rotateX(900deg) rotateY(1080deg) rotateZ(360deg)}}" +
         "@keyframes lcToss{0%{transform:translateY(0) scale(1)}22%{transform:translateY(-38px) scale(1.2)}46%{transform:translateY(0) scale(1)}58%{transform:translateY(-16px) scale(1.07)}72%{transform:translateY(0) scale(1)}84%{transform:translateY(-5px) scale(1.02)}100%{transform:translateY(0) scale(1)}}" +
         "@keyframes lcShadowRoll{0%{transform:scale(1);opacity:.5}22%{transform:scale(.6);opacity:.25}46%{transform:scale(1);opacity:.5}58%{transform:scale(.8);opacity:.35}72%,100%{transform:scale(1);opacity:.5}}" +
+        "@keyframes lcSlide{0%{transform:translateX(var(--sx))}100%{transform:translateX(0)}}" +
         "@keyframes lcDiceLand{0%{transform:translateY(-8px) scale(1.18)}45%{transform:translateY(0) scale(.92,.88)}70%{transform:translateY(-3px) scale(1.04)}100%{transform:translateY(0) scale(1)}}" +
         "@keyframes lcHop{0%{transform:translate(0,0) scale(1,1)}40%{transform:translate(0,-0.4px) scale(.93,1.12)}75%{transform:translate(0,0.02px) scale(1.14,.86)}100%{transform:translate(0,0) scale(1,1)}}" +
         "@keyframes lcBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-0.11px)}}" +
@@ -3213,7 +3214,7 @@ function ludoCss() {
         "@keyframes lcYard{0%,100%{opacity:.25}50%{opacity:1}}" +
         "@keyframes lcTwinkle{0%,100%{opacity:.55}50%{opacity:1}}" +
         "@keyframes lcJewel{0%,100%{opacity:.7}50%{opacity:1}}" +
-        "@media (prefers-reduced-motion:reduce){.lc-ld,.lc-ld *{animation:none!important}}";
+        "@media (prefers-reduced-motion:reduce){.lc-ld,.lc-ld *{animation:none!important;transition:none!important}}";
     document.head.appendChild(st);
 }
 function ludoMix(hex, k) {
@@ -3229,15 +3230,40 @@ const LUDO_PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 
 // rotation that brings a value to face the player (opposite faces add up to 7)
 const LUDO_FACE_ROT = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180] };
 function LudoDie({ v, size = 50, mode, delay = 0, which = 0, dim, ring, onClick, label }) {
-    const half = size / 2, rot = LUDO_FACE_ROT[v] || [0, 0], rolling = mode === "roll";
+    // A real-dice roll: the die is tossed in from the side, arcs up, tumbles on all three axes while slowing down, bounces and settles on the
+    // face that was rolled (the number is already decided, the tumble just ends on it, so there is no snap). The caller keeps the same
+    // key for the whole roll, so this component stays mounted from the toss to the landing.
+    const half = size / 2, rolling = mode === "roll";
     const faceT = { 1: "translateZ(" + half + "px)", 6: "rotateY(180deg) translateZ(" + half + "px)", 2: "rotateY(90deg) translateZ(" + half + "px)", 5: "rotateY(-90deg) translateZ(" + half + "px)", 3: "rotateX(90deg) translateZ(" + half + "px)", 4: "rotateX(-90deg) translateZ(" + half + "px)" };
+    const rest = (n) => { const r = LUDO_FACE_ROT[n] || [0, 0]; return "rotateZ(0deg) rotateX(" + r[0] + "deg) rotateY(" + r[1] + "deg)"; };
+    const seed = useRef(null);
+    if (!seed.current)
+        seed.current = { yaw: (Math.random() * 28 - 14) * (which ? -1 : 1), side: (which ? 1 : -1) * (34 + Math.random() * 18), sx: Math.random() < 0.5 ? -1 : 1, sy: Math.random() < 0.5 ? -1 : 1, sz: Math.random() < 0.5 ? -1 : 1, nx: 2 + Math.floor(Math.random() * 2), ny: 2 + Math.floor(Math.random() * 2), nz: 1 + Math.floor(Math.random() * 2), x0: Math.floor(Math.random() * 4) * 90, y0: Math.floor(Math.random() * 4) * 90 };
+    const [cube, setCube] = useState(() => rolling ? { t: "rotateZ(" + seed.current.sz * -90 + "deg) rotateX(" + seed.current.x0 + "deg) rotateY(" + seed.current.y0 + "deg)", ms: 0 } : { t: rest(v), ms: 0 });
+    const lastV = useRef(v), started = useRef(false);
+    useEffect(() => {
+        if (rolling && !started.current) {
+            started.current = true;
+            const r = LUDO_FACE_ROT[v] || [0, 0], k = seed.current;
+            const end = "rotateZ(" + k.sz * 360 * k.nz + "deg) rotateX(" + (r[0] + k.sx * 360 * k.nx) + "deg) rotateY(" + (r[1] + k.sy * 360 * k.ny) + "deg)";
+            setCube({ t: "rotateZ(" + k.sz * -90 + "deg) rotateX(" + k.x0 + "deg) rotateY(" + k.y0 + "deg)", ms: 0 }); // start from a random side, then tumble to the end
+            const id = requestAnimationFrame(() => requestAnimationFrame(() => setCube({ t: end, ms: 1080 + which * 90 })));
+            return () => cancelAnimationFrame(id);
+        }
+        if (!rolling && v !== lastV.current && !started.current)
+            setCube({ t: rest(v), ms: 0 });
+        lastV.current = v;
+    }, [rolling, v]);
     const face = (f) => gh("div", { key: f, style: { position: "absolute", inset: 0, transform: faceT[f], backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden", borderRadius: size * 0.2, background: "radial-gradient(circle at 30% 25%,#FFFFFF 0%,#F1ECE0 55%,#D9D2C1 100%)", boxShadow: "inset 0 0 " + size * 0.14 + "px rgba(0,0,0,.22), inset 0 -2px 3px rgba(0,0,0,.12)", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gridTemplateRows: "repeat(3,1fr)", padding: size * 0.15, boxSizing: "border-box" } },
         Array.from({ length: 9 }, (_, i) => gh("div", { key: i, style: { display: "flex", alignItems: "center", justifyContent: "center" } }, LUDO_PIPS[f].includes(i) ? gh("div", { style: { width: size * 0.2, height: size * 0.2, borderRadius: "50%", background: f === 1 ? "radial-gradient(circle at 35% 30%,#FF6B6B,#B3151F)" : "radial-gradient(circle at 35% 30%,#4A5568,#0F141C)", boxShadow: "inset 0 1px 2px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.7)" } }) : null)));
-    const cube = gh("div", { style: { width: size, height: size, position: "relative", transformStyle: "preserve-3d", WebkitTransformStyle: "preserve-3d", transform: rolling ? undefined : "rotateX(" + rot[0] + "deg) rotateY(" + rot[1] + "deg)", animation: rolling ? "lcTumble " + (0.5 + which * 0.07) + "s linear infinite" : "none", filter: rolling ? "blur(.6px)" : "none" } }, [1, 2, 3, 4, 5, 6].map(face));
-    const tilt = gh("div", { style: { width: size, height: size, transformStyle: "preserve-3d", WebkitTransformStyle: "preserve-3d", transform: rolling ? "none" : "rotateX(-16deg) rotateY(" + (which ? 20 : -20) + "deg)" } }, cube);
-    const stage = gh("div", { className: "lc-ld", style: { width: size, height: size, perspective: size * 5, WebkitPerspective: size * 5, animation: rolling ? "lcToss .9s cubic-bezier(.3,.7,.4,1) " + delay + "s both" : mode === "land" ? "lcDiceLand .4s ease-out " + delay + "s both" : "none", filter: ring ? "drop-shadow(0 0 7px #F5B83D) drop-shadow(0 0 14px rgba(245,184,61,.7))" : "none" } }, tilt);
+    // a slightly smaller solid core behind the faces fills the gaps at the rounded corners so the die looks like a solid block
+    const core = (f) => gh("div", { key: "c" + f, style: { position: "absolute", inset: size * 0.04, transform: faceT[f].replace(/translateZ\(([\d.]+)px\)/, (m, d) => "translateZ(" + (parseFloat(d) - size * 0.045) + "px)"), backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden", borderRadius: size * 0.2, background: "#CFC7B3" } });
+    const cubeEl = gh("div", { style: { width: size, height: size, position: "relative", transformStyle: "preserve-3d", WebkitTransformStyle: "preserve-3d", transform: cube.t, transition: cube.ms ? "transform " + cube.ms + "ms cubic-bezier(.12,.62,.2,1)" : "none" } }, [1, 2, 3, 4, 5, 6].map(core).concat([1, 2, 3, 4, 5, 6].map(face)));
+    const tilt = gh("div", { style: { width: size, height: size, transformStyle: "preserve-3d", WebkitTransformStyle: "preserve-3d", transform: "rotateX(-18deg) rotateY(" + (which ? 18 : -18) + "deg) rotateZ(" + seed.current.yaw + "deg)" } }, cubeEl);
+    const stage = gh("div", { className: "lc-ld", style: { width: size, height: size, perspective: size * 5, WebkitPerspective: size * 5, animation: rolling ? "lcToss 1.1s cubic-bezier(.3,.7,.4,1) " + delay + "s both" : mode === "land" ? "lcDiceLand .4s ease-out both" : "none", filter: ring ? "drop-shadow(0 0 7px #F5B83D) drop-shadow(0 0 14px rgba(245,184,61,.7))" : "none" } }, tilt);
+    const slide = gh("div", { className: "lc-ld", style: { width: size, height: size, "--sx": seed.current.side + "px", animation: rolling ? "lcSlide 1.1s cubic-bezier(.2,.75,.3,1) " + delay + "s both" : "none" } }, stage);
     const body = gh("div", { style: { position: "relative", width: size, height: size + 8, paddingBottom: 8, boxSizing: "border-box", opacity: dim ? 0.38 : 1, transition: "opacity .2s" } },
-        gh("div", { className: "lc-ld", style: { position: "absolute", left: size * 0.1, right: size * 0.1, bottom: 0, height: 7, borderRadius: "50%", background: "radial-gradient(ellipse,rgba(0,0,0,.55),rgba(0,0,0,0) 70%)", animation: rolling ? "lcShadowRoll .9s ease-out " + delay + "s both" : "none" } }), stage);
+        gh("div", { className: "lc-ld", style: { position: "absolute", left: size * 0.1, right: size * 0.1, bottom: 0, height: 7, borderRadius: "50%", background: "radial-gradient(ellipse,rgba(0,0,0,.55),rgba(0,0,0,0) 70%)", animation: rolling ? "lcShadowRoll 1.1s ease-out " + delay + "s both" : "none" } }), slide);
     return onClick ? gh("button", { onClick, "aria-label": label, style: { background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 } }, body) : gh("div", { role: "img", "aria-label": label, style: { lineHeight: 0 } }, body);
 }
 function ludoStar(cx, cy, R, r) {
@@ -3315,7 +3341,7 @@ function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
         prevRv.current = rv;
         setRolling(true);
         setLanded(false);
-        const iv = setInterval(() => setFace([1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)]), 80), t1 = setTimeout(() => { clearInterval(iv); setRolling(false); setLanded(true); }, 900), t2 = setTimeout(() => setLanded(false), 1300);
+        const iv = setInterval(() => setFace([1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)]), 80), t1 = setTimeout(() => { clearInterval(iv); setRolling(false); setLanded(true); }, 1180), t2 = setTimeout(() => setLanded(false), 1600);
         return () => { clearInterval(iv); clearTimeout(t1); clearTimeout(t2); };
     }, [rv]);
     // pawns hop square by square; captures, entering the board, reaching home and winning get their own effects
@@ -3405,11 +3431,11 @@ function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
     return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("ludo") }, gh("svg", { viewBox: "-0.7 -0.7 16.4 16.4", width: side, height: side, style: { display: "block", borderRadius: 10, overflow: "hidden" } }, kids)), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 0 0" } },
         gh("div", { style: { display: "flex", gap: 20, alignItems: "center", padding: "6px 12px", borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.14)" : "rgba(255,255,255,.04)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.45)" : "none" } },
             [0, 1].map((k) => {
-                const v = shown[k], has = v >= 1 && v <= 6, used = !rolling && dv && dd.u[k];
+                const v = shown[k], has = v >= 1 && v <= 6, used = !rolling && dv && dd.u[k], real = dv || (Array.isArray(s.last) ? s.last : s.last ? [s.last] : []);
                 if (!has && !rolling)
                     return gh("div", { key: k, style: { width: 54, height: 62, borderRadius: 11, border: "2px dashed rgba(255,255,255,.22)", boxSizing: "border-box" } });
                 const pick = usable.includes(k) && usable.length > 1 ? () => setSel(k) : canRoll ? () => onTap(-1) : undefined;
-                return gh(LudoDie, { key: k + "-" + rv + (rolling ? "r" : landed ? "l" : "s"), v: rolling ? 1 : v, size: 54, mode: rolling ? "roll" : landed ? "land" : "", which: k, delay: k * 0.07, dim: used || (!dv && !rolling && !!s.last && myTurn), ring: !rolling && cur === k && usable.length > 1, onClick: pick || (canRoll ? () => onTap(-1) : undefined), label: "Die " + (k + 1) + ": " + v });
+                return gh(LudoDie, { key: k + "-" + rv, v: rolling ? (real[k] >= 1 && real[k] <= 6 ? real[k] : 1) : v, size: 54, mode: rolling ? "roll" : landed ? "land" : "", which: k, delay: k * 0.07, dim: used || (!dv && !rolling && !!s.last && myTurn), ring: !rolling && cur === k && usable.length > 1, onClick: pick || (canRoll ? () => onTap(-1) : undefined), label: "Die " + (k + 1) + ": " + v });
             }),
             canRoll && gh("button", { onClick: () => onTap(-1), "aria-label": "Roll the dice", style: { border: "none", borderRadius: 12, background: "#F5B83D", color: "#1B1440", fontFamily: "Sora, Inter, sans-serif", fontWeight: 800, fontSize: 14, padding: "10px 14px", cursor: "pointer" } }, "Roll")),
         gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, rolling ? "Rolling…" : myTurn ? (!dv ? "Tap the dice to roll." : usable.length === 0 ? "No moves with these dice." : usable.length > 1 ? "Tap a die to pick it, then tap a glowing piece." : "Tap a glowing piece to move it.") : "Waiting for the other player.")));
@@ -3423,7 +3449,7 @@ function snlCss() {
     st.textContent = "@keyframes snlHop{0%{transform:translateY(0) scale(1,1)}45%{transform:translateY(-0.45px) scale(.94,1.12)}80%{transform:translateY(0) scale(1.14,.86)}100%{transform:translateY(0) scale(1,1)}}" +
         "@keyframes snlShake{0%,100%{transform:translateX(0)}15%{transform:translateX(-5px) rotate(-.6deg)}30%{transform:translateX(5px) rotate(.6deg)}45%{transform:translateX(-4px)}60%{transform:translateX(4px)}80%{transform:translateX(-2px)}}" +
         "@keyframes snlPop{0%{transform:scale(.3);opacity:0}25%{transform:scale(1.25);opacity:1}70%{transform:scale(1);opacity:1}100%{transform:scale(1.1) translateY(-14px);opacity:0}}" +
-        "@media (prefers-reduced-motion:reduce){.lc-ld,.lc-ld *{animation:none!important}}";
+        "@media (prefers-reduced-motion:reduce){.lc-ld,.lc-ld *{animation:none!important;transition:none!important}}";
     document.head.appendChild(st);
 }
 function snlXY(n) { const r = Math.floor((n - 1) / 10), c = r % 2 ? 9 - ((n - 1) % 10) : (n - 1) % 10; return [c + 0.5, 9 - r + 0.5]; }
@@ -3437,7 +3463,7 @@ function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
         prevRv.current = rv;
         setRolling(true);
         setLanded(false);
-        const iv = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 80), t1 = setTimeout(() => { clearInterval(iv); setRolling(false); setLanded(true); }, 900), t2 = setTimeout(() => setLanded(false), 1300);
+        const iv = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 80), t1 = setTimeout(() => { clearInterval(iv); setRolling(false); setLanded(true); }, 1180), t2 = setTimeout(() => setLanded(false), 1600);
         return () => { clearInterval(iv); clearTimeout(t1); clearTimeout(t2); };
     }, [rv]);
     const canRoll = myTurn && !rolling;
@@ -3509,7 +3535,7 @@ function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
         f.parts.forEach((q, j) => kids.push(gh("circle", { key: "fp" + f.id + "_" + j, cx: f.x, cy: f.y, r: q.r, fill: q.c, style: { "--dx": q.dx + "px", "--dy": q.dy + "px", animation: "lcPart " + (f.type === "dust" ? 0.5 : 0.9) + "s ease-out forwards", transformBox: "fill-box", transformOrigin: "center", pointerEvents: "none" } })));
     });
     const side = Math.max(120, Math.floor(Math.min(fit.w - 20, (fit.h - 66 - 20) / 1.08)));
-    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("snl") }, gh("div", { key: "sh" + shake, className: "lc-ld", style: { position: "relative", animation: shake ? "snlShake .5s ease-out" : "none" } }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids), six > 0 && gh("div", { key: "six" + six, className: "lc-ld", style: { position: "absolute", left: 0, right: 0, top: "38%", textAlign: "center", pointerEvents: "none", fontFamily: "Sora, Inter, sans-serif", fontWeight: 900, fontSize: 38, color: "#FFE08A", textShadow: "0 0 18px rgba(245,184,61,.9), 0 3px 8px rgba(0,0,0,.6)", animation: "snlPop 1s ease-out forwards" } }, "SIX! \uD83C\uDF89"))), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } }, gh("div", { style: { padding: "6px 10px", borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.14)" : "rgba(255,255,255,.04)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.45)" : "none" } }, gh(LudoDie, { key: rv + (rolling ? "r" : landed ? "l" : "s"), v: rolling ? 1 : (s.last >= 1 && s.last <= 6 ? s.last : 1), size: 50, mode: rolling ? "roll" : landed ? "land" : "", which: 0, onClick: canRoll ? () => onTap(-1) : undefined, label: "Roll the dice" + (s.last ? ", last roll " + s.last : "") })), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (rolling ? "Rolling…" : (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player.")))));
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } }, gh(GameFrame, { color: gameColor("snl") }, gh("div", { key: "sh" + shake, className: "lc-ld", style: { position: "relative", animation: shake ? "snlShake .5s ease-out" : "none" } }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids), six > 0 && gh("div", { key: "six" + six, className: "lc-ld", style: { position: "absolute", left: 0, right: 0, top: "38%", textAlign: "center", pointerEvents: "none", fontFamily: "Sora, Inter, sans-serif", fontWeight: 900, fontSize: 38, color: "#FFE08A", textShadow: "0 0 18px rgba(245,184,61,.9), 0 3px 8px rgba(0,0,0,.6)", animation: "snlPop 1s ease-out forwards" } }, "SIX! \uD83C\uDF89"))), gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } }, gh("div", { style: { padding: "6px 10px", borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.14)" : "rgba(255,255,255,.04)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.45)" : "none" } }, gh(LudoDie, { key: "s" + rv, v: (s.last >= 1 && s.last <= 6 ? s.last : 1), size: 50, mode: rolling ? "roll" : landed ? "land" : "", which: 0, onClick: canRoll ? () => onTap(-1) : undefined, label: "Roll the dice" + (s.last ? ", last roll " + s.last : "") })), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (rolling ? "Rolling…" : (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player.")))));
 }
 // ---- Draughts: robot brain and board ----
 function ckEval(s, p) { let v = 0; s.b.forEach((x, i) => { if (x == null)

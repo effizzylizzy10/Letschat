@@ -491,7 +491,7 @@
         if (m.code !== code) return;
         if (m.kind === "gift") { var gid = ++fxId.current; setGifts(function (g) { return g.concat([{ id: gid, glyph: glyph(GIFTS, m.value), user: m.user }]).slice(-3); }); setTimeout(function () { setGifts(function (g) { return g.filter(function (x) { return x.id !== gid; }); }); }, 3000); }
         var id = ++fxId.current, g = m.kind === "sticker" ? glyph(STICKERS, m.value) : m.kind === "gift" ? glyph(GIFTS, m.value) : m.value;
-        var ak = animKey(m.kind, m.value); playSfx(m.kind === "gift" ? "gift" : ak);
+        var ak = animKey(m.kind, m.value); if (!(kind === "meeting" && m.kind === "emoji")) playSfx(m.kind === "gift" ? "gift" : ak); // no emoji sounds in meetings (they still animate)
         setFloaters(function (f) { return f.concat([{ id: id, g: g, k: m.kind === "gift" ? "pop" : ak, x: 8 + Math.random() * 70, big: m.kind !== "emoji" }]).slice(-14); });
         setTimeout(function () { setFloaters(function (f) { return f.filter(function (x) { return x.id !== id; }); }); }, 2700);
       };
