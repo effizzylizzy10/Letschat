@@ -8,7 +8,7 @@
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I so codes are easy to read out
 const LIMITS = { meeting: 6, liveVideoViewers: 8, chatKeep: 80, textMax: 300, titleMax: 60 };
 const GIFTS = ["rose", "car", "crown", "bear", "star", "diamond", "heart", "rocket"];
-const STICKERS = ["fire", "100", "heart", "laugh", "crown", "wow", "panda", "clap", "love", "rocket", "gg"];
+const STICKERS = ["fire", "100", "heart", "laugh", "crown", "wow", "panda", "clap", "love", "rocket", "gg", "angry", "cry", "party", "kiss"];
 const EMOJIS = ["\u{1F44D}", "\u2764\uFE0F", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F621}", "\u{1F525}", "\u{1F4AF}", "\u{1F44F}", "\u{1F389}", "\u{1F60D}", "\u{1F64C}"];
 
 module.exports = function setupLive(ctx) {
