@@ -23,6 +23,7 @@ Live is skipped on lite/keypad screens (like reactions).
 ## Your video (Go Live host and meeting members)
 The controls row has a camera button (video on/off) and a sparkle button that opens "Your video":
 - **Camera / Picture / Off.** Picture sends a photo from the phone instead of the camera. Off releases the camera and shows a card with the person's initials, so others still see who is there.
+- **Face effects:** hats, glasses, beard, moustache and beer that follow your face (see FACE.md).
 - **Effects:** Normal, B&W, Sepia, Warm, Cool, Vivid, Vintage, Soft, Neon. The effect is applied before sending, so everyone sees it. Browsers without canvas filters get all of these except Soft; browsers that cannot process video at all only get video on/off.
 - Camera with no effect is sent as-is (no extra CPU use).
 
@@ -46,6 +47,7 @@ Update: the Room and Live tabs were removed from the bottom bar. Both are still 
 - A round red record button sits in the controls row (host of a Go Live, and everyone in a Live Meeting). Tap to start (it shows the time), tap again to stop. The video is saved to the phone's Downloads (`letschat-live-CODE-date.webm`, or `.mp4` on iPhone). Nothing is uploaded.
 - It records what you see and hear: the host's picture (live), or the grid of everyone (meeting), plus all voices. Effects, screen share and people joining are kept.
 - Leaving the live while recording also saves the file. Only the person who tapped Record knows; others are not told, so ask people before recording a meeting.
+- Stickers, emojis, gift banners, bubbles, the pinned message and the latest comments (Go Live) are painted into the recording too.
 - Needs MediaRecorder and canvas capture (all current Chrome, Edge, Firefox, Samsung Internet and Safari 14.5+); otherwise the button is hidden. Files grow about 9 MB per minute.
 - Files: `client/live.js` only.
 
