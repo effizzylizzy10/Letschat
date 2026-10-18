@@ -3281,7 +3281,7 @@ function registerGames(socket) {
 }
 
 // Sends one message. Used by the live socket ("message:send") and by the no-JavaScript Lite pages (/lite).
-function handleSend(userId, { conversationId, text, audio, duration, file, replyTo, forwarded, viewOnce, poll, mentions } = {}, ack) {
+function handleSend(userId, { conversationId, text, audio, duration, file, replyTo, forwarded, viewOnce, poll, mentions, clientId } = {}, ack) {
     const fail = (error) => { if (ack) ack({ error }); };
     const voice = typeof audio === "string" && audio.length <= 600000 && /^data:audio\/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)(;codecs=[\w.,-]+)?;base64,/.test(audio);
     if (audio && !voice) return fail("Voice note is too long or not supported (max about 1 minute)");
@@ -3322,6 +3322,15 @@ function handleSend(userId, { conversationId, text, audio, duration, file, reply
       if (ack) ack({ error: "Not a participant of this conversation" });
       return;
     }
+    // Offline outbox: the app gives every message a clientId and re-sends it until it is acknowledged (weak or dropped connections).
+    // If this one was already stored, answer with the stored copy instead of posting it twice.
+    const cid = typeof clientId === "string" && /^[\w-]{6,48}$/.test(clientId) ? clientId : "";
+    if (cid) {
+      for (let i = db.messages.length - 1, n = 0; i >= 0 && n < 600; i--, n++) {
+        const old = db.messages[i];
+        if (old.senderId === userId && old.clientId === cid) { if (ack) ack({ message: stripViewOnce(old), duplicate: true }); return; }
+      }
+    }
     if (!convo.isGroup) {
       const otherId = convo.participantIds.find((id) => id !== userId);
       const me = db.users.find((u) => u.id === userId);
@@ -3348,6 +3357,7 @@ function handleSend(userId, { conversationId, text, audio, duration, file, reply
       id: nanoid(14),
       conversationId,
       senderId: userId,
+      ...(cid ? { clientId: cid } : {}),
       text: text.trim(),
       ...(reply ? { replyTo: reply } : {}),
       ...(forwarded === true ? { forwarded: true } : {}),
