@@ -218,3 +218,66 @@
     }, true);
   }
 })();
+
+// 7. Video fixes (Samsung / Android WebView / Safari): blank video frames, autoplay blocked, unsupported formats.
+(function () {
+  "use strict";
+  var w = window, d = document;
+  if (!d.addEventListener || !d.querySelectorAll) return;
+
+  function retryOnTap(v) {
+    if (v.__lcTap) return; v.__lcTap = 1;
+    var go = function () {
+      d.removeEventListener("click", go, true); d.removeEventListener("touchend", go, true); v.__lcTap = 0;
+      try { var p = v.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    };
+    d.addEventListener("click", go, true); d.addEventListener("touchend", go, true);
+  }
+  function tryPlay(v) {
+    try { var p = v.play(); if (p && p.catch) p.catch(function () { retryOnTap(v); }); } catch (e) {}
+  }
+  function showFallback(v) {
+    if (v.__lcFb || !v.parentNode) return;
+    var src = v.currentSrc || v.src; if (!src || v.srcObject) return;
+    v.__lcFb = 1;
+    var box = d.createElement("div");
+    box.setAttribute("style", "font:13px/1.4 sans-serif;color:#B9C2CC;background:#11161C;border-radius:10px;padding:10px 12px;margin-top:6px;text-align:center");
+    box.appendChild(d.createTextNode("This video can't play on this device. "));
+    var a = d.createElement("a");
+    a.href = src; a.setAttribute("download", "video"); a.target = "_blank"; a.rel = "noopener";
+    a.style.color = "#35D0BA"; a.appendChild(d.createTextNode("Download it"));
+    box.appendChild(a);
+    v.parentNode.insertBefore(box, v.nextSibling);
+  }
+  function prep(v) {
+    if (v.__lcv) return; v.__lcv = 1;
+    try { v.setAttribute("playsinline", ""); v.setAttribute("webkit-playsinline", ""); } catch (e) {}
+    // React sets "muted" as a property only; Safari/iOS needs the attribute for muted autoplay
+    try { if (v.muted) v.setAttribute("muted", ""); } catch (e) {}
+    v.addEventListener("loadedmetadata", function () {
+      try {
+        if (v.srcObject) { tryPlay(v); return; }
+        // Force the first frame to paint (otherwise some Android WebViews and Safari show black until played)
+        if (v.paused && !v.poster && v.currentTime === 0 && v.duration > 0) v.currentTime = 0.001;
+        if (v.autoplay && v.paused) tryPlay(v);
+      } catch (e) {}
+    });
+    v.addEventListener("error", function () { showFallback(v); });
+    if (v.srcObject && v.readyState >= 1) tryPlay(v);
+  }
+  function scan(n) {
+    if (!n || n.nodeType !== 1) return;
+    if (n.tagName === "VIDEO") prep(n);
+    var l = n.querySelectorAll ? n.querySelectorAll("video") : [];
+    for (var i = 0; i < l.length; i++) prep(l[i]);
+  }
+  function start() {
+    scan(d.documentElement);
+    if (w.MutationObserver) {
+      new MutationObserver(function (ms) {
+        for (var i = 0; i < ms.length; i++) for (var j = 0; j < ms[i].addedNodes.length; j++) scan(ms[i].addedNodes[j]);
+      }).observe(d.documentElement, { childList: true, subtree: true });
+    }
+  }
+  if (d.readyState === "loading") d.addEventListener("DOMContentLoaded", start); else start();
+})();

@@ -78,7 +78,7 @@ html.lc-micro .lc-tab svg { width: 18px; height: 18px; }
 
 /* ---------- 5. chat-only (lite) mode: keypad phones and screens up to 320 px ---------- */
 /* keep Chats and Tools (settings / sign out); Calls, Updates, Market and Games are hidden so the bar stays short and tidy */
-html.lc-lite .lc-tab:nth-child(n+2):nth-child(-n+5) { display: none !important; }
+html.lc-keypad .lc-tab:nth-child(n+2):nth-child(-n+5) { display: none !important; }
 html.lc-lite .lc-tab { -webkit-box-flex: 1; flex: 1 1 0; }
 html.lc-lite .lc-flip, html.lc-lite .lc-credit { display: none !important; }
 

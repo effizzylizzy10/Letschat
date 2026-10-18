@@ -21,6 +21,7 @@
   var lite = keypadUA || (w.innerWidth || 999) <= 320 || sd;
   w.__lcLite = lite;
   if (lite) add("lc-lite");
+  if (keypadUA) add("lc-keypad");  // only real keypad phones lose the extra tabs; small screens and Data Saver keep all of them
 
   // ---- Opera Mini (extreme / mini mode runs no real JavaScript, so the full app cannot work): use Letschat Lite, plain HTML pages ----
   var operaMini = /Opera Mini/i.test(ua); try { operaMini = operaMini || Object.prototype.toString.call(w.operamini) === "[object OperaMini]"; } catch (e) {}
