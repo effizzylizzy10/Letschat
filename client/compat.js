@@ -281,3 +281,19 @@
   }
   if (d.readyState === "loading") d.addEventListener("DOMContentLoaded", start); else start();
 })();
+
+// 8. Live video calls / meetings: keep stream videos playing (hidden-then-shown videos, late tracks, autoplay blocks)
+(function () {
+  "use strict";
+  var d = document;
+  if (!d.querySelectorAll || !window.MediaStream) return;
+  setInterval(function () {
+    if (d.hidden) return;
+    var l = d.querySelectorAll("video"), i, v, s;
+    for (i = 0; i < l.length; i++) {
+      v = l[i]; s = v.srcObject;
+      if (!s || !s.active || !v.paused || v.ended) continue;
+      try { v.setAttribute("playsinline", ""); var p = v.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    }
+  }, 1200);
+})();
