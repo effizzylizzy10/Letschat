@@ -4,6 +4,7 @@
 // server's live:* events (server/client/live.js).
 (function () {
   if (!window.React) return;
+  window.LETSCHAT_LIVE_BUILD = "livefix5"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix5)
   var h = React.createElement, useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, useCallback = React.useCallback;
   var ICE = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   var C = { bg: "#0B0F16", card: "#161B22", line: "#262E3A", text: "#F5F7FA", dim: "#9BA7B4", teal: "#35D0BA", red: "#FF3B5C", purple: "#7C5CFF" };
@@ -381,7 +382,6 @@
     var mc = useState({ mic: true, cam: true }), mediaState = mc[0], setMedia = mc[1];
     var fx = useState([]), floaters = fx[0], setFloaters = fx[1];
     var gb = useState([]), gifts = gb[0], setGifts = gb[1];
-    ovRef.current = { floaters: floaters, gifts: gifts, chat: (typeof S !== "undefined" && S && S.chat) || [], pinned: (typeof S !== "undefined" && S && S.pinned) || null, bubbles: bubbles.current }; // read by the recorder
     var tx = useState(""), text = tx[0], setText = tx[1];
     var rp = useState(null), replyTo = rp[0], setReplyTo = rp[1];
     var sl = useState(null), picked = sl[0], setPicked = sl[1];                   // comment selected for react/reply
@@ -399,6 +399,7 @@
     var sxs = useState(0), sfxN = sxs[0], setSfxN = sxs[1]; // re-draws the speaker button
     var rcs = useState(null), recSec = rcs[0], setRecSec = rcs[1], recRef = useRef(null), recTick = useRef(null);
     var ovRef = useRef(null);
+    ovRef.current = { floaters: floaters, gifts: gifts, chat: (typeof S !== "undefined" && S && S.chat) || [], pinned: (typeof S !== "undefined" && S && S.pinned) || null, bubbles: bubbles.current }; // read by the recorder
     var stopRec = function () { if (recRef.current) { recRef.current.stop(); recRef.current = null; } clearInterval(recTick.current); if (alive.current) setRecSec(null); };
     var startRec = function () {
       if (recRef.current) return stopRec();
@@ -420,14 +421,16 @@
     function addRemote(uid, stream) { setRemotes(function (r) { var n = Object.assign({}, r); n[uid] = stream; return n; }); }
     function closePeer(uid) { var pc = pcs.current[uid]; if (pc) { try { pc.onicecandidate = pc.ontrack = pc.onconnectionstatechange = null; pc.close(); } catch (e) {} } delete pcs.current[uid]; delete pend.current[uid]; setRemotes(function (r) { if (!r[uid]) return r; var n = Object.assign({}, r); delete n[uid]; return n; }); }
     function makePc(uid, sendLocal, recvOnly) {
+      var early = pend.current[uid] || []; // candidates that came in before the offer must survive closePeer
       closePeer(uid);
+      pend.current[uid] = early;
       var pc = new RTCPeerConnection({ iceServers: ICE });
       pcs.current[uid] = pc;
       pc.onicecandidate = function (e) { if (e.candidate) socket.emit("live:signal", { code: code, to: uid, data: { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate } }); };
       pc.ontrack = function (e) { var s = (e.streams && e.streams[0]) || null; if (!s) { s = new MediaStream(); s.addTrack(e.track); } addRemote(uid, s); };
       pc.onconnectionstatechange = function () { if (pc.connectionState === "failed") { try { pc.restartIce && pc.restartIce(); } catch (e) {} } };
       if (sendLocal && localRef.current) localRef.current.getTracks().forEach(function (t) { pc.addTrack(t, localRef.current); });
-      if (recvOnly) { try { pc.addTransceiver("video", { direction: "recvonly" }); pc.addTransceiver("audio", { direction: "recvonly" }); } catch (e) {} }
+      if (recvOnly || (sendLocal && !pc.getSenders().length)) { try { pc.addTransceiver("video", { direction: "recvonly" }); pc.addTransceiver("audio", { direction: "recvonly" }); } catch (e) {} }
       return pc;
     }
     function offerTo(uid, sendLocal, recvOnly) {
