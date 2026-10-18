@@ -672,6 +672,8 @@
       return function () { cancelled = true; alive.current = false; Object.keys(pcs.current).forEach(closePeer); var cr = camRef.current; if (cr.screen) { cr.screen.onended = null; cr.screen.stop(); } if (cr.video) cr.video.stop(); if (cr.audio) cr.audio.stop(); if (pipe.current) { clearInterval(pipe.current.timer); try { pipe.current.track && pipe.current.track.stop(); } catch (e) {} pipe.current = null; } if (localRef.current) localRef.current.getTracks().forEach(function (t) { t.stop(); }); localRef.current = null; };
     }, []); // eslint-disable-line
 
+    // closing the tab or page also closes your seat, so a live never stays behind on the server
+    useEffect(function () { var bye = function () { try { socket.emit(isHost && kind === "live" ? "live:end" : "live:leave", { code: code }); } catch (e) {} }; window.addEventListener("pagehide", bye); return function () { window.removeEventListener("pagehide", bye); }; }, []); // eslint-disable-line
     // ---- socket events ----
     useEffect(function () {
       var iHost = !!(info.host && info.host.id === me.id), loud = kind === "meeting" || iHost; // join / leave sounds: meetings, and the host of a live
@@ -924,18 +926,26 @@
       return function () { stop = true; clearInterval(t); };
     }, [p.active, !!room]);
 
-    function enter(emitName, payload) {
+    // a reply that never comes (sleeping server, dropped connection) used to leave the buttons dimmed and dead forever: give up after 15 s
+    function ackOnce(cb) { var done = false, t = setTimeout(function () { if (!done) { done = true; cb(null); } }, 15000); return function (r) { if (done) return; done = true; clearTimeout(t); cb(r); }; }
+    var NO_REPLY = "No answer from the server. Check your internet and try again.";
+    function enter(emitName, payload, retried) {
       var s = sock();
       if (!s || !s.connected) return setMsg("Not connected yet. Try again in a moment.");
       if (busyElsewhere()) return setMsg("Finish your call first, then come back.");
       setBusy(true); setMsg("");
-      s.emit(emitName, payload, function (r) {
-        if (!r || r.error) { setBusy(false); return setMsg((r && r.error) || "Could not connect"); }
+      s.emit(emitName, payload, ackOnce(function (r) {
+        if (r && r.error && /already in/i.test(r.error) && !retried) { // a seat from a live that never closed: close it here, then try again once
+          try { s.emit("live:reset", {}, function () {}); if (r.code) s.emit("live:leave", { code: r.code }, function () {}); } catch (e) {}
+          return setTimeout(function () { enter(emitName, payload, true); }, 800);
+        }
+        if (!r || r.error) { setBusy(false); return setMsg((r && r.error) || NO_REPLY); }
         if (emitName === "live:start") { // creator gets the room straight away: join it as host to receive the same data shape
-          s.emit("live:join", { code: r.code }, function (j) { setBusy(false); if (!j || j.error) return setMsg((j && j.error) || "Could not start"); setRoom(Object.assign({}, j, { title: r.title })); });
+          s.emit("live:join", { code: r.code }, ackOnce(function (j) { setBusy(false); if (!j || j.error) return setMsg((j && j.error) || NO_REPLY); setRoom(Object.assign({}, j, { title: r.title })); }));
         } else { setBusy(false); setRoom(r); }
-      });
+      }));
     }
+    useEffect(function () { if (!busy || !sk) return; var off = function () { setBusy(false); setMsg("Connection lost. Try again."); }; sk.on("disconnect", off); return function () { sk.off("disconnect", off); }; }, [busy, sk]);
     var goLive = function () { enter("live:start", { kind: "live", title: title, video: true }); };
     var meeting = function () { enter("live:start", { kind: "meeting", title: title || "Live Meeting", video: true }); };
     var joinCode = function (c) { var v = (c || codeIn).toUpperCase().replace(/[^A-Z0-9]/g, ""); if (v.length < 4) return setMsg("Enter the meeting code from the host"); enter("live:join", { code: v, manual: !c }); };
