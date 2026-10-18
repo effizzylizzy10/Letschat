@@ -41,3 +41,21 @@ Normal 1:1 and group calls have screen share but not these tools yet.
 - Files: `client/live.js` and `server/client/live.js` only. Deploy the server first, then the client.
 
 Update: the Room and Live tabs were removed from the bottom bar. Both are still reachable from the icons at the top of the Chats screen (people icon = Room, video icon = Live).
+
+## Recording
+- A round red record button sits in the controls row (host of a Go Live, and everyone in a Live Meeting). Tap to start (it shows the time), tap again to stop. The video is saved to the phone's Downloads (`letschat-live-CODE-date.webm`, or `.mp4` on iPhone). Nothing is uploaded.
+- It records what you see and hear: the host's picture (live), or the grid of everyone (meeting), plus all voices. Effects, screen share and people joining are kept.
+- Leaving the live while recording also saves the file. Only the person who tapped Record knows; others are not told, so ask people before recording a meeting.
+- Needs MediaRecorder and canvas capture (all current Chrome, Edge, Firefox, Samsung Internet and Safari 14.5+); otherwise the button is hidden. Files grow about 9 MB per minute.
+- Files: `client/live.js` only.
+
+## Animated stickers with sound
+- Every live sticker and live emoji now moves (wow wobbles, fire flickers, angry shakes with a red glow, crying bobs with falling tears, hearts beat, clap claps, rocket shakes, crown spins, party jumps...) in the picker and when it floats up the screen. Phones set to reduce motion get no animation.
+- Each one also has its own sound, played for everyone in the live: laugh = "ha ha ha", angry = growl, cry = sobbing "wah wah", clap = applause, fire = crackle, rocket = whoosh, party = pop + fanfare, crown = royal notes, panda = squeaks, kiss = smooch, 100 = ding, heart/love = chime/heartbeat. **Wow** and **GG** are spoken ("Wow!", "Good game!") by the phone's voice, with a made-up "waow" if the phone has no voice.
+- Sounds are made on the phone (Web Audio), so there are no files to add. The speaker button in the sticker / emoji panel turns them off on that phone. At most 3 sounds a second play, so tap-spamming stays pleasant.
+- New stickers: Angry, Crying, Party, Kiss. **The server must be redeployed (Render)** because it keeps the list of allowed stickers (`server/client/live.js`), then the client.
+- The Status editor's stickers are flattened into the photo, so they cannot move or make sound.
+
+## Big stickers and event sounds
+- Stickers now pop in big (about 120 px, text stickers like WOW! 64 px) in the middle of the screen, then float up and fade. Live emojis stay smaller. To change the size edit `fontSize: f.big ? (wide ? 64 : 120) : 40` in `client/live.js`.
+- Live event sounds (same speaker button turns all of them off): someone joins / leaves (meetings, and the host of a live), a new comment, you are @mentioned, a message is pinned, someone starts sharing their screen, a gift (sparkle), and the live ending.
