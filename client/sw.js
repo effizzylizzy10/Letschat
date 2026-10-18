@@ -16,6 +16,7 @@ var CACHE = VERSION;
 var IMGS = "letschat-images-v1";    // profile, status and market photos
 var LIBS = "letschat-libs-v1";      // pinned library versions never change, so this cache is kept across updates
 var FONTS = "letschat-fonts-v1";    // Google Fonts files
+var SHARE = "letschat-share-v1";    // text, links and files received from the phone's Share menu, kept until the app picks them up
 var LITE = /[?&]lite=1/.test(self.location.search);
 var MAX_IMAGES = LITE ? 60 : 400;
 
@@ -68,7 +69,7 @@ self.addEventListener("install", function (e) {
 self.addEventListener("activate", function (e) {
   e.waitUntil(
     caches.keys()
-      .then(function (keys) { return Promise.all(keys.filter(function (k) { return k !== CACHE && k !== LIBS && k !== IMGS && k !== FONTS; }).map(function (k) { return caches.delete(k); })); })
+      .then(function (keys) { return Promise.all(keys.filter(function (k) { return k !== CACHE && k !== LIBS && k !== IMGS && k !== FONTS && k !== SHARE; }).map(function (k) { return caches.delete(k); })); })
       .then(function () { try { if (self.registration.navigationPreload) return self.registration.navigationPreload.enable(); } catch (err) {} })
       .then(function () { return self.clients.claim(); })
       .then(function () { wakeServer(true); })
@@ -140,9 +141,35 @@ function wakeServer(force) {
 }
 // Chrome / Edge / Android installed apps: wake (and so keep warm) the server now and then even while the app is closed
 self.addEventListener("periodicsync", function (e) { if (e.tag === "keep-warm") e.waitUntil(wakeServer(true)); });
+
+// ---- Share target: Letschat appears in the phone's Share menu (needs the app installed to the home screen) ----
+// The Share menu POSTs the shared text / link / files to ./share-target. We save them in the SHARE cache and redirect to the app
+// (./?share=1), which reads them back and opens the "Send to..." chooser. Files may be big, so they are stored as they are.
+function handleShare(e) {
+  e.respondWith(
+    e.request.formData().then(function (fd) {
+      var meta = { title: String(fd.get("title") || ""), text: String(fd.get("text") || ""), url: String(fd.get("url") || ""), files: [], time: Date.now() };
+      return caches.open(SHARE).then(function (c) {
+        return c.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return c.delete(k); })); }).then(function () {
+          var list = fd.getAll("files"), puts = [];
+          for (var i = 0; i < list.length && i < 10; i++) {
+            var f = list[i];
+            if (!f || typeof f === "string") continue;
+            var key = "./__share/file/" + i;
+            meta.files.push({ name: f.name || "file", type: f.type || "application/octet-stream", size: f.size || 0, key: key });
+            puts.push(c.put(key, new Response(f, { headers: { "Content-Type": f.type || "application/octet-stream" } })));
+          }
+          return Promise.all(puts);
+        }).then(function () { return c.put("./__share/meta", new Response(JSON.stringify(meta), { headers: { "Content-Type": "application/json" } })); });
+      });
+    }).catch(ignore).then(function () { return Response.redirect(new URL("./?share=1", self.registration.scope).href, 303); })
+  );
+}
 self.addEventListener("fetch", function (e) {
   var req = e.request;
+  if (req.method === "POST" && new URL(req.url).pathname.slice(-13) === "/share-target") { handleShare(e); return; }
   if (req.method !== "GET") return;                    // sends, uploads, etc.
+  if (new URL(req.url).pathname.slice(-13) === "/share-target") { e.respondWith(Response.redirect(self.registration.scope, 302)); return; } // opened by hand: just open the app
   if (req.headers.has("range")) return;                // audio/video seeking goes straight to the network
   var url = new URL(req.url);
 

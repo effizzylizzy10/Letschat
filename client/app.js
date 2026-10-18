@@ -9191,7 +9191,7 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
         let failed = "";
         for (const cid of chosen) {
             for (const m of ordered) {
-                const payload = { conversationId: cid, forwarded: true };
+                const payload = { conversationId: cid, forwarded: m.shared ? undefined : true }; // things shared from the phone's Share menu are not "Forwarded"
                 if (m.audio) {
                     payload.audio = m.audio;
                     payload.duration = m.duration;
@@ -9244,7 +9244,7 @@ function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
     const showStatusRow = !needle || "my status".includes(needle);
     return h("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 65, background: "#0B1014", display: "flex", flexDirection: "column" } }, h("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", padding: "10px 8px 10px 6px", flexShrink: 0 } }, iconBtn("Back", h(ArrowLeft, { size: 24, color: "#F5F7FA" }), () => (searching ? (setSearching(false), setQ("")) : onClose(false))), searching
         ? h("input", { autoFocus: true, value: q, onChange: e => setQ(e.target.value), placeholder: "Search…", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } })
-        : h("div", { style: { flex: 1, minWidth: 0 } }, h("div", { style: { fontFamily: "Sora", fontWeight: 500, fontSize: total ? 17 : 21, color: "#F5F7FA" } }, "Forward to…"), total ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, total + " selected") : null), !searching && iconBtn("Search", h(Search, { size: 22, color: "#F5F7FA" }), () => setSearching(true))), h("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, showStatusRow && row("status", h("div", { style: { width: 46, height: 46, borderRadius: 23, background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Radio, { size: 22, color: "#06210F" })), "My status", "My contacts", toStatus, () => setToStatus(v => !v)), frequent.length > 0 && label("Frequently contacted"), frequent.map(c => chatRow(c, "f")), recent.length > 0 && label("Recent chats"), recent.map(c => chatRow(c, "r")), !showStatusRow && !frequent.length && !recent.length && h("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 14 } }, "No chats found")), err && h("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, padding: "6px 16px" } }, err), total > 0 && h("div", { style: { flexShrink: 0, padding: "8px 12px 12px", background: "#0B1014", borderTop: "1px solid #1B212B" } }, h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a caption or message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }), h("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } }, h("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "#1B232C", borderRadius: 999, padding: "11px 16px" } }, chosenNames), h("button", { "aria-label": "Send", onClick: go, disabled: busy, style: { width: 52, height: 52, borderRadius: 26, border: "none", background: "#21C063", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, busy ? h("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : h(Send, { size: 24, color: "#06210F" })))));
+        : h("div", { style: { flex: 1, minWidth: 0 } }, h("div", { style: { fontFamily: "Sora", fontWeight: 500, fontSize: total ? 17 : 21, color: "#F5F7FA" } }, (msgs.length && msgs[0].shared ? "Send to…" : "Forward to…")), total ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, total + " selected") : null), !searching && iconBtn("Search", h(Search, { size: 22, color: "#F5F7FA" }), () => setSearching(true))), h("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, showStatusRow && row("status", h("div", { style: { width: 46, height: 46, borderRadius: 23, background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Radio, { size: 22, color: "#06210F" })), "My status", "My contacts", toStatus, () => setToStatus(v => !v)), frequent.length > 0 && label("Frequently contacted"), frequent.map(c => chatRow(c, "f")), recent.length > 0 && label("Recent chats"), recent.map(c => chatRow(c, "r")), !showStatusRow && !frequent.length && !recent.length && h("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 14 } }, "No chats found")), err && h("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, padding: "6px 16px" } }, err), total > 0 && h("div", { style: { flexShrink: 0, padding: "8px 12px 12px", background: "#0B1014", borderTop: "1px solid #1B212B" } }, h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a caption or message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }), h("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } }, h("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "#1B232C", borderRadius: 999, padding: "11px 16px" } }, chosenNames), h("button", { "aria-label": "Send", onClick: go, disabled: busy, style: { width: 52, height: 52, borderRadius: 26, border: "none", background: "#21C063", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, busy ? h("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : h(Send, { size: 24, color: "#06210F" })))));
 }
 // ---- attachment tray: opens from the paperclip (location, contact, gallery, document, catalogue) ----
 const ContactCard = makeIcon([["r", 3, 4, 18, 16, 2], ["c", 9, 11, 2], ["p", "M15 9h3"], ["p", "M15 13h3"], ["p", "M6 17c.5-1.5 1.8-2 3-2s2.5.5 3 2"]]);
@@ -11496,6 +11496,50 @@ function App() {
         catch (e) { }
         return loadJSON("pendingCall", null);
     });
+    // Share menu: text, links and files shared to Letschat from other apps (saved by sw.js, see "share_target" in manifest.json).
+    // Once signed in, they are read back and the "Send to..." chooser (the Forward screen) opens.
+    const [shareMsgs, setShareMsgs] = useState(null);
+    useEffect(() => {
+        if (!session || !window.caches) return;
+        try { if (/[?&]share=1/.test(window.location.search)) window.history.replaceState(null, "", window.location.pathname); } catch (e) { }
+        let dead = false;
+        (async () => {
+            try {
+                const c = await caches.open("letschat-share-v1");
+                const hit = await c.match("./__share/meta");
+                if (!hit) return;
+                const meta = await hit.json();
+                const blobs = [];
+                for (const f of (meta.files || [])) { const r = await c.match(f.key); if (r) blobs.push({ f, blob: await r.blob() }); }
+                const keys = await c.keys();
+                await Promise.all(keys.map(k => c.delete(k))); // each share is picked up once
+                if (dead || !meta || Date.now() - (meta.time || 0) > 30 * 60 * 1000) return;
+                const list = [], now = Date.now();
+                const parts = [];
+                for (const t of [meta.title, meta.text, meta.url]) { const v = String(t || "").trim(); if (v && !parts.some(x => x.includes(v))) parts.push(v); }
+                if (parts.length) list.push({ id: "share-text", time: now, text: parts.join("\n"), shared: true });
+                let skipped = 0;
+                for (let i = 0; i < blobs.length; i++) {
+                    const { f, blob } = blobs[i];
+                    try {
+                        let mime = f.type || blob.type || "application/octet-stream", name = f.name || "file", data;
+                        const file = new File([blob], name, { type: mime });
+                        if (/^image\/(jpeg|png|webp)$/.test(mime)) { data = await compressImage(file); mime = "image/jpeg"; name = name.replace(/\.\w+$/, "") + ".jpg"; }
+                        else if (file.size > MAX_FILE) { skipped++; continue; }
+                        else data = await readAsDataURL(file);
+                        if (!data || data.length > 4000000) { skipped++; continue; }
+                        list.push({ id: "share-file-" + i, time: now + i + 1, shared: true, file: { name, mime, size: Math.round(data.length * 0.75), data } });
+                    }
+                    catch (e) { skipped++; }
+                }
+                if (dead) return;
+                if (skipped) { setToast(skipped === 1 ? "One shared file was too big (max 3 MB)" : skipped + " shared files were too big (max 3 MB)"); setTimeout(() => setToast(""), 3600); }
+                if (list.length) setShareMsgs(list);
+            }
+            catch (e) { }
+        })();
+        return () => { dead = true; };
+    }, [session && session.token]);
     const socketRef = useRef(null);
     window.__lcSocket = () => socketRef.current;
     const pendingGameRef = useRef(null), activeConvoRef = useRef(null); activeConvoRef.current = activeConvo;
@@ -11940,7 +11984,8 @@ function App() {
                 session && React.createElement(CallLayer, { socket: socketRef.current, apiRef: callApi, notify: flash }),
                 session && React.createElement(GroupCallLayer, { socket: socketRef.current, apiRef: groupCallApi, notify: flash, me: session.user }),
                 session && chatCode && React.createElement(ChatLinkModal, { code: chatCode, token: session.token, onClose: closeChatLink, onStarted: (conv) => { closeChatLink(); handleNewChatStarted(conv); } }),
-                session && joinCode && React.createElement(JoinGroupModal, { code: joinCode, token: session.token, onClose: closeJoin, onJoined: (conv) => { closeJoin(); openGroup(conv); } }))),
+                session && joinCode && React.createElement(JoinGroupModal, { code: joinCode, token: session.token, onClose: closeJoin, onJoined: (conv) => { closeJoin(); openGroup(conv); } }),
+                session && shareMsgs && React.createElement(ForwardSheet, { msgs: shareMsgs, conversations: conversations, socket: socketRef.current, token: session.token, onClose: () => setShareMsgs(null) }))),
         React.createElement("div", { className: "app-footer", "aria-hidden": "true" },
             React.createElement("span", { className: "app-footer-dot" }),
             React.createElement("span", { className: "app-footer-text" }, "Letschat Africa"))));

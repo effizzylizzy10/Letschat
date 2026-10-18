@@ -7,7 +7,7 @@
   var h = React.createElement, useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, useCallback = React.useCallback;
   var ICE = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   var C = { bg: "#0B0F16", card: "#161B22", line: "#262E3A", text: "#F5F7FA", dim: "#9BA7B4", teal: "#35D0BA", red: "#FF3B5C", purple: "#7C5CFF" };
-  var STICKERS = [["fire", "\uD83D\uDD25"], ["100", "\uD83D\uDCAF"], ["heart", "\uD83D\uDC96"], ["laugh", "\uD83D\uDE02"], ["crown", "\uD83D\uDC51"], ["wow", "WOW!"], ["panda", "\uD83D\uDC3C"], ["clap", "\uD83D\uDC4F"], ["love", "\u2764\uFE0F"], ["rocket", "\uD83D\uDE80"], ["gg", "GG"]];
+  var STICKERS = [["fire", "\uD83D\uDD25"], ["100", "\uD83D\uDCAF"], ["heart", "\uD83D\uDC96"], ["laugh", "\uD83D\uDE02"], ["crown", "\uD83D\uDC51"], ["wow", "WOW!"], ["panda", "\uD83D\uDC3C"], ["clap", "\uD83D\uDC4F"], ["love", "\u2764\uFE0F"], ["rocket", "\uD83D\uDE80"], ["gg", "GG"], ["angry", "\uD83D\uDE21"], ["cry", "\uD83D\uDE2D"], ["party", "\uD83E\uDD73"], ["kiss", "\uD83D\uDE18"]];
   var GIFTS = [["rose", "\uD83C\uDF39", "Rose"], ["car", "\uD83D\uDE97", "Car"], ["crown", "\uD83D\uDC51", "Crown"], ["bear", "\uD83E\uDDF8", "Bear"], ["star", "\u2B50", "Star"], ["diamond", "\uD83D\uDC8E", "Diamond"], ["heart", "\uD83D\uDC96", "Heart"], ["rocket", "\uD83D\uDE80", "Rocket"]];
   var EMOJIS = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21", "\uD83D\uDD25", "\uD83D\uDCAF", "\uD83D\uDC4F", "\uD83C\uDF89", "\uD83D\uDE0D", "\uD83D\uDE4C"];
   // Video effects. Phones that support canvas filters get all of them; others get the pixel-based ones (no Soft).
@@ -36,12 +36,32 @@
   (function css() {
     if (document.getElementById("lc-live-css")) return;
     var s = document.createElement("style"); s.id = "lc-live-css";
-    s.textContent = "@keyframes lcFloat{0%{transform:translateY(0) scale(.7);opacity:0}15%{opacity:1}100%{transform:translateY(-260px) scale(1.25);opacity:0}}" +
+    s.textContent = "@keyframes lcBigFloat{0%{transform:translateY(0) scale(.2);opacity:0}10%{transform:translateY(-24px) scale(1.3);opacity:1}22%{transform:translateY(-34px) scale(1)}80%{transform:translateY(-150px) scale(1);opacity:1}100%{transform:translateY(-230px) scale(1.05);opacity:0}}@keyframes lcFloat{0%{transform:translateY(0) scale(.7);opacity:0}15%{opacity:1}100%{transform:translateY(-260px) scale(1.25);opacity:0}}" +
       "@keyframes lcGift{0%{transform:scale(.4);opacity:0}15%{transform:scale(1.1);opacity:1}80%{opacity:1}100%{transform:scale(1);opacity:0}}" +
       "@keyframes lcBubble{0%{transform:translate(0,0) scale(.5);opacity:0}12%{opacity:var(--lc-o,.5)}50%{transform:translate(var(--lc-dx,-14px),-45vh) scale(1)}100%{transform:translate(calc(var(--lc-dx,-14px) * -1),-95vh) scale(1.15);opacity:0}}" +
       "@media (prefers-reduced-motion:reduce){.lc-bubble{display:none!important}}" +
       "@keyframes lcPulse{0%,100%{opacity:1}50%{opacity:.45}}" +
-      "@media (prefers-reduced-motion:reduce){.lc-fx,.lc-gift,.lc-pulse{animation:none!important}}";
+      "@media (prefers-reduced-motion:reduce){.lc-fx,.lc-gift,.lc-pulse{animation:none!important}.lc-anim,.lc-anim:after{animation:none!important}.lc-anim:after{display:none}}" +
+      ".lc-anim{display:inline-block;position:relative;transform-origin:50% 60%;animation:lcPop2 1s ease-in-out infinite}" +
+      "@keyframes lcPop2{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}" +
+      "@keyframes lcWow{0%,100%{transform:scale(1) rotate(0)}25%{transform:scale(1.22) rotate(-9deg)}55%{transform:scale(1.1) rotate(8deg)}80%{transform:scale(1.15) rotate(-4deg)}}" +
+      "@keyframes lcFlame{0%,100%{transform:scale(1,1) skewX(0);filter:drop-shadow(0 0 6px #ff7a00)}25%{transform:scale(.92,1.15) skewX(5deg)}50%{transform:scale(1.05,.95) skewX(-4deg);filter:drop-shadow(0 0 12px #ffb300)}75%{transform:scale(.95,1.12) skewX(3deg)}}" +
+      "@keyframes lcBeat{0%,60%,100%{transform:scale(1)}15%{transform:scale(1.2)}30%{transform:scale(1)}45%{transform:scale(1.25)}}" +
+      "@keyframes lcShake{0%,100%{transform:translateY(0) rotate(0)}20%{transform:translateY(-6px) rotate(-12deg)}40%{transform:translateY(0) rotate(10deg)}60%{transform:translateY(-6px) rotate(-10deg)}80%{transform:translateY(0) rotate(8deg)}}" +
+      "@keyframes lcSpinY{0%{transform:rotateY(0) translateY(0)}50%{transform:rotateY(180deg) translateY(-8px)}100%{transform:rotateY(360deg) translateY(0)}}" +
+      "@keyframes lcWiggle{0%,100%{transform:rotate(-14deg)}50%{transform:rotate(14deg)}}" +
+      "@keyframes lcClap{0%,100%{transform:scale(1,1) rotate(-8deg)}50%{transform:scale(.8,1.15) rotate(8deg)}}" +
+      "@keyframes lcRocket{0%,100%{transform:translate(0,0) rotate(-4deg)}25%{transform:translate(3px,-5px) rotate(3deg)}50%{transform:translate(-2px,-9px) rotate(-3deg)}75%{transform:translate(3px,-4px) rotate(4deg)}}" +
+      "@keyframes lcAngry{0%,100%{transform:translateX(0) scale(1.12);filter:drop-shadow(0 0 8px #ff1744)}25%{transform:translateX(-5px) scale(1.12)}75%{transform:translateX(5px) scale(1.12)}}" +
+      "@keyframes lcCry{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(5px) rotate(3deg)}}" +
+      "@keyframes lcTear{0%{transform:translate(0,0);opacity:0}20%{opacity:1}100%{transform:translate(0,46px);opacity:0}}" +
+      "@keyframes lcSpinJump{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-12px) rotate(180deg) scale(1.2)}}" +
+      ".lc-a-wow{animation:lcWow .9s ease-in-out infinite}.lc-a-fire{animation:lcFlame .5s ease-in-out infinite}.lc-a-100{animation:lcPop2 .55s ease-in-out infinite}" +
+      ".lc-a-heart,.lc-a-love{animation:lcBeat .9s ease-in-out infinite}.lc-a-laugh{animation:lcShake .6s ease-in-out infinite}.lc-a-crown{animation:lcSpinY 1.6s linear infinite}" +
+      ".lc-a-panda{animation:lcWiggle .6s ease-in-out infinite}.lc-a-clap{animation:lcClap .35s ease-in-out infinite}.lc-a-rocket{animation:lcRocket .4s linear infinite}" +
+      ".lc-a-gg{animation:lcWow 1.1s ease-in-out infinite}.lc-a-angry{animation:lcAngry .22s linear infinite}.lc-a-cry{animation:lcCry 1s ease-in-out infinite}" +
+      ".lc-a-cry:after{content:'\\1F4A7';position:absolute;left:62%;top:70%;font-size:.45em;animation:lcTear 1s ease-in infinite}" +
+      ".lc-a-party{animation:lcSpinJump 1s ease-in-out infinite}.lc-a-kiss{animation:lcBeat 1.1s ease-in-out infinite}";
     document.head.appendChild(s);
   })();
 
@@ -61,11 +81,125 @@
   function Name(p) { var u = p.user || {}; return h("span", { style: { fontWeight: 700 } }, u.name || "", u.verified ? h("img", { src: "icons/verified.png", alt: "verified", style: { width: 13, height: 13, marginLeft: 3, verticalAlign: "-2px" } }) : null); }
 
   function VideoEl(p) {
-    return h("video", { autoPlay: true, playsInline: true, muted: !!p.muted, style: Object.assign({ width: "100%", height: "100%", objectFit: "cover", background: "#000", transform: p.mirror ? "scaleX(-1)" : "none" }, p.style || {}),
+    return h("video", { "data-lcrec": "1", autoPlay: true, playsInline: true, muted: !!p.muted, style: Object.assign({ width: "100%", height: "100%", objectFit: "cover", background: "#000", transform: p.mirror ? "scaleX(-1)" : "none" }, p.style || {}),
       ref: function (el) { if (el && p.stream && el.srcObject !== p.stream) { el.srcObject = p.stream; var pr = el.play && el.play(); if (pr && pr.catch) pr.catch(function () {}); } } });
   }
 
   // ---------------------------------------------------------------- the live room (video + chat + gifts + stickers)
+  // ---- Recording: saves what you see (and hear) in this live or meeting as a video file on your phone ----
+  // A hidden canvas redraws the on-screen video(s) 15 times a second and the audio of every video is mixed, so the file keeps working when the
+  // picture changes (camera, effects, screen share, people joining). Nothing is uploaded: the file goes to the phone's Downloads.
+  var REC_OK = (function () { try { return CAN_PIPE && typeof window.MediaRecorder === "function"; } catch (e) { return false; } })();
+  function recMime() { var l = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]; for (var i = 0; i < l.length; i++) { try { if (MediaRecorder.isTypeSupported(l[i])) return l[i]; } catch (e) {} } return ""; }
+  function startRecorder(isMeeting, onDone) {
+    var vids = function () { return [].slice.call(document.querySelectorAll("video[data-lcrec]")).filter(function (v) { return v.srcObject && v.videoWidth; }); };
+    var cv = document.createElement("canvas"), cx = cv.getContext("2d"), first = vids()[0];
+    var W = 960, H = 540;
+    if (!isMeeting && first) { var k = Math.min(1, 960 / Math.max(first.videoWidth, first.videoHeight)); W = Math.max(2, Math.round(first.videoWidth * k / 2) * 2); H = Math.max(2, Math.round(first.videoHeight * k / 2) * 2); }
+    cv.width = W; cv.height = H;
+    var AC = window.AudioContext || window.webkitAudioContext, ac = null, dest = null, wired = {};
+    try { if (AC) { ac = new AC(); dest = ac.createMediaStreamDestination(); if (ac.resume) ac.resume(); } } catch (e) { ac = null; dest = null; }
+    function wire() {
+      if (!ac) return;
+      [].slice.call(document.querySelectorAll("video[data-lcrec]")).forEach(function (v) {
+        var st = v.srcObject; if (!st || !st.getAudioTracks || !st.getAudioTracks().length) return;
+        var id = st.id + ":" + st.getAudioTracks()[0].id; if (wired[id]) return;
+        try { ac.createMediaStreamSource(st).connect(dest); wired[id] = 1; } catch (e) {}
+      });
+    }
+    function draw() {
+      cx.fillStyle = "#000"; cx.fillRect(0, 0, W, H);
+      var list = vids(); if (!list.length) return;
+      var n = isMeeting ? list.length : 1, cols = n <= 1 ? 1 : 2, rows = Math.ceil(n / cols), cw = W / cols, ch = H / rows;
+      for (var i = 0; i < n; i++) {
+        var v = list[i], x = (i % cols) * cw, y = Math.floor(i / cols) * ch, sc = Math.min(cw / v.videoWidth, ch / v.videoHeight), dw = v.videoWidth * sc, dh = v.videoHeight * sc;
+        try { cx.drawImage(v, x + (cw - dw) / 2, y + (ch - dh) / 2, dw, dh); } catch (e) {}
+      }
+    }
+    var out = cv.captureStream(15);
+    if (dest) dest.stream.getAudioTracks().forEach(function (t) { out.addTrack(t); });
+    var mime = recMime(), rec, chunks = [], timer, stopped = false;
+    try { rec = new MediaRecorder(out, mime ? { mimeType: mime, videoBitsPerSecond: 1200000 } : { videoBitsPerSecond: 1200000 }); } catch (e) { try { rec = new MediaRecorder(out); } catch (e2) { return null; } }
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = function () {
+      clearInterval(timer); out.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); try { ac && ac.close(); } catch (e) {}
+      var type = rec.mimeType || mime || "video/webm";
+      onDone(chunks.length ? new Blob(chunks, { type: type }) : null, /mp4/.test(type) ? "mp4" : "webm");
+    };
+    wire(); draw();
+    timer = setInterval(draw, 66);
+    var wt = setInterval(function () { if (stopped) clearInterval(wt); else wire(); }, 1500);
+    rec.start(1000);
+    return { stop: function () { if (stopped) return; stopped = true; clearInterval(wt); try { rec.state !== "inactive" && rec.stop(); } catch (e) { onDone(null, "webm"); } } };
+  }
+  function saveBlob(blob, name) {
+    var a = document.createElement("a"), url = URL.createObjectURL(blob);
+    a.href = url; a.download = name; a.style.display = "none"; document.body.appendChild(a); a.click();
+    setTimeout(function () { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+  }
+
+  // ---- Sticker sounds + animations ----
+  // Every sticker (and live emoji) moves and makes its own sound. The sounds are made on the phone with the Web Audio API (no sound files
+  // to download, nothing to license, works offline). "Wow" and "GG" are spoken by the phone's voice when it has one. Reduced-motion phones
+  // get no animation; the speaker button in the sticker panel turns sounds off (remembered on this phone).
+  var EMO_KEY = { "👍": "pop", "❤️": "heart", "😂": "laugh", "😮": "wow", "😢": "cry", "😡": "angry", "🔥": "fire", "💯": "100", "👏": "clap", "🎉": "party", "😍": "love", "🙌": "clap" };
+  var sfxOn = function () { try { return localStorage.getItem("lcLiveSfx") !== "off"; } catch (e) { return true; } };
+  var ACX = null, lastSfx = {}, sfxCount = [];
+  function actx() { try { if (!ACX) { var A = window.AudioContext || window.webkitAudioContext; if (A) ACX = new A(); } if (ACX && ACX.state === "suspended" && ACX.resume) ACX.resume(); } catch (e) { ACX = null; } return ACX; }
+  function speak(text, pitch, rate) { try { var u = new SpeechSynthesisUtterance(text); u.pitch = pitch; u.rate = rate; u.volume = 1; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); return true; } catch (e) { return false; } }
+  var SFX = (function () {
+    function env(c, g, t, a, d, v) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + d); }
+    function tone(c, out, t, f0, f1, d, type, v, filt, vib) {
+      var o = c.createOscillator(), g = c.createGain(), n = o; o.type = type || "sine"; o.frequency.setValueAtTime(f0, t); if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + d);
+      if (vib) { var l = c.createOscillator(), lg = c.createGain(); l.frequency.value = vib[0]; lg.gain.value = vib[1]; l.connect(lg); lg.connect(o.frequency); l.start(t); l.stop(t + d + 0.05); }
+      env(c, g, t, 0.012, d, v || 0.3);
+      if (filt) { var f = c.createBiquadFilter(); f.type = filt[0]; f.frequency.value = filt[1]; f.Q.value = filt[2] || 1; o.connect(f); f.connect(g); } else o.connect(g);
+      g.connect(out); o.start(t); o.stop(t + d + 0.05);
+    }
+    function noise(c, out, t, d, v, ft, f0, f1, q) {
+      var len = Math.max(1, Math.floor(c.sampleRate * d)), buf = c.createBuffer(1, len, c.sampleRate), a = buf.getChannelData(0); for (var i = 0; i < len; i++) a[i] = Math.random() * 2 - 1;
+      var src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); src.buffer = buf; f.type = ft; f.Q.value = q || 1; f.frequency.setValueAtTime(f0, t); if (f1 && f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t + d);
+      env(c, g, t, Math.min(0.03, d / 3), d, v); src.connect(f); f.connect(g); g.connect(out); src.start(t); src.stop(t + d + 0.05);
+    }
+    return {
+      pop: function (c, o, t) { tone(c, o, t, 500, 900, 0.09, "sine", 0.4); },
+      fire: function (c, o, t) { noise(c, o, t, 1.1, 0.5, "bandpass", 500, 2200, 0.9); for (var i = 0; i < 7; i++) noise(c, o, t + 0.1 + Math.random() * 0.9, 0.04, 0.5, "highpass", 3000, 3000, 1); },
+      "100": function (c, o, t) { tone(c, o, t, 880, 0, 0.14, "triangle", 0.35); tone(c, o, t + 0.1, 1175, 0, 0.14, "triangle", 0.35); tone(c, o, t + 0.2, 1760, 0, 0.5, "triangle", 0.35); tone(c, o, t + 0.2, 3520, 0, 0.35, "sine", 0.1); },
+      heart: function (c, o, t) { tone(c, o, t, 660, 0, 0.3, "sine", 0.35); tone(c, o, t + 0.13, 880, 0, 0.35, "sine", 0.3); tone(c, o, t + 0.26, 1320, 0, 0.5, "sine", 0.2); },
+      laugh: function (c, o, t) { for (var i = 0; i < 5; i++) { tone(c, o, t + i * 0.17, 330 - i * 22, 250 - i * 22, 0.13, "sawtooth", 0.2 - i * 0.02, ["bandpass", 1000, 2.5]); noise(c, o, t + i * 0.17, 0.05, 0.12, "highpass", 2500, 2500, 1); } },
+      crown: function (c, o, t) { tone(c, o, t, 523, 0, 0.16, "sawtooth", 0.22, ["lowpass", 2400, 1]); tone(c, o, t + 0.15, 659, 0, 0.16, "sawtooth", 0.22, ["lowpass", 2400, 1]); tone(c, o, t + 0.3, 784, 0, 0.7, "sawtooth", 0.25, ["lowpass", 2600, 1]); tone(c, o, t + 0.3, 1568, 0, 0.5, "triangle", 0.1); },
+      wow: function (c, o, t) { if (window.speechSynthesis && window.SpeechSynthesisUtterance && speak("Wow!", 1.5, 0.85)) return; tone(c, o, t, 240, 420, 0.35, "sawtooth", 0.3, ["bandpass", 900, 3], [7, 12]); tone(c, o, t + 0.3, 420, 210, 0.5, "sawtooth", 0.3, ["bandpass", 700, 3], [7, 12]); },
+      panda: function (c, o, t) { tone(c, o, t, 900, 1600, 0.09, "sine", 0.35); tone(c, o, t + 0.13, 1000, 1700, 0.09, "sine", 0.35); tone(c, o, t + 0.28, 1400, 800, 0.16, "sine", 0.3); },
+      clap: function (c, o, t) { var x = 0; for (var i = 0; i < 9; i++) { noise(c, o, t + x, 0.06, 0.55 - i * 0.03, "bandpass", 1500 + Math.random() * 800, 1500, 0.7); x += 0.05 + Math.random() * 0.06; } },
+      love: function (c, o, t) { tone(c, o, t, 90, 50, 0.16, "sine", 0.7); tone(c, o, t + 0.22, 90, 50, 0.18, "sine", 0.7); tone(c, o, t + 0.5, 988, 0, 0.3, "sine", 0.25); tone(c, o, t + 0.62, 1319, 0, 0.5, "sine", 0.22); },
+      rocket: function (c, o, t) { noise(c, o, t, 1.5, 0.55, "lowpass", 200, 3500, 0.7); tone(c, o, t, 70, 380, 1.5, "sawtooth", 0.18, ["lowpass", 700, 1]); },
+      gg: function (c, o, t) { tone(c, o, t, 1047, 0, 0.9, "triangle", 0.25); tone(c, o, t, 2093, 0, 0.6, "sine", 0.08); if (window.speechSynthesis && window.SpeechSynthesisUtterance) speak("Good game!", 1.1, 0.95); },
+      angry: function (c, o, t) { var os = c.createOscillator(), g = c.createGain(), l = c.createOscillator(), lg = c.createGain(), f = c.createBiquadFilter();
+        os.type = "sawtooth"; os.frequency.setValueAtTime(140, t); os.frequency.exponentialRampToValueAtTime(65, t + 0.9); l.type = "square"; l.frequency.value = 28; lg.gain.value = 0.25; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+        l.connect(lg); lg.connect(g.gain); f.type = "lowpass"; f.frequency.value = 650; os.connect(f); f.connect(g); g.connect(o); os.start(t); l.start(t); os.stop(t + 1.05); l.stop(t + 1.05); noise(c, o, t, 0.25, 0.3, "bandpass", 700, 300, 1); },
+      cry: function (c, o, t) { for (var i = 0; i < 3; i++) tone(c, o, t + i * 0.42, 560 - i * 30, 360 - i * 30, 0.36, "triangle", 0.4 - i * 0.07, ["bandpass", 850, 2], [9, 18]); noise(c, o, t + 1.25, 0.18, 0.12, "bandpass", 1800, 900, 2); },
+      party: function (c, o, t) { noise(c, o, t, 0.12, 0.6, "highpass", 1500, 800, 1); [523, 659, 784, 1047].forEach(function (f, i) { tone(c, o, t + 0.1 + i * 0.09, f, 0, 0.2, "square", 0.12, ["lowpass", 3000, 1]); }); noise(c, o, t + 0.5, 0.7, 0.2, "highpass", 5000, 7000, 1); },
+      join: function (c, o, t) { tone(c, o, t, 660, 0, 0.12, "sine", 0.3); tone(c, o, t + 0.1, 990, 0, 0.25, "sine", 0.3); },
+      leave: function (c, o, t) { tone(c, o, t, 700, 0, 0.12, "sine", 0.25); tone(c, o, t + 0.1, 440, 0, 0.25, "sine", 0.25); },
+      msg: function (c, o, t) { tone(c, o, t, 1200, 900, 0.07, "sine", 0.18); },
+      mention: function (c, o, t) { tone(c, o, t, 1047, 0, 0.14, "triangle", 0.35); tone(c, o, t + 0.14, 1319, 0, 0.14, "triangle", 0.35); tone(c, o, t + 0.28, 1568, 0, 0.4, "triangle", 0.35); },
+      pin: function (c, o, t) { noise(c, o, t, 0.03, 0.4, "highpass", 2500, 2500, 1); tone(c, o, t + 0.03, 1760, 0, 0.35, "sine", 0.3); },
+      share: function (c, o, t) { noise(c, o, t, 0.4, 0.3, "bandpass", 500, 2500, 1.2); tone(c, o, t + 0.3, 1175, 0, 0.2, "sine", 0.25); },
+      gift: function (c, o, t) { [784, 988, 1175, 1568, 1976].forEach(function (f, i) { tone(c, o, t + i * 0.07, f, 0, 0.35, "triangle", 0.25); }); tone(c, o, t + 0.4, 2637, 0, 0.5, "sine", 0.15); noise(c, o, t + 0.35, 0.5, 0.12, "highpass", 6000, 8000, 1); },
+      end: function (c, o, t) { [784, 659, 523, 392].forEach(function (f, i) { tone(c, o, t + i * 0.16, f, 0, 0.3, "sine", 0.3); }); },
+      kiss: function (c, o, t) { noise(c, o, t, 0.06, 0.25, "lowpass", 600, 600, 1); tone(c, o, t + 0.03, 1300, 650, 0.1, "sine", 0.4); }
+    };
+  })();
+  function playSfx(key) {
+    if (!sfxOn() || !SFX[key]) return;
+    var now = Date.now(); if (lastSfx[key] && now - lastSfx[key] < 350) return; lastSfx[key] = now;
+    sfxCount = sfxCount.filter(function (x) { return now - x < 1000; }); if (sfxCount.length >= 3) return; sfxCount.push(now); // a burst of taps never turns into noise
+    var c = actx(); if (!c) return;
+    try { var out = c.createGain(); out.gain.value = 0.9; out.connect(c.destination); SFX[key](c, out, c.currentTime + 0.01); } catch (e) {}
+  }
+  var animKey = function (kind, value) { return kind === "sticker" ? value : kind === "emoji" ? (EMO_KEY[value] || "pop") : "crown"; };
+  var anim = function (k, g) { return h("span", { className: "lc-anim lc-a-" + k }, g); };
+
   function Room(p) {
     var info = p.info, me = p.me, socket = p.socket;
     var code = info.code, kind = info.kind;
@@ -88,6 +222,26 @@
     var bubbles = useRef(null);
     if (!bubbles.current) { var pal = [[124,92,255],[53,208,186],[255,107,157],[255,212,59],[77,171,247],[255,146,43],[105,219,124]]; bubbles.current = []; for (var bi = 0; bi < 12; bi++) { var c = pal[bi % pal.length], sz = 18 + Math.round(Math.random() * 36); bubbles.current.push({ id: bi, c: c, size: sz, right: Math.round(Math.random() * 70), dur: 5 + Math.random() * 5, delay: -Math.random() * 10, dx: Math.round((Math.random() * 40 - 20)), o: (0.3 + Math.random() * 0.3).toFixed(2) }); } }
     var flash = function (t) { setToast(t); setTimeout(function () { if (alive.current) setToast(""); }, 2600); };
+
+    // ---- recording (host, and everyone in a meeting) ----
+    var sxs = useState(0), sfxN = sxs[0], setSfxN = sxs[1]; // re-draws the speaker button
+    var rcs = useState(null), recSec = rcs[0], setRecSec = rcs[1], recRef = useRef(null), recTick = useRef(null);
+    var stopRec = function () { if (recRef.current) { recRef.current.stop(); recRef.current = null; } clearInterval(recTick.current); if (alive.current) setRecSec(null); };
+    var startRec = function () {
+      if (recRef.current) return stopRec();
+      var r = startRecorder(kind === "meeting", function (blob, ext) {
+        if (!blob) { if (alive.current) flash("Nothing was recorded."); return; }
+        var d = new Date(), pad = function (n) { return (n < 10 ? "0" : "") + n; };
+        saveBlob(blob, "letschat-" + kind + "-" + code + "-" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes()) + "." + ext);
+        if (alive.current) flash("Recording saved to your phone (" + Math.max(1, Math.round(blob.size / 1048576)) + " MB)");
+      });
+      if (!r) return flash("Recording is not supported on this phone or browser.");
+      recRef.current = r; setRecSec(0);
+      var t0 = Date.now(); recTick.current = setInterval(function () { if (alive.current) setRecSec(Math.floor((Date.now() - t0) / 1000)); }, 1000);
+      flash("Recording started. Only you can see this; tap again to stop and save.");
+    };
+    useEffect(function () { return function () { if (recRef.current) { recRef.current.stop(); recRef.current = null; } clearInterval(recTick.current); }; }, []);
+    var recLabel = recSec == null ? "\u23FA" : Math.floor(recSec / 60) + ":" + (recSec % 60 < 10 ? "0" : "") + (recSec % 60);
 
     // ---- WebRTC ----
     function addRemote(uid, stream) { setRemotes(function (r) { var n = Object.assign({}, r); n[uid] = stream; return n; }); }
@@ -321,26 +475,29 @@
 
     // ---- socket events ----
     useEffect(function () {
-      var onJoined = function (m) { if (m.code !== code) return; setPeople(function (x) { var n = Object.assign({}, x); n[m.user.id] = m.user; return n; }); if (kind === "live") setS(function (s) { return Object.assign({}, s); }); };
-      var onLeft = function (m) { if (m.code !== code) return; closePeer(m.userId); if (m.host) setS(function (s) { return Object.assign({}, s, { hostId: m.host }); }); };
+      var iHost = !!(info.host && info.host.id === me.id), loud = kind === "meeting" || iHost; // join / leave sounds: meetings, and the host of a live
+      var onJoined = function (m) { if (m.code !== code) return; if (loud && m.user && m.user.id !== me.id) playSfx("join"); setPeople(function (x) { var n = Object.assign({}, x); n[m.user.id] = m.user; return n; }); if (kind === "live") setS(function (s) { return Object.assign({}, s); }); };
+      var onLeft = function (m) { if (m.code !== code) return; if (loud && m.userId !== me.id) playSfx("leave"); closePeer(m.userId); if (m.host) setS(function (s) { return Object.assign({}, s, { hostId: m.host }); }); };
       var onCount = function (m) { if (m.code === code) setS(function (s) { return Object.assign({}, s, { viewers: m.viewers, gifts: m.gifts }); }); };
       var onChat = function (m) {
         if (m.code !== code) return;
+        if (m.msg && m.msg.user && m.msg.user.id !== me.id && !m.msg.gift) playSfx("msg");
         setPeople(function (x) { if (x[m.msg.user.id]) return x; var n = Object.assign({}, x); n[m.msg.user.id] = m.msg.user; return n; });
         setS(function (s) { return Object.assign({}, s, { chat: s.chat.concat([m.msg]).slice(-80) }); });
       };
-      var onPinned = function (m) { if (m.code === code) setS(function (s) { return Object.assign({}, s, { pinned: m.pinned || null }); }); };
+      var onPinned = function (m) { if (m.code === code && m.pinned) playSfx("pin"); if (m.code === code) setS(function (s) { return Object.assign({}, s, { pinned: m.pinned || null }); }); };
       var onMsgReact = function (m) { if (m.code !== code) return; setS(function (s) { return Object.assign({}, s, { chat: s.chat.map(function (c) { return c.id === m.msgId ? Object.assign({}, c, { reactions: m.reactions }) : c; }) }); }); };
       var onFx = function (m) {
         if (m.code !== code) return;
         if (m.kind === "gift") { var gid = ++fxId.current; setGifts(function (g) { return g.concat([{ id: gid, glyph: glyph(GIFTS, m.value), user: m.user }]).slice(-3); }); setTimeout(function () { setGifts(function (g) { return g.filter(function (x) { return x.id !== gid; }); }); }, 3000); }
         var id = ++fxId.current, g = m.kind === "sticker" ? glyph(STICKERS, m.value) : m.kind === "gift" ? glyph(GIFTS, m.value) : m.value;
-        setFloaters(function (f) { return f.concat([{ id: id, g: g, x: 8 + Math.random() * 70, big: m.kind !== "emoji" }]).slice(-14); });
+        var ak = animKey(m.kind, m.value); playSfx(m.kind === "gift" ? "gift" : ak);
+        setFloaters(function (f) { return f.concat([{ id: id, g: g, k: m.kind === "gift" ? "pop" : ak, x: 8 + Math.random() * 70, big: m.kind !== "emoji" }]).slice(-14); });
         setTimeout(function () { setFloaters(function (f) { return f.filter(function (x) { return x.id !== id; }); }); }, 2700);
       };
-      var onShare = function (m) { if (m.code !== code) return; setSharing(function (x) { var n = Object.assign({}, x); if (m.on) n[m.userId] = true; else delete n[m.userId]; return n; }); };
-      var onMention = function (m) { if (m.code === code) flash(m.from + " mentioned you"); };
-      var onEnded = function (m) { if (m.code === code) p.onClose(m.reason || "This live has ended"); };
+      var onShare = function (m) { if (m.code !== code) return; if (m.on && m.userId !== me.id) playSfx("share"); setSharing(function (x) { var n = Object.assign({}, x); if (m.on) n[m.userId] = true; else delete n[m.userId]; return n; }); };
+      var onMention = function (m) { if (m.code === code) playSfx("mention"); if (m.code === code) flash(m.from + " mentioned you"); };
+      var onEnded = function (m) { if (m.code === code) playSfx("end"); if (m.code === code) p.onClose(m.reason || "This live has ended"); };
       var onReconnect = function () { // network came back: take the seat again and rebuild the video links
         socket.emit("live:join", { code: code }, function (r) {
           if (!r || r.error) return p.onClose((r && r.error) || "This live has ended");
@@ -450,8 +607,8 @@
         kind === "meeting" && h("button", { onClick: share, style: { background: "rgba(0,0,0,.55)", color: C.text, border: "none", borderRadius: 999, padding: "5px 12px", fontWeight: 600, fontSize: 12.5, cursor: "pointer" } }, "Invite"),
         S.gifts > 0 && h("span", { style: { color: C.text, fontSize: 12.5, background: "rgba(0,0,0,.55)", borderRadius: 999, padding: "5px 10px" } }, "\uD83C\uDF81 " + S.gifts)),
       // floating emojis / stickers
-      h("div", { style: { position: "absolute", right: 0, bottom: 150, width: "55%", height: 280, pointerEvents: "none", zIndex: 6, overflow: "hidden" } },
-        floaters.map(function (f) { return h("div", { key: f.id, className: "lc-fx", style: { position: "absolute", bottom: 0, left: f.x + "%", fontSize: f.big ? 46 : 32, fontWeight: 900, color: "#FFD43B", textShadow: "0 2px 8px rgba(0,0,0,.6)", animation: "lcFloat 2.6s ease-out forwards" } }, f.g); })),
+      h("div", { style: { position: "absolute", left: 0, right: 0, bottom: 150, height: 380, pointerEvents: "none", zIndex: 6, overflow: "hidden" } },
+        floaters.map(function (f) { var wide = f.g.length > 2 && f.g.indexOf("\uD83D") < 0 && f.g.indexOf("\uD83E") < 0 && f.g.indexOf("\uD83C") < 0; /* WOW! / GG are text */ return h("div", { key: f.id, className: "lc-fx", style: { position: "absolute", bottom: f.big ? "16%" : 0, left: (f.big ? 20 + (f.x - 8) * 0.5 : 45 + f.x * 0.5) + "%", fontSize: f.big ? (wide ? 64 : 120) : 40, lineHeight: 1.1, fontWeight: 900, color: "#FFD43B", textShadow: "0 3px 12px rgba(0,0,0,.65)", animation: (f.big ? "lcBigFloat" : "lcFloat") + " 2.6s ease-out forwards" } }, anim(f.k, f.g)); })),
       // colourful see-through bubbles rising on the right side (Go Live only)
       kind === "live" && h("div", { "aria-hidden": "true", style: { position: "absolute", right: 0, top: 70, bottom: 150, width: "38%", pointerEvents: "none", zIndex: 4, overflow: "hidden" } },
         bubbles.current.map(function (b) { var rgb = b.c.join(","); return h("span", { key: b.id, className: "lc-bubble", style: { position: "absolute", bottom: -60, right: b.right + "%", width: b.size, height: b.size, borderRadius: "50%", background: "radial-gradient(circle at 30% 28%, rgba(255,255,255,.55), rgba(" + rgb + ",.28) 45%, rgba(" + rgb + ",.12) 100%)", border: "1px solid rgba(" + rgb + ",.55)", boxShadow: "inset 0 0 8px rgba(255,255,255,.25), 0 0 10px rgba(" + rgb + ",.25)", "--lc-dx": b.dx + "px", "--lc-o": b.o, opacity: 0, animation: "lcBubble " + b.dur.toFixed(1) + "s linear " + b.delay.toFixed(1) + "s infinite" } }); })),
@@ -472,8 +629,8 @@
         S.chat.length ? S.chat.map(comment) : h("div", { style: { color: C.dim, fontSize: 13, padding: "6px 4px" } }, "No comments yet. Say hi \uD83D\uDC4B")),
       // sticker / gift / emoji tray
       panel && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, padding: "8px 8px 6px" } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", color: C.dim, fontSize: 12.5, padding: "0 4px 4px" } }, h("span", null, panel === "gifts" ? "Send a gift (free, to show support)" : panel === "stickers" ? "Live stickers" : "Live emojis"), h("button", { onClick: function () { setPanel(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 18, cursor: "pointer" } }, "\u2715")),
-        h("div", { style: { display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4 } }, panelItems.map(function (it) { return h("button", { key: it[0], onClick: function () { onPanelPick(it); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, minWidth: 58, height: 58, color: "#FFD43B", fontSize: it[1].length > 2 && it[1].indexOf("\uD83C") < 0 && it[1].indexOf("\uD83D") < 0 && it[1].indexOf("\uD83E") < 0 ? 15 : 28, fontWeight: 900, cursor: "pointer", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } }, it[1], panel === "gifts" && h("span", { style: { fontSize: 10, color: C.dim, fontWeight: 600 } }, it[2])); }))),
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", color: C.dim, fontSize: 12.5, padding: "0 4px 4px" } }, h("span", null, panel === "gifts" ? "Send a gift (free, to show support)" : panel === "stickers" ? "Live stickers" : "Live emojis"), panel !== "gifts" && h("button", { "aria-label": sfxOn() ? "Turn sticker sounds off" : "Turn sticker sounds on", onClick: function () { try { localStorage.setItem("lcLiveSfx", sfxOn() ? "off" : "on"); } catch (e) {} if (sfxOn()) playSfx("pop"); setSfxN(sfxN + 1); }, style: { background: "none", border: "none", color: C.dim, fontSize: 17, cursor: "pointer", marginLeft: "auto", marginRight: 10 } }, sfxOn() ? "\uD83D\uDD0A" : "\uD83D\uDD07"), h("button", { onClick: function () { setPanel(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 18, cursor: "pointer" } }, "\u2715")),
+        h("div", { style: { display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4 } }, panelItems.map(function (it) { return h("button", { key: it[0], onClick: function () { onPanelPick(it); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, minWidth: 58, height: 58, color: "#FFD43B", fontSize: it[1].length > 2 && it[1].indexOf("\uD83C") < 0 && it[1].indexOf("\uD83D") < 0 && it[1].indexOf("\uD83E") < 0 ? 15 : 28, fontWeight: 900, cursor: "pointer", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } }, panel === "gifts" ? it[1] : anim(panel === "stickers" ? it[0] : (EMO_KEY[it[0]] || "pop"), it[1]), panel === "gifts" && h("span", { style: { fontSize: 10, color: C.dim, fontWeight: 600 } }, it[2])); }))),
       // @ suggestions + reply bar
       sugg.length > 0 && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, display: "flex", gap: 6, padding: "6px 10px", overflowX: "auto" } }, sugg.map(function (u) { return h("button", { key: u.id, onClick: function () { pickMention(u); }, style: { display: "flex", alignItems: "center", gap: 6, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px 4px 4px", color: C.text, fontSize: 13, cursor: "pointer", flexShrink: 0 } }, h(Avatar, { user: u, size: 22 }), u.name); })),
       replyTo && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8, color: C.dim, fontSize: 12.5 } }, h("span", { style: { flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, "Replying to ", h("b", { style: { color: C.text } }, replyTo.user.name), ": ", replyTo.text || "a gift"), h("button", { onClick: function () { setReplyTo(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 16, cursor: "pointer" } }, "\u2715")),
@@ -516,10 +673,11 @@
           })))
           : h("div", { style: { color: C.dim, fontSize: 12.5 } }, "Effects and pictures are not supported on this phone or browser. You can still turn your video off.")),
       // call controls (host / meeting members)
-      (isHost || kind === "meeting") && h("div", { style: { position: "relative", zIndex: 8, display: "flex", justifyContent: "center", gap: 18, padding: "8px 10px calc(12px + env(safe-area-inset-bottom,0px))", background: C.card } },
+      (isHost || kind === "meeting") && h("div", { style: { position: "relative", zIndex: 8, display: "flex", justifyContent: "center", gap: 12, padding: "8px 10px calc(12px + env(safe-area-inset-bottom,0px))", background: C.card } },
         h("button", { "aria-label": mediaState.mic ? "Mute" : "Unmute", onClick: toggleMic, style: round(mediaState.mic ? "#2B3544" : "#F5F7FA", 46) }, mediaState.mic ? "\uD83C\uDF99" : "\uD83D\uDD07"),
         info.video !== false && h("button", { "aria-label": vmode === "off" ? "Turn video on" : "Turn video off", onClick: toggleCam, style: round(vmode === "off" ? "#F5F7FA" : "#2B3544", 46) }, vmode === "off" ? "\uD83D\uDEAB" : "\uD83D\uDCF7"),
         SCREEN_OK && info.video !== false && h("button", { "aria-label": vmode === "screen" ? "Stop sharing screen" : "Share screen", onClick: startScreen, style: round(vmode === "screen" ? C.teal : "#2B3544", 46) }, "\uD83D\uDDA5"),
+        REC_OK && info.video !== false && h("button", { "aria-label": recSec == null ? "Record video" : "Stop recording", title: recSec == null ? "Record" : "Stop and save", onClick: startRec, style: Object.assign(round(recSec == null ? "#2B3544" : C.red, 46), recSec == null ? { color: C.red } : { fontSize: 12, fontWeight: 800, lineHeight: "46px" }) }, recLabel),
         info.video !== false && h("button", { "aria-label": "Video effects and picture", onClick: function () { setVpanel(!vpanel); setPanel(null); }, style: round(vpanel || fxName !== "none" || vmode === "image" ? C.purple : "#2B3544", 46) }, "\u2728"),
         h("button", { "aria-label": "Leave", onClick: leave, style: round(C.red, 46) }, "\u260E")));
   }
