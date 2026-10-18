@@ -8,7 +8,7 @@
 // with Firebase, sends us the Firebase ID token, we verify it and issue our own
 // session JWT. Needs env vars: FIREBASE_PROJECT_ID and JWT_SECRET.
 
-require("dotenv").config();
+try { require("dotenv").config(); } catch (e) { /* optional: on Render the variables come from the dashboard, so a missing dotenv must not stop the server */ }
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
