@@ -4,12 +4,16 @@
 // server's live:* events (server/client/live.js).
 (function () {
   if (!window.React) return;
-  window.LETSCHAT_LIVE_BUILD = "livefix5"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix5)
+  window.LETSCHAT_LIVE_BUILD = "livefix6"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix6)
   var h = React.createElement, useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, useCallback = React.useCallback;
   var ICE = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   var C = { bg: "#0B0F16", card: "#161B22", line: "#262E3A", text: "#F5F7FA", dim: "#9BA7B4", teal: "#35D0BA", red: "#FF3B5C", purple: "#7C5CFF" };
   var STICKERS = [["fire", "\uD83D\uDD25"], ["100", "\uD83D\uDCAF"], ["heart", "\uD83D\uDC96"], ["laugh", "\uD83D\uDE02"], ["crown", "\uD83D\uDC51"], ["wow", "WOW!"], ["panda", "\uD83D\uDC3C"], ["clap", "\uD83D\uDC4F"], ["love", "\u2764\uFE0F"], ["rocket", "\uD83D\uDE80"], ["gg", "GG"], ["angry", "\uD83D\uDE21"], ["cry", "\uD83D\uDE2D"], ["party", "\uD83E\uDD73"], ["kiss", "\uD83D\uDE18"]];
-  var GIFTS = [["rose", "\uD83C\uDF39", "Rose"], ["car", "\uD83D\uDE97", "Car"], ["crown", "\uD83D\uDC51", "Crown"], ["bear", "\uD83E\uDDF8", "Bear"], ["star", "\u2B50", "Star"], ["diamond", "\uD83D\uDC8E", "Diamond"], ["heart", "\uD83D\uDC96", "Heart"], ["rocket", "\uD83D\uDE80", "Rocket"]];
+  // [id, glyph, name, tier]: tier 1 = small (floats up), 2 = big animation in the middle, 3 = full-screen show
+  var GIFTS = [["rose", "\uD83C\uDF39", "Rose", 1], ["handheart", "\uD83E\uDD32", "Hand Heart", 2], ["lightning", "\u26A1", "Lightning", 1], ["doughnut", "\uD83C\uDF69", "Doughnut", 1], ["heart", "\uD83D\uDC96", "Heart", 1], ["star", "\u2B50", "Star", 1], ["icecream", "\uD83C\uDF66", "Ice Cream", 1], ["coffee", "\u2615", "Coffee", 1],
+    ["bear", "\uD83E\uDDF8", "Bear", 2], ["crown", "\uD83D\uDC51", "Crown", 2], ["diamond", "\uD83D\uDC8E", "Diamond", 2], ["car", "\uD83D\uDE97", "Car", 2], ["rocket", "\uD83D\uDE80", "Rocket", 2], ["trophy", "\uD83C\uDFC6", "Trophy", 2], ["ring", "\uD83D\uDC8D", "Ring", 2], ["moneybag", "\uD83D\uDCB0", "Money Bag", 2],
+    ["lion", "\uD83E\uDD81", "Lion", 3], ["castle", "\uD83C\uDFF0", "Castle", 3], ["jet", "\u2708\uFE0F", "Jet", 3], ["fireworks", "\uD83C\uDF86", "Fireworks", 3], ["dragon", "\uD83D\uDC09", "Dragon", 3], ["ship", "\uD83D\uDEA2", "Ship", 3], ["galaxy", "\uD83C\uDF0C", "Galaxy", 3]];
+  var LAYOUTS = [["side", "Host + guests"], ["grid", "Gallery"], ["spot", "Spotlight"]]; // meeting video templates
   var EMOJIS = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21", "\uD83D\uDD25", "\uD83D\uDCAF", "\uD83D\uDC4F", "\uD83C\uDF89", "\uD83D\uDE0D", "\uD83D\uDE4C"];
   // Video effects. Phones that support canvas filters get all of them; others get the pixel-based ones (no Soft).
   var EFFECTS = [["none", "Normal", ""], ["bw", "B&W", "grayscale(1) contrast(1.1)"], ["sepia", "Sepia", "sepia(.9)"], ["warm", "Warm", "sepia(.35) saturate(1.3) hue-rotate(-10deg)"], ["cool", "Cool", "hue-rotate(25deg) saturate(1.15) brightness(1.05)"],
@@ -31,6 +35,13 @@
       d[i] = clamp(r); d[i + 1] = clamp(g); d[i + 2] = clamp(b);
     }
   }
+  var giftDef = function (id) { for (var i = 0; i < GIFTS.length; i++) if (GIFTS[i][0] === id) return GIFTS[i]; return null; };
+  var fmt = function (n) { n = n || 0; return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "K" : String(n); };
+  var giftArt = function (id, size) {
+    var gd = giftDef(id), g = gd ? gd[1] : id;
+    if (id === "handheart") return h("span", { style: { display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", lineHeight: 1, height: size, width: size } }, h("span", { style: { fontSize: size * 0.58, marginBottom: -size * 0.12, position: "relative", zIndex: 1 } }, "\uD83D\uDC99"), h("span", { style: { fontSize: size * 0.7 } }, g));
+    return g;
+  };
   var glyph = function (list, key) { for (var i = 0; i < list.length; i++) if (list[i][0] === key) return list[i][1]; return key; };
 
   // animations (skipped when the phone asks for reduced motion)
@@ -85,6 +96,18 @@
     return h("video", { "data-lcrec": "1", autoPlay: true, playsInline: true, muted: !!p.muted, style: Object.assign({ width: "100%", height: "100%", objectFit: "cover", background: "#000", transform: p.mirror ? "scaleX(-1)" : "none" }, p.style || {}),
       ref: function (el) { if (el && p.stream && el.srcObject !== p.stream) { el.srcObject = p.stream; var pr = el.play && el.play(); if (pr && pr.catch) pr.catch(function () {}); } } });
   }
+
+  (function css2() {
+    if (document.getElementById("lc-live-css2")) return;
+    var s2 = document.createElement("style"); s2.id = "lc-live-css2";
+    s2.textContent = "@keyframes lcToastIn{0%{transform:translateX(-120%);opacity:0}60%{transform:translateX(6px);opacity:1}100%{transform:translateX(0);opacity:1}}" +
+      "@keyframes lcComboPop{0%{transform:scale(2.4);opacity:.2}60%{transform:scale(.9)}100%{transform:scale(1);opacity:1}}" +
+      "@keyframes lcBigGift{0%{transform:translateY(60px) scale(.2);opacity:0}14%{transform:translateY(0) scale(1.15);opacity:1}28%{transform:scale(.97)}42%{transform:scale(1.07)}80%{transform:scale(1);opacity:1}100%{transform:translateY(-34px) scale(.9);opacity:0}}" +
+      "@keyframes lcSpark{0%{transform:scale(0) rotate(0);opacity:0}30%{opacity:1}100%{transform:scale(1.5) rotate(160deg);opacity:0}}" +
+      "@keyframes lcFlash{0%{opacity:0}15%{opacity:1}100%{opacity:0}}" +
+      "@media (prefers-reduced-motion:reduce){.lc-toast,.lc-combo,.lc-big,.lc-spark{animation:none!important}}";
+    document.head.appendChild(s2);
+  })();
 
   // ---------------------------------------------------------------- the live room (video + chat + gifts + stickers)
   // ---- Recording: saves what you see (and hear) in this live or meeting as a video file on your phone ----
@@ -382,6 +405,16 @@
     var mc = useState({ mic: true, cam: true }), mediaState = mc[0], setMedia = mc[1];
     var fx = useState([]), floaters = fx[0], setFloaters = fx[1];
     var gb = useState([]), gifts = gb[0], setGifts = gb[1];
+    var cbs = useState([]), combos = cbs[0], setCombos = cbs[1];                  // gift combo toasts (Rose x18)
+    var bgs = useState(null), bigGift = bgs[0], setBigGift = bgs[1];              // big gift animation in the middle
+    var mns = useState(0), mostN = mns[0], setMostN = mns[1];                      // re-draws "Most sent"
+    var lks = useState(0), likes = lks[0], setLikes = lks[1];                      // hearts received while you are here
+    var sgs = useState("rose"), selGift = sgs[0], setSelGift = sgs[1];            // gift picked in the tray
+    var jns = useState(""), joinNote = jns[0], setJoinNote = jns[1];
+    var lys = useState(function () { try { var v = parseInt(localStorage.getItem("lcLiveLayout"), 10); return v >= 0 && v < LAYOUTS.length ? v : 0; } catch (e) { return 0; } }), layoutIdx = lys[0], setLayoutIdx = lys[1];
+    var fls = useState(function () { try { return localStorage.getItem("lcFollow:" + (info.host && info.host.id)) === "1"; } catch (e) { return false; } }), following = fls[0], setFollowing = fls[1];
+    var lastGift = useRef(0), lastLike = useRef(0), tally = useRef(null);
+    if (!tally.current) { tally.current = {}; (info.chat || []).forEach(function (m) { if (m && m.gift && m.user) { var t0 = tally.current[m.user.id] || (tally.current[m.user.id] = { name: m.user.name, n: 0 }); t0.n++; } }); }
     var tx = useState(""), text = tx[0], setText = tx[1];
     var rp = useState(null), replyTo = rp[0], setReplyTo = rp[1];
     var sl = useState(null), picked = sl[0], setPicked = sl[1];                   // comment selected for react/reply
@@ -391,6 +424,7 @@
     var pcs = useRef({}), pend = useRef({}), localRef = useRef(null), inputRef = useRef(null), logRef = useRef(null), fxId = useRef(0), alive = useRef(true);
     var isHost = S.hostId === me.id;
     var canPin = isHost || !!me.creator;
+    var tk = kind === "live"; // Go Live uses the TikTok-style layout
     var bubbles = useRef(null);
     if (!bubbles.current) { var pal = [[124,92,255],[53,208,186],[255,107,157],[255,212,59],[77,171,247],[255,146,43],[105,219,124]]; bubbles.current = []; for (var bi = 0; bi < 12; bi++) { var c = pal[bi % pal.length], sz = 18 + Math.round(Math.random() * 36); bubbles.current.push({ id: bi, c: c, size: sz, right: Math.round(Math.random() * 70), dur: 5 + Math.random() * 5, delay: -Math.random() * 10, dx: Math.round((Math.random() * 40 - 20)), o: (0.3 + Math.random() * 0.3).toFixed(2) }); } }
     var flash = function (t) { setToast(t); setTimeout(function () { if (alive.current) setToast(""); }, 2600); };
@@ -680,7 +714,7 @@
     // ---- socket events ----
     useEffect(function () {
       var iHost = !!(info.host && info.host.id === me.id), loud = kind === "meeting" || iHost; // join / leave sounds: meetings, and the host of a live
-      var onJoined = function (m) { if (m.code !== code) return; if (loud && m.user && m.user.id !== me.id) playSfx("join"); setPeople(function (x) { var n = Object.assign({}, x); n[m.user.id] = m.user; return n; }); if (kind === "live") setS(function (s) { return Object.assign({}, s); }); };
+      var onJoined = function (m) { if (m.code !== code) return; if (kind === "live" && m.user && m.user.id !== me.id) { var jn = m.user.name || "Someone"; setJoinNote(jn); setTimeout(function () { setJoinNote(function (c) { return c === jn ? "" : c; }); }, 3500); } if (loud && m.user && m.user.id !== me.id) playSfx("join"); setPeople(function (x) { var n = Object.assign({}, x); n[m.user.id] = m.user; return n; }); if (kind === "live") setS(function (s) { return Object.assign({}, s); }); };
       var onLeft = function (m) { if (m.code !== code) return; if (loud && m.userId !== me.id) playSfx("leave"); closePeer(m.userId); if (m.host) setS(function (s) { return Object.assign({}, s, { hostId: m.host }); }); };
       var onCount = function (m) { if (m.code === code) setS(function (s) { return Object.assign({}, s, { viewers: m.viewers, gifts: m.gifts }); }); };
       var onChat = function (m) {
@@ -693,7 +727,16 @@
       var onMsgReact = function (m) { if (m.code !== code) return; setS(function (s) { return Object.assign({}, s, { chat: s.chat.map(function (c) { return c.id === m.msgId ? Object.assign({}, c, { reactions: m.reactions }) : c; }) }); }); };
       var onFx = function (m) {
         if (m.code !== code) return;
-        if (m.kind === "gift") { var gid = ++fxId.current; setGifts(function (g) { return g.concat([{ id: gid, glyph: glyph(GIFTS, m.value), user: m.user, t: Date.now() }]).slice(-3); }); setTimeout(function () { setGifts(function (g) { return g.filter(function (x) { return x.id !== gid; }); }); }, 3000); }
+        var gdef = m.kind === "gift" ? giftDef(m.value) : null;
+        if (m.kind === "gift" && m.user) {
+          var now = Date.now(), ckey = m.user.id + ":" + m.value;
+          var tl = tally.current[m.user.id] || (tally.current[m.user.id] = { name: m.user.name, n: 0 }); tl.n++; setMostN(function (x) { return x + 1; });
+          setCombos(function (cs) { var found = false, nx = cs.map(function (c) { if (c.key === ckey && now - c.t < 6000) { found = true; return Object.assign({}, c, { n: c.n + 1, t: now }); } return c; }); if (!found) nx.push({ key: ckey, id: m.value, user: m.user, n: 1, t: now }); return nx.slice(-3); });
+          setTimeout(function () { setCombos(function (cs) { return cs.filter(function (c) { return Date.now() - c.t < 4400; }); }); }, 4600);
+          if (gdef && gdef[3] >= 2) { var bid = ++fxId.current, tier = gdef[3]; setBigGift({ id: bid, gift: m.value, user: m.user, tier: tier }); setTimeout(function () { setBigGift(function (b) { return b && b.id === bid ? null : b; }); }, tier === 3 ? 4300 : 3100); }
+        }
+        if ((m.kind === "emoji" && m.value === "\u2764\uFE0F") || (m.kind === "sticker" && (m.value === "heart" || m.value === "love"))) setLikes(function (n) { return n + 1; });
+        if (gdef && gdef[3] >= 2) { playSfx("gift"); return; } // the big animation plays instead of the small floating gift
         var id = ++fxId.current, g = m.kind === "sticker" ? glyph(STICKERS, m.value) : m.kind === "gift" ? glyph(GIFTS, m.value) : m.value;
         var ak = animKey(m.kind, m.value); if (!(kind === "meeting" && m.kind === "emoji")) playSfx(m.kind === "gift" ? "gift" : ak); // no emoji sounds in meetings (they still animate)
         setFloaters(function (f) { return f.concat([{ id: id, t: Date.now(), g: g, k: m.kind === "gift" ? "pop" : ak, x: 8 + Math.random() * 70, big: m.kind !== "emoji" }]).slice(-14); });
@@ -729,6 +772,9 @@
       socket.emit("live:chat", { code: code, text: t, replyTo: replyTo ? { id: replyTo.id } : null, mentions: ids }, function (r) { if (r && r.error) flash(r.error); });
       setText(""); setReplyTo(null); setPicked(null);
     }
+    var sendGift = function () { var now = Date.now(); if (now - lastGift.current < 300) return; lastGift.current = now; fxSend("gift", selGift); };
+    var sendLike = function () { var now = Date.now(); if (now - lastLike.current < 220) return; lastLike.current = now; fxSend("emoji", "\u2764\uFE0F"); };
+    var toggleFollow = function () { var v = !following; setFollowing(v); try { localStorage.setItem("lcFollow:" + (S.host && S.host.id), v ? "1" : "0"); } catch (e) {} flash(v ? "You follow " + ((S.host && S.host.name) || "this host") + " on this phone" : "Unfollowed"); };
     var fxSend = function (kindName, value) { socket.emit("live:fx", { code: code, kind: kindName, value: value }, function (r) { if (r && r.error) flash(r.error); }); };
     var pinMsg = function (m) { socket.emit("live:pin", { code: code, msgId: m ? m.id : null }, function (r) { if (r && r.error) flash(r.error); }); setPicked(null); };
     var reactMsg = function (m, e) { socket.emit("live:msgreact", { code: code, msgId: m.id, emoji: e }); setPicked(null); };
@@ -761,7 +807,7 @@
           h("div", { style: { minWidth: 0, fontFamily: "Inter, sans-serif", fontSize: 13.5, color: C.text, lineHeight: 1.35, wordBreak: "break-word" } },
             m.reply && h("div", { style: { borderLeft: "2px solid " + C.teal, paddingLeft: 6, marginBottom: 3, color: C.dim, fontSize: 12 } }, "Reply to ", m.reply.name, ": ", m.reply.text),
             h("span", { style: { color: C.dim } }, h(Name, { user: m.user }), " "),
-            m.gift ? h("span", null, "sent a gift ", h("span", { style: { fontSize: 18 } }, glyph(GIFTS, m.gift))) : renderText(m.text),
+            m.gift ? h("span", null, "sent " + ((giftDef(m.gift) && giftDef(m.gift)[2]) || "a gift") + " ", h("span", { style: { fontSize: 18 } }, giftArt(m.gift, 18)), m._n > 1 ? h("b", { style: { color: "#FFD43B", fontStyle: "italic" } }, " \u00D7" + m._n) : null) : renderText(m.text),
             chips(m))),
         sel && h("div", { style: { display: "flex", gap: 2, alignItems: "center", marginTop: 4, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 8px", width: "fit-content", maxWidth: "100%", overflowX: "auto" } },
           EMOJIS.slice(0, 7).map(function (e) { return h("button", { key: e, onClick: function () { reactMsg(m, e); }, style: { background: "none", border: "none", fontSize: 22, padding: "0 3px", cursor: "pointer" } }, e); }),
@@ -777,7 +823,27 @@
       tiles.push({ id: me.id, user: me, stream: local, mine: true });
       Object.keys(remotes).forEach(function (id) { tiles.push({ id: id, user: people[id] || { name: "Guest" }, stream: remotes[id] }); });
     }
-    var cols = tiles.length <= 1 ? 1 : 2;
+    tiles.sort(function (x, y) { return (x.id === S.hostId ? 0 : 1) - (y.id === S.hostId ? 0 : 1); }); // host first
+    var isShareTile = function (t) { return t.mine ? vmode === "screen" : !!sharing[t.id]; };
+    var tileEl = function (t, extra) {
+      var contain = isShareTile(t);
+      return h("div", { key: t.id, style: Object.assign({ position: "relative", borderRadius: 14, overflow: "hidden", background: "#1B2330", minHeight: 0 }, extra || {}) },
+        t.mine && drawLayer,
+        t.stream ? h(VideoEl, { stream: t.stream, muted: !!t.mine, mirror: !!t.mine && vmode === "camera", style: contain ? { objectFit: "contain" } : {} }) : h("div", { style: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Avatar, { user: t.user, size: 64 })),
+        h("div", { style: { position: "absolute", left: 8, bottom: 6, background: "rgba(0,0,0,.55)", color: C.text, borderRadius: 8, padding: "2px 8px", fontFamily: "Inter, sans-serif", fontSize: 12.5 } }, t.mine ? "You" : (t.user.name || "Guest"), t.id === S.hostId ? " \uD83D\uDC51" : ""));
+    };
+    var sharer = null; tiles.forEach(function (t) { if (!sharer && isShareTile(t)) sharer = t; });
+    var lay = sharer ? "spot" : LAYOUTS[layoutIdx][0], mainT = sharer || tiles[0], others = tiles.filter(function (t) { return t !== mainT; });
+    var stageBox = { position: "absolute", left: 0, right: 0, top: 58, bottom: chatOpen ? "46%" : 150, padding: 6, background: "#000" };
+    var meetingStage = null;
+    if (kind !== "live") {
+      if (tiles.length <= 1) meetingStage = h("div", { style: Object.assign({ display: "grid", gridTemplateColumns: "1fr" }, stageBox) }, tiles.map(function (t) { return tileEl(t); }));
+      else if (lay === "grid") meetingStage = h("div", { style: Object.assign({ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 6 }, stageBox) }, tiles.map(function (t) { return tileEl(t); }));
+      else if (lay === "side") meetingStage = h("div", { style: Object.assign({ display: "grid", gridTemplateColumns: "1.45fr 1fr", gridTemplateRows: "repeat(" + others.length + ",minmax(0,1fr))", gap: 6 }, stageBox) }, tileEl(mainT, { gridRow: "1 / span " + others.length, gridColumn: 1 }), others.map(function (t) { return tileEl(t, { gridColumn: 2 }); }));
+      else meetingStage = h("div", { style: stageBox }, h("div", { style: { position: "absolute", inset: 6, display: "flex" } }, tileEl(mainT, { flex: 1 })),
+        h("div", { style: { position: "absolute", top: 14, right: 14, width: "30%", display: "flex", flexDirection: "column", gap: 6, maxHeight: "calc(100% - 28px)", overflowY: "auto", zIndex: 3 } }, others.map(function (t) { return tileEl(t, { height: 104, flexShrink: 0, border: "1px solid rgba(255,255,255,.25)" }); })));
+    }
+    var layoutChip = kind === "meeting" ? h("button", { onClick: function () { var n = (layoutIdx + 1) % LAYOUTS.length; setLayoutIdx(n); try { localStorage.setItem("lcLiveLayout", String(n)); } catch (e) {} }, style: { background: "rgba(0,0,0,.55)", color: C.text, border: "none", borderRadius: 999, padding: "5px 12px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" } }, "\u25A6 " + (sharer ? "Spotlight" : LAYOUTS[layoutIdx][1]) + " " + Math.max(1, tiles.length) + "/6") : null;
     var stage = kind === "live"
       ? h("div", { style: { position: "absolute", inset: 0, background: "#000" } },
           drawLayer,
@@ -785,42 +851,88 @@
             h(Avatar, { user: S.host, size: 84 }),
             h("div", { style: { color: C.text, fontWeight: 700, fontSize: 17 } }, S.host && S.host.name),
             h("div", null, S.media === false ? "The video is full right now. You are in the chat and can still send gifts and stickers." : isHost ? "Starting your camera\u2026" : "Connecting to the live\u2026")))
-      : h("div", { style: { position: "absolute", left: 0, right: 0, top: 58, bottom: chatOpen ? "46%" : 150, display: "grid", gridTemplateColumns: "repeat(" + cols + ",1fr)", gap: 6, padding: 6, background: "#000" } },
-          tiles.map(function (t) {
-            return h("div", { key: t.id, style: { position: "relative", borderRadius: 14, overflow: "hidden", background: "#1B2330", minHeight: 0, gridColumn: (t.mine ? vmode === "screen" : sharing[t.id]) ? "1 / -1" : "auto" } },
-              t.mine && drawLayer,
-              t.stream ? h(VideoEl, { stream: t.stream, muted: !!t.mine, mirror: !!t.mine && vmode === "camera", style: (t.mine ? vmode === "screen" : sharing[t.id]) ? { objectFit: "contain" } : {} }) : h("div", { style: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Avatar, { user: t.user, size: 64 })),
-              h("div", { style: { position: "absolute", left: 8, bottom: 6, background: "rgba(0,0,0,.55)", color: C.text, borderRadius: 8, padding: "2px 8px", fontFamily: "Inter, sans-serif", fontSize: 12.5 } }, t.mine ? "You" : (t.user.name || "Guest"), t.id === S.hostId ? " \uD83D\uDC51" : ""));
-          }));
+      : meetingStage;
 
     var panelItems = panel === "stickers" ? STICKERS.map(function (s) { return [s[0], s[1]]; }) : panel === "gifts" ? GIFTS : panel === "emoji" ? EMOJIS.map(function (e) { return [e, e]; }) : [];
+    var idle = tk ? "rgba(255,255,255,.2)" : "#2B3544";
     var onPanelPick = function (it) { if (panel === "stickers") fxSend("sticker", it[0]); else if (panel === "gifts") { fxSend("gift", it[0]); setPanel(null); } else fxSend("emoji", it[0]); };
 
-    return h("div", { style: { position: "fixed", inset: 0, zIndex: 95, background: C.bg, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: "Inter, sans-serif" } },
-      stage,
-      // top bar
+    var viewerFaces = Object.keys(people).filter(function (id) { return id !== S.hostId; }).slice(0, 3);
+    var chipS = { background: "rgba(0,0,0,.42)", color: "#fff", borderRadius: 999, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", border: "none", flexShrink: 0 };
+    var topTK = h("div", { style: { position: "relative", zIndex: 5, display: "flex", alignItems: "center", gap: 8, padding: "calc(10px + env(safe-area-inset-top,0px)) 10px 6px", background: "linear-gradient(rgba(0,0,0,.6),rgba(0,0,0,0))" } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,.42)", borderRadius: 999, padding: "4px 6px 4px 4px", minWidth: 0, maxWidth: "58%" } },
+        h(Avatar, { user: S.host, size: 36 }),
+        h("div", { style: { minWidth: 0, color: C.text } }, h("div", { style: { fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, h(Name, { user: S.host })), h("div", { style: { fontSize: 11.5, color: "#E6EAF0" } }, "\u2764\uFE0F " + fmt(likes))),
+        !isHost && h("button", { onClick: toggleFollow, style: { background: following ? "rgba(255,255,255,.22)" : "#FE2C55", color: "#fff", border: "none", borderRadius: 999, padding: "7px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer", flexShrink: 0 } }, following ? "Following" : "+ Follow")),
+      h("div", { style: { flex: 1 } }),
+      viewerFaces.length > 0 && h("div", { style: { display: "flex" } }, viewerFaces.map(function (id, i) { return h("span", { key: id, style: { marginLeft: i ? -10 : 0, border: "2px solid rgba(0,0,0,.6)", borderRadius: "50%", display: "inline-flex" } }, h(Avatar, { user: people[id], size: 26 })); })),
+      h("span", { style: { background: "rgba(0,0,0,.45)", color: C.text, borderRadius: 999, padding: "5px 10px", fontSize: 13, fontWeight: 700 } }, fmt(S.viewers)),
+      h("button", { "aria-label": "Leave", onClick: leave, style: round("rgba(0,0,0,.45)", 32) }, "\u2715"));
+    var chipTK = h("div", { style: { position: "relative", zIndex: 5, display: "flex", gap: 6, padding: "0 10px", alignItems: "center", overflowX: "auto" } },
+      h("span", { className: "lc-pulse", style: { background: C.red, color: "#fff", borderRadius: 6, padding: "4px 9px", fontWeight: 800, fontSize: 11.5, animation: "lcPulse 1.6s infinite", flexShrink: 0 } }, "LIVE"),
+      S.viewers >= 5 && h("span", { style: Object.assign({}, chipS, { color: "#FFB020" }) }, "\uD83D\uDD25 Popular LIVE"),
+      S.gifts > 0 && h("span", { style: chipS }, "\uD83C\uDF81 " + fmt(S.gifts)),
+      info.title && info.title !== "Live now" && h("span", { style: Object.assign({}, chipS, { overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }) }, info.title));
+    var topBar = tk ? topTK : (
       h("div", { style: { position: "relative", zIndex: 5, display: "flex", alignItems: "center", gap: 8, padding: "calc(10px + env(safe-area-inset-top,0px)) 10px 8px", background: "linear-gradient(rgba(0,0,0,.7),rgba(0,0,0,0))" } },
         h(Avatar, { user: S.host, size: 36 }),
         h("div", { style: { minWidth: 0, flex: 1, color: C.text } }, h("div", { style: { fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, fontSize: 14.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, info.title), h("div", { style: { fontSize: 12, color: C.dim } }, S.host && S.host.name)),
         h("span", { className: "lc-pulse", style: { background: C.red, color: "#fff", borderRadius: 8, padding: "3px 9px", fontWeight: 800, fontSize: 12, animation: "lcPulse 1.6s infinite" } }, kind === "meeting" ? "MEETING" : "LIVE"),
         h("span", { style: { background: "rgba(0,0,0,.55)", color: C.text, borderRadius: 999, padding: "4px 10px", fontSize: 13, fontWeight: 700 } }, "\uD83D\uDC41 " + S.viewers),
-        h("button", { "aria-label": "Leave", onClick: leave, style: round("rgba(0,0,0,.55)", 34) }, "\u2715")),
-      // join code strip
+        h("button", { "aria-label": "Leave", onClick: leave, style: round("rgba(0,0,0,.55)", 34) }, "\u2715"))
+    );
+    var chipRow = tk ? chipTK : (
       h("div", { style: { position: "relative", zIndex: 5, display: "flex", gap: 6, padding: "0 10px", alignItems: "center" } },
         kind === "meeting" && h("button", { onClick: function () { copy(code, "Code copied"); }, style: { background: "rgba(124,92,255,.85)", color: "#fff", border: "none", borderRadius: 999, padding: "5px 12px", fontWeight: 800, letterSpacing: 2, fontSize: 13, cursor: "pointer" } }, "Code " + code + "  \u29C9"),
         kind === "meeting" && h("button", { onClick: share, style: { background: "rgba(0,0,0,.55)", color: C.text, border: "none", borderRadius: 999, padding: "5px 12px", fontWeight: 600, fontSize: 12.5, cursor: "pointer" } }, "Invite"),
-        S.gifts > 0 && h("span", { style: { color: C.text, fontSize: 12.5, background: "rgba(0,0,0,.55)", borderRadius: 999, padding: "5px 10px" } }, "\uD83C\uDF81 " + S.gifts)),
+        S.gifts > 0 && h("span", { style: { color: C.text, fontSize: 12.5, background: "rgba(0,0,0,.55)", borderRadius: 999, padding: "5px 10px" } }, "\uD83C\uDF81 " + S.gifts),
+        layoutChip)
+    );
+    var railBtn = function (icon, label, onClick, aria) { return h("button", { "aria-label": aria, onClick: onClick, style: { background: "none", border: "none", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer", padding: 0, fontSize: 12, fontWeight: 700, textShadow: "0 1px 4px rgba(0,0,0,.6)" } }, h("span", { style: { fontSize: 30, lineHeight: "34px", filter: "drop-shadow(0 2px 4px rgba(0,0,0,.5))" } }, icon), label != null && h("span", null, label)); };
+    var railEl = tk ? h("div", { style: { position: "absolute", right: 8, bottom: isHost ? 176 : 92, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 } },
+      !isHost && h("div", { style: { position: "relative", marginBottom: 6 } }, h(Avatar, { user: S.host, size: 46 }), !following && h("button", { "aria-label": "Follow", onClick: toggleFollow, style: { position: "absolute", left: 11, bottom: -9, width: 24, height: 24, borderRadius: 24, background: "#FE2C55", color: "#fff", border: "2px solid #0B0F16", fontWeight: 800, fontSize: 15, lineHeight: "17px", padding: 0, cursor: "pointer" } }, "+")),
+      railBtn("\u2764\uFE0F", fmt(likes), sendLike, "Like"),
+      railBtn("\uD83D\uDCAC", fmt(S.chat.length), function () { if (inputRef.current) inputRef.current.focus(); }, "Comment"),
+      railBtn("\uD83C\uDF81", fmt(S.gifts), function () { setPanel(panel === "gifts" ? null : "gifts"); }, "Gifts"),
+      railBtn("\u2197\uFE0F", "Share", share, "Share")) : null;
+    var comboEl = h("div", { style: { position: "absolute", left: 10, top: "38%", zIndex: 7, pointerEvents: "none", display: "flex", flexDirection: "column", gap: 8 } },
+      combos.map(function (c) { var gd = giftDef(c.id); return h("div", { key: c.key, className: "lc-toast", style: { display: "flex", alignItems: "center", gap: 8, background: "linear-gradient(90deg,rgba(0,0,0,.6),rgba(0,0,0,.25))", borderRadius: 999, padding: "4px 14px 4px 4px", animation: "lcToastIn .35s ease-out" } },
+        h(Avatar, { user: c.user, size: 34 }),
+        h("div", { style: { color: "#fff", fontSize: 12.5, lineHeight: 1.2, maxWidth: 110 } }, h("div", { style: { fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.user && c.user.name), h("div", { style: { color: "#E6EAF0", fontSize: 11.5 } }, "sent " + (gd ? gd[2] : "a gift"))),
+        h("span", { style: { fontSize: 32, lineHeight: 1 } }, giftArt(c.id, 32)),
+        c.n > 1 && h("span", { key: c.n, className: "lc-combo", style: { fontSize: 26, fontWeight: 900, fontStyle: "italic", color: "#FFD43B", textShadow: "0 2px 8px rgba(0,0,0,.6)", animation: "lcComboPop .3s ease-out" } }, "\u00D7" + c.n)); }));
+    var bigGd = bigGift ? giftDef(bigGift.gift) : null, bigSz = bigGift && bigGift.tier === 3 ? 170 : 130;
+    var bigEl = bigGift ? h("div", { key: bigGift.id, style: { position: "absolute", left: 0, right: 0, top: "24%", height: "36%", zIndex: 7, pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" } },
+      bigGift.tier === 3 && h("div", { className: "lc-big", style: { position: "fixed", inset: 0, background: "radial-gradient(circle at 50% 45%,rgba(255,215,64,.38),rgba(124,92,255,.2) 55%,rgba(0,0,0,0))", animation: "lcFlash 2.6s ease-out forwards" } }),
+      [[12, 8, 0], [78, 14, .25], [20, 64, .5], [70, 60, .15], [48, 2, .4]].map(function (sp, i) { return h("span", { key: i, className: "lc-spark", style: { position: "absolute", left: sp[0] + "%", top: sp[1] + "%", fontSize: 26, animation: "lcSpark 1.6s ease-out " + sp[2] + "s infinite" } }, "\u2728"); }),
+      h("div", { className: "lc-big", style: { fontSize: bigSz, lineHeight: 1, filter: "drop-shadow(0 8px 24px rgba(255,120,200,.6))", animation: "lcBigGift " + (bigGift.tier === 3 ? "4.2" : "3") + "s ease-in-out forwards" } }, giftArt(bigGift.gift, bigSz)),
+      h("div", { className: "lc-big", style: { marginTop: 8, color: "#fff", fontWeight: 800, fontSize: 16, textShadow: "0 2px 10px rgba(0,0,0,.7)", animation: "lcBigGift " + (bigGift.tier === 3 ? "4.2" : "3") + "s ease-in-out forwards" } }, ((bigGift.user && bigGift.user.name) || "Someone") + " sent " + (bigGd ? bigGd[2] : "a gift"))) : null;
+    var mostSent = null; Object.keys(tally.current).forEach(function (id) { var t1 = tally.current[id]; if (!mostSent || t1.n > mostSent.n) mostSent = t1; });
+    var feed = []; S.chat.forEach(function (m) { var last = feed[feed.length - 1]; if (m.gift && last && last.gift === m.gift && last.user && m.user && last.user.id === m.user.id) feed[feed.length - 1] = Object.assign({}, m, { _n: (last._n || 1) + 1 }); else feed.push(m); });
+    var giftGrid = h("div", null,
+      h("div", { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, maxHeight: 204, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 } },
+        GIFTS.map(function (it) { var on = selGift === it[0]; return h("button", { key: it[0], onClick: function () { setSelGift(it[0]); }, style: { position: "relative", background: on ? "rgba(254,44,85,.16)" : "#1E2530", border: "1px solid " + (on ? "#FE2C55" : "#2B3544"), borderRadius: 12, padding: "8px 2px 6px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: C.text } },
+          it[3] === 3 && h("span", { style: { position: "absolute", top: 3, right: 5, fontSize: 9, fontWeight: 800, color: "#FFD43B" } }, "BIG"),
+          h("span", { style: { fontSize: 30, lineHeight: "36px" } }, giftArt(it[0], 30)), h("span", { style: { fontSize: 11.5, fontWeight: 600 } }, it[2]), h("span", { style: { fontSize: 10, color: C.dim } }, "Free")); })),
+      h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 6, gap: 8 } }, h("span", { style: { color: C.dim, fontSize: 12 } }, "Tap Send again and again for a combo"),
+        h("button", { onClick: sendGift, style: { background: "linear-gradient(135deg,#FF4D8D,#FF8A3D)", color: "#fff", border: "none", borderRadius: 999, padding: "9px 24px", fontWeight: 800, fontSize: 14, cursor: "pointer", flexShrink: 0 } }, "Send " + (giftDef(selGift) ? giftDef(selGift)[2] : ""))));
+    return h("div", { style: { position: "fixed", inset: 0, zIndex: 95, background: C.bg, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: "Inter, sans-serif" } },
+      stage,
+      topBar,
+      chipRow,
+      railEl,
+      comboEl,
+      bigEl,
       // floating emojis / stickers
       h("div", { style: { position: "absolute", left: 0, right: 0, bottom: 150, height: 380, pointerEvents: "none", zIndex: 6, overflow: "hidden" } },
         floaters.map(function (f) { var wide = f.g.length > 2 && f.g.indexOf("\uD83D") < 0 && f.g.indexOf("\uD83E") < 0 && f.g.indexOf("\uD83C") < 0; /* WOW! / GG are text */ return h("div", { key: f.id, className: "lc-fx", style: { position: "absolute", bottom: f.big ? "16%" : 0, left: (f.big ? 20 + (f.x - 8) * 0.5 : 45 + f.x * 0.5) + "%", fontSize: f.big ? (wide ? 64 : 120) : 40, lineHeight: 1.1, fontWeight: 900, color: "#FFD43B", textShadow: "0 3px 12px rgba(0,0,0,.65)", animation: (f.big ? "lcBigFloat" : "lcFloat") + " 2.6s ease-out forwards" } }, anim(f.k, f.g)); })),
       // colourful see-through bubbles rising on the right side (Go Live only)
       kind === "live" && h("div", { "aria-hidden": "true", style: { position: "absolute", right: 0, top: 70, bottom: 150, width: "38%", pointerEvents: "none", zIndex: 4, overflow: "hidden" } },
         bubbles.current.map(function (b) { var rgb = b.c.join(","); return h("span", { key: b.id, className: "lc-bubble", style: { position: "absolute", bottom: -60, right: b.right + "%", width: b.size, height: b.size, borderRadius: "50%", background: "radial-gradient(circle at 30% 28%, rgba(255,255,255,.55), rgba(" + rgb + ",.28) 45%, rgba(" + rgb + ",.12) 100%)", border: "1px solid rgba(" + rgb + ",.55)", boxShadow: "inset 0 0 8px rgba(255,255,255,.25), 0 0 10px rgba(" + rgb + ",.25)", "--lc-dx": b.dx + "px", "--lc-o": b.o, opacity: 0, animation: "lcBubble " + b.dur.toFixed(1) + "s linear " + b.delay.toFixed(1) + "s infinite" } }); })),
-      // gift banners
-      h("div", { style: { position: "absolute", left: 0, right: 0, top: "30%", zIndex: 7, pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 } },
-        gifts.map(function (g) { return h("div", { key: g.id, className: "lc-gift", style: { background: "rgba(124,92,255,.9)", color: "#fff", borderRadius: 999, padding: "8px 18px", display: "flex", alignItems: "center", gap: 10, fontWeight: 700, animation: "lcGift 3s ease forwards" } }, h("span", { style: { fontSize: 38 } }, g.glyph), h("span", null, (g.user && g.user.name) + " sent a gift!")); })),
       toast && h("div", { style: { position: "absolute", left: 16, right: 16, top: 110, zIndex: 9, background: "#1E2530", color: C.text, border: "1px solid #2B3544", borderRadius: 12, padding: "10px 14px", textAlign: "center", fontSize: 13.5 } }, toast),
       h("div", { style: { flex: 1 } }),
+      tk && joinNote && h("div", { style: { position: "relative", zIndex: 6, margin: "0 10px 4px", display: "flex" } }, h("span", { style: { background: "linear-gradient(90deg,#6C4DFF,#4D7CFF)", color: "#fff", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 } }, "\uD83D\uDC4B " + joinNote + " joined")),
+      tk && mostSent && h("div", { style: { position: "relative", zIndex: 6, margin: "0 10px 4px", display: "flex" } }, h("span", { style: { background: "rgba(0,0,0,.42)", color: "#fff", borderRadius: 999, padding: "3px 11px", fontSize: 12, fontWeight: 700, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "Most sent ", h("span", { style: { color: "#FFD43B" } }, mostSent.name), h("b", { style: { fontStyle: "italic", color: "#FFD43B", marginLeft: 6 } }, "\u00D7" + mostSent.n))),
       // pinned message (set by the host), shown on top of the chat
       S.pinned && h("div", { style: { position: "relative", zIndex: 6, margin: "0 10px 6px", display: "flex", alignItems: "center", gap: 8, background: "rgba(30,37,48,.92)", border: "1px solid #FFD43B", borderRadius: 12, padding: "6px 8px" } },
         h("span", { style: { fontSize: 16 } }, "\uD83D\uDCCC"),
@@ -829,24 +941,24 @@
           S.pinned.gift ? h("span", null, "sent a gift ", glyph(GIFTS, S.pinned.gift)) : renderText(S.pinned.text)),
         canPin && h("button", { "aria-label": "Unpin message", onClick: function () { pinMsg(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 16, cursor: "pointer", flexShrink: 0 } }, "\u2715")),
       // comments
-      chatOpen && h("div", { ref: logRef, style: { position: "relative", zIndex: 5, maxHeight: kind === "meeting" ? "40%" : "34%", overflowY: "auto", padding: "0 10px 6px", background: kind === "meeting" ? C.bg : "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.45))", WebkitOverflowScrolling: "touch" } },
-        S.chat.length ? S.chat.map(comment) : h("div", { style: { color: C.dim, fontSize: 13, padding: "6px 4px" } }, "No comments yet. Say hi \uD83D\uDC4B")),
+      chatOpen && h("div", { ref: logRef, style: { position: "relative", zIndex: 5, maxHeight: kind === "meeting" ? "40%" : "34%", overflowY: "auto", padding: tk ? "0 76px 6px 10px" : "0 10px 6px", background: kind === "meeting" ? C.bg : "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.45))", WebkitOverflowScrolling: "touch", WebkitMaskImage: tk ? "linear-gradient(transparent, #000 24%)" : undefined, maskImage: tk ? "linear-gradient(transparent, #000 24%)" : undefined } },
+        feed.length ? feed.map(comment) : h("div", { style: { color: C.dim, fontSize: 13, padding: "6px 4px" } }, "No comments yet. Say hi \uD83D\uDC4B")),
       // sticker / gift / emoji tray
       panel && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, padding: "8px 8px 6px" } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", color: C.dim, fontSize: 12.5, padding: "0 4px 4px" } }, h("span", null, panel === "gifts" ? "Send a gift (free, to show support)" : panel === "stickers" ? "Live stickers" : "Live emojis"), panel !== "gifts" && h("button", { "aria-label": sfxOn() ? "Turn sticker sounds off" : "Turn sticker sounds on", onClick: function () { try { localStorage.setItem("lcLiveSfx", sfxOn() ? "off" : "on"); } catch (e) {} if (sfxOn()) playSfx("pop"); setSfxN(sfxN + 1); }, style: { background: "none", border: "none", color: C.dim, fontSize: 17, cursor: "pointer", marginLeft: "auto", marginRight: 10 } }, sfxOn() ? "\uD83D\uDD0A" : "\uD83D\uDD07"), h("button", { onClick: function () { setPanel(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 18, cursor: "pointer" } }, "\u2715")),
-        h("div", { style: { display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4 } }, panelItems.map(function (it) { return h("button", { key: it[0], onClick: function () { onPanelPick(it); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, minWidth: 58, height: 58, color: "#FFD43B", fontSize: it[1].length > 2 && it[1].indexOf("\uD83C") < 0 && it[1].indexOf("\uD83D") < 0 && it[1].indexOf("\uD83E") < 0 ? 15 : 28, fontWeight: 900, cursor: "pointer", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } }, panel === "gifts" ? it[1] : anim(panel === "stickers" ? it[0] : (EMO_KEY[it[0]] || "pop"), it[1]), panel === "gifts" && h("span", { style: { fontSize: 10, color: C.dim, fontWeight: 600 } }, it[2])); }))),
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", color: C.dim, fontSize: 12.5, padding: "0 4px 4px" } }, h("span", null, panel === "gifts" ? "Gifts (free, to show support)" : panel === "stickers" ? "Live stickers" : "Live emojis"), panel !== "gifts" && h("button", { "aria-label": sfxOn() ? "Turn sticker sounds off" : "Turn sticker sounds on", onClick: function () { try { localStorage.setItem("lcLiveSfx", sfxOn() ? "off" : "on"); } catch (e) {} if (sfxOn()) playSfx("pop"); setSfxN(sfxN + 1); }, style: { background: "none", border: "none", color: C.dim, fontSize: 17, cursor: "pointer", marginLeft: "auto", marginRight: 10 } }, sfxOn() ? "\uD83D\uDD0A" : "\uD83D\uDD07"), h("button", { onClick: function () { setPanel(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 18, cursor: "pointer" } }, "\u2715")),
+        panel === "gifts" ? giftGrid : h("div", { style: { display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4 } }, panelItems.map(function (it) { return h("button", { key: it[0], onClick: function () { onPanelPick(it); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, minWidth: 58, height: 58, color: "#FFD43B", fontSize: it[1].length > 2 && it[1].indexOf("\uD83C") < 0 && it[1].indexOf("\uD83D") < 0 && it[1].indexOf("\uD83E") < 0 ? 15 : 28, fontWeight: 900, cursor: "pointer", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } }, panel === "gifts" ? it[1] : anim(panel === "stickers" ? it[0] : (EMO_KEY[it[0]] || "pop"), it[1]), panel === "gifts" && h("span", { style: { fontSize: 10, color: C.dim, fontWeight: 600 } }, it[2])); }))),
       // @ suggestions + reply bar
       sugg.length > 0 && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, display: "flex", gap: 6, padding: "6px 10px", overflowX: "auto" } }, sugg.map(function (u) { return h("button", { key: u.id, onClick: function () { pickMention(u); }, style: { display: "flex", alignItems: "center", gap: 6, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px 4px 4px", color: C.text, fontSize: 13, cursor: "pointer", flexShrink: 0 } }, h(Avatar, { user: u, size: 22 }), u.name); })),
       replyTo && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8, color: C.dim, fontSize: 12.5 } }, h("span", { style: { flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, "Replying to ", h("b", { style: { color: C.text } }, replyTo.user.name), ": ", replyTo.text || "a gift"), h("button", { onClick: function () { setReplyTo(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 16, cursor: "pointer" } }, "\u2715")),
       // message bar
-      h("div", { style: { position: "relative", zIndex: 8, display: "flex", gap: 6, alignItems: "center", padding: "8px 10px", background: C.card, borderTop: "1px solid " + C.line } },
-        kind === "meeting" && h("button", { "aria-label": "Show or hide chat", onClick: function () { setChatOpen(!chatOpen); }, style: round(chatOpen ? C.teal : "#2B3544", 38) }, "\uD83D\uDCAC"),
-        h("button", { "aria-label": "Mention someone", onClick: addAt, style: Object.assign(round("#2B3544", 38), { fontWeight: 800, color: C.teal }) }, "@"),
-        h("input", { ref: inputRef, value: text, maxLength: 300, placeholder: "Type a message\u2026", onChange: function (e) { setText(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") send(); }, style: { flex: 1, minWidth: 0, background: "#0E1218", border: "1px solid #2B3544", borderRadius: 999, color: C.text, padding: "10px 14px", fontSize: 14.5, outline: "none" } }),
+      h("div", { style: { position: "relative", zIndex: 8, display: "flex", gap: 6, alignItems: "center", padding: "8px 10px", background: tk ? "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.55))" : C.card, borderTop: tk ? "none" : "1px solid " + C.line } },
+        kind === "meeting" && h("button", { "aria-label": "Show or hide chat", onClick: function () { setChatOpen(!chatOpen); }, style: round(chatOpen ? C.teal : idle, 38) }, "\uD83D\uDCAC"),
+        h("button", { "aria-label": "Mention someone", onClick: addAt, style: Object.assign(round(idle, 38), { fontWeight: 800, color: C.teal }) }, "@"),
+        h("input", { ref: inputRef, value: text, maxLength: 300, placeholder: tk ? "Add comment\u2026" : "Type a message\u2026", onChange: function (e) { setText(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") send(); }, style: { flex: 1, minWidth: 0, background: tk ? "rgba(255,255,255,.16)" : "#0E1218", border: tk ? "none" : "1px solid #2B3544", borderRadius: 999, color: C.text, padding: "10px 14px", fontSize: 14.5, outline: "none" } }),
         text.trim() ? h("button", { "aria-label": "Send", onClick: send, style: round(C.teal, 38) }, "\u27A4") : null,
-        h("button", { "aria-label": "Live emojis", onClick: function () { setPanel(panel === "emoji" ? null : "emoji"); }, style: round(panel === "emoji" ? C.teal : "#2B3544", 38) }, "\uD83D\uDE0A"),
-        h("button", { "aria-label": "Live stickers", onClick: function () { setPanel(panel === "stickers" ? null : "stickers"); }, style: round(panel === "stickers" ? C.teal : "#2B3544", 38) }, "\uD83D\uDD25"),
-        h("button", { "aria-label": "Send a gift", onClick: function () { setPanel(panel === "gifts" ? null : "gifts"); }, style: round(panel === "gifts" ? C.purple : "#2B3544", 38) }, "\uD83C\uDF81")),
+        h("button", { "aria-label": "Live emojis", onClick: function () { setPanel(panel === "emoji" ? null : "emoji"); }, style: round(panel === "emoji" ? C.teal : idle, 38) }, "\uD83D\uDE0A"),
+        h("button", { "aria-label": "Live stickers", onClick: function () { setPanel(panel === "stickers" ? null : "stickers"); }, style: round(panel === "stickers" ? C.teal : idle, 38) }, "\uD83D\uDD25"),
+        h("button", { "aria-label": "Send a gift", onClick: function () { setPanel(panel === "gifts" ? null : "gifts"); }, style: tk ? round("linear-gradient(135deg,#FF4D8D,#FF8A3D)", 38) : round(panel === "gifts" ? C.purple : idle, 38) }, "\uD83C\uDF81")),
       // teaching tools: only the person who started the meeting (or the live), while their screen is shared
       teaching && h("div", { style: { position: "relative", zIndex: 9, background: C.card, borderTop: "1px solid " + C.line, padding: "8px 10px 6px" } },
         h("div", { style: { display: "flex", gap: 5, overflowX: "auto", paddingBottom: 6, alignItems: "center" } },
