@@ -63,3 +63,6 @@ Update: the Room and Live tabs were removed from the bottom bar. Both are still 
 - Live event sounds (same speaker button turns all of them off): someone joins / leaves (meetings, and the host of a live), a new comment, you are @mentioned, a message is pinned, someone starts sharing their screen, a gift (sparkle), and the live ending.
 
 Update: emoji no longer play a sound in Live Meetings (they still animate). Stickers, gifts and the other event sounds are unchanged.
+
+## If Go Live / Live Meeting seems stuck
+- The app now stops waiting after 15 seconds and shows a message, and the server always answers start/join, even after an error. Redeploy the server (server/client/live.js) for the server side of this fix.
