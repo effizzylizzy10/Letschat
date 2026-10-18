@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Your server config (single source of truth: config.js; must load before the app) -->
+  <script src="config.js"></script>
+  <!-- Speed: wake the server the moment the app opens (free hosts sleep when idle). It polls /health every ~1.2 s until the server answers
+       (no more single 70 s wait), shows "Waking up the server" only if it takes more than 2 s, and exposes window.__lcWake() so every
+       app request can wait for the server and retry instead of failing with "Failed to fetch". -->
+  <script>
+    (function () {
+      var api = "", upAt = 0, bar = null, pending = null;
+      try { api = ((window.LETSCHAT_CONFIG || {}).API_URL || "").replace(/\/$/, ""); } catch (e) {}
+      if (!api) return;
+      function isUp() { return upAt && Date.now() - upAt < 8 * 60 * 1000; } // after 8 quiet minutes it may be asleep again
+      function hide() { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); bar = null; }
+      function show() {
+        if (bar || isUp() || !document.body) return;
+        bar = document.createElement("div");
+        bar.setAttribute("role", "status");
+        bar.textContent = "Waking up the server\u2026 almost there.";
+        bar.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:100001;padding:8px 12px;text-align:center;font:13px/1.3 Inter,Arial,sans-serif;background:#1B2B33;color:#35D0BA;padding-top:calc(8px + env(safe-area-inset-top,0px))";
+        document.body.appendChild(bar);
+      }
+      // one health check (8 s limit); true only when the server is up AND has finished loading its data
+      function probe() {
+        return new Promise(function (resolve) {
+          var ctl = typeof AbortController === "function" ? new AbortController() : null, done = false;
+          var timer = setTimeout(function () { if (ctl) try { ctl.abort(); } catch (e) {} fin(false); }, 8000);
+          function fin(v) { if (done) return; done = true; clearTimeout(timer); resolve(v); }
+          fetch(api + "/api/v1/health?t=" + Date.now(), { cache: "no-store", signal: ctl ? ctl.signal : undefined }).then(function (r) {
+            if (!r || !r.ok) return fin(false);
+            return r.json().then(function (j) { var d = (j && j.data) || j || {}; fin(d.ready !== false); }, function () { fin(true); });
+          }).catch(function () { fin(false); });
+        });
+      }
+      // wake(force): resolves true when the server answers, false after 100 s. Many callers share one polling loop.
+      function wake(force) {
+        // no network at all: do not poll (it only drains the battery and shows a wrong "waking up" bar); the "online" event below starts it again
+        if (navigator.onLine === false) return Promise.resolve(false);
+        if (!force && isUp()) return Promise.resolve(true);
+        if (pending) return pending;
+        if (force) upAt = 0;
+        var t0 = Date.now(), slow = setTimeout(show, 2000);
+        pending = new Promise(function (resolve) {
+          (function loop() {
+            probe().then(function (ok) {
+              if (ok) { upAt = Date.now(); clearTimeout(slow); hide(); pending = null; return resolve(true); }
+              if (Date.now() - t0 > 100000) { clearTimeout(slow); hide(); pending = null; return resolve(false); }
+              setTimeout(loop, 1200);
+            });
+          })();
+        });
+        return pending;
+      }
+      window.__lcWake = wake;
+      wake(true);
+      document.addEventListener("visibilitychange", function () { if (!document.hidden && !isUp()) wake(true); });
+      window.addEventListener("focus", function () { if (!isUp()) wake(true); });
+      window.addEventListener("online", function () { wake(true); });
+      window.addEventListener("pageshow", function () { if (!isUp()) wake(true); });
+      // while the app is open, keep the server warm (it sleeps after 15 quiet minutes)
+      setInterval(function () { if (!document.hidden) { try { fetch(api + "/api/v1/ping", { mode: "no-cors", cache: "no-store" }).then(function () { upAt = Date.now(); }, function () {}); } catch (e) {} } }, 4 * 60 * 1000);
+    })();
+  </script>
+  <!-- Browsers with JavaScript switched off go straight to Letschat Lite (plain pages that need no scripts) -->
+  <noscript><meta http-equiv="refresh" content="0;url=https://letschat-9tw4.onrender.com/lite" /></noscript>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="description" content="Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://letschatafric.netlify.app/" />
+  <meta name="application-name" content="Letschat Africa" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Letschat" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="format-detection" content="telephone=no" />
+  <!-- Sharing: how a Letschat link looks in WhatsApp, Facebook, X and search results -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Letschat Africa" />
+  <meta property="og:title" content="Letschat Africa: Fast Chat, Calls, Status, Market &amp; Games" />
+  <meta property="og:description" content="Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone." />
+  <meta property="og:url" content="https://letschatafric.netlify.app/" />
+  <meta property="og:image" content="https://letschatafric.netlify.app/icons/icon-512.png" />
+  <meta property="og:image:width" content="512" />
+  <meta property="og:image:height" content="512" />
+  <meta property="og:image:alt" content="Letschat Africa logo" />
+  <meta property="og:locale" content="en_NG" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Letschat Africa: Fast Chat, Calls, Status, Market &amp; Games" />
+  <meta name="twitter:description" content="Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone." />
+  <meta name="twitter:image" content="https://letschatafric.netlify.app/icons/icon-512.png" />
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Letschat Africa",
+  "url": "https://letschatafric.netlify.app/",
+  "description": "Letschat Africa is a fast, free realtime messaging app: private and group chats, voice and video calls, status updates, a marketplace and games, built to work well on any phone.",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Any (web browser, installable app)",
+  "browserRequirements": "Requires JavaScript",
+  "inLanguage": "en",
+  "image": "https://letschatafric.netlify.app/icons/icon-512.png",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "featureList": [
+    "Private and group chat",
+    "Voice and video calls",
+    "Status updates",
+    "Marketplace",
+    "Games",
+    "Disappearing messages",
+    "Polls",
+    "Scheduled messages"
+  ]
+}
+  </script>
+  <title>Letschat Africa: Fast Chat, Calls, Status, Market &amp; Games</title>
+  <!-- Speed: open connections to the third-party hosts early, before the scripts are requested -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.socket.io" crossorigin />
+  <link rel="preconnect" href="https://letschat-9tw4.onrender.com" crossorigin />
+  <link rel="dns-prefetch" href="https://letschat-9tw4.onrender.com" />
+  <!-- Speed: start downloading the libraries and the app right away (they are run later, in order) -->
+  <link rel="preload" as="script" href="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" />
+  <link rel="preload" as="script" href="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" />
+  <link rel="preload" as="script" href="app.js" />
+  <!-- Fonts, push and reactions are added by responsive.js on normal phones; small / keypad phones skip them (faster, chat only) -->
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" /></noscript>
+  <link rel="manifest" href="./manifest.json" />
+  <!-- Icons: the Letschat "LA" logo. favicon.ico also answers requests for /favicon.ico (browsers, Google, APK builders).
+       "?v=2" makes browsers and phones drop the old cached copy of each icon. -->
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png?v=2" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png?v=2" />
+  <link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png?v=2" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=2" />
+  <link rel="shortcut icon" href="favicon.ico?v=2" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=2" />
+  <meta name="theme-color" content="#0E1116" />
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #05070A; overflow: hidden; }
+    #root { height: 100%; }
+
+    /* App fills the whole screen; the footer bar sits under it, touching both edges, and carries the host badge */
+    .app-shell { position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; height: 100vh; height: 100dvh; }
+    .app-footer {
+      position: relative; flex: 0 0 auto; width: 100%; box-sizing: border-box;
+      height: calc(64px + env(safe-area-inset-bottom, 0px));
+      padding: 0 18px env(safe-area-inset-bottom, 0px);
+      display: flex; align-items: center;
+      background: linear-gradient(180deg, #131A24 0%, #0A0E14 100%);
+      border-top: 1px solid #1F2733;
+      box-shadow: 0 -12px 32px rgba(53, 208, 186, 0.07);
+    }
+    .app-footer::before {
+      content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px;
+      background: linear-gradient(90deg, transparent, #35D0BA 30%, #F2B84B 70%, transparent);
+      opacity: 0.8;
+    }
+    .app-footer-dot { width: 8px; height: 8px; border-radius: 50%; background: #35D0BA; box-shadow: 0 0 10px #35D0BA; margin-right: 10px; }
+    .app-footer-text { font: 600 12px Sora, Inter, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; color: #8A96A5; }
+
+    /* every scrolling list (chats, messages, contacts, group info, profile, market) scrolls smoothly inside its own box */
+    div[style*="overflow-y: auto"] { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #2B3544 transparent; }
+    /* ---- lite animations: short, subtle, CSS-only (replayed only when an element is newly added) ---- */
+    @keyframes lcFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes lcFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes lcPop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+    #root > * { animation: lcFade .3s ease-out backwards; }
+    div[style*="overflow-y: auto"] > * { animation: lcFadeUp .22s ease-out backwards; }
+    div[style*="overflow-y: auto"] > *:nth-child(2) { animation-delay: .03s; }
+    div[style*="overflow-y: auto"] > *:nth-child(3) { animation-delay: .06s; }
+    div[style*="overflow-y: auto"] > *:nth-child(4) { animation-delay: .09s; }
+    div[style*="overflow-y: auto"] > *:nth-child(5) { animation-delay: .12s; }
+    div[style*="overflow-y: auto"] > *:nth-child(n+6) { animation-delay: .15s; }
+    button, [role="tab"], [role="button"] { transition: transform .12s ease, opacity .15s ease, background-color .2s ease, box-shadow .2s ease; -webkit-tap-highlight-color: transparent; }
+    button:not(:disabled):active, [role="tab"]:active, [role="button"]:active { transform: scale(.95); }
+    @media (hover: hover) { button:not(:disabled):hover { opacity: .92; } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+    }
+
+    /* ---- logo (login screen): static, no glow and no flip ---- */
+    .lc-flip { width: 84px; height: 84px; margin: 0 auto 20px; pointer-events: none; }
+    .lc-flip-inner { position: relative; width: 100%; height: 100%; }
+    .lc-flip-face { position: absolute; top: 0; left: 0; inset: 0; width: 84px; height: 84px; border-radius: 22px; box-sizing: border-box; animation: none; box-shadow: none; }
+    .lc-flip-back { display: none; }
+    /* ---- "Created by" marquee on top of every main bar: slides sideways, fades out at the edges, loops by itself ---- */
+    .lc-credit { overflow: hidden; white-space: nowrap; padding: 8px 0 0; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%); }
+    .lc-credit span { display: inline-block; padding-left: 100%; font: 700 11px Sora, Inter, sans-serif; letter-spacing: .14em; text-transform: uppercase; background: linear-gradient(90deg, #35D0BA, #F2B84B, #35D0BA); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; animation: lcCredit 11s linear infinite; will-change: transform; }
+    @keyframes lcCredit { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+    @media (prefers-reduced-motion: reduce) { .lc-credit { text-align: center; -webkit-mask-image: none; mask-image: none; } .lc-credit span { padding-left: 0; animation: none !important; } }
+    /* ---- lite transitions + glow ---- */
+    @keyframes lcBreathe { 50% { box-shadow: 0 0 0 4px rgba(53,208,186,.18), 0 0 12px rgba(53,208,186,.8); } }
+    @keyframes lcSheen { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+    .lc-tab svg { transition: transform .25s cubic-bezier(.3,.7,.4,1.4), filter .25s ease; }
+    .lc-tab span { transition: color .2s ease; }
+    .lc-tab.on svg { transform: translateY(-2px) scale(1.12); filter: drop-shadow(0 0 6px rgba(53,208,186,.85)); }
+    .lc-tab.on span { text-shadow: 0 0 8px rgba(53,208,186,.6); }
+    input, textarea, select { transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease; }
+    input:focus, textarea:focus, select:focus { border-color: #35D0BA !important; box-shadow: none !important; } /* no glow on typing areas */
+    button:focus-visible, [role="tab"]:focus-visible, [role="button"]:focus-visible { outline: 2px solid #35D0BA; outline-offset: 2px; box-shadow: 0 0 12px rgba(53,208,186,.5); }
+    @media (hover: hover) { button:not(:disabled):hover { filter: brightness(1.12) drop-shadow(0 0 6px rgba(53,208,186,.25)); } }
+    div[style*="width: 13px"][style*="height: 13px"][style*="border-radius: 50%"] { animation: lcBreathe 2.4s ease-in-out 3; }
+    svg { transition: filter .2s ease; }
+    img { transition: opacity .3s ease; }
+    a { transition: color .2s ease, opacity .2s ease; }
+    @media (prefers-reduced-motion: reduce) { .lc-tab svg, input, textarea { transition: none !important; } }
+    @keyframes lcGlowText { 50% { text-shadow: 0 0 10px #35D0BA, 0 0 22px #35D0BA, 0 0 34px rgba(53,208,186,.8); } }
+    .lc-glow { animation: lcGlowText 2s ease-in-out infinite; }
+    [tabindex]:focus-visible, [data-lc-kb]:focus-visible { outline: 2px solid #35D0BA; outline-offset: 2px; }
+    .lc-plain:focus { box-shadow: none !important; border-color: transparent !important; }
+    /* stay put: no pull-to-refresh reload, no sideways bounce, no tap delay, steady text size when the phone turns */
+    html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; }
+    /* phone on its side: slimmer footer so the chat gets the room */
+    @media (max-height: 460px) and (orientation: landscape) { .app-footer { height: calc(34px + env(safe-area-inset-bottom, 0px)); } .app-footer-text { font-size: 10px; } }
+    #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding: 34vh 16px 0; }
+    #error-box {
+      display: none; position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: #1a0000; color: #ff8080;
+      font-family: monospace; font-size: 13px; padding: 16px; white-space: pre-wrap;
+      overflow: auto; z-index: 9999;
+    }
+  </style>
+  <!-- Responsive layer: every screen size, iPhone Safari, Phoenix, small keypad phones (no effects at 320 px and under) -->
+  <link rel="stylesheet" href="responsive.css" />
+
+  <!-- Shows ANY problem on screen (script failed to load, runtime error, promise error) -->
+  <script>
+    function showErr(msg) {
+      var b = document.getElementById("error-box");
+      if (b) { b.style.display = "block"; b.textContent = msg; var r = document.createElement("button"); r.textContent = "Reload app"; r.style.cssText = "display:block;margin:16px 0 0;padding:12px 18px;font:600 15px sans-serif;border:0;border-radius:10px;background:#35D0BA;color:#05070A"; r.onclick = function () { location.reload(); }; b.appendChild(r); }
+    }
+    // capture phase (true) is required to see <script> load failures
+    window.addEventListener("error", function (e) {
+      if (e.target && e.target.tagName === "SCRIPT") { showErr("FAILED TO LOAD SCRIPT:\n" + e.target.src); return; }
+      if (!document.getElementById("boot") || /ResizeObserver/.test(e.message || "")) { try { console.warn(e.message); } catch (x) {} return; }
+      showErr("ERROR:\n" + e.message + "\n\nFile: " + e.filename + "\nLine: " + e.lineno + ":" + e.colno + "\n\n" + (e.error && e.error.stack ? e.error.stack : ""));
+    }, true);
+    window.addEventListener("unhandledrejection", function (e) {
+      if (!document.getElementById("boot")) { try { console.warn(e.reason); } catch (x) {} return; }
+      showErr("PROMISE ERROR:\n" + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+    });
+  </script>
+
+  <!-- Old-phone support (must run before everything else) -->
+  <script defer src="polyfills.js"></script>
+  <script defer src="compat.js"></script>
+  <script defer src="responsive.js"></script>
+  <!-- Offline layer: saved chats / messages, the outbox for messages written without a connection, and the "Offline" pill. Must load before app.js. -->
+  <script defer src="offline.js"></script>
+
+  <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
+  <script defer crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script defer crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <!-- Firebase 10 (no document.write). Very old phones cannot run it; responsive.js then loads Firebase 8 from a backup host automatically. -->
+  <script defer crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script defer crossorigin="anonymous" src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script defer crossorigin="anonymous" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+</head>
+<body>
+  <main id="root"><div id="boot" role="status"><h1 style="font:700 20px Sora,Inter,sans-serif;color:#F5F7FA;margin:0 0 8px">Letschat Africa</h1><p style="margin:0">Loading…</p><p style="margin:14px 0 0;font-size:13px">Slow or basic phone? <a href="https://letschat-9tw4.onrender.com/lite" style="color:#35D0BA">Open Letschat Lite</a></p></div></main>
+  <noscript><p style="color:#9BA7B4;font-family:sans-serif;text-align:center;padding:20px">Letschat Africa needs JavaScript. Please turn it on and reload.</p></noscript>
+  <div id="error-box"></div>
+
+
+  <!-- Accessibility: gives unlabelled fields/icons a name for screen readers, as they appear on screen -->
+  <script>
+    (function () {
+      var SEL = "input,textarea,select,button,[role=button],[role=tab],img,svg,[style*=\"cursor: pointer\"]", q = [], timer = 0;
+      function fix(el) {
+        var tag = el.localName;
+        if (tag === "svg") { if (!el.hasAttribute("aria-label") && !el.hasAttribute("aria-hidden") && !el.hasAttribute("role") && !el.querySelector("title")) el.setAttribute("aria-hidden", "true"); return; }
+        if (tag === "img") { if (!el.hasAttribute("alt")) el.setAttribute("alt", ""); return; }
+        if (el.style && el.style.cursor === "pointer" && !/^(button|a|input|textarea|select|label|summary|option)$/.test(tag) && !el.hasAttribute("role") && !el.hasAttribute("tabindex")) {
+          var st = el.style, backdrop = (st.position === "fixed" || st.position === "absolute") && (st.inset === "0px" || (st.top === "0px" && st.bottom === "0px" && st.left === "0px" && st.right === "0px"));
+          var nested = el.parentElement && el.parentElement.closest("button,a[href],[role=button]");
+          var label = (el.textContent || "").trim() || el.getAttribute("title") || el.getAttribute("aria-label");
+          if (!backdrop && !nested && label && !el.querySelector("button,a[href],input,select,textarea,[tabindex]")) {
+            el.setAttribute("role", "button"); el.setAttribute("tabindex", "0"); el.setAttribute("data-lc-kb", "1");
+            if (!(el.textContent || "").trim() && !el.hasAttribute("aria-label")) el.setAttribute("aria-label", label);
+          }
+          return;
+        }
+        if (el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby")) return;
+        if (tag === "input" || tag === "textarea" || tag === "select") {
+          if (el.type === "hidden" || el.closest("label")) return;
+          if (el.id && document.querySelector('label[for="' + el.id + '"]')) return;
+          var name = el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name") || (el.type === "file" ? "Choose file" : el.type === "search" ? "Search" : "");
+          if (name) el.setAttribute("aria-label", name);
+          return;
+        }
+        var title = el.getAttribute("title");
+        if (title && !(el.textContent || "").trim()) el.setAttribute("aria-label", title);
+      }
+      document.addEventListener("keydown", function (e) {
+        var t = e.target;
+        if ((e.key === "Enter" || e.key === " ") && t && t.getAttribute && t.getAttribute("data-lc-kb") && t === document.activeElement) { e.preventDefault(); t.click(); }
+      }, true);
+      function run() {
+        timer = 0; var list = q; q = [];
+        for (var i = 0; i < list.length; i++) {
+          var n = list[i]; if (!n.isConnected) continue;
+          fix(n); var kids = n.querySelectorAll ? n.querySelectorAll(SEL) : [];
+          for (var j = 0; j < kids.length; j++) fix(kids[j]);
+        }
+      }
+      function start() {
+        q.push(document.body); run();
+        new MutationObserver(function (ms) {
+          for (var i = 0; i < ms.length; i++) for (var j = 0; j < ms[i].addedNodes.length; j++) if (ms[i].addedNodes[j].nodeType === 1) q.push(ms[i].addedNodes[j]);
+          if (q.length && !timer) timer = setTimeout(run, 80);
+        }).observe(document.body, { childList: true, subtree: true });
+      }
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+    })();
+  </script>
+
+  <!-- Your app, precompiled from app.jsx -->
+  <!-- app.js and device.js are started by responsive.js once React, Socket.IO and Firebase are ready (backup hosts are used when one is blocked) -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        var hadController = !!navigator.serviceWorker.controller, shown = false;
+        // Enforced update page: a new version took over, so the full-screen "Update available" picture blocks the app until the person taps
+        // "Click Here". The tap area sits invisibly over the button in the picture; the link itself (LETSCHAT_CONFIG.UPDATE_URL) is never shown.
+        function showUpdatePage() {
+          if (document.getElementById("lc-update")) return;
+          var cfg = window.LETSCHAT_CONFIG || {}, busy = false;
+          var o = document.createElement("div");
+          o.id = "lc-update"; o.setAttribute("role", "dialog"); o.setAttribute("aria-modal", "true"); o.setAttribute("aria-label", "Update available");
+          o.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483000;background:#1553e8;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none";
+          var w = document.createElement("div"); w.style.cssText = "position:relative;flex:none";
+          function size() { var s = Math.min(window.innerWidth || 360, window.innerHeight || 640); w.style.width = s + "px"; w.style.height = s + "px"; }
+          size(); window.addEventListener("resize", size);
+          var img = document.createElement("img"); img.src = "icons/update-banner.jpg"; img.alt = "Update available. A new update is now available."; img.draggable = false;
+          img.style.cssText = "display:block;width:100%;height:100%;user-select:none;-webkit-user-select:none;pointer-events:none";
+          var b = document.createElement("button"); b.type = "button"; b.setAttribute("aria-label", "Update now");
+          b.style.cssText = "position:absolute;left:17.9%;top:81.2%;width:64.2%;height:13.7%;background:transparent;border:0;border-radius:999px;padding:0;margin:0;cursor:pointer;outline:none;-webkit-tap-highlight-color:rgba(255,255,255,.28)";
+          function go() {
+            var url = cfg.UPDATE_URL || (location.origin + "/");
+            url += (url.indexOf("?") < 0 ? "?" : "&") + "u=" + new Date().getTime();
+            window.location.replace(url);
+          }
+          b.onclick = function () {
+            if (busy) return; busy = true;
+            var t = setTimeout(go, 1500), tasks = [];
+            try { if (window.Promise && window.caches && caches.keys) tasks.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.indexOf("letschat-shell") === 0; }).map(function (k) { return caches.delete(k); })); })); } catch (e) {}
+            try { if (window.Promise && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) tasks.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); })); } catch (e) {}
+            if (window.Promise && tasks.length) Promise.all(tasks).then(function () { clearTimeout(t); go(); }, function () { clearTimeout(t); go(); }); else { clearTimeout(t); go(); }
+          };
+          w.appendChild(img); w.appendChild(b); o.appendChild(w); document.body.appendChild(o);
+          document.addEventListener("keydown", function (e) { if (document.getElementById("lc-update") && e.target !== b) { e.stopPropagation(); if (e.key === "Escape") e.preventDefault(); } }, true);
+          try { b.focus(); } catch (e) {}
+        }
+        window.lcShowUpdatePage = showUpdatePage;
+        // a new version took over (every deploy changes sw.js): show the update page, even if the app was in the background
+        navigator.serviceWorker.addEventListener("controllerchange", function () {
+          if (!hadController || shown) return;
+          shown = true; showUpdatePage();
+        });
+        navigator.serviceWorker.register("./sw.js" + (window.__lcLite ? "?lite=1" : "")).then(function (reg) {
+          var check = function () { reg.update().catch(function () {}); };
+          check();
+          // installed app on Chrome/Edge: let the browser wake the server every so often even while the app is closed
+          try { if (reg.periodicSync && reg.periodicSync.register) reg.periodicSync.register("keep-warm", { minInterval: 12 * 60 * 60 * 1000 }).catch(function () {}); } catch (e) {}
+          document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
+          setInterval(check, 60 * 60 * 1000);
+        }).catch(function () {});
+      });
+    }
+  </script>
+</body>
+</html>

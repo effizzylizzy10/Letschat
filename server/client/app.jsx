@@ -1,0 +1,8868 @@
+// ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
+const { useState, useRef, useEffect, useCallback } = React;
+const MAX_MSG_CHARS = 15000; // ~2,000+ words per message (keep in step with the server)
+// ---- Typo suggestions while typing (plain JS on purpose: the same block is used in app.jsx and the compiled index.html) ----
+// Never changes text by itself: it only offers tappable corrections for the last finished word that looks misspelled.
+const TYPO_WORDS = ("the be to of and a in that have it for not on with he as you do at this but his by from they we say her she or an will my one all would there their what so up out if about who get which go me when make can like time no just him know take people into year your good some could them see other than then now look only come its over think also back after use two how our work first well way even new want because any these give day most us " +
+  "is are was were been being has had does did done am said says made makes got gets went goes gone came comes took takes saw seen knew known thought told tell asked ask need needs needed feel felt feels try tried keep kept let put seem leave left call called find found show shown move live believe hold bring brought happen write wrote written provide sit stand lose pay meet include continue set learn change lead understand watch follow stop create speak read allow add spend grow open walk win offer remember love consider appear buy wait serve die send expect build stay fall cut reach kill remain " +
+  "again always never often sometimes usually really very quite maybe perhaps probably actually already almost enough especially exactly finally generally honestly instead simply suddenly together tonight tomorrow today yesterday morning afternoon evening night week weekend month year years later early soon still while until since before during between through without within against across around among another every each either neither both many much more most less least several something anything everything nothing someone anyone everyone somebody anybody everybody nobody somewhere anywhere everywhere nowhere " +
+  "hello hi hey thanks thank please sorry welcome goodbye bye okay yes yeah yep nope sure fine great awesome amazing nice cool beautiful wonderful lovely perfect lovely happy sad angry tired hungry sleepy busy free ready late early sorry glad proud excited worried scared afraid surprised confused bored lonely sick healthy strong weak hard easy difficult simple important special different same similar possible impossible necessary available interested interesting serious funny crazy silly lucky " +
+  "mother father mom dad mummy daddy brother sister son daughter wife husband friend friends family cousin uncle aunt grandma grandpa child children baby boy girl man woman men women person people guy guys neighbour neighbor boss colleague teacher student pastor doctor nurse driver customer client manager partner team group community church mosque school college university class lesson exam test homework assignment project report result results " +
+  "house home room kitchen bathroom bedroom door window floor wall roof gate compound street road market shop store mall office building city town village state country world place area location address airport station park beach hotel restaurant hospital bank church bus car bike truck train plane flight ticket journey travel trip drive ride traffic fuel petrol phone mobile call message text chat photo picture video voice audio network data airtime internet wifi online offline app application website link email password username account profile settings notification " +
+  "food water rice beans bread egg eggs meat chicken fish fruit orange banana apple mango yam plantain pepper onion tomato salt sugar oil milk tea coffee juice drink eat drank ate breakfast lunch dinner cook cooking hungry thirsty snack " +
+  "money cash price cost cheap expensive pay payment paid transfer balance salary rent bill budget save saving spend sell sold buy bought order delivery deliver deliveries shipping package parcel receipt invoice discount offer deal business company job work working worked career interview meeting appointment schedule deadline plan plans idea ideas problem problems solution question questions answer answers reason reasons issue issues matter matters mistake mistakes " +
+  "time hour hours minute minutes second seconds moment monday tuesday wednesday thursday friday saturday sunday january february march april june july august september october november december spring summer winter weather rain sunny cloudy hot cold warm cool wind " +
+  "head face eye eyes ear ears nose mouth teeth hand hands arm arms leg legs foot feet finger heart body hair skin back stomach chest shoulder health medicine tablet hospital pain headache fever " +
+  "big small large little long short tall high low heavy light dark bright loud quiet fast slow quick early late full empty open closed clean dirty wet dry old young new best better worst worse more less right wrong true false real fake clear sure careful safe dangerous ready wonderful terrible horrible lovely fantastic excellent brilliant " +
+  "black white red blue green yellow brown pink purple grey gray gold silver color colour number numbers first second third last next previous final only whole half double single double couple few lot lots plenty enough " +
+  "going coming doing making taking having getting being saying looking thinking working playing talking walking running sitting standing waiting trying calling asking helping hoping wishing planning learning teaching reading writing listening watching sleeping eating drinking cooking driving travelling traveling shopping " +
+  "game games play played player music song songs dance movie movies film show series episode news story stories book books page pages word words language english yoruba igbo hausa pidgin french spanish sport football match goal score winner lost won win lose champion league cup " +
+  "help support service services free offer special welcome verify verified confirm confirmed cancel cancelled delete deleted edit edited send sent receive received forward reply replied block blocked report share shared save saved download upload update updated install login logout register signup sign join joined invite invited accept accepted decline declined search find found contact contacts status story stories group groups member members admin " +
+  "about above across after against along already among around because before behind below beside besides beyond despite except inside outside instead near onto outside toward towards under unlike until upon within without " +
+  "birthday wedding party celebration celebrate congratulations congrats blessing blessed bless prayer pray god lord amen christmas easter ramadan eid holiday vacation festival gift present surprise invitation welcome " +
+  "love like hate enjoy prefer miss care worry hope wish wonder doubt agree disagree decide choose forgive forget remember promise trust lie truth secret joke laugh smile cry shout scream whisper listen hear heard sound speak spoke talk argue fight quarrel apologise apologize explain describe discuss suggest recommend advise warn complain " +
+  "should would could might must shall cannot cant dont doesnt didnt isnt wasnt arent werent wont wouldnt couldnt shouldnt havent hasnt hadnt " +
+  "abeg wahala wetin oga abi sha naija jare biko sef dey omo haba wallahi inshallah mashallah alhamdulillah jollof suya danfo okada kolo shey sabi pikin chop gist gbam ehen oya sebi nawa mumu oyinbo ankara owambe amala egusi garri akara lagos abuja nigeria nigerian africa african ghana kenya yoruba igbo hausa " +
+  "whatsapp facebook instagram twitter tiktok youtube google gmail zoom telegram snapchat letschat loop " +
+  "yourself myself himself herself itself ourselves themselves anyway anyhow somehow however whatever whenever wherever whoever whichever although though unless whether either nor yet rather quite fairly pretty really truly deeply highly nearly merely barely hardly mostly partly fully " +
+  "school class semester course degree certificate graduate graduation scholarship library lecture lecturer professor principal headmaster uniform " +
+  "answer attention beginning business certain chance condition decision difference direction education effect effort energy evening experience foreign future government history information interest knowledge level library material member minute moment mountain nature opinion position president pressure process quality reality relationship report research response responsibility science sentence situation society subject success suggestion system technology thousand tonight understanding usually variety village weight whether wonder yesterday").split(/\s+/).filter(Boolean);
+const TYPO_SET = new Set(TYPO_WORDS);
+
+// Common misspellings -> correction (checked before anything else, so these are the most reliable suggestions)
+const TYPO_FIX = {
+  teh: "the", hte: "the", taht: "that", adn: "and", nad: "and", waht: "what", wnat: "want", jsut: "just", yuo: "you", yoru: "your", youre: "you're", theyre: "they're", thier: "their", theri: "their",
+  recieve: "receive", recieved: "received", reciept: "receipt", beleive: "believe", belive: "believe", beleived: "believed", acheive: "achieve", wierd: "weird", freind: "friend", freinds: "friends", cheif: "chief",
+  definately: "definitely", definatly: "definitely", defintely: "definitely", seperate: "separate", seperately: "separately", occured: "occurred", occurence: "occurrence", untill: "until", wich: "which", whcih: "which",
+  becuase: "because", beacuse: "because", becasue: "because", becuz: "because", alot: "a lot", tommorow: "tomorrow", tomorow: "tomorrow", tommorrow: "tomorrow", tomorrw: "tomorrow", tonite: "tonight", tonigth: "tonight",
+  writting: "writing", begining: "beginning", comming: "coming", runing: "running", geting: "getting", puting: "putting", stoping: "stopping", planing: "planning",
+  goverment: "government", enviroment: "environment", accomodate: "accommodate", embarass: "embarrass", embarassed: "embarrassed", commited: "committed", comitted: "committed", conscious: "conscious", concious: "conscious",
+  dissapoint: "disappoint", dissapointed: "disappointed", disapointed: "disappointed", existance: "existence", foriegn: "foreign", grammer: "grammar", happend: "happened", humourous: "humorous",
+  immediatly: "immediately", immediatley: "immediately", independant: "independent", knowlege: "knowledge", millenium: "millennium", neccessary: "necessary", necesary: "necessary", necessery: "necessary",
+  noticable: "noticeable", occassion: "occasion", occassionally: "occasionally", persistant: "persistent", posession: "possession", prefered: "preferred", probly: "probably", probaly: "probably", publically: "publicly",
+  realy: "really", reallly: "really", reccomend: "recommend", recomend: "recommend", refered: "referred", relevent: "relevant", resturant: "restaurant", restaurent: "restaurant", rythm: "rhythm", sence: "sense",
+  succesful: "successful", successfull: "successful", sucess: "success", succes: "success", suprise: "surprise", suprised: "surprised", tendancy: "tendency", truely: "truly", unfortunatly: "unfortunately",
+  vaccum: "vacuum", wensday: "Wednesday", wednesay: "Wednesday", thurday: "Thursday", febuary: "February", saturaday: "Saturday", wether: "whether", wheather: "weather", wierdly: "weirdly",
+  adress: "address", addres: "address", agian: "again", aganist: "against", alright: "all right", amature: "amateur", arguement: "argument", athiest: "atheist", basicly: "basically", buisness: "business",
+  bussiness: "business", busines: "business", calender: "calendar", catagory: "category", collegue: "colleague", commitee: "committee", completly: "completely", concensus: "consensus", curiousity: "curiosity",
+  decison: "decision", desparate: "desperate", dilema: "dilemma", dissappear: "disappear", doesnt: "doesn't", dont: "don't", didnt: "didn't", isnt: "isn't", wasnt: "wasn't", arent: "aren't", werent: "weren't",
+  wouldnt: "wouldn't", couldnt: "couldn't", shouldnt: "shouldn't", havent: "haven't", hasnt: "hasn't", hadnt: "hadn't", wont: "won't", cant: "can't", thats: "that's", whats: "what's", heres: "here's", theres: "there's",
+  im: "I'm", ive: "I've", ill: "I'll", id: "I'd", i: "I", embarassing: "embarrassing", excercise: "exercise", exagerate: "exaggerate", experiance: "experience", explaination: "explanation",
+  familar: "familiar", finaly: "finally", fourty: "forty", gaurd: "guard", gaurantee: "guarantee", guidence: "guidance", harrass: "harass", heighth: "height", hieght: "height", hygene: "hygiene",
+  ignorence: "ignorance", intresting: "interesting", interesing: "interesting", inteligent: "intelligent", jewelery: "jewellery", lenght: "length", libary: "library", lisence: "licence", lollypop: "lollipop",
+  maintainance: "maintenance", managment: "management", mispell: "misspell", neighbour: "neighbour", nieghbor: "neighbor", ocasion: "occasion", oppurtunity: "opportunity", oportunity: "opportunity",
+  paralell: "parallel", parliment: "parliament", pasttime: "pastime", percieve: "perceive", perhasp: "perhaps", personel: "personnel", pheonix: "phoenix", plesant: "pleasant", pursue: "pursue",
+  questionaire: "questionnaire", rediculous: "ridiculous", refering: "referring", relize: "realize", religous: "religious", remeber: "remember", rember: "remember", repitition: "repetition", responsability: "responsibility",
+  sargent: "sergeant", scedule: "schedule", shedule: "schedule", sieze: "seize", similiar: "similar", sincerly: "sincerely", speach: "speech", strenght: "strength", sucessful: "successful",
+  temperture: "temperature", threshhold: "threshold", tounge: "tongue", tranfer: "transfer", transfered: "transferred", tyrany: "tyranny", underate: "underrate", usefull: "useful", vegatable: "vegetable",
+  vehical: "vehicle", visable: "visible", wellcome: "welcome", whereever: "wherever", wich: "which", wiht: "with", wrok: "work", wokr: "work", woudl: "would", wuold: "would", shoud: "should", coudl: "could",
+  poeple: "people", peopel: "people", pepole: "people", pleae: "please", pleas: "please", plese: "please", thnks: "thanks", thanx: "thanks", thankyou: "thank you", thankss: "thanks", gud: "good", goodd: "good",
+  helo: "hello", hellow: "hello", helllo: "hello", moring: "morning", mornig: "morning", evenig: "evening", afternon: "afternoon", sory: "sorry", sorrry: "sorry", sorery: "sorry", wellcom: "welcome",
+  mesage: "message", messge: "message", mesaage: "message", massage: "message", numbr: "number", nubmer: "number", accont: "account", acount: "account", pasword: "password", passwrod: "password",
+  tranfers: "transfers", paymnt: "payment", pyament: "payment", moeny: "money", mony: "money", monye: "money", delivary: "delivery", delievery: "delivery", deliverd: "delivered", recive: "receive", recived: "received",
+  beutiful: "beautiful", beatiful: "beautiful", beautifull: "beautiful", baeutiful: "beautiful", amzing: "amazing", amazin: "amazing", awsome: "awesome", awesom: "awesome", exicted: "excited", excitd: "excited",
+  tired: "tired", tirred: "tired", hapy: "happy", hapyy: "happy", angy: "angry", angrey: "angry", sleeep: "sleep", sleping: "sleeping", wating: "waiting", waitng: "waiting", wanna: "want to", gonna: "going to"
+};
+
+function typoEdit(a, b, max) { // Damerau-Levenshtein (optimal string alignment); returns max + 1 when the words differ by more than max
+  const la = a.length, lb = b.length;
+  if (Math.abs(la - lb) > max) return max + 1;
+  let prev2 = null, prev = [], cur = [];
+  for (let j = 0; j <= lb; j++) prev[j] = j;
+  for (let i = 1; i <= la; i++) {
+    cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= lb; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prev2[j - 2] + 1);
+      cur[j] = v;
+      if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > max) return max + 1;
+    prev2 = prev; prev = cur;
+  }
+  return prev[lb];
+}
+
+// True when the word (or its plain base form: plural, -ed, -ing, -ly, -er, -est, 's) is a known word.
+function typoKnown(w) {
+  if (TYPO_SET.has(w)) return true;
+  const n = w.length;
+  const t = (s) => s.length >= 2 && TYPO_SET.has(s);
+  const dbl = (s) => s.length >= 3 && s[s.length - 1] === s[s.length - 2] ? s.slice(0, -1) : null;
+  if (/['’]s$/.test(w)) return typoKnown(w.slice(0, -2));
+  if (/s$/.test(w) && (t(w.slice(0, -1)) || (/es$/.test(w) && t(w.slice(0, -2))) || (/ies$/.test(w) && t(w.slice(0, -3) + "y")))) return true;
+  if (/ed$/.test(w) && (t(w.slice(0, -2)) || t(w.slice(0, -1)) || (dbl(w.slice(0, -2)) && t(dbl(w.slice(0, -2)))) || (/ied$/.test(w) && t(w.slice(0, -3) + "y")))) return true;
+  if (/ing$/.test(w) && (t(w.slice(0, -3)) || t(w.slice(0, -3) + "e") || (dbl(w.slice(0, -3)) && t(dbl(w.slice(0, -3)))))) return true;
+  if (/ly$/.test(w) && (t(w.slice(0, -2)) || (/ily$/.test(w) && t(w.slice(0, -3) + "y")) || (/ally$/.test(w) && t(w.slice(0, -4))))) return true;
+  if (/(er|est)$/.test(w)) { const s = w.replace(/(er|est)$/, ""); if (t(s) || t(s + "e") || (dbl(s) && t(dbl(s))) || (/i$/.test(s) && t(s.slice(0, -1) + "y"))) return true; }
+  if (/(ness|ment|ful|less)$/.test(w) && t(w.replace(/(ness|ment|ful|less)$/, ""))) return true;
+  return n < 3;
+}
+
+function typoMatchCase(src, fix) {
+  if (src.length > 1 && src === src.toUpperCase()) return fix.toUpperCase();
+  if (src[0] !== src[0].toLowerCase()) return fix[0].toUpperCase() + fix.slice(1);
+  return fix;
+}
+
+// Closest dictionary words to a lowercase word, best first. To keep false alarms rare (the built-in word list is small),
+// only three kinds of slip are accepted: two neighbouring letters swapped (teh, wlaking), a doubled letter added or missing
+// (comming, tomorow), and - for long words only - one wrong, missing or extra letter.
+function typoCollapse(w) { return w.replace(/(.)\1+/g, "$1"); }
+function typoNear(w) {
+  const n = w.length;
+  const hits = [];
+  for (let i = 0; i < TYPO_WORDS.length; i++) {
+    const d = TYPO_WORDS[i];
+    if (d.length < 4 || Math.abs(d.length - n) > 1 || d === w) continue;
+    let dist = 0;
+    if (d.length === n && typoSwap(w, d)) dist = 1;
+    else if (n >= 5 && typoCollapse(w) === typoCollapse(d)) dist = 1;
+    else if (n >= 8 && d[0] === w[0] && typoEdit(w, d, 1) <= 1) dist = 2;
+    if (dist) hits.push({ d, dist, i });
+  }
+  hits.sort((a, b) => a.dist - b.dist || a.i - b.i);
+  const seen = {};
+  return hits.map(h => h.d).filter(d => (seen[d] ? false : (seen[d] = true)));
+}
+
+function typoSwap(a, b) { // true when b is a with two neighbouring letters swapped
+  let i = 0;
+  while (i < a.length && a[i] === b[i]) i++;
+  return i < a.length - 1 && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+}
+
+function typoOptions(lower) {
+  if (TYPO_FIX[lower]) return [TYPO_FIX[lower]];
+  if (typoKnown(lower)) return [];
+  if (lower.length < 4) return [];
+  let out = typoNear(lower);
+  if (!out.length) { // a misspelled inflection: fix the stem, then put the ending back
+    const m = lower.match(/^(.{4,})(ing|ed|es|s|ly|er)$/);
+    if (m) out = typoNear(m[1]).concat(typoNear(m[1] + "e")).map(s => (/^[aeiouy]/.test(m[2]) && /e$/.test(s) ? s.slice(0, -1) : s) + m[2]);
+  }
+  return out.slice(0, 3);
+}
+
+// Looks at the finished words in `text` and returns { start, end, word, options } for the LAST one that looks misspelled, else null.
+// A word still being typed (no space or punctuation after it yet) is never judged.
+function typoCheck(text, ignored) {
+  if (!text || text.length > 4000) return null;
+  const skip = ignored || [];
+  const re = /\S+/g;
+  let m, found = null, prevEnd = "";
+  while ((m = re.exec(text))) {
+    const chunk = m[0], at = m.index;
+    const lead = prevEnd; prevEnd = chunk.slice(-1);
+    const p = chunk.match(/^([^A-Za-z]*)([A-Za-z]+(?:['’][A-Za-z]+)*)([^A-Za-z]*)$/);
+    if (!p) continue;                                   // digits, links, emoji, accents, @tags inside the chunk
+    if (/[@#\/]/.test(p[1])) continue;                  // @mention or #tag
+    const word = p[2], trail = p[3];
+    if (!trail && at + chunk.length === text.length) continue; // still typing this word
+    const wordStart = at + p[1].length;
+    if (/[.][A-Za-z]/.test(text.slice(wordStart + word.length, wordStart + word.length + 2))) continue;
+    const lower = word.toLowerCase().replace(/’/g, "'");
+    if (skip.indexOf(lower) !== -1) continue;
+    const isCap = word[0] !== word[0].toLowerCase();
+    const sentenceStart = at === 0 || /[.!?]\s*$/.test(text.slice(0, at)) || /\n\s*$/.test(text.slice(0, at));
+    if (word.length > 1 && word === word.toUpperCase()) continue;      // SHOUTING, abbreviations
+    if (isCap && !sentenceStart && lower !== "i") continue;            // probably a name
+    const options = typoOptions(lower).filter(o => o !== word);
+    if (options.length) found = { start: wordStart, end: wordStart + word.length, word, options: options.map(o => typoMatchCase(word, o)) };
+  }
+  return found;
+}
+function typoApply(text, hit, fix) { return text.slice(0, hit.start) + fix + text.slice(hit.end); }
+function typoLoadIgnored() { try { return JSON.parse(localStorage.getItem("lc_typo_ignore") || "[]"); } catch (e) { return []; } }
+function typoSaveIgnored(list) { try { localStorage.setItem("lc_typo_ignore", JSON.stringify(list.slice(-200))); } catch (e) {} }
+
+
+function makeIcon(nodes) {
+  return function Icon({ size = 24, color = "currentColor", strokeWidth = 2, style }) {
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
+        fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"
+        style={{ display: "inline-block", verticalAlign: "middle", ...style }}>
+        {nodes.map((n, i) => {
+          if (n[0] === "p") return <path key={i} d={n[1]} />;
+          if (n[0] === "c") return <circle key={i} cx={n[1]} cy={n[2]} r={n[3]} />;
+          if (n[0] === "r") return <rect key={i} x={n[1]} y={n[2]} width={n[3]} height={n[4]} rx={n[5]} />;
+          if (n[0] === "g") return <polygon key={i} points={n[1]} />;
+          return null;
+        })}
+      </svg>
+    );
+  };
+}
+const PHONE = "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z";
+const Search = makeIcon([["c", 11, 11, 8], ["p", "m21 21-4.3-4.3"]]);
+const Phone = makeIcon([["p", PHONE]]);
+const Video = makeIcon([["g", "23 7 16 12 23 17 23 7"], ["r", 1, 5, 15, 14, 2]]);
+const MoreVertical = makeIcon([["c", 12, 12, 1], ["c", 12, 5, 1], ["c", 12, 19, 1]]);
+const ArrowLeft = makeIcon([["p", "m12 19-7-7 7-7"], ["p", "M19 12H5"]]);
+const Camera = makeIcon([["p", "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"], ["c", 12, 13, 3]]);
+const Send = makeIcon([["p", "m22 2-7 20-4-9-9-4Z"], ["p", "M22 2 11 13"]]);
+const Smile = makeIcon([["c", 12, 12, 10], ["p", "M8 14s1.5 2 4 2 4-2 4-2"], ["p", "M9 9h.01"], ["p", "M15 9h.01"]]);
+const Paperclip = makeIcon([["p", "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"]]);
+const Mic = makeIcon([["p", "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"], ["p", "M19 10v2a7 7 0 0 1-14 0v-2"], ["p", "M12 19v3"]]);
+const MessageCircle = makeIcon([["p", "M7.9 20A9 9 0 1 0 4 16.1L2 22Z"]]);
+const PhoneCall = makeIcon([["p", PHONE], ["p", "M14.05 2a9 9 0 0 1 8 7.94"], ["p", "M14.05 6A5 5 0 0 1 18 10"]]);
+const Radio = makeIcon([["c", 12, 12, 2], ["p", "M4.93 19.07a10 10 0 0 1 0-14.14"], ["p", "M7.76 16.24a6 6 0 0 1 0-8.48"], ["p", "M16.24 7.76a6 6 0 0 1 0 8.48"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
+const Grid3x3 = makeIcon([["r", 3, 3, 18, 18, 2], ["p", "M3 9h18"], ["p", "M3 15h18"], ["p", "M9 3v18"], ["p", "M15 3v18"]]);
+const Check = makeIcon([["p", "M20 6 9 17l-5-5"]]);
+const CheckCheck = makeIcon([["p", "M18 6 7 17l-5-5"], ["p", "m22 10-7.5 7.5L13 16"]]);
+const Plus = makeIcon([["p", "M5 12h14"], ["p", "M12 5v14"]]);
+const Edit3 = makeIcon([["p", "M12 20h9"], ["p", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"]]);
+const ChevronRight = makeIcon([["p", "m9 18 6-6-6-6"]]);
+const Bell = makeIcon([["p", "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"], ["p", "M10.3 21a1.94 1.94 0 0 0 3.4 0"]]);
+const Lock = makeIcon([["r", 3, 11, 18, 11, 2], ["p", "M7 11V7a5 5 0 0 1 10 0v4"]]);
+const HelpCircle = makeIcon([["c", 12, 12, 10], ["p", "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"], ["p", "M12 17h.01"]]);
+const Users = makeIcon([["p", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"], ["c", 9, 7, 4], ["p", "M22 21v-2a4 4 0 0 0-3-3.87"], ["p", "M16 3.13a4 4 0 0 1 0 7.75"]]);
+const Star = makeIcon([["g", "12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"]]);
+const Pin = makeIcon([["p", "M12 17v5"], ["p", "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"]]);
+const BellOff = makeIcon([["p", "M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"], ["p", "M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"], ["p", "M10.3 21a1.94 1.94 0 0 0 3.4 0"], ["p", "m2 2 20 20"]]);
+const Archive = makeIcon([["r", 2, 3, 20, 5, 1], ["p", "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"], ["p", "M10 12h4"]]);
+const LogOut = makeIcon([["p", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"], ["p", "m16 17 5-5-5-5"], ["p", "M21 12H9"]]);
+const User = makeIcon([["p", "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"], ["c", 12, 7, 4]]);
+const Trash2 = makeIcon([["p", "M3 6h18"], ["p", "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"], ["p", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"], ["p", "M10 11v6"], ["p", "M14 11v6"]]);
+const ChevronDown = makeIcon([["p", "m6 9 6 6 6-6"]]);
+const Gamepad2 = makeIcon([["p", "M6 11h4"], ["p", "M8 9v4"], ["p", "M15 12h.01"], ["p", "M18 10h.01"], ["p", "M17.32 5H6.68a4 4 0 0 0-3.978 3.59C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258A4 4 0 0 0 17.32 5z"]]);
+const RotateCcw = makeIcon([["p", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"], ["p", "M3 3v5h5"]]);
+const Pencil = makeIcon([["p", "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"]]);
+const Megaphone = makeIcon([["p", "m3 11 18-5v12L3 14v-3z"], ["p", "M11.6 16.8a3 3 0 1 1-5.8-1.6"]]);
+const X = makeIcon([["p", "M18 6 6 18"], ["p", "m6 6 12 12"]]);
+const LinkIcon = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"], ["p", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]]);
+const ReplyIcon = makeIcon([["p", "M9 14 4 9l5-5"], ["p", "M20 20v-7a4 4 0 0 0-4-4H4"]]);
+const InfoIcon = makeIcon([["c", 12, 12, 10], ["p", "M12 16v-4"], ["p", "M12 8h.01"]]);
+const CopyIcon = makeIcon([["r", 9, 9, 13, 13, 2], ["p", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]]);
+const ForwardIcon = makeIcon([["p", "M3 19v-2a5 5 0 0 1 5-5h9"], ["p", "m13 7 5 5-5 5"], ["p", "m17 7 5 5-5 5"]]);
+const MusicIcon = makeIcon([["p", "M9 18V5l12-2v13"], ["c", 6, 18, 3], ["c", 18, 16, 3]]);
+const RotateIcon = makeIcon([["p", "M6 2v14a2 2 0 0 0 2 2h14"], ["p", "M18 22V8a2 2 0 0 0-2-2H2"]]);
+const StickerIcon = makeIcon([["p", "M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"], ["p", "M15 3v6h6"], ["p", "M8 13h.01"], ["p", "M16 13h.01"], ["p", "M10 16s.8 1 2 1 2-1 2-1"]]);
+const ImagePlus = makeIcon([["p", "M16 5h6"], ["p", "M19 2v6"], ["p", "M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"], ["p", "m3 16 5-5c.9-.9 2.1-.9 3 0l5 5"], ["c", 9, 9, 2]]);
+const AtSign = makeIcon([["c", 12, 12, 4], ["p", "M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"]]);
+const AlertCircle = makeIcon([["c", 12, 12, 10], ["p", "M12 8v4"], ["p", "M12 16h.01"]]);
+const Volume2 = makeIcon([["g", "11 5 6 9 2 9 2 15 6 15 11 19 11 5"], ["p", "M15.54 8.46a5 5 0 0 1 0 7.07"], ["p", "M19.07 4.93a10 10 0 0 1 0 14.14"]]);
+const ShoppingBag = makeIcon([["p", "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"], ["p", "M3 6h18"], ["p", "M16 10a4 4 0 0 1-8 0"]]);
+const ListPlus = makeIcon([["p", "M11 12H3"], ["p", "M16 6H3"], ["p", "M16 18H3"], ["p", "M18 9v6"], ["p", "M21 12h-6"]]);
+const NotesIcon = makeIcon([["p", "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"], ["p", "M10 9H8"]]);
+const FolderIcon = makeIcon([["p", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"]]);
+const Ban = makeIcon([["c", 12, 12, 10], ["p", "m4.9 4.9 14.2 14.2"]]);
+const ThumbsDown = makeIcon([["p", "M17 14V2"], ["p", "M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"]]);
+const MapPin = makeIcon([["p", "M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"], ["c", 12, 10, 3]]);
+const ClockIcon = makeIcon([["c", 12, 12, 10], ["p", "M12 6v6l4 2"]]);
+
+
+/* ============================================================
+   LETSCHAT AFRICA — realtime chat client
+   Talks to the Letschat Africa server (Express + Socket.io) configured in config.js.
+   Color: --ink #0E1116 --panel #161B22 --accent #35D0BA --amber #F2B84B
+          --coral #FF6B5D  --ink-0 #F5F7FA --ink-1 #9BA7B4 --ink-2 #5B6673
+   Type: Display 'Sora' / Body 'Inter'
+   ============================================================ */
+
+const { API_URL, SOCKET_URL, FIREBASE } = window.LETSCHAT_CONFIG;
+const FIREBASE_READY = !!(FIREBASE && FIREBASE.apiKey && !String(FIREBASE.apiKey).startsWith("PASTE"));
+if (FIREBASE_READY) firebase.initializeApp(FIREBASE);
+const FONT_LINK = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap";
+
+// ---- local persistence (device-only: session token, cached profile) ----
+function loadJSON(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem("letschat-africa:" + key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch { return fallback; }
+}
+function saveJSON(key, value) {
+  try { window.localStorage.setItem("letschat-africa:" + key, JSON.stringify(value)); }
+  catch (e) { console.error("Storage save failed", e); }
+}
+function clearJSON(key) {
+  try { window.localStorage.removeItem("letschat-africa:" + key); } catch {}
+}
+
+// ---- API helper ----
+async function api(path, { method = "GET", token, body, timeoutMs } = {}) {
+    // Cold-start proof: when the free server is asleep the first requests fail ("Failed to fetch") or get a 502/503 from the host. Instead of
+    // showing that error we wake the server (window.__lcWake polls /health until it is ready) and retry. timeoutMs (optional) still gives up
+    // after that long so iPhone Safari does not drop the request with "Load failed".
+    const wake = (force) => (window.__lcWake ? window.__lcWake(force) : new Promise((r) => setTimeout(r, 1500)));
+    const safeToRepeat = method === "GET" || method === "HEAD";
+    let res;
+    for (let attempt = 0; ; attempt++) {
+        let ctl = null, timer = null, aborted = false;
+        if (timeoutMs && typeof AbortController !== "undefined") { ctl = new AbortController(); timer = setTimeout(() => { aborted = true; try { ctl.abort(); } catch (e) { } }, timeoutMs); }
+        try {
+            res = await fetch(`${API_URL}${path}`, {
+                method,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: body ? JSON.stringify(body) : undefined,
+                signal: ctl ? ctl.signal : undefined,
+            });
+        } catch (e) {
+            if (timer) clearTimeout(timer);
+            if (aborted || attempt >= 3 || (typeof navigator !== "undefined" && navigator.onLine === false)) throw e;
+            await wake(true); // server asleep or network blip: wait until it answers, then try again
+            continue;
+        }
+        if (timer) clearTimeout(timer);
+        // 502/503 from the host (or our own "starting" 503) means the request never reached the app, so it is safe to repeat for any method
+        if ((res.status === 502 || res.status === 503 || (safeToRepeat && res.status === 504)) && attempt < 4) { await wake(true); continue; }
+        break;
+    }
+  const payload = await res.json().catch(() => ({}));
+    // expired / rejected login: sign out so the person lands on the login screen instead of seeing errors
+    if ((res.status === 401 || res.status === 403) && token && /invalid token|unknown user|missing token|suspended/i.test((payload.error && payload.error.message) || "")) {
+        clearJSON("session");
+        window.location.reload();
+        return new Promise(() => { });
+    }
+  if (!res.ok || payload.success === false) throw new Error((payload.error && payload.error.message) || `Request failed (${res.status})`);
+  return payload.data;
+}
+
+// ---- chat day dividers + bubble time: every bubble always shows its clock time; each new day starts with Today / Yesterday / full date ----
+const dayKey = (ts) => { const d = new Date(ts); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); };
+function dayLabel(ts) {
+  const d = new Date(ts), now = new Date();
+  const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(now) - start(d)) / 86400000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+}
+const msgTime = (ts) => new Date(ts || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function dayDivider(list, i) {
+  const m = list[i];
+  if (!m || !m.time || (i > 0 && list[i - 1].time && dayKey(list[i - 1].time) === dayKey(m.time))) return null;
+  return React.createElement("div", { key: "day-" + m.id, style: { alignSelf: "center", background: "rgba(20,26,34,.92)", color: "#B9C2CC", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, padding: "5px 12px", borderRadius: 10, margin: "4px 0", flexShrink: 0 } }, dayLabel(m.time));
+}
+function timeLabel(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+// ---- attachments: read a file, shrink photos, format sizes ----
+const MAX_FILE = 3 * 1024 * 1024;
+const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round((n || 0) / 1024)) + " KB");
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).replace(/^data:;base64,/, "data:application/octet-stream;base64,"));
+    fr.onerror = () => reject(new Error("Could not read that file"));
+    fr.readAsDataURL(file);
+  });
+}
+function compressImage(file, max = 1280) { // keeps the whole picture, just smaller (JPEG)
+  return new Promise((resolve, reject) => {
+    readAsDataURL(file).then((url) => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.8));
+      };
+      img.onerror = () => reject(new Error("Could not read that image"));
+      img.src = url;
+    }, reject);
+  });
+}
+
+// ---- crop an image file to a centered square and shrink it, returns a base64 data URL ----
+function resizeImageToDataURL(file, maxSize = 512) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2;
+        const sy = (img.height - side) / 2;
+        const canvas = document.createElement("canvas");
+        canvas.width = maxSize;
+        canvas.height = maxSize;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, maxSize, maxSize);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => reject(new Error("Could not read that image"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("Could not read that file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+// photos from our own server come back as a path ("/api/v1/users/ID/avatar?v=..."): add the server address
+const photoSrc = (p) => (p && p.startsWith("/") ? API_URL + p : p);
+
+function Ring({ size = 52, color, initials, online, ring, photo, onClick }) {
+  photo = photoSrc(photo);
+  return (
+    <div onClick={onClick} style={{ position: "relative", width: size, height: size, flexShrink: 0, cursor: onClick ? "pointer" : "default" }}>
+      {ring && (
+        <div style={{ position: "absolute", top: -3, right: -3, bottom: -3, left: -3, borderRadius: "50%", background: `conic-gradient(from 90deg, ${color}, #F2B84B, ${color})` }} />
+      )}
+      {photo ? (
+        <img loading="lazy" decoding="async"
+          src={photo}
+          alt=""
+          onContextMenu={e => e.preventDefault()}
+          draggable={false}
+          style={{
+            position: "absolute", top: ring ? 3 : 0, right: ring ? 3 : 0, bottom: ring ? 3 : 0, left: ring ? 3 : 0, borderRadius: "50%",
+            width: `calc(100% - ${ring ? 6 : 0}px)`, height: `calc(100% - ${ring ? 6 : 0}px)`,
+            objectFit: "cover", border: `1px solid ${color}55`,
+            userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+          }}
+        />
+      ) : (
+        <div style={{
+          position: "absolute", top: ring ? 3 : 0, right: ring ? 3 : 0, bottom: ring ? 3 : 0, left: ring ? 3 : 0, borderRadius: "50%",
+          background: color + "26", color, display: "flex", alignItems: "center",
+          justifyContent: "center", fontFamily: "Sora", fontWeight: 700,
+          fontSize: size * 0.34, border: `1px solid ${color}55`,
+        }}>{initials}</div>
+      )}
+      {online !== undefined && (
+        <div style={{ position: "absolute", bottom: -1, right: -1, width: 13, height: 13, borderRadius: "50%", background: online ? "#35D0BA" : "#5B6673", border: "3px solid #0E1116" }} />
+      )}
+    </div>
+  );
+}
+
+// ---- fullscreen photo viewer: pinch, double-tap or scroll to zoom, drag to move ----
+function ImageZoomModal({ photo, initials, color, onClose }) {
+  photo = photoSrc(photo);
+  const [t, setT] = useState({ s: 1, x: 0, y: 0 });
+  const box = useRef(null);
+  const ptrs = useRef(new Map());
+  const base = useRef(null);
+  const moved = useRef(false);
+  const lastTap = useRef(0);
+
+  const clamp = (n) => {
+    const s = Math.min(5, Math.max(1, n.s));
+    const W = box.current ? box.current.offsetWidth : 340;
+    const m = ((s - 1) * W) / 2;
+    return { s, x: s === 1 ? 0 : Math.min(m, Math.max(-m, n.x)), y: s === 1 ? 0 : Math.min(m, Math.max(-m, n.y)) };
+  };
+  const snap = () => { base.current = { t, p: [...ptrs.current.values()].map((q) => ({ ...q })) }; };
+
+  const down = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.current.size === 1) moved.current = false;
+    snap();
+  };
+  const move = (e) => {
+    if (!ptrs.current.has(e.pointerId) || !base.current) return;
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...ptrs.current.values()];
+    const b = base.current;
+    if (p.length >= 2 && b.p.length >= 2) {
+      moved.current = true;
+      const d0 = Math.hypot(b.p[0].x - b.p[1].x, b.p[0].y - b.p[1].y) || 1;
+      const d1 = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      setT(clamp({
+        s: (b.t.s * d1) / d0,
+        x: b.t.x + (p[0].x + p[1].x) / 2 - (b.p[0].x + b.p[1].x) / 2,
+        y: b.t.y + (p[0].y + p[1].y) / 2 - (b.p[0].y + b.p[1].y) / 2,
+      }));
+    } else if (p.length === 1 && b.p.length === 1) {
+      const dx = p[0].x - b.p[0].x, dy = p[0].y - b.p[0].y;
+      if (Math.abs(dx) + Math.abs(dy) > 6) moved.current = true;
+      if (b.t.s > 1) setT(clamp({ s: b.t.s, x: b.t.x + dx, y: b.t.y + dy }));
+    }
+  };
+  const up = (e) => {
+    ptrs.current.delete(e.pointerId);
+    if (ptrs.current.size === 0 && !moved.current) {
+      const now = Date.now();
+      if (now - lastTap.current < 300) { setT((c) => clamp(c.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.5, x: 0, y: 0 })); lastTap.current = 0; }
+      else lastTap.current = now;
+    }
+    snap();
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000F2", zIndex: 30,
+      display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column",
+    }}>
+      <button onClick={onClose} aria-label="Close" style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", zIndex: 2 }}>
+        <X size={26} />
+      </button>
+      {photo ? (
+        <>
+          <div
+            ref={box}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+            onWheel={(e) => setT((c) => clamp({ ...c, s: c.s - e.deltaY * 0.003 }))}
+            style={{ width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", overflow: "hidden", touchAction: "none", cursor: t.s > 1 ? "grab" : "zoom-in" }}
+          >
+            <img loading="lazy" decoding="async"
+              src={photo}
+              alt=""
+              onContextMenu={(e) => e.preventDefault()}
+              draggable={false}
+              style={{
+                width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none",
+                transform: `translate(${t.x}px, ${t.y}px) scale(${t.s})`, transformOrigin: "center",
+                userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+              }}
+            />
+          </div>
+          <div style={{ marginTop: 14, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>Pinch or double-tap to zoom</div>
+        </>
+      ) : (
+        <div style={{ width: 220, height: 220, borderRadius: "50%", background: color + "26", color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 70, border: `1px solid ${color}55` }}>{initials}</div>
+      )}
+    </div>
+  );
+}
+
+// ---- shared: photo type check, bottom sheet menu, camera badge ----
+const PHOTO_ACCEPT = "image/jpeg,image/png";
+const isJpgOrPng = (file) => /^image\/(jpe?g|png)$/i.test(file.type);
+
+function PhotoMenu({ hasPhoto, onGallery, onCamera, onRemove, onClose }) {
+  const items = [["Choose from gallery", onGallery, false], ["Take a photo", onCamera, false], hasPhoto ? ["Remove photo", onRemove, true] : null].filter(Boolean);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,0.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "14px 16px 22px" }}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA", textAlign: "center", marginBottom: 2 }}>Profile photo</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5", textAlign: "center", marginBottom: 12 }}>JPG or PNG</div>
+        {items.map(([label, fn, danger]) => (
+          <button key={label} onClick={() => { onClose(); fn(); }} style={{ display: "block", width: "100%", padding: "14px", marginBottom: 8, borderRadius: 12, border: "none", background: "#1E2530", color: danger ? "#FF6B5D" : "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>{label}</button>
+        ))}
+        <button onClick={onClose} style={{ display: "block", width: "100%", padding: "12px", border: "none", background: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 14, cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function CameraBadge({ onClick, busy }) {
+  return (
+    <button onClick={onClick} disabled={busy} aria-label="Change profile photo" style={{
+      position: "absolute", bottom: 2, right: 2, width: 34, height: 34, borderRadius: "50%",
+      background: "#35D0BA", border: "2px solid #0E1116", display: "flex", alignItems: "center",
+      justifyContent: "center", cursor: busy ? "default" : "pointer", padding: 0, opacity: busy ? 0.6 : 1,
+    }}>
+      <Camera size={16} color="#0E1116" />
+    </button>
+  );
+}
+
+// ---- chat text styling: *bold*  _italic_  ~strike~  -underline-  !glow!  (also **bold**, __italic__, ~~strike~~, --underline--, !!glow!!; can be nested) ----
+const RICH_SRC = "(^|\\W)(\\*\\*|__|~~|!!|--|\\*|~|!|_|-)(?=\\S)(?!\\2)([^\\n]*?\\S)\\2(?!\\w)";
+const RICH_RE = new RegExp(RICH_SRC, "g");
+function richText(text) {
+  if (typeof text !== "string" || !/[*_~!-]/.test(text)) return text;
+  const re = new RegExp(RICH_SRC, "g"), out = []; let last = 0, k = 0, m;
+  while ((m = re.exec(text))) {
+    const start = m.index + m[1].length;
+    if (start > last) out.push(text.slice(last, start));
+    const mk = m[2], props = { key: k++ };
+    if (mk === "**" || mk === "*") props.style = { fontWeight: 700 };
+    else if (mk === "__" || mk === "_") props.style = { fontStyle: "italic" };
+    else if (mk === "~~" || mk === "~") props.style = { textDecoration: "line-through" };
+    else if (mk === "--" || mk === "-") props.style = { textDecoration: "underline" };
+    else { props.className = "lc-glow"; props.style = { color: "#B8FFF3", textShadow: "0 0 6px #35D0BA, 0 0 14px #35D0BA, 0 0 24px rgba(53,208,186,.7)" }; }
+    out.push(React.createElement("span", props, richText(m[3])));
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+const stripRich = (t) => (typeof t === "string" ? t.replace(new RegExp(RICH_SRC, "g"), "$1$3") : t);
+
+function TabBar({ active, setActive }) {
+  const tabs = [
+    { id: "chats", icon: MessageCircle, label: "Chats" },
+    { id: "calls", icon: PhoneCall, label: "Calls" },
+    { id: "status", icon: Radio, label: "Updates" },
+    { id: "market", icon: ShoppingBag, label: "Market" },
+    { id: "games", icon: Gamepad2, label: "Games" },
+    { id: "tools", icon: Grid3x3, label: "Tools" },
+  ];
+  return (
+    <div style={{ display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 }}>
+      {tabs.map(t => {
+        const Icon = t.icon;
+        const isActive = active === t.id;
+        return (
+          <button key={t.id} className={isActive ? "lc-tab on" : "lc-tab"} onClick={() => setActive(t.id)} style={{
+            flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
+            alignItems: "center", gap: 4, counterIncrement: "lcgap-4", cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
+          }}>
+            <Icon size={22} strokeWidth={isActive ? 2.4 : 1.8} />
+            <span style={{ fontSize: 11, fontFamily: "Inter", fontWeight: isActive ? 600 : 500 }}>{t.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CreditMarquee() {
+  return (
+    <div className="lc-credit" aria-label="Created by Ayo 08135351804">
+      <span>✦ Created by Ayo · 08135351804 ✦</span>
+    </div>
+  );
+}
+
+function TopBar({ title, onBack, right }) {
+  return (
+    <div style={{ flexShrink: 0, background: "#0E1116" }}>
+      {!onBack && <CreditMarquee />}
+      <div style={{ display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 14, counterIncrement: "lcgap-14" }}>
+        {onBack && (
+          <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0 }}>
+            <ArrowLeft size={22} />
+          </button>
+        )}
+        <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA" }}>{title}</div>
+        {right}
+      </div>
+    </div>
+  );
+}
+
+function Banner({ text, tone = "error", onClose }) {
+  const colors = tone === "error" ? { bg: "#FF6B5D18", border: "#FF6B5D55", fg: "#FF6B5D" } : { bg: "#35D0BA18", border: "#35D0BA55", fg: "#35D0BA" };
+  return (
+    <div style={{
+      margin: "0 16px 10px", padding: "10px 12px", borderRadius: 10, background: colors.bg,
+      border: `1px solid ${colors.border}`, color: colors.fg, fontFamily: "Inter", fontSize: 13,
+      display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8",
+    }}>
+      <AlertCircle size={15} style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>{text}</span>
+      {onClose && <button onClick={onClose} style={{ background: "none", border: "none", color: colors.fg, cursor: "pointer", padding: 0 }}><X size={15} /></button>}
+    </div>
+  );
+}
+
+// ---- New chat modal: look up a phone number and start / open a conversation ----
+// ---- phonebook: find which of the person's contacts are on Letschat Africa ----
+function toIntl(raw) { // digits with country code, using the country picked at login for local numbers
+  const t = String(raw || "").trim();
+  const d = t.replace(/\D/g, "");
+  if (t.startsWith("+")) return d;
+  if (d.startsWith("00")) return d.slice(2);
+  let dial = "234";
+  try { const c = COUNTRIES.find((x) => x[0] === (localStorage.getItem("lc-country") || "NG")); if (c) dial = c[2]; } catch (e) {}
+  if (d.startsWith("0")) return dial + d.slice(1);
+  if (d.startsWith(dial) && d.length >= dial.length + 8) return d;
+  return dial + d;
+}
+function parseVcf(text) {
+  const out = [];
+  for (const card of String(text).split(/BEGIN:VCARD/i).slice(1)) {
+    const fn = /^FN[^:\r\n]*:(.+)$/im.exec(card);
+    const name = fn ? fn[1].trim() : "";
+    const re = /^TEL[^:\r\n]*:(.+)$/gim; let m;
+    while ((m = re.exec(card))) out.push({ name, tel: m[1].trim() });
+  }
+  return out;
+}
+const canPickContacts = () => typeof navigator !== "undefined" && !!(navigator.contacts && navigator.contacts.select);
+const initialsOf = (n) => (String(n).trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?");
+
+function PhonebookView({ token, onBack, onStarted }) {
+  const [book, setBook] = useState(() => loadJSON("phonebook", [])); // [{ name, phone }] kept on this device only
+  const [matches, setMatches] = useState(() => loadJSON("phonebookMatches", {})); // last known result, so registered contacts show on top instantly
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const vcfRef = useRef(null);
+
+  // silent: no "Checking…" banner or errors (background refresh). partial: only update the numbers that were sent.
+  const sync = async (entries, opts = {}) => {
+    if (!entries.length) { if (!opts.partial) setMatches({}); return; }
+    if (!opts.silent) { setBusy(true); setError(""); }
+    try {
+      const d = await api("/api/v1/users/match", { method: "POST", token, body: { phones: entries.map((e) => e.phone) } });
+      const found = d.matches || {};
+      setMatches((prev) => {
+        if (!opts.partial) return found;
+        const next = { ...prev };
+        for (const e of entries) { if (found[e.phone]) next[e.phone] = found[e.phone]; else delete next[e.phone]; }
+        return next;
+      });
+    } catch (e) { if (!opts.silent) setError(e.message); }
+    finally { if (!opts.silent) setBusy(false); }
+  };
+  useEffect(() => { try { saveJSON("phonebookMatches", matches); } catch (e) {} }, [matches]);
+  const bookRef = useRef(book); bookRef.current = book;
+  // refresh right when the screen opens (silently if we already have a saved result), then keep refreshing while it is open
+  useEffect(() => {
+    sync(book, { silent: Object.keys(matches).length > 0 });
+    const t = setInterval(() => { if (!document.hidden && bookRef.current.length) sync(bookRef.current, { silent: true }); }, 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  const addEntries = (raw) => { // raw: [{ name, tel }]
+    const seen = new Set(); const next = [];
+    for (const r of raw.concat(book.map((b) => ({ name: b.name, tel: "+" + b.phone })))) {
+      const phone = toIntl(r.tel);
+      if (phone.length < 8 || phone.length > 15 || seen.has(phone)) continue;
+      seen.add(phone); next.push({ name: r.name || "+" + phone, phone });
+    }
+    setBook(next); saveJSON("phonebook", next); sync(next);
+  };
+  const pick = async () => {
+    try {
+      const picked = await navigator.contacts.select(["name", "tel"], { multiple: true });
+      const raw = [];
+      for (const c of picked) for (const t of c.tel || []) raw.push({ name: (c.name && c.name[0]) || "", tel: t });
+      if (!raw.length) return;
+      addEntries(raw);
+    } catch (e) { setError("Could not open your contacts. Allow contacts access and try again."); }
+  };
+  const onVcf = async (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    const raw = parseVcf(await f.text());
+    if (!raw.length) return setError("No phone numbers found in that file");
+    addEntries(raw);
+  };
+  const clearBook = () => { setBook([]); setMatches({}); clearJSON("phonebook"); clearJSON("phonebookMatches"); };
+  const start = async (u) => {
+    setBusy(true); setError("");
+    try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone: u.phone } }); onStarted(conversation); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  const invite = (e) => {
+    const link = window.location.origin + window.location.pathname;
+    const msg = link + "\n\nHey " + (e.name.split(" ")[0] || "there") + ", I'm on Letschat Africa. Join me here!";
+    window.open("https://wa.me/" + e.phone + "?text=" + encodeURIComponent(msg), "_blank");
+  };
+
+  const needle = q.trim().toLowerCase(); const needleDigits = q.replace(/\D/g, "");
+  const shown = book.filter((e) => !needle || e.name.toLowerCase().includes(needle) || (needleDigits && e.phone.includes(needleDigits)));
+  const byName = (x, y) => String(x.name).localeCompare(String(y.name));
+  const onApp = shown.filter((e) => matches[e.phone]).sort(byName); // registered contacts always come first
+  const notOn = shown.filter((e) => !matches[e.phone]).sort(byName);
+
+  // while searching, re-check the numbers on screen a moment after each keystroke
+  useEffect(() => {
+    if (!needle) return;
+    const t = setTimeout(() => { const list = shown.slice(0, 100); if (list.length) sync(list, { silent: true, partial: true }); }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  return (
+    <div style={{ ...card, height: "88%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", marginBottom: 12 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
+        <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" }}>From your phonebook</div>
+        {book.length > 0 && <button onClick={clearBook} style={{ ...smallBtn, color: "#FF6B5D" }}>Remove</button>}
+      </div>
+      {error && <Banner text={error} onClose={() => setError("")} />}
+      <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 12 }}>
+        {canPickContacts() && <button onClick={pick} style={{ ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }}>{book.length ? "Add more contacts" : "Choose contacts"}</button>}
+        <button onClick={() => vcfRef.current && vcfRef.current.click()} style={{ ...(canPickContacts() ? smallBtn : { ...primaryBtn(false), flex: 1, padding: 11, fontSize: 14 }) }}>Import .vcf</button>
+        <input ref={vcfRef} type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={onVcf} style={{ display: "none" }} />
+      </div>
+      {!canPickContacts() && <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 }}>This browser cannot open your phonebook directly. Export your contacts as a .vcf file from your Contacts app and import it here.</div>}
+      {book.length > 0 && (
+        <div style={{ ...inputBox, marginBottom: 6 }}>
+          <Search size={17} color="#8891A0" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or number" style={inputEl} />
+        </div>
+      )}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        {busy && <div style={{ color: "#8A96A5", fontFamily: "Inter", fontSize: 13, padding: "10px 0" }}>Checking who is on Letschat Africa…</div>}
+        {!book.length && !busy && <div style={{ color: "#8A96A5", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "30px 10px" }}>Pick the contacts you want to check. Only the numbers you choose are sent, and your list stays on this device.</div>}
+        {onApp.length > 0 && <div style={sectionTitle}>On Letschat Africa · {onApp.length}</div>}
+        {onApp.map((e) => {
+          const u = matches[e.phone];
+          return <PersonRow key={e.phone} u={{ ...u, name: e.name }} status={u.name && u.name !== e.name ? u.name : "+" + e.phone} onClick={() => start(u)} right={<span style={{ ...smallBtn, padding: "5px 10px" }}>Chat</span>} />;
+        })}
+        {notOn.length > 0 && <div style={sectionTitle}>Invite · {notOn.length}</div>}
+        {notOn.slice(0, 200).map((e) => (
+          <PersonRow key={e.phone} u={{ name: e.name, initials: initialsOf(e.name), color: "#8A96A5", avatar: null }} status={"+" + e.phone}
+            right={<button onClick={() => invite(e)} style={{ ...smallBtn, color: "#F2B84B" }}>Invite</button>} />
+        ))}
+        {book.length > 0 && !shown.length && <div style={{ color: "#8A96A5", fontFamily: "Inter", fontSize: 13, textAlign: "center", padding: "24px 0" }}>No contacts match your search</div>}
+      </div>
+    </div>
+  );
+}
+
+function NewChatModal({ token, onClose, onStarted }) {
+  const [view, setView] = useState("main");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const start = async () => {
+    if (!phone.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { phone } });
+      onStarted(conversation);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (view === "book") return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width: "100%", display: "flex", alignItems: "flex-end", height: "100%" }}>
+        <PhonebookView token={token} onBack={() => setView("main")} onStarted={onStarted} />
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{
+      position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000B0", display: "flex",
+      alignItems: "flex-end", zIndex: 20,
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22,
+        padding: "20px 20px 28px", borderTop: "1px solid #262E3A",
+      }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: "#262E3A", margin: "0 auto 18px" }} />
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Start a new chat</div>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 }}>
+          Enter the nickname, email or phone number (with country code) of the person you want to message. They need to have signed in to Letschat Africa at least once.
+        </div>
+        {error && <Banner text={error} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+          <input value={phone} onChange={e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[^0-9+\-()\s]/.test(v) ? v : v.replace(/\D/g, "")); }}
+            placeholder="@nickname, email or phone" style={{ flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 }} />
+        </div>
+        <button onClick={start} disabled={busy || !phone.trim()} style={{
+          width: "100%", padding: "13px", borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer",
+          background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1,
+        }}>{busy ? "Looking up…" : "Start chat"}</button>
+        <button onClick={() => setView("book")} style={{
+          width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: "1px solid #2B3544", cursor: "pointer",
+          background: "#1E2530", color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 14,
+        }}>Find friends from my phonebook</button>
+      </div>
+    </div>
+  );
+}
+
+// ---- group chats ----
+const GROUP_COLOR = "#8B7CF6";
+const normalizeConvo = (c, myId) => ({
+  ...c, myId,
+  ...(c.isGroup ? { other: { id: c.id, name: c.name, initials: c.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "G", color: GROUP_COLOR, avatar: c.avatar || null } } : {}),
+});
+const statusText = (online, ts) => (online ? "online" : ts ? "last seen " + timeLabel(ts) : "offline");
+const senderPrefix = (c) => {
+  const m = c.lastMessage;
+  if (!m) return "";
+  if (m.senderId === c.myId) return "You: ";
+  const who = c.isGroup && c.members.find(x => x.id === m.senderId);
+  return who ? who.name.split(" ")[0] + ": " : "";
+};
+const sheet = { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 20 };
+const card = { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "88%", display: "flex", flexDirection: "column" };
+const inputBox = { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", marginBottom: 14 };
+const inputEl = { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 };
+const primaryBtn = (busy) => ({ width: "100%", padding: 13, borderRadius: 12, border: "none", cursor: busy ? "default" : "pointer", background: "#35D0BA", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 15, opacity: busy ? 0.7 : 1 });
+const smallBtn = { background: "#1E2530", border: "1px solid #262E3A", color: "#35D0BA", borderRadius: 10, padding: "7px 12px", fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, cursor: "pointer", flexShrink: 0 };
+const sectionTitle = { fontFamily: "Inter", fontSize: 12, fontWeight: 600, color: "#8891A0", textTransform: "uppercase", letterSpacing: 0.6, margin: "18px 0 6px" };
+
+function VerifiedBadge({ size = 15 }) {
+    return (React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", role: "img", "aria-label": "Verified", style: { flexShrink: 0, marginLeft: 4, verticalAlign: "middle", display: "inline-block" } },
+        React.createElement("circle", { cx: 12, cy: 12, r: 11, fill: "#1D9BF0" }),
+        React.createElement("path", { d: "M7.5 12.4l3 3 6-6.4", fill: "none", stroke: "#fff", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" })));
+}
+function PersonRow({ u, online, status, right, onClick }) {
+  return (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "8px 0", cursor: onClick ? "pointer" : "default" }}>
+      <Ring size={40} color={u.color} initials={u.initials} photo={u.avatar} online={online} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}{u.verified && <VerifiedBadge />}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12, color: online ? "#35D0BA" : "#5B6673" }}>{status}</div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function NewGroupModal({ token, contacts, presence, lastSeen, onClose, onCreated, initialPicked = [] }) {
+  const [name, setName] = useState("");
+  const [picked, setPicked] = useState(initialPicked);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const toggle = (id) => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+  const create = async () => {
+    if (!name.trim()) return setError("Give the group a name");
+    setBusy(true); setError("");
+    try {
+      const { conversation } = await api("/api/v1/conversations/group", { method: "POST", token, body: { name: name.trim(), memberIds: picked } });
+      onCreated(conversation);
+    } catch (e) { setError(e.message); setBusy(false); }
+  };
+  const sorted = [...contacts].sort((a, b) => !!presence[b.id] - !!presence[a.id]);
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 }}>New group</div>
+        {error && <Banner text={error} />}
+        <div style={inputBox}><input value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Group name" style={inputEl} /></div>
+        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 4 }}>Add people from your contacts, or skip and share the group link after.</div>
+        <div style={{ overflowY: "auto", flex: 1, marginBottom: 14, minHeight: 60 }}>
+          {sorted.length === 0 && <div style={{ padding: "16px 0", fontFamily: "Inter", fontSize: 13, color: "#8A96A5" }}>No contacts yet. You can still create the group and invite people with its link.</div>}
+          {sorted.map(u => {
+            const on = picked.includes(u.id);
+            return (
+              <PersonRow key={u.id} u={u} online={!!presence[u.id]} status={statusText(!!presence[u.id], lastSeen[u.id])} onClick={() => toggle(u.id)}
+                right={<div style={{ width: 22, height: 22, borderRadius: 6, border: "2px solid " + (on ? "#35D0BA" : "#262E3A"), background: on ? "#35D0BA" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}>{on && <Check size={14} color="#0E1116" strokeWidth={3} />}</div>} />
+            );
+          })}
+        </div>
+        <button onClick={create} disabled={busy} style={primaryBtn(busy)}>{busy ? "Creating…" : "Create group" + (picked.length ? " (" + (picked.length + 1) + ")" : "")}</button>
+      </div>
+    </div>
+  );
+}
+
+const GI_HERO = 156, GI_BAR = 58, GI_AV = 128;
+const GiHeart = makeIcon([["p", "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"]]);
+const GiUserPlus = makeIcon([["p", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"], ["c", 9, 7, 4], ["p", "M19 8v6"], ["p", "M22 11h-6"]]);
+const GiQr = makeIcon([["r", 3, 3, 7, 7, 1], ["r", 14, 3, 7, 7, 1], ["r", 3, 14, 7, 7, 1], ["p", "M14 14h3v3h-3z"], ["p", "M20 14v3"], ["p", "M14 20h3"], ["p", "M20 20v1"]]);
+const GiCopy = makeIcon([["r", 9, 9, 13, 13, 2], ["p", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]]);
+const GiRefresh = makeIcon([["p", "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"], ["p", "M21 3v5h-5"], ["p", "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"], ["p", "M8 16H3v5"]]);
+const GiUpload = makeIcon([["p", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"], ["p", "m17 8-5-5-5 5"], ["p", "M12 3v12"]]);
+const GI_SUGGEST = [["New customer", "#2F7BFF"], ["New order", "#F5B83D"], ["Pending payment", "#FF6B3D"], ["Paid", "#B24FD8"], ["Order complete", "#B8D04A"], ["Important", "#FF8FB8"], ["Follow up", "#5FE0B5"], ["Lead", "#B9A8FF"]];
+// Group profile: big photo that shrinks into the top bar as you scroll, action pills, shared media, members, group actions
+function GroupInfoScreen({ conversation: c, myId, token, contacts, presence, lastSeen, msgs = [], isFav, muted, onToggleFavorite, onNotifications, onOpenMedia, onOpenImage, onExport, onReport, onBack, onChanged }) {
+  const isAdmin = c.adminId === myId;
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [zoom, setZoom] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [desc, setDesc] = useState(c.description || "");
+  const [nameDraft, setNameDraft] = useState(c.name);
+  const [p, setP] = useState(0); // 0 = photo fully open, 1 = collapsed into the top bar
+  const [menu, setMenu] = useState(false);
+  const [sheet, setSheet] = useState(null); // "lists" | "link" | "add" | "name" | "desc"
+  const [showAll, setShowAll] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [q, setQ] = useState("");
+  const [lists, setLists] = useState(() => { const l = loadJSON("chatLists", []); return Array.isArray(l) ? l : []; });
+  const fileRef = useRef(null), scrollRef = useRef(null), memRef = useRef(null);
+  const RANGE = GI_HERO - GI_BAR;
+  const onScroll = (e) => { const np = Math.min(1, Math.max(0, e.currentTarget.scrollTop / RANGE)); setP((prev) => (Math.abs(prev - np) > 0.004 ? np : prev)); };
+  const hH = GI_HERO - p * RANGE;
+  const size = GI_AV - p * (GI_AV - 38);
+  const top = 14 * (1 - p) + 10 * p;
+  const left = "calc(" + ((1 - p) * 50) + "% - " + ((1 - p) * size / 2) + "px + " + (p * 56) + "px)";
+  const titleOpacity = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+  const link = c.inviteCode ? window.location.origin + window.location.pathname + "?join=" + c.inviteCode : "";
+  const memberIds = c.members.map((m) => m.id);
+  const addable = contacts.filter((u) => !memberIds.includes(u.id));
+  const call = async (key, path, body, method = "POST") => {
+    setBusy(key); setError("");
+    try {
+      const { conversation } = await api("/api/v1/conversations/" + c.id + "/" + path, { method, token, body });
+      onChanged(conversation);
+      return true;
+    } catch (e) { setError(e.message); return false; } finally { setBusy(""); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch (e) { window.prompt("Copy this group link", link); }
+  };
+  const share = () => (navigator.share ? navigator.share({ title: c.name, text: "Join \"" + c.name + "\" on Letschat Africa", url: link }).catch(() => { }) : copy());
+  const pickPhoto = async (e) => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    if (!isJpgOrPng(f)) return setError("Group photo must be a JPG or PNG image");
+    try { call("photo", "", { avatar: await resizeImageToDataURL(f, 512) }, "PATCH"); } catch (err) { setError(err.message); }
+  };
+  const saveDesc = async () => { if (await call("desc", "", { description: desc }, "PATCH")) setSheet(null); };
+  const saveName = async () => { if (!nameDraft.trim()) return setError("Group name can't be empty"); if (await call("name", "", { name: nameDraft.trim() }, "PATCH")) setSheet(null); };
+  const addByPhone = async () => { if (phone.trim() && await call("phone", "members", { phone: phone.trim() })) setPhone(""); };
+  const needAdmin = () => setError("Only the group admin can do that.");
+
+  // saved lists (kept on this device); Favorites is the real favourites list
+  const saveLists = (n) => { setLists(n); saveJSON("chatLists", n); };
+  const inList = (l) => l.ids.includes(c.id);
+  const toggleList = (l) => saveLists(lists.map((x) => (x.id === l.id ? { ...x, ids: inList(x) ? x.ids.filter((i) => i !== c.id) : [...x.ids, c.id] } : x)));
+  const addSuggest = (name, color) => saveLists([...lists, { id: "l" + Date.now().toString(36), name, color, ids: [c.id] }]);
+  const newList = () => { const n = (window.prompt("List name") || "").trim().slice(0, 30); if (n) saveLists([...lists, { id: "l" + Date.now().toString(36), name: n, color: "#35D0BA", ids: [c.id] }]); };
+  const inAny = isFav || lists.some(inList);
+
+  // shared media
+  const live = msgs.filter((m) => !m.deleted);
+  const isImg = (m) => m.file && m.file.data && /^data:image\//.test(m.file.data);
+  const media = live.filter(isImg), docs = live.filter((m) => m.file && !isImg(m));
+  let linkCount = 0; live.forEach((m) => { if (typeof m.text === "string") linkCount += (m.text.match(/https?:\/\/[^\s]+/g) || []).length; });
+  const total = media.length + docs.length + linkCount;
+  const bytes = live.reduce((n, m) => n + (m.file && m.file.size ? m.file.size : 0), 0);
+  const tiles = media.slice(-8).reverse();
+
+  // members
+  const sorted = [...c.members].sort((a, b) => ((b.id === myId) - (a.id === myId)) || ((b.id === c.adminId) - (a.id === c.adminId)));
+  const needle = q.trim().toLowerCase();
+  const filtered = needle ? sorted.filter((m) => (m.name || "").toLowerCase().includes(needle)) : sorted;
+  const LIMIT = 6, visible = showAll || needle ? filtered : filtered.slice(0, LIMIT);
+  const goMembers = () => { setSearching(true); setTimeout(() => { const s = scrollRef.current, m = memRef.current; if (s && m) s.scrollTo({ top: m.offsetTop - GI_BAR, behavior: "smooth" }); }, 30); };
+
+  const ico = (I) => ce(I, { size: 22, color: "#8891A0" });
+  const row = (key, icon, title, sub, o = {}) => ce("div", { key, onClick: o.onClick, style: { display: "flex", alignItems: "center", gap: 22, counterIncrement: "lcgap-22", padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" } },
+    ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
+    ce("div", { style: { flex: 1, minWidth: 0 } },
+      ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" } }, title),
+      sub && ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, sub)),
+    o.right);
+  const line = (k) => ce("div", { key: k, style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+  const pill = (label, Icon, fn, off) => ce("button", { key: label, onClick: off ? undefined : fn, disabled: !!off, style: { background: "none", border: "none", padding: 0, cursor: off ? "default" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, counterIncrement: "lcgap-7", opacity: off ? 0.45 : 1 } },
+    ce("span", { style: { width: 68, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Icon, { size: 20, color: "#F5F7FA" })),
+    ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" } }, label));
+  const greenDot = (Icon) => ce("span", { style: { width: 44, height: 44, borderRadius: "50%", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", margin: "-10px 0" } }, ce(Icon, { size: 22, color: "#06210F" }));
+  const checkbox = (on) => ce("div", { style: { width: 20, height: 20, borderRadius: 4, border: "2px solid " + (on ? "#21C063" : "#8891A0"), background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && ce(Check, { size: 14, color: "#06210F", strokeWidth: 3 }));
+  const gsheet = (title, children) => ce("div", { onClick: () => setSheet(null), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 30, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end" } },
+    ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "88%", background: "#12161C", borderTopLeftRadius: 22, borderTopRightRadius: 22, display: "flex", flexDirection: "column", padding: "10px 0 14px", boxSizing: "border-box", animation: "lcStUp .25s ease-out" } },
+      ce("div", { style: { width: 40, height: 4, borderRadius: 2, background: "#3A4452", margin: "0 auto 12px" } }),
+      ce("div", { style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, title),
+      ce("div", { style: { overflowY: "auto", flex: 1, minHeight: 0 } }, children)));
+  const listRow = (key, icon, name, on, fn) => ce("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "13px 24px", cursor: "pointer" } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, icon), ce("div", { style: { flex: 1, fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, name), checkbox(on));
+  const dot = (color) => ce("span", { style: { width: 13, height: 13, borderRadius: "50%", background: color, display: "block" } });
+  const subHead = (t) => ce("div", { key: t, style: { padding: "14px 24px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, t);
+  const badge = ce("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", background: "#1E2530", borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap", flexShrink: 0 } }, "Group Admin");
+  const memberRow = (m) => {
+    const online = m.id === myId || !!presence[m.id];
+    return ce("div", { key: m.id, onClick: () => setProfile(m), style: { display: "flex", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "8px 22px", cursor: "pointer" } },
+      ce(Ring, { size: 44, color: m.color, initials: m.initials, photo: m.avatar, online }),
+      ce("div", { style: { flex: 1, minWidth: 0 } },
+        ce("div", { style: { fontFamily: "Inter", fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, m.id === myId ? "You" : m.name, m.verified && ce(VerifiedBadge, {})),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, m.about || "Hey there! I am using Letschat Africa.")),
+      isAdmin && m.phone && ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", flexShrink: 0 } }, "+" + String(m.phone).replace(/\D/g, "")),
+      m.id === c.adminId && badge);
+  };
+  const barBtn = (label, side, child, fn, extra) => ce("button", { "aria-label": label, onClick: fn, style: { position: "absolute", top: 0, [side]: extra, height: GI_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, child);
+  const menuItems = [
+    isAdmin && ["Add members", () => setSheet("add")],
+    isAdmin && ["Edit name", () => { setNameDraft(c.name); setSheet("name") }],
+    isAdmin && ["Edit description", () => { setDesc(c.description || ""); setSheet("desc"); }],
+    isAdmin && ["Change photo", () => fileRef.current && fileRef.current.click()],
+    ["Export chat", () => onExport && onExport()]].filter(Boolean);
+  const longDesc = (c.description || "").length > 48;
+  const descShown = c.description ? (longDesc && !descOpen ? c.description.slice(0, 48).trim() + "… " : c.description + (longDesc ? " " : "")) : "";
+
+  return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#0E1116", zIndex: 20, display: "flex", flexDirection: "column", overflow: "hidden" } },
+    ce("style", null, "@keyframes lcStUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}"),
+    // collapsing header
+    ce("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: hH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" } }),
+    barBtn("Back", "left", ce(ArrowLeft, { size: 23, color: "#F5F7FA" }), onBack, 6),
+    barBtn("More", "right", ce(MoreVertical, { size: 22, color: "#F5F7FA" }), () => setMenu((m) => !m), 6),
+    isAdmin && barBtn("Invite", "right", ce(GiQr, { size: 22, color: "#F5F7FA" }), () => setSheet("link"), 50),
+    barBtn("Add to lists", "right", ce(ListPlus, { size: 22, color: "#F5F7FA" }), () => setSheet("lists"), isAdmin ? 94 : 50),
+    ce("div", { style: { position: "absolute", top: 0, left: 106, right: isAdmin ? 142 : 98, height: GI_BAR, zIndex: 5, display: "flex", alignItems: "center", opacity: titleOpacity, transform: "translateY(" + ((1 - titleOpacity) * 8) + "px)", pointerEvents: "none" } },
+      ce("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.name)),
+    ce("div", { onClick: c.avatar ? () => setZoom(true) : undefined, style: { position: "absolute", top, left, width: size, height: size, zIndex: 5, borderRadius: "50%", overflow: "hidden", background: GROUP_COLOR + "26", cursor: c.avatar ? "pointer" : "default" } },
+      c.avatar ? ce("img", { src: photoSrc(c.avatar), alt: "", draggable: false, onContextMenu: (e) => e.preventDefault(), style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })
+        : ce("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: GROUP_COLOR, fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 } }, c.other.initials)),
+    ce("input", { ref: fileRef, type: "file", accept: "image/jpeg,image/png", style: { display: "none" }, onChange: pickPhoto }),
+    menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 8 } },
+      ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: GI_BAR - 8, right: 10, minWidth: 200, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)", animation: "lcStUp .15s ease-out" } },
+        menuItems.map(([label, fn]) => ce("div", { key: label, onClick: () => { setMenu(false); fn(); }, style: { padding: "13px 20px", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", cursor: "pointer" } }, label)))),
+
+    ce("div", { ref: scrollRef, onScroll, style: { flex: 1, minHeight: 0, overflowY: "auto", position: "relative", paddingTop: GI_HERO + 8, paddingBottom: 30 } },
+      error && ce("div", { style: { marginBottom: 10 } }, ce(Banner, { text: error, onClose: () => setError("") })),
+      ce("div", { style: { textAlign: "center", padding: "0 24px" } },
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 26, color: "#F5F7FA", overflowWrap: "anywhere" } }, c.name),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginTop: 4 } }, "Group · ", ce("span", { style: { color: "#21C063" } }, c.members.length + (c.members.length === 1 ? " member" : " members"))),
+        c.description ? ce("div", { style: { fontFamily: "Inter", fontSize: 15.5, color: "#9BA7B4", marginTop: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.4 } }, descShown, longDesc && ce("span", { onClick: () => setDescOpen((v) => !v), style: { color: "#21C063", cursor: "pointer" } }, descOpen ? "Show less" : "Read more"))
+          : isAdmin ? ce("div", { onClick: () => { setDesc(""); setSheet("desc"); }, style: { fontFamily: "Inter", fontSize: 15, color: "#21C063", marginTop: 12, cursor: "pointer" } }, "Add group description") : null,
+        ce("div", { style: { display: "flex", justifyContent: "center", gap: 18, counterIncrement: "lcgap-18", margin: "20px 0 18px" } },
+          pill("Voice chat", Mic, null, true),
+          pill("Add", GiUserPlus, () => (isAdmin ? setSheet("add") : needAdmin())),
+          pill("Search", Search, goMembers))),
+      line("l0"),
+      row("lists", ico(ListPlus), "Add to lists", null, { onClick: () => setSheet("lists") }),
+      line("l1"),
+      ce("div", { onClick: onOpenMedia, style: { display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" } },
+        ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, "Media, links, and docs"),
+        ce("span", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 } }, total),
+        ce(ChevronRight, { size: 18, color: "#8891A0" })),
+      (tiles.length > 0 || docs.length > 0) && ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" } },
+        tiles.map((m) => ce("img", { key: m.id, src: m.file.data, alt: m.file.name, onClick: () => onOpenImage && onOpenImage(m.file.data), style: { width: 100, height: 100, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } })),
+        tiles.length === 0 && docs.slice(-6).reverse().map((m) => ce("div", { key: m.id, onClick: onOpenMedia, style: { width: 100, height: 100, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", padding: 6, boxSizing: "border-box", cursor: "pointer" } },
+          ce(Paperclip, { size: 20, color: "#35D0BA" }), ce("span", { style: { fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.file.name)))),
+      row("storage", ico(FolderIcon), "Manage storage", bytes ? fmtSize(bytes) : "0 KB", { onClick: onOpenMedia }),
+      row("notif", ico(Bell), "Notifications", muted ? "Muted" : "On", { onClick: onNotifications }),
+      line("l2"),
+      ce("div", { ref: memRef, style: { display: "flex", alignItems: "center", padding: "12px 22px 6px" } },
+        ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, c.members.length + (c.members.length === 1 ? " member" : " members")),
+        ce("button", { "aria-label": "Search members", onClick: () => { setSearching((v) => !v); setQ(""); }, style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 2 } }, ce(Search, { size: 20, color: "#8891A0" }))),
+      searching && ce("div", { style: { margin: "0 22px 8px", display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#1E2530", borderRadius: 999, padding: "9px 14px" } },
+        ce(Search, { size: 17, color: "#8A96A5" }), ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search members", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } })),
+      !needle && isAdmin && row("addm", greenDot(GiUserPlus), "Add members", null, { onClick: () => setSheet("add") }),
+      !needle && isAdmin && row("invite", greenDot(LinkIcon), "Invite via link or QR code", null, { onClick: () => setSheet("link") }),
+      visible.map(memberRow),
+      needle && !filtered.length && ce("div", { style: { padding: "14px 22px", fontFamily: "Inter", fontSize: 14, color: "#8A96A5" } }, "No members match “" + q.trim() + "”."),
+      !needle && !showAll && filtered.length > LIMIT && ce("div", { onClick: () => setShowAll(true), style: { padding: "12px 22px 12px 82px", fontFamily: "Inter", fontSize: 16, color: "#21C063", cursor: "pointer" } }, "See all (" + (filtered.length - LIMIT) + " more)"),
+      isAdmin && c.dmRequests.length > 0 && ce("div", { style: { padding: "6px 22px" } },
+        ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: "10px 0 6px" } }, "Private chat requests"),
+        c.dmRequests.map((r) => {
+          const f = c.members.find((m) => m.id === r.from), t = c.members.find((m) => m.id === r.to);
+          return ce("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 0", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } },
+            ce("div", { style: { flex: 1 } }, f ? f.name : "?", " ", ce("span", { style: { color: "#8A96A5" } }, "wants to chat with"), " ", t ? t.name : "?"),
+            ce("button", { onClick: () => call(r.id, "dm-requests/" + r.id, { approve: true }), style: smallBtn }, "Approve"),
+            ce("button", { onClick: () => call(r.id, "dm-requests/" + r.id, { approve: false }), style: { ...smallBtn, color: "#FF6B5D" } }, "Decline"));
+        })),
+      line("l3"),
+      row("fav", ce(GiHeart, { size: 22, color: isFav ? "#21C063" : "#8891A0" }), isFav ? "Remove from Favorites" : "Add to Favorites", null, { onClick: onToggleFavorite }),
+      row("export", ico(GiUpload), "Export chat", null, { onClick: onExport }),
+      line("l4"),
+      row("report", ce(ThumbsDown, { size: 22, color: "#FF6B5D" }), "Report group", null, { color: "#FF6B5D", onClick: onReport }),
+      c.createdAt ? ce("div", { style: { padding: "14px 22px 6px", fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Created on " + new Date(c.createdAt).toLocaleDateString()) : null),
+
+    sheet === "lists" && gsheet("Choose list", [
+      ce("div", { key: "new", onClick: newList, style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "10px 24px", cursor: "pointer", color: "#21C063", fontFamily: "Inter", fontSize: 16 } }, ce("div", { style: { width: 22, display: "flex", justifyContent: "center" } }, ce(Plus, { size: 20, color: "#21C063" })), "New list"),
+      subHead("Your lists"),
+      listRow("fav", ce(GiHeart, { size: 20, color: "#F5F7FA" }), "Favorites", !!isFav, () => onToggleFavorite && onToggleFavorite()),
+      lists.map((l) => listRow(l.id, dot(l.color), l.name, inList(l), () => toggleList(l))),
+      GI_SUGGEST.filter(([n]) => !lists.some((l) => l.name === n)).length > 0 && subHead("Suggestions"),
+      GI_SUGGEST.filter(([n]) => !lists.some((l) => l.name === n)).map(([n, col]) => listRow("s" + n, dot(col), n, false, () => addSuggest(n, col))),
+      ce("div", { key: "done", style: { padding: "14px 18px 0" } }, ce("button", { onClick: () => setSheet(null), style: { width: "100%", padding: 14, borderRadius: 999, border: "none", background: "#21C063", color: "#06210F", fontFamily: "Sora", fontWeight: 700, fontSize: 16, cursor: "pointer" } }, "Done"))]),
+
+    sheet === "link" && gsheet("Group link", [
+      ce("div", { key: "n", style: { padding: "0 24px 8px", fontFamily: "Inter", fontSize: 13, color: "#21C063", overflowWrap: "anywhere" } }, link),
+      row("copy", ico(GiCopy), copied ? "Copied ✓" : "Copy link", null, { onClick: copy }),
+      row("share", ico(ForwardIcon), "Share link", null, { onClick: share }),
+      row("sms", ico(Send), "Send link via SMS", null, { onClick: () => { window.location.href = "sms:?&body=" + encodeURIComponent("Join \"" + c.name + "\" on Letschat Africa: " + link); } }),
+      row("reset", ico(GiRefresh), "Reset link", null, { color: "#FF6B5D", onClick: () => window.confirm("Reset the link? The old link will stop working.") && call("reset", "invite/reset", {}) })]),
+
+    sheet === "add" && gsheet("Add members", [
+      ce("div", { key: "ph", style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", alignItems: "center", padding: "0 20px 8px" } },
+        ce("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } }, ce("input", { value: phone, onChange: (e) => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[^0-9+\-()\s]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@nickname, email or phone", style: { ...inputEl, fontSize: 13.5 } })),
+        ce("button", { onClick: addByPhone, disabled: busy === "phone" || !phone.trim(), style: smallBtn }, busy === "phone" ? "…" : "Add")),
+      error && ce("div", { key: "er", style: { padding: "0 4px" } }, ce(Banner, { text: error, onClose: () => setError("") })),
+      ce("div", { key: "ls", style: { padding: "0 22px" } },
+        addable.map((u) => ce(PersonRow, { key: u.id, u, online: !!presence[u.id], status: statusText(!!presence[u.id], lastSeen[u.id]), right: ce("button", { onClick: () => call(u.id, "members", { userIds: [u.id] }), disabled: busy === u.id, style: smallBtn }, busy === u.id ? "…" : "Add") })),
+        addable.length === 0 && ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8A96A5", padding: "8px 0" } }, "All your contacts are already in this group."))]),
+
+    sheet === "name" && gsheet("Group name", ce("div", { style: { padding: "0 20px 6px" } },
+      ce("div", { style: inputBox }, ce("input", { autoFocus: true, value: nameDraft, maxLength: 60, onChange: (e) => setNameDraft(e.target.value), style: inputEl })),
+      ce("button", { onClick: saveName, disabled: busy === "name", style: { ...primaryBtn(busy === "name"), background: "#21C063", color: "#06210F" } }, busy === "name" ? "Saving…" : "Save"))),
+
+    sheet === "desc" && gsheet("Group description", ce("div", { style: { padding: "0 20px 6px" } },
+      ce("div", { style: { ...inputBox, alignItems: "flex-start" } }, ce("textarea", { autoFocus: true, value: desc, maxLength: 300, rows: 4, onChange: (e) => setDesc(e.target.value), placeholder: "What is this group about?", style: { ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14.5, resize: "none" } })),
+      ce("button", { onClick: saveDesc, disabled: busy === "desc", style: { ...primaryBtn(busy === "desc"), background: "#21C063", color: "#06210F" } }, busy === "desc" ? "Saving…" : "Save"))),
+
+    profile && ce(MemberProfileSheet, { m: profile, c, myId, isAdmin, presence, lastSeen, call, onClose: () => setProfile(null) }),
+    zoom && ce(ImageZoomModal, { photo: c.avatar, initials: c.other.initials, color: GROUP_COLOR, onClose: () => setZoom(false) }));
+}
+function MemberProfileSheet({ m, c, myId, isAdmin, presence, lastSeen, call, onClose }) {
+  const [zoom, setZoom] = useState(false);
+  const [sent, setSent] = useState(false);
+  const mine = m.id === myId;
+  const online = mine || !!presence[m.id];
+  const rq = (c.dmRequests || []).filter(r => r.from === myId && r.to === m.id).slice(-1)[0];
+  const direct = isAdmin || c.adminId === m.id; // admin chats need no approval
+  const done = (sent && !rq) || (rq && (rq.status === "pending" || rq.status === "approved"));
+  const label = sent && !rq ? "Chat added to your Chats ✓" : rq && rq.status === "pending" ? "Request sent, waiting for the admin" : rq && rq.status === "approved" ? "Approved: it's in your Chats" : rq && rq.status === "declined" ? "Declined. Ask again" : direct ? "Message privately" : "Request private chat";
+  return (
+    <div style={{ ...sheet, zIndex: 30 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, alignItems: "center", textAlign: "center" }}>
+        <Ring size={110} color={m.color} initials={m.initials} photo={m.avatar} online={online} onClick={m.avatar ? () => setZoom(true) : undefined} />
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 12 }}>{m.name}{mine ? " (you)" : ""}</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginBottom: 8 }}>{mine ? "online" : statusText(online, lastSeen[m.id])}</div>
+        {m.about && <div style={{ fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 10 }}>{m.about}</div>}
+        {isAdmin && (m.phone || m.email) && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", marginBottom: 10 }}>{m.phone && <div>+{m.phone}</div>}{m.email && <div>{m.email}</div>}</div>}
+        {!mine && <button onClick={async () => { if (await call(m.id, "dm-requests", { toId: m.id })) setSent(true); }} disabled={!!done} style={{ ...primaryBtn(!!done), marginTop: 6 }}>{label}</button>}
+        {zoom && <ImageZoomModal photo={m.avatar} initials={m.initials} color={m.color} onClose={() => setZoom(false)} />}
+      </div>
+    </div>
+  );
+}
+
+function JoinGroupModal({ code, token, onClose, onJoined }) {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/api/v1/groups/invite/" + encodeURIComponent(code), { token }).then(setInfo).catch(e => setError(e.message));
+  }, [code]);
+  const join = async () => {
+    setBusy(true); setError("");
+    try { const { conversation } = await api("/api/v1/groups/join", { method: "POST", token, body: { code } }); onJoined(conversation); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Join group</div>
+        {info && <div style={{ fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 16 }}>You were invited to <b style={{ color: "#F5F7FA" }}>{info.name}</b> · {info.memberCount} members</div>}
+        {!info && !error && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8A96A5", marginBottom: 16 }}>Checking invite link…</div>}
+        {error && <Banner text={error} />}
+        {info && <button onClick={join} disabled={busy} style={primaryBtn(busy)}>{busy ? "Joining…" : info.joined ? "Open group" : "Join group"}</button>}
+        <button onClick={onClose} style={{ ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 }}>{info ? "Not now" : "Close"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ---- games: single-player games that run on the phone (no server needed). Best scores are kept on this device. ----
+const shuffled = (arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const gameBtn = { background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "10px 16px", fontFamily: "Inter", fontWeight: 600, fontSize: 14, cursor: "pointer" };
+
+// swipe on an element -> "left" | "right" | "up" | "down" (the element also stops the page from scrolling while you play)
+function useSwipe(ref, onSwipe) {
+  const cb = useRef(onSwipe); cb.current = onSwipe;
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    let sx = 0, sy = 0, on = false;
+    const ts = (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; on = true; };
+    const te = (e) => {
+      if (!on) return; on = false;
+      const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+      cb.current(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
+    };
+    const tm = (e) => e.preventDefault();
+    el.addEventListener("touchstart", ts, { passive: true });
+    el.addEventListener("touchend", te, { passive: true });
+    el.addEventListener("touchmove", tm, { passive: false });
+    return () => { el.removeEventListener("touchstart", ts); el.removeEventListener("touchend", te); el.removeEventListener("touchmove", tm); };
+  }, []);
+}
+// ---- Escape / back layers INSIDE a tab (an open game, a post form, a status viewer...) ----
+// A tab calls useInnerBack(isOpen, closeFn) while it has an operation open. Escape / the system back button then
+// close that operation first and stay on the tab; only when nothing is open does it go back to the chat list.
+let innerBackReg = null;
+function useInnerBack(open, close) {
+  const cb = useRef(close); cb.current = close;
+  useEffect(() => {
+    if (!open || !innerBackReg) return;
+    return innerBackReg(() => { cb.current && cb.current(); });
+  }, [!!open]);
+}
+// ---- Safety net: a crash in one screen must never blank the whole app ----
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null, tries: 0 }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) {
+    try { console.error(err); } catch (e) { }
+    if (this.state.tries < 2) this.t = setTimeout(() => this.setState((s) => ({ err: null, tries: s.tries + 1 })), 700); // quiet self-recovery
+  }
+  componentWillUnmount() { clearTimeout(this.t); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const b = { padding: "12px 20px", borderRadius: 12, border: "none", fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 15, cursor: "pointer" };
+    return React.createElement("div", { role: "alert", style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: 24, textAlign: "center", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter, sans-serif" } },
+      React.createElement("div", { style: { fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 18 } }, "Something hiccuped"),
+      React.createElement("div", { style: { color: "#9BA7B4", fontSize: 14, maxWidth: 320 } }, "Your chats are safe. Tap below to carry on."),
+      React.createElement("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
+        React.createElement("button", { onClick: () => this.setState({ err: null, tries: 0 }), style: { ...b, background: "#35D0BA", color: "#05070A" } }, "Try again"),
+        React.createElement("button", { onClick: () => location.reload(), style: { ...b, background: "#1E2530", color: "#F5F7FA" } }, "Reload")));
+  }
+}
+const ARROWS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+function useArrowKeys(onDir) {
+  const cb = useRef(onDir); cb.current = onDir;
+  useEffect(() => {
+    const h = (e) => { const d = ARROWS[e.key]; if (!d || /^(input|textarea)$/i.test((e.target && e.target.tagName) || "")) return; e.preventDefault(); cb.current(d); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+}
+
+// ---------- Tic-Tac-Toe (you are X, the computer is O) ----------
+const TTT_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+function tttWinner(b) {
+  for (const [x, y, z] of TTT_LINES) if (b[x] && b[x] === b[y] && b[x] === b[z]) return { who: b[x], line: [x, y, z] };
+  return b.every(Boolean) ? { who: "draw", line: [] } : null;
+}
+function tttScore(b, turn, depth) {
+  const w = tttWinner(b);
+  if (w) return w.who === "O" ? 10 - depth : w.who === "X" ? depth - 10 : 0;
+  let best = turn === "O" ? -99 : 99;
+  for (let i = 0; i < 9; i++) if (!b[i]) {
+    b[i] = turn;
+    const s = tttScore(b, turn === "O" ? "X" : "O", depth + 1);
+    b[i] = null;
+    best = turn === "O" ? Math.max(best, s) : Math.min(best, s);
+  }
+  return best;
+}
+function tttPick(board, level) {
+  const b = board.slice();
+  const free = [];
+  b.forEach((v, i) => { if (!v) free.push(i); });
+  if (!free.length) return -1;
+  const rnd = () => free[Math.floor(Math.random() * free.length)];
+  if (level === "easy") return rnd();
+  if (level === "normal") { // win if it can, block you if it must, otherwise take the centre or anything
+    for (const who of ["O", "X"]) for (const i of free) { b[i] = who; const w = tttWinner(b); b[i] = null; if (w && w.who === who) return i; }
+    return b[4] ? rnd() : 4;
+  }
+  if (free.length === 9) return [0, 2, 4, 6, 8][Math.floor(Math.random() * 5)];
+  let best = -99, pick = free[0];
+  for (const i of free) { b[i] = "O"; const s = tttScore(b, "X", 1); b[i] = null; if (s > best || (s === best && Math.random() < 0.3)) { best = s; pick = i; } }
+  return pick;
+}
+function TicTacToeGame({ stats, onResult }) {
+  const [level, setLevel] = useState("normal");
+  const [board, setBoard] = useState(Array(9).fill(null));
+  const [turn, setTurn] = useState("X");
+  const [youStart, setYouStart] = useState(true);
+  const reported = useRef(false);
+  const result = tttWinner(board);
+  useEffect(() => {
+    if (result) { if (!reported.current) { reported.current = true; onResult(result.who === "X" ? "w" : result.who === "O" ? "l" : "d"); } return; }
+    if (turn !== "O") return;
+    const t = setTimeout(() => {
+      setBoard(b => { const i = tttPick(b, level); if (i < 0) return b; const nb = b.slice(); nb[i] = "O"; return nb; });
+      setTurn("X");
+    }, 380);
+    return () => clearTimeout(t);
+  }, [board, turn, level]);
+  const play = (i) => { if (result || turn !== "X" || board[i]) return; const nb = board.slice(); nb[i] = "X"; setBoard(nb); setTurn("O"); };
+  const again = () => { const ys = !youStart; setYouStart(ys); setBoard(Array(9).fill(null)); reported.current = false; setTurn(ys ? "X" : "O"); };
+  const msg = result ? (result.who === "X" ? "You win! 🎉" : result.who === "O" ? "Computer wins" : "It's a draw") : turn === "X" ? "Your turn (X)" : "Computer is thinking…";
+  const s = stats || { w: 0, d: 0, l: 0 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8" }}>
+        {[["easy", "Easy"], ["normal", "Normal"], ["hard", "Hard"]].map(([id, label]) => (
+          <button key={id} onClick={() => setLevel(id)} style={{ ...gameBtn, padding: "7px 14px", fontSize: 13, background: level === id ? "#35D0BA" : "#1E2530", color: level === id ? "#0E1116" : "#F5F7FA" }}>{label}</button>
+        ))}
+      </div>
+      <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", minHeight: 24 }}>{msg}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, counterIncrement: "lcgap-8", width: "100%", maxWidth: 300 }}>
+        {board.map((v, i) => {
+          const win = result && result.line.includes(i);
+          return (
+            <button key={i} aria-label={"Square " + (i + 1)} onClick={() => play(i)} style={{ aspectRatio: "1 / 1", counterReset: "lcar-1-1", borderRadius: 14, border: win ? "2px solid #35D0BA" : "1px solid #2B3544", background: win ? "#35D0BA22" : "#161B22", fontFamily: "Sora", fontWeight: 800, fontSize: 42, color: v === "X" ? "#35D0BA" : "#F2B84B", cursor: v || result ? "default" : "pointer", padding: 0 }}>{v}</button>
+          );
+        })}
+      </div>
+      {result && <button onClick={again} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>Play again</button>}
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Wins {s.w} · Draws {s.d} · Losses {s.l}</div>
+    </div>
+  );
+}
+
+// ---------- Memory Match ----------
+const MEM_EMOJI = ["🦁", "🐘", "🦒", "🦓", "🐆", "🦛", "🦜", "🐒", "🦩", "🐊", "🦏", "🐍"];
+function MemoryGame({ best, onScore }) {
+  const [cards] = useState(() => { const p = shuffled(MEM_EMOJI).slice(0, 8); return shuffled([...p, ...p]); });
+  const [open, setOpen] = useState([]);
+  const [done, setDone] = useState([]);
+  const [moves, setMoves] = useState(0);
+  const [secs, setSecs] = useState(0);
+  const [started, setStarted] = useState(false);
+  const won = done.length === cards.length;
+  useEffect(() => { if (!started || won) return; const t = setInterval(() => setSecs(x => x + 1), 1000); return () => clearInterval(t); }, [started, won]);
+  useEffect(() => { if (won) onScore(moves); }, [won]);
+  const flip = (i) => {
+    if (open.length >= 2 || open.includes(i) || done.includes(i)) return;
+    setStarted(true);
+    const next = [...open, i];
+    setOpen(next);
+    if (next.length === 2) {
+      setMoves(m => m + 1);
+      const [a, b] = next;
+      if (cards[a] === cards[b]) setTimeout(() => { setDone(d => [...d, a, b]); setOpen([]); }, 350);
+      else setTimeout(() => setOpen([]), 800);
+    }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 22, counterIncrement: "lcgap-22", fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+        <span>Moves <b style={{ color: "#F5F7FA" }}>{moves}</b></span>
+        <span>Time <b style={{ color: "#F5F7FA" }}>{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}</b></span>
+        <span>Best <b style={{ color: "#F2B84B" }}>{best || "–"}</b></span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, counterIncrement: "lcgap-8", width: "100%", maxWidth: 340 }}>
+        {cards.map((e, i) => {
+          const up = open.includes(i) || done.includes(i);
+          return (
+            <button key={i} aria-label={up ? e : "Hidden card"} onClick={() => flip(i)} style={{ aspectRatio: "1 / 1", counterReset: "lcar-1-1", borderRadius: 12, border: done.includes(i) ? "2px solid #35D0BA" : "1px solid #2B3544", background: up ? "#161B22" : "#1E8677", fontSize: 32, padding: 0, cursor: up ? "default" : "pointer", opacity: done.includes(i) ? 0.75 : 1 }}>{up ? e : ""}</button>
+          );
+        })}
+      </div>
+      {won && <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#35D0BA", textAlign: "center" }}>You found them all in {moves} moves! 🎉<div style={{ fontFamily: "Inter", fontWeight: 400, fontSize: 13, color: "#8891A0", marginTop: 4 }}>Tap ↻ at the top to play again.</div></div>}
+    </div>
+  );
+}
+
+// ---------- Snake ----------
+const SNAKE_N = 16, SNAKE_CELL = 20;
+const SNAKE_DIRS = { left: { x: -1, y: 0 }, right: { x: 1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
+function SnakeGame({ best, onScore }) {
+  const canvasRef = useRef(null);
+  const g = useRef(null);
+  const timer = useRef(null);
+  const scoreCb = useRef(onScore); scoreCb.current = onScore;
+  const [status, setStatus] = useState("ready");
+  const [score, setScore] = useState(0);
+  const stop = () => { clearInterval(timer.current); timer.current = null; };
+  useEffect(() => { draw(); return stop; }, []);
+  const placeFood = (snake) => {
+    const free = [];
+    for (let x = 0; x < SNAKE_N; x++) for (let y = 0; y < SNAKE_N; y++) if (!snake.some(p => p.x === x && p.y === y)) free.push({ x, y });
+    return free[Math.floor(Math.random() * free.length)];
+  };
+  const draw = () => {
+    const cv = canvasRef.current; if (!cv) return;
+    const c = cv.getContext("2d"), s = g.current, C = SNAKE_CELL;
+    c.fillStyle = "#0B0E13"; c.fillRect(0, 0, cv.width, cv.height);
+    c.fillStyle = "#121821";
+    for (let x = 0; x < SNAKE_N; x++) for (let y = 0; y < SNAKE_N; y++) if ((x + y) % 2) c.fillRect(x * C, y * C, C, C);
+    if (!s) return;
+    c.fillStyle = "#FF6B5D"; c.beginPath(); c.arc(s.food.x * C + C / 2, s.food.y * C + C / 2, C / 2 - 3, 0, Math.PI * 2); c.fill();
+    s.snake.forEach((p, i) => { c.fillStyle = i === 0 ? "#7CF0DE" : "#35D0BA"; c.fillRect(p.x * C + 1, p.y * C + 1, C - 2, C - 2); });
+  };
+  const speed = (sc) => Math.max(70, 140 - Math.floor(sc / 10) * 4);
+  const tick = () => {
+    const s = g.current; if (!s) return;
+    s.dir = s.next;
+    const head = { x: s.snake[0].x + s.dir.x, y: s.snake[0].y + s.dir.y };
+    const eat = head.x === s.food.x && head.y === s.food.y;
+    const body = eat ? s.snake : s.snake.slice(0, -1);
+    if (head.x < 0 || head.y < 0 || head.x >= SNAKE_N || head.y >= SNAKE_N || body.some(p => p.x === head.x && p.y === head.y)) {
+      stop(); setStatus("over"); scoreCb.current(s.score); draw(); return;
+    }
+    s.snake = [head, ...body];
+    if (eat) { s.score += 10; setScore(s.score); s.food = placeFood(s.snake); stop(); timer.current = setInterval(tick, speed(s.score)); }
+    draw();
+  };
+  const start = () => {
+    stop();
+    const snake = [{ x: 5, y: 8 }, { x: 4, y: 8 }, { x: 3, y: 8 }];
+    g.current = { snake, dir: SNAKE_DIRS.right, next: SNAKE_DIRS.right, food: placeFood(snake), score: 0 };
+    setScore(0); setStatus("playing"); draw();
+    timer.current = setInterval(tick, speed(0));
+  };
+  const turn = (name) => {
+    const s = g.current, v = SNAKE_DIRS[name];
+    if (!s || !timer.current || (v.x === -s.dir.x && v.y === -s.dir.y)) return;
+    s.next = v;
+  };
+  useSwipe(canvasRef, turn);
+  useArrowKeys(turn);
+  const pad = { width: 62, height: 52, borderRadius: 14, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", fontSize: 22, cursor: "pointer", padding: 0 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 24, counterIncrement: "lcgap-24", fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+        <span>Score <b style={{ color: "#F5F7FA" }}>{score}</b></span>
+        <span>Best <b style={{ color: "#F2B84B" }}>{Math.max(best || 0, status === "over" ? score : 0)}</b></span>
+      </div>
+      <div style={{ position: "relative", width: "100%", maxWidth: 340 }}>
+        <canvas ref={canvasRef} width={SNAKE_N * SNAKE_CELL} height={SNAKE_N * SNAKE_CELL} style={{ width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", display: "block", borderRadius: 14, border: "1px solid #2B3544", touchAction: "none" }} />
+        {status !== "playing" && (
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12" }}>
+            <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" }}>{status === "over" ? "Game over · " + score : "Snake 🐍"}</div>
+            <button onClick={start} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>{status === "over" ? "Try again" : "Start"}</button>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8891A0" }}>Swipe or use the arrows to steer</div>
+          </div>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 62px)", gap: 6, counterIncrement: "lcgap-6", justifyContent: "center" }}>
+        <span /><button aria-label="Up" onClick={() => turn("up")} style={pad}>▲</button><span />
+        <button aria-label="Left" onClick={() => turn("left")} style={pad}>◀</button>
+        <button aria-label="Down" onClick={() => turn("down")} style={pad}>▼</button>
+        <button aria-label="Right" onClick={() => turn("right")} style={pad}>▶</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 2048 ----------
+function g2048Slide(row) {
+  const a = row.filter(Boolean); let gained = 0;
+  for (let i = 0; i < a.length - 1; i++) if (a[i] === a[i + 1]) { a[i] *= 2; gained += a[i]; a.splice(i + 1, 1); }
+  while (a.length < 4) a.push(0);
+  return [a, gained];
+}
+function g2048Move(grid, dir) {
+  const out = grid.map(r => r.slice());
+  let gained = 0, moved = false;
+  const at = (i, j) => (dir === "left" ? [i, j] : dir === "right" ? [i, 3 - j] : dir === "up" ? [j, i] : [3 - j, i]);
+  for (let i = 0; i < 4; i++) {
+    const line = [];
+    for (let j = 0; j < 4; j++) { const [r, c] = at(i, j); line.push(grid[r][c]); }
+    const [res, gain] = g2048Slide(line);
+    gained += gain;
+    for (let j = 0; j < 4; j++) { const [r, c] = at(i, j); if (out[r][c] !== res[j]) moved = true; out[r][c] = res[j]; }
+  }
+  return { grid: out, gained, moved };
+}
+function g2048Add(grid) {
+  const empty = [];
+  grid.forEach((row, r) => row.forEach((v, c) => { if (!v) empty.push([r, c]); }));
+  if (!empty.length) return grid;
+  const [r, c] = empty[Math.floor(Math.random() * empty.length)];
+  const out = grid.map(x => x.slice());
+  out[r][c] = Math.random() < 0.9 ? 2 : 4;
+  return out;
+}
+const g2048CanMove = (grid) => ["left", "right", "up", "down"].some(d => g2048Move(grid, d).moved);
+const TILE_COLORS = { 0: ["#1B222D", "#1B222D"], 2: ["#2B3544", "#F5F7FA"], 4: ["#34445A", "#F5F7FA"], 8: ["#F2B84B", "#0E1116"], 16: ["#F29A4B", "#0E1116"], 32: ["#FF8A5D", "#0E1116"], 64: ["#FF6B5D", "#0E1116"], 128: ["#35D0BA", "#0E1116"], 256: ["#2BB8A3", "#0E1116"], 512: ["#4FA8E0", "#0E1116"], 1024: ["#8B7CF6", "#0E1116"], 2048: ["#F5F7FA", "#0E1116"] };
+function Game2048({ best, onScore }) {
+  const [grid, setGrid] = useState(() => g2048Add(g2048Add(Array.from({ length: 4 }, () => Array(4).fill(0)))));
+  const [score, setScore] = useState(0);
+  const [over, setOver] = useState(false);
+  const [won, setWon] = useState(false);
+  const boardRef = useRef(null);
+  const cur = useRef({}); cur.current = { grid, score, over };
+  const move = (dir) => {
+    const s = cur.current; if (s.over) return;
+    const r = g2048Move(s.grid, dir); if (!r.moved) return;
+    const next = g2048Add(r.grid), sc = s.score + r.gained;
+    setGrid(next); setScore(sc); onScore(sc);
+    if (next.some(row => row.includes(2048))) setWon(true);
+    if (!g2048CanMove(next)) setOver(true);
+  };
+  useSwipe(boardRef, move);
+  useArrowKeys(move);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 20px 24px" }}>
+      <div style={{ display: "flex", gap: 24, counterIncrement: "lcgap-24", fontFamily: "Inter", fontSize: 14, color: "#B9C2CC" }}>
+        <span>Score <b style={{ color: "#F5F7FA" }}>{score}</b></span>
+        <span>Best <b style={{ color: "#F2B84B" }}>{Math.max(best || 0, score)}</b></span>
+      </div>
+      <div ref={boardRef} style={{ position: "relative", width: "100%", maxWidth: 340, touchAction: "none", background: "#10151C", borderRadius: 14, padding: 8, border: "1px solid #2B3544", boxSizing: "border-box" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, counterIncrement: "lcgap-8" }}>
+          {grid.flat().map((v, i) => {
+            const [bg, fg] = TILE_COLORS[v] || ["#F5F7FA", "#0E1116"];
+            return <div key={i} style={{ aspectRatio: "1 / 1", counterReset: "lcar-1-1", borderRadius: 10, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 800, fontSize: v >= 1024 ? 20 : v >= 128 ? 24 : 28 }}>{v || ""}</div>;
+          })}
+        </div>
+        {(over || won) && (
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 14, background: "rgba(11,14,19,0.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, counterIncrement: "lcgap-10" }}>
+            <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" }}>{over ? "No more moves" : "You made 2048! 🎉"}</div>
+            {over ? <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>Score {score} · tap ↻ for a new game</div> : <button onClick={() => setWon(false)} style={{ ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none" }}>Keep going</button>}
+          </div>
+        )}
+      </div>
+      <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", textAlign: "center" }}>Swipe to slide the tiles. Matching numbers merge.</div>
+    </div>
+  );
+}
+
+// ===================== 8-BALL POOL (vs the computer) =====================
+// Plain JS on purpose (no JSX). Table is W x H "pool pixels" (portrait, like the iMessage game); balls are numbered 1-15 + cue (index 0).
+const POOL = { W: 400, H: 800, R: 10.5, RAIL: 34, SUB: 8, PULL: 150, MAXV: 25 };
+const POOL_COLORS = ["#FFFFFF", "#F2C230", "#2458C8", "#D8332A", "#6A2C98", "#F08A24", "#1E9450", "#8E1F24", "#15171B"];
+const POOL_POCKETS = [
+    { x: -5, y: -5, r: 25 }, { x: POOL.W + 5, y: -5, r: 25 },
+    { x: -9, y: POOL.H / 2, r: 22 }, { x: POOL.W + 9, y: POOL.H / 2, r: 22 },
+    { x: -5, y: POOL.H + 5, r: 25 }, { x: POOL.W + 5, y: POOL.H + 5, r: 25 },
+];
+const POOL_GAP = 24; // length of the pocket mouth (cushions stop here)
+const POOL_KNOBS = (() => {
+    const W = POOL.W, H = POOL.H, g = POOL_GAP;
+    return [[0, g], [g, 0], [W, g], [W - g, 0], [0, H - g], [g, H], [W, H - g], [W - g, H], [0, H / 2 - g], [0, H / 2 + g], [W, H / 2 - g], [W, H / 2 + g]];
+})();
+function poolGroup(n) { return n === 8 ? "eight" : n < 8 ? "solid" : "stripe"; }
+function poolNewBalls() {
+    const R = POOL.R, W = POOL.W, H = POOL.H;
+    const B = [{ n: 0, x: W / 2, y: H * 0.75, vx: 0, vy: 0, on: true, fall: 0 }];
+    const rest = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15];
+    for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
+    const dy = R * 1.7320508 + 0.4, dx = R * 2 + 0.2, apexY = H * 0.27;
+    let k = 0;
+    for (let row = 0; row < 5; row++) for (let c = 0; c <= row; c++) {
+        const n = (row === 2 && c === 1) ? 8 : rest[k++];
+        B.push({ n, x: W / 2 + (c - row / 2) * dx, y: apexY - row * dy, vx: 0, vy: 0, on: true, fall: 0 });
+    }
+    return B;
+}
+function poolNewEvent() { return { first: null, pocketed: [], cue: false, rail: false, snd: [] }; }
+function poolStep(B, ev, h) {
+    const W = POOL.W, H = POOL.H, R = POOL.R, G = POOL_GAP;
+    for (let i = 0; i < B.length; i++) { const b = B[i]; if (b.on) { b.x += b.vx * h; b.y += b.vy * h; } }
+    for (let i = 0; i < B.length; i++) {
+        const a = B[i]; if (!a.on) continue;
+        for (let j = i + 1; j < B.length; j++) {
+            const b = B[j]; if (!b.on) continue;
+            let dx = b.x - a.x, dy = b.y - a.y; const d2 = dx * dx + dy * dy;
+            if (d2 >= 4 * R * R) continue;
+            let d = Math.sqrt(d2); if (d < 0.0001) { dx = 1; dy = 0; d = 1; }
+            const nx = dx / d, ny = dy / d, ov = (2 * R - d) / 2;
+            a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
+            const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+            if (vn > 0) {
+                const J = vn * (1 + 0.96) / 2;
+                a.vx -= J * nx; a.vy -= J * ny; b.vx += J * nx; b.vy += J * ny;
+                if (ev.snd.length < 12) ev.snd.push({ k: "ball", v: vn });
+            }
+            if (i === 0 && ev.first == null) ev.first = b.n;
+        }
+    }
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        // cushions (they stop at the pocket mouths)
+        if (b.x < R && !(b.y < G || b.y > H - G || Math.abs(b.y - H / 2) < G)) { b.x = R; if (b.vx < 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: -b.vx }); b.vx = -b.vx * 0.8; b.vy *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.x > W - R && !(b.y < G || b.y > H - G || Math.abs(b.y - H / 2) < G)) { b.x = W - R; if (b.vx > 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: b.vx }); b.vx = -b.vx * 0.8; b.vy *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.y < R && !(b.x < G || b.x > W - G)) { b.y = R; if (b.vy < 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: -b.vy }); b.vy = -b.vy * 0.8; b.vx *= 0.99; if (ev.first != null) ev.rail = true; } }
+        if (b.y > H - R && !(b.x < G || b.x > W - G)) { b.y = H - R; if (b.vy > 0) { if (ev.snd.length < 12) ev.snd.push({ k: "rail", v: b.vy }); b.vy = -b.vy * 0.8; b.vx *= 0.99; if (ev.first != null) ev.rail = true; } }
+        // pocket jaws
+        for (let k = 0; k < POOL_KNOBS.length; k++) {
+            const kx = POOL_KNOBS[k][0], ky = POOL_KNOBS[k][1];
+            const dx = b.x - kx, dy = b.y - ky, rr = R + 2.5, d2 = dx * dx + dy * dy;
+            if (d2 < rr * rr && d2 > 0.0001) {
+                const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+                b.x = kx + nx * rr; b.y = ky + ny * rr;
+                const vn = b.vx * nx + b.vy * ny;
+                if (vn < 0) { b.vx -= 1.75 * vn * nx; b.vy -= 1.75 * vn * ny; if (ev.first != null) ev.rail = true; }
+            }
+        }
+        // pockets
+        let hit = -1;
+        for (let k = 0; k < POOL_POCKETS.length; k++) { const p = POOL_POCKETS[k]; if (Math.hypot(b.x - p.x, b.y - p.y) < p.r) { hit = k; break; } }
+        if (hit < 0 && (b.x < -4 || b.x > W + 4 || b.y < -4 || b.y > H + 4)) {
+            let best = 1e9; for (let k = 0; k < POOL_POCKETS.length; k++) { const d = Math.hypot(b.x - POOL_POCKETS[k].x, b.y - POOL_POCKETS[k].y); if (d < best) { best = d; hit = k; } }
+        }
+        if (hit >= 0) {
+            b.on = false; b.vx = 0; b.vy = 0; b.fall = 0; b.pk = hit; b.fx = b.x; b.fy = b.y;
+            if (b.n === 0) ev.cue = true; else ev.pocketed.push(b.n);
+            if (ev.snd.length < 12) ev.snd.push({ k: "pocket", v: 5 });
+        }
+    }
+}
+function poolFrame(B, ev) {
+    const h = 1 / POOL.SUB;
+    for (let k = 0; k < POOL.SUB; k++) poolStep(B, ev, h);
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const s = Math.hypot(b.vx, b.vy); if (s === 0) continue;
+        let ns = s * 0.9885 - 0.012; if (ns < 0.05) ns = 0;
+        const k = ns / s; b.vx *= k; b.vy *= k;
+    }
+}
+function poolMoving(B) { for (let i = 0; i < B.length; i++) if (B[i].on && (B[i].vx !== 0 || B[i].vy !== 0)) return true; return false; }
+function poolRemaining(B, grp) { let c = 0; for (let i = 1; i < B.length; i++) if (B[i].on && poolGroup(B[i].n) === grp) c++; return c; }
+function poolFree(B, x, y, skip) {
+    const R = POOL.R;
+    if (x < R || x > POOL.W - R || y < R || y > POOL.H - R) return false;
+    for (let i = 0; i < B.length; i++) { const b = B[i]; if (!b.on || b.n === skip) continue; if (Math.hypot(b.x - x, b.y - y) < 2 * R + 0.5) return false; }
+    return true;
+}
+// Follow a shot line: first thing it touches (a ball, or a cushion).
+function poolTrace(B, x, y, ang) {
+    const R = POOL.R, dx = Math.cos(ang), dy = Math.sin(ang);
+    let t = 1e9, hit = null;
+    if (dx > 1e-6) t = Math.min(t, (POOL.W - R - x) / dx); else if (dx < -1e-6) t = Math.min(t, (R - x) / dx);
+    if (dy > 1e-6) t = Math.min(t, (POOL.H - R - y) / dy); else if (dy < -1e-6) t = Math.min(t, (R - y) / dy);
+    for (let i = 1; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const px = b.x - x, py = b.y - y, tb = px * dx + py * dy; if (tb <= 0) continue;
+        const perp2 = px * px + py * py - tb * tb; if (perp2 >= 4 * R * R) continue;
+        const tt = tb - Math.sqrt(4 * R * R - perp2);
+        if (tt < t) { t = tt; hit = b; }
+    }
+    return { t: Math.max(0, t), hit, x: x + dx * Math.max(0, t), y: y + dy * Math.max(0, t) };
+}
+// ---- rules: called once every ball has stopped. g = {B, turn, groups, broke, ev, cleared}; returns what happened ----
+function poolResolve(g) {
+    const ev = g.ev, p = g.turn, B = g.B, me = g.groups[p];
+    const pocketed = ev.pocketed.slice();
+    let foul = false, reason = "";
+    if (ev.cue) { foul = true; reason = "cue ball potted"; }
+    else if (ev.first == null) { foul = true; reason = "missed every ball"; }
+    else {
+        const fg = poolGroup(ev.first);
+        if (me) { const need = g.cleared ? "eight" : me; if (fg !== need) { foul = true; reason = need === "eight" ? "must hit the 8-ball" : "hit the wrong ball first"; } }
+        else if (fg === "eight") { foul = true; reason = "hit the 8-ball first"; }
+    }
+    if (!foul && pocketed.length === 0 && !ev.rail) { foul = true; reason = "no ball reached a cushion"; }
+    const out = { foul, reason, pocketed, winner: null, respot8: false, switched: false, assigned: false, cont: false };
+    if (pocketed.indexOf(8) >= 0) {
+        if (!g.broke) { out.respot8 = true; }
+        else if (foul || !g.cleared) { out.winner = 1 - p; out.why = ev.cue ? "scratched on the 8-ball" : (g.cleared ? "fouled on the 8-ball" : "potted the 8-ball too early"); }
+        else { out.winner = p; }
+    }
+    if (out.winner == null) {
+        if (g.broke && !me && !foul) {
+            const first = pocketed.filter((n) => n !== 8)[0];
+            if (first) { g.groups[p] = poolGroup(first); g.groups[1 - p] = g.groups[p] === "solid" ? "stripe" : "solid"; out.assigned = true; }
+        }
+        const mine = g.groups[p];
+        const own = pocketed.filter((n) => n !== 8 && (mine ? poolGroup(n) === mine : true));
+        out.cont = !foul && own.length > 0;
+        if (out.respot8 && !foul) out.cont = own.length > 0;
+        if (!out.cont) { out.switched = true; }
+    }
+    return out;
+}
+// ---- computer player ----
+function poolGauss() { return (Math.random() + Math.random() + Math.random() - 1.5) * 1.1547; }
+function poolSegClear(B, ax, ay, bx, by, rad, s1, s2) {
+    const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy;
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (!b.on || b.n === s1 || b.n === s2 || b.n === 0) continue;
+        let t = L2 > 0 ? ((b.x - ax) * vx + (b.y - ay) * vy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+        if (Math.hypot(ax + vx * t - b.x, ay + vy * t - b.y) < rad) return false;
+    }
+    return true;
+}
+function poolTargets(B, grp, cleared) {
+    const out = [];
+    for (let i = 1; i < B.length; i++) {
+        const b = B[i]; if (!b.on) continue;
+        const g = poolGroup(b.n);
+        if (cleared) { if (g === "eight") out.push(b); } else if (grp ? g === grp : g !== "eight") out.push(b);
+    }
+    return out;
+}
+const POOL_AIMPTS = [[7, 7], [POOL.W - 7, 7], [3, POOL.H / 2], [POOL.W - 3, POOL.H / 2], [7, POOL.H - 7], [POOL.W - 7, POOL.H - 7]];
+function poolBestShot(B, cx, cy, targets) {
+    const R = POOL.R; let best = null;
+    for (const t of targets) for (let pi = 0; pi < POOL_AIMPTS.length; pi++) {
+        const a = POOL_AIMPTS[pi], ddx = a[0] - t.x, ddy = a[1] - t.y, dist2 = Math.hypot(ddx, ddy), ux = ddx / dist2, uy = ddy / dist2;
+        const gx = t.x - ux * 2 * R, gy = t.y - uy * 2 * R;
+        if (gx < R || gx > POOL.W - R || gy < R || gy > POOL.H - R) continue;
+        const vx = gx - cx, vy = gy - cy, dist1 = Math.hypot(vx, vy); if (dist1 < 2) continue;
+        const cos = (vx * ux + vy * uy) / dist1; if (cos < 0.3) continue;
+        if (!poolSegClear(B, cx, cy, gx, gy, 2 * R - 1, t.n, -1)) continue;
+        if (!poolSegClear(B, t.x, t.y, a[0], a[1], 2 * R - 1, t.n, -1)) continue;
+        const score = cos * 70 - dist1 * 0.035 - dist2 * 0.06 - (pi === 2 || pi === 3 ? 4 : 0);
+        if (!best || score > best.score) best = { score, ang: Math.atan2(vy, vx), d1: dist1, d2: dist2, cos, t };
+    }
+    if (best) best.speed = Math.max(5, Math.min(POOL.MAXV * 0.92, (best.d2 * 0.0128 + 1.6) / (best.cos * 0.93) + best.d1 * 0.0118));
+    return best;
+}
+const POOL_LEVELS = { easy: { aim: 0.05, pw: 0.18, tries: 6 }, normal: { aim: 0.02, pw: 0.1, tries: 14 }, hard: { aim: 0.006, pw: 0.05, tries: 30 }, expert: { aim: 0.003, pw: 0.03, tries: 40 } };
+function poolPlan(B, grp, cleared, hand, level) {
+    const L = POOL_LEVELS[level] || POOL_LEVELS.normal, targets = poolTargets(B, grp, cleared), cue = B[0];
+    let cx = cue.x, cy = cue.y, shot = null;
+    if (hand) {
+        let bestPos = null;
+        for (let k = 0; k < L.tries * 3; k++) {
+            const x = POOL.R + Math.random() * (POOL.W - 2 * POOL.R), y = POOL.R + Math.random() * (POOL.H - 2 * POOL.R);
+            if (!poolFree(B, x, y, 0)) continue;
+            const s = poolBestShot(B, x, y, targets);
+            if (s && (!bestPos || s.score > bestPos.s.score)) bestPos = { x, y, s };
+        }
+        if (bestPos) { cx = bestPos.x; cy = bestPos.y; shot = bestPos.s; }
+        else { for (let k = 0; k < 200; k++) { const x = POOL.R + Math.random() * (POOL.W - 2 * POOL.R), y = POOL.H * 0.6 + Math.random() * POOL.H * 0.35; if (poolFree(B, x, y, 0)) { cx = x; cy = y; break; } } }
+    } else shot = poolBestShot(B, cx, cy, targets);
+    if (!shot) { // no clean pot: hit the nearest ball of ours, softly
+        let near = null, nd = 1e9; for (const t of targets) { const d = Math.hypot(t.x - cx, t.y - cy); if (d < nd) { nd = d; near = t; } }
+        shot = near ? { ang: Math.atan2(near.y - cy, near.x - cx), speed: 9 + Math.random() * 4, score: -99 } : { ang: -Math.PI / 2, speed: 10, score: -99 };
+    }
+    return { place: hand ? { x: cx, y: cy } : null, ang: shot.ang + poolGauss() * L.aim, speed: Math.max(3, Math.min(POOL.MAXV, shot.speed * (1 + poolGauss() * L.pw))), good: shot.score > -50 };
+}
+
+// ---- 8-ball pool: drawing + the game screen ----
+let poolAudio = null;
+function poolBlip(kind, v) {
+    try {
+        if (!poolAudio) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; poolAudio = new AC(); }
+        if (poolAudio.state === "suspended") poolAudio.resume();
+        const t = poolAudio.currentTime, o = poolAudio.createOscillator(), gn = poolAudio.createGain();
+        const vol = Math.min(0.25, 0.02 + v * 0.012);
+        o.type = kind === "rail" ? "triangle" : "sine";
+        o.frequency.setValueAtTime(kind === "ball" ? 900 + Math.random() * 200 : kind === "rail" ? 180 : 110, t);
+        o.frequency.exponentialRampToValueAtTime(kind === "ball" ? 400 : 70, t + 0.08);
+        gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + (kind === "pocket" ? 0.22 : 0.09));
+        o.connect(gn); gn.connect(poolAudio.destination); o.start(t); o.stop(t + 0.25);
+    } catch (e) { }
+}
+function poolBuildTable() {
+    const W = POOL.W, H = POOL.H, T = POOL.RAIL, S = 2; // drawn at 2x, then scaled
+    const cv = document.createElement("canvas"); cv.width = (W + 2 * T) * S; cv.height = (H + 2 * T) * S;
+    const c = cv.getContext("2d"); c.scale(S, S);
+    const rr = (x, y, w, h, r) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+    // wooden frame
+    let g = c.createLinearGradient(0, 0, W + 2 * T, 0); g.addColorStop(0, "#5a1a1d"); g.addColorStop(0.5, "#7d2a2c"); g.addColorStop(1, "#5a1a1d");
+    rr(0, 0, W + 2 * T, H + 2 * T, 22); c.fillStyle = g; c.fill(); c.lineWidth = 2; c.strokeStyle = "#2b0c0e"; c.stroke();
+    rr(4, 4, W + 2 * T - 8, H + 2 * T - 8, 18); c.lineWidth = 1.5; c.strokeStyle = "rgba(255,200,170,0.22)"; c.stroke();
+    // felt with the cushion edge
+    rr(T - 7, T - 7, W + 14, H + 14, 8); c.fillStyle = "#0f6f63"; c.fill();
+    g = c.createRadialGradient(T + W / 2, T + H / 2, 40, T + W / 2, T + H / 2, H * 0.62); g.addColorStop(0, "#21a692"); g.addColorStop(1, "#16856f");
+    c.fillStyle = g; c.fillRect(T, T, W, H);
+    c.fillStyle = "rgba(0,0,0,0.18)"; c.fillRect(T - 1, T - 1, W + 2, 3); c.fillRect(T - 1, T + H - 2, W + 2, 3); c.fillRect(T - 1, T - 1, 3, H + 2); c.fillRect(T + W - 2, T - 1, 3, H + 2);
+    // head string + spots
+    c.strokeStyle = "rgba(255,255,255,0.18)"; c.lineWidth = 1; c.beginPath(); c.moveTo(T, T + H * 0.75 - 40); c.lineTo(T + W, T + H * 0.75 - 40); c.stroke();
+    c.fillStyle = "rgba(255,255,255,0.3)"; [[W / 2, H * 0.75], [W / 2, H * 0.27]].forEach((p) => { c.beginPath(); c.arc(T + p[0], T + p[1], 2.2, 0, 7); c.fill(); });
+    // rail diamonds
+    c.fillStyle = "#e9d8b4";
+    for (let i = 1; i <= 7; i++) { if (i === 4) continue; const y = T + H * i / 8; [T / 2 - 1, T + W + T / 2 + 1].forEach((x) => { c.beginPath(); c.arc(x, y, 2.4, 0, 7); c.fill(); }); }
+    for (let i = 1; i <= 3; i++) { const x = T + W * i / 4; [T / 2 - 1, T + H + T / 2 + 1].forEach((y) => { c.beginPath(); c.arc(x, y, 2.4, 0, 7); c.fill(); }); }
+    // pockets with cream plates (like the iMessage table)
+    POOL_POCKETS.forEach((p, i) => {
+        const x = T + p.x, y = T + p.y, side = i === 2 || i === 3;
+        c.fillStyle = "#d8cfbd"; c.beginPath(); c.arc(x, y, p.r + (side ? 9 : 12), 0, 7); c.fill();
+        c.fillStyle = "#b8ab92"; c.beginPath(); c.arc(x, y, p.r + 4, 0, 7); c.fill();
+        const gg = c.createRadialGradient(x, y, 2, x, y, p.r + 2); gg.addColorStop(0, "#000"); gg.addColorStop(1, "#14110f");
+        c.fillStyle = gg; c.beginPath(); c.arc(x, y, p.r + 1, 0, 7); c.fill();
+    });
+    return cv;
+}
+function poolDrawBall(c, b, x, y, sc, alpha) {
+    const R = POOL.R * sc; if (R < 0.5) return;
+    const n = b.n, stripe = n > 8, col = POOL_COLORS[n > 8 ? n - 8 : n];
+    c.save(); c.globalAlpha = alpha;
+    c.fillStyle = "rgba(0,0,0,0.28)"; c.beginPath(); c.ellipse(x + R * 0.18, y + R * 0.28, R * 1.02, R * 0.95, 0, 0, 7); c.fill();
+    c.beginPath(); c.arc(x, y, R, 0, 7); c.save(); c.clip();
+    c.fillStyle = n === 0 || stripe ? "#f4f1ea" : col; c.fillRect(x - R, y - R, 2 * R, 2 * R);
+    if (stripe) { c.fillStyle = col; c.fillRect(x - R, y - R * 0.56, 2 * R, R * 1.12); }
+    if (n > 0) {
+        c.fillStyle = "#fbfaf6"; c.beginPath(); c.arc(x, y, R * 0.47, 0, 7); c.fill();
+        c.fillStyle = "#111"; c.font = "700 " + Math.round(R * 0.7) + "px Inter, sans-serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(String(n), x, y + R * 0.04);
+    }
+    const g = c.createRadialGradient(x - R * 0.35, y - R * 0.4, R * 0.05, x, y, R * 1.05);
+    g.addColorStop(0, "rgba(255,255,255,0.65)"); g.addColorStop(0.35, "rgba(255,255,255,0)"); g.addColorStop(0.75, "rgba(0,0,0,0.05)"); g.addColorStop(1, "rgba(0,0,0,0.4)");
+    c.fillStyle = g; c.fillRect(x - R, y - R, 2 * R, 2 * R);
+    c.restore(); c.restore();
+}
+function poolDraw(c, g, tableCv, ts) {
+    const W = POOL.W, H = POOL.H, T = POOL.RAIL, R = POOL.R, B = g.B;
+    c.clearRect(0, 0, W + 2 * T, H + 2 * T);
+    c.drawImage(tableCv, 0, 0, W + 2 * T, H + 2 * T);
+    c.save(); c.translate(T, T);
+    // balls being swallowed by a pocket
+    for (let i = 0; i < B.length; i++) {
+        const b = B[i]; if (b.on || b.fall >= 1) continue;
+        const p = POOL_POCKETS[b.pk], f = b.fall, e = f * f;
+        poolDrawBall(c, b, b.fx + (p.x - b.fx) * e, b.fy + (p.y - b.fy) * e, 1 - f * 0.55, 1 - f * f);
+    }
+    for (let i = 1; i < B.length; i++) if (B[i].on) poolDrawBall(c, B[i], B[i].x, B[i].y, 1, 1);
+    const cue = B[0], aim = g.aim, mine = g.phase === "aim" || g.phase === "cpuAim" || g.phase === "cpu";
+    if (cue.on) {
+        if (g.hand && g.phase === "aim") {
+            const pulse = 0.5 + 0.5 * Math.sin(ts / 220);
+            c.strokeStyle = "rgba(255,255,255," + (0.35 + 0.4 * pulse) + ")"; c.lineWidth = 2; c.setLineDash([5, 4]); c.beginPath(); c.arc(cue.x, cue.y, R + 8 + pulse * 3, 0, 7); c.stroke(); c.setLineDash([]);
+        }
+        if (g.phase === "aim" || g.phase === "cpuAim") {
+            const tr = poolTrace(B, cue.x, cue.y, aim.ang), dx = Math.cos(aim.ang), dy = Math.sin(aim.ang);
+            c.lineCap = "round"; c.strokeStyle = "rgba(255,255,255,0.85)"; c.lineWidth = 1.6; c.setLineDash([7, 6]);
+            c.beginPath(); c.moveTo(cue.x + dx * R, cue.y + dy * R); c.lineTo(tr.x, tr.y); c.stroke(); c.setLineDash([]);
+            c.strokeStyle = "rgba(255,255,255,0.95)"; c.lineWidth = 1.6; c.beginPath(); c.arc(tr.x, tr.y, R, 0, 7); c.stroke();
+            if (tr.hit) {
+                let nx = tr.hit.x - tr.x, ny = tr.hit.y - tr.y; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+                c.strokeStyle = "rgba(255,255,255,0.55)"; c.lineWidth = 1.6; c.beginPath(); c.moveTo(tr.hit.x + nx * R, tr.hit.y + ny * R); c.lineTo(tr.hit.x + nx * 60, tr.hit.y + ny * 60); c.stroke();
+                const dot = dx * nx + dy * ny; let tx = dx - nx * dot, ty = dy - ny * dot; const tl = Math.hypot(tx, ty);
+                if (tl > 0.05) { tx /= tl; ty /= tl; c.strokeStyle = "rgba(255,255,255,0.3)"; c.beginPath(); c.moveTo(tr.x + tx * R, tr.y + ty * R); c.lineTo(tr.x + tx * 38, tr.y + ty * 38); c.stroke(); }
+            }
+            // the cue stick, pulled back as the shot gets stronger
+            const back = R + 5 + aim.pow * 70, len = 330, sx = cue.x - dx * back, sy = cue.y - dy * back, ex = sx - dx * len, ey = sy - dy * len;
+            c.lineCap = "round"; c.strokeStyle = "rgba(0,0,0,0.25)"; c.lineWidth = 7; c.beginPath(); c.moveTo(sx + 3, sy + 4); c.lineTo(ex + 3, ey + 4); c.stroke();
+            c.strokeStyle = "#e7c48b"; c.lineWidth = 5; c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx - dx * len * 0.6, sy - dy * len * 0.6); c.stroke();
+            c.strokeStyle = "#3b2418"; c.lineWidth = 6.5; c.beginPath(); c.moveTo(sx - dx * len * 0.6, sy - dy * len * 0.6); c.lineTo(ex, ey); c.stroke();
+            c.strokeStyle = "#8fd0ff"; c.lineWidth = 5; c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx - dx * 5, sy - dy * 5); c.stroke();
+            c.lineCap = "butt";
+        }
+    }
+    if (cue.on) poolDrawBall(c, cue, cue.x, cue.y, 1, 1);
+    c.restore();
+    // power bar on the bottom rail
+    const bw = 180, bx = (W + 2 * T) / 2 - bw / 2, by = H + T + 11;
+    if (g.phase === "aim" || g.phase === "cpuAim") {
+        c.fillStyle = "rgba(0,0,0,0.45)"; c.fillRect(bx, by, bw, 9);
+        const pw = aim.pow, gr = c.createLinearGradient(bx, 0, bx + bw, 0); gr.addColorStop(0, "#5fe08a"); gr.addColorStop(0.6, "#f2c230"); gr.addColorStop(1, "#e5483b");
+        c.fillStyle = gr; c.fillRect(bx, by, bw * pw, 9);
+        c.strokeStyle = "rgba(255,255,255,0.4)"; c.lineWidth = 1; c.strokeRect(bx + 0.5, by + 0.5, bw - 1, 8);
+    }
+}
+const POOL_LEVEL_LABEL = { easy: "Easy", normal: "Normal", hard: "Hard" };
+function PoolMini({ n, size }) {
+    const stripe = n > 8, col = POOL_COLORS[stripe ? n - 8 : n];
+    return gh("div", { style: { width: size, height: size, borderRadius: "50%", background: stripe ? "linear-gradient(180deg,#f4f1ea 0 22%," + col + " 22% 78%,#f4f1ea 78%)" : col, flexShrink: 0, boxShadow: "inset -2px -2px 3px rgba(0,0,0,.35), inset 1px 1px 2px rgba(255,255,255,.4)" } });
+}
+function PoolGame({ stats, onResult }) {
+    const wrapRef = useRef(null), cvRef = useRef(null), tableRef = useRef(null);
+    const resultCb = useRef(onResult); resultCb.current = onResult;
+    const G = useRef(null);
+    const [level, setLevel] = useState("normal");
+    const levelRef = useRef(level); levelRef.current = level;
+    const [hud, setHud] = useState({ turn: 0, groups: [null, null], pot: [[], []], msg: "Break! Pull back anywhere and let go to shoot.", over: null, hand: false });
+    const [sz, setSz] = useState({ w: 300, h: 560 });
+    const newGame = () => ({ B: poolNewBalls(), turn: 0, groups: [null, null], broke: false, hand: false, phase: "aim", ev: poolNewEvent(), cleared: false, aim: { ang: -Math.PI / 2, pow: 0, drag: null, sx: 0, sy: 0 }, cpu: null, over: null });
+    if (!G.current) G.current = newGame();
+    // size the canvas to the screen
+    useEffect(() => {
+        const fit = () => {
+            const wrap = wrapRef.current; if (!wrap) return;
+            const TW = POOL.W + 2 * POOL.RAIL, TH = POOL.H + 2 * POOL.RAIL;
+            const availW = Math.max(200, wrap.clientWidth - 8), availH = Math.max(280, (window.innerHeight || 700) - 255);
+            const k = Math.min(availW / TW, availH / TH); setSz({ w: Math.floor(TW * k), h: Math.floor(TH * k) });
+        };
+        fit(); window.addEventListener("resize", fit); window.addEventListener("orientationchange", fit);
+        return () => { window.removeEventListener("resize", fit); window.removeEventListener("orientationchange", fit); };
+    }, []);
+    const hudMsg = useRef("");
+    const potLists = (g) => { const o = [[], []]; for (let p = 0; p < 2; p++) if (g.groups[p]) for (let i = 1; i < g.B.length; i++) if (!g.B[i].on && poolGroup(g.B[i].n) === g.groups[p]) o[p].push(g.B[i].n); o[0].sort((a, b) => a - b); o[1].sort((a, b) => a - b); return o; };
+    const sync = (msg) => { const g = G.current; setHud({ turn: g.turn, groups: g.groups.slice(), pot: potLists(g), msg: msg == null ? hudMsg.current : msg, over: g.over, hand: g.hand }); if (msg != null) hudMsg.current = msg; };
+    const timers = useRef([]);
+    const later = (fn, ms) => { const id = setTimeout(fn, ms); timers.current.push(id); };
+    const shoot = (ang, speed) => {
+        const g = G.current, me = g.groups[g.turn];
+        g.cleared = !!me && poolRemaining(g.B, me) === 0;
+        g.ev = poolNewEvent(); g.B[0].vx = Math.cos(ang) * speed; g.B[0].vy = Math.sin(ang) * speed; g.phase = "rolling"; g.hand = false; g.aim.pow = 0;
+        poolBlip("ball", speed * 0.6); sync(g.turn === 0 ? "…" : "CPU shoots…");
+    };
+    const startTurn = () => {
+        const g = G.current;
+        if (g.turn === 0) { g.phase = "aim"; g.aim.pow = 0; return; }
+        g.phase = "cpu";
+        later(() => {
+            const gg = G.current; if (!gg || gg.over) return;
+            const me = gg.groups[1], cleared = !!me && poolRemaining(gg.B, me) === 0;
+            const plan = poolPlan(gg.B, me, cleared, gg.hand, levelRef.current);
+            if (plan.place) { gg.B[0].x = plan.place.x; gg.B[0].y = plan.place.y; }
+            gg.cpu = { t0: performance.now(), from: gg.aim.ang, ang: plan.ang, speed: plan.speed };
+            gg.phase = "cpuAim";
+        }, 700);
+    };
+    const finish = () => {
+        const g = G.current, p = g.turn, B = g.B, r = poolResolve(g);
+        let msg = "";
+        const who = p === 0 ? "You" : "CPU", whom = p === 0 ? "CPU" : "You";
+        if (!g.broke) g.broke = true;
+        if (r.respot8) { const b8 = B.find((b) => b.n === 8); b8.on = true; b8.fall = 1; b8.vx = b8.vy = 0; let y = POOL.H * 0.27 - POOL.R * 3.6; for (let k = 0; k < 40 && !poolFree(B, POOL.W / 2, y, 8); k++) y -= POOL.R * 2.1; b8.x = POOL.W / 2; b8.y = y; }
+        if (r.winner != null) {
+            g.over = r.winner === 0 ? "w" : "l"; g.phase = "over";
+            msg = r.winner === 0 ? (r.why ? "CPU " + r.why + " — you win!" : "You sank the 8-ball — you win!") : (r.why ? who + " " + r.why + " — CPU wins." : "CPU sank the 8-ball — you lose.");
+            if (B[0].on === false) { B[0].on = true; B[0].fall = 1; }
+            sync(msg); resultCb.current(g.over); return;
+        }
+        if (B[0].on === false) { const c = B[0]; c.on = true; c.fall = 1; c.vx = c.vy = 0; c.x = POOL.W / 2; c.y = POOL.H * 0.75; for (let k = 0; k < 60 && !poolFree(B, c.x, c.y, 0); k++) c.y -= POOL.R * 2.2; }
+        const names = r.pocketed.length ? " · potted " + r.pocketed.join(", ") : "";
+        if (r.assigned) msg = who + " " + (p === 0 ? "are" : "is") + " " + (g.groups[p] === "solid" ? "solids" : "stripes") + names;
+        if (r.foul) { msg = "Foul: " + r.reason + ". " + (p === 0 ? "CPU gets" : "You get") + " the cue ball in hand."; if (p === 1) msg = "CPU fouled (" + r.reason + "). Cue ball in hand — drag it anywhere."; }
+        else if (r.cont) msg = msg || (p === 0 ? "Nice shot" + names + " — shoot again." : "CPU potted" + (r.pocketed.length ? " " + r.pocketed.join(", ") : "") + " and shoots again.");
+        else msg = msg || (p === 0 ? "No pot" + names + ". CPU's turn." : "CPU missed. Your turn.");
+        if (r.assigned && !r.foul && r.cont) msg += p === 0 ? " — shoot again." : ". Shoots again.";
+        g.hand = r.foul; if (r.switched) g.turn = 1 - p;
+        sync(msg); startTurn();
+    };
+    // the animation loop
+    useEffect(() => {
+        const cv = cvRef.current; if (!cv) return;
+        tableRef.current = poolBuildTable();
+        let raf = 0, last = 0, acc = 0, alive = true;
+        const tick = (ts) => {
+            if (!alive) return; raf = requestAnimationFrame(tick);
+            const g = G.current, c = cv.getContext("2d"); if (!g) return;
+            const dt = Math.min(64, ts - (last || ts)); last = ts; acc += dt;
+            while (acc >= 16.667) {
+                acc -= 16.667;
+                if (g.phase === "rolling") {
+                    poolFrame(g.B, g.ev);
+                    if (g.ev.snd.length) { const s = g.ev.snd; for (let i = 0; i < s.length && i < 3; i++) poolBlip(s[i].k, s[i].v); g.ev.snd = []; }
+                }
+                for (let i = 0; i < g.B.length; i++) { const b = g.B[i]; if (!b.on && b.fall < 1) b.fall = Math.min(1, b.fall + 0.07); }
+                if (g.phase === "rolling" && !poolMoving(g.B)) { g.phase = "settle"; later(() => { if (G.current === g) finish(); }, 450); }
+            }
+            if (g.phase === "cpuAim" && g.cpu) {
+                const t = performance.now() - g.cpu.t0, k1 = Math.min(1, t / 650);
+                const e = k1 * k1 * (3 - 2 * k1);
+                g.aim.ang = g.cpu.from + (g.cpu.ang - g.cpu.from) * e;
+                g.aim.pow = t < 650 ? 0 : Math.min(1, (t - 650) / 450) * (g.cpu.speed / POOL.MAXV);
+                if (t > 1250) { const sp = g.cpu.speed; g.cpu = null; shoot(g.aim.ang, sp); }
+            }
+            const k = cv.width / (POOL.W + 2 * POOL.RAIL); c.setTransform(k, 0, 0, k, 0, 0);
+            poolDraw(c, g, tableRef.current, ts);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => { alive = false; cancelAnimationFrame(raf); timers.current.forEach(clearTimeout); timers.current = []; };
+    }, []);
+    // pointer: pull back anywhere to aim and set power; drag the cue ball itself when you have it in hand
+    const pos = (e) => { const r = cvRef.current.getBoundingClientRect(), k = (POOL.W + 2 * POOL.RAIL) / r.width; return { x: (e.clientX - r.left) * k - POOL.RAIL, y: (e.clientY - r.top) * k - POOL.RAIL }; };
+    const onDown = (e) => {
+        const g = G.current; if (g.phase !== "aim" || g.turn !== 0) return;
+        try { cvRef.current.setPointerCapture(e.pointerId); } catch (x) { }
+        const p = pos(e), c = g.B[0];
+        if (g.hand && Math.hypot(p.x - c.x, p.y - c.y) < 48) g.aim.drag = "place";
+        else { g.aim.drag = "aim"; g.aim.sx = p.x; g.aim.sy = p.y; g.aim.pow = 0; }
+        poolBlip("pocket", 0);
+    };
+    const onMove = (e) => {
+        const g = G.current, a = g.aim; if (!a.drag || g.phase !== "aim") return;
+        const p = pos(e);
+        if (a.drag === "place") { const x = Math.max(POOL.R, Math.min(POOL.W - POOL.R, p.x)), y = Math.max(POOL.R, Math.min(POOL.H - POOL.R, p.y)); if (poolFree(g.B, x, y, 0)) { g.B[0].x = x; g.B[0].y = y; } return; }
+        const dx = p.x - a.sx, dy = p.y - a.sy, len = Math.hypot(dx, dy);
+        if (len < 7) { a.pow = 0; return; }
+        a.ang = Math.atan2(-dy, -dx); a.pow = Math.min(1, (len - 7) / POOL.PULL);
+    };
+    const onUp = () => {
+        const g = G.current, a = g.aim, d = a.drag; a.drag = null;
+        if (d !== "aim" || g.phase !== "aim") return;
+        if (a.pow < 0.05) { a.pow = 0; return; }
+        shoot(a.ang, Math.max(1.5, a.pow * POOL.MAXV));
+    };
+    const rematch = () => { timers.current.forEach(clearTimeout); timers.current = []; G.current = newGame(); setHud({ turn: 0, groups: [null, null], pot: [[], []], msg: "Break! Pull back anywhere and let go to shoot.", over: null, hand: false }); hudMsg.current = ""; };
+    const lab = (grp) => (grp === "solid" ? "Solids" : grp === "stripe" ? "Stripes" : "Open table");
+    const side = (p, name) => gh("div", { style: { flex: 1, minWidth: 0, background: hud.turn === p && !hud.over ? "#1c2b2a" : "#161B22", border: "1.5px solid " + (hud.turn === p && !hud.over ? "#35D0BA" : "#262E3A"), borderRadius: 14, padding: "8px 10px", transition: "all .2s" } },
+        gh("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 } },
+            gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA" } }, name),
+            gh("div", { style: { fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#8891A0" } }, lab(hud.groups[p]))),
+        gh("div", { style: { display: "flex", gap: 3, minHeight: 16, marginTop: 5, flexWrap: "wrap" } }, hud.pot[p].map((n) => gh(PoolMini, { key: n, n, size: 15 }))));
+    return gh("div", { ref: wrapRef, style: { padding: "0 12px 14px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 } },
+        gh("div", { style: { display: "flex", gap: 10, width: "100%", maxWidth: 520 } }, side(0, "You"), side(1, "CPU")),
+        gh("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+            ["easy", "normal", "hard"].map((id) => gh("button", { key: id, onClick: () => setLevel(id), style: { ...gameBtn, padding: "5px 12px", fontSize: 12.5, background: level === id ? "#35D0BA" : "#1E2530", color: level === id ? "#0E1116" : "#F5F7FA" } }, POOL_LEVEL_LABEL[id]))),
+        gh("div", { style: { position: "relative", width: sz.w, height: sz.h } },
+            gh("canvas", { ref: cvRef, width: sz.w * 2, height: sz.h * 2, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp, style: { width: sz.w, height: sz.h, display: "block", touchAction: "none", borderRadius: 18, boxShadow: "0 8px 28px rgba(0,0,0,.45)", userSelect: "none", WebkitUserSelect: "none" } }),
+            hud.over && gh("div", { style: { position: "absolute", inset: 0, borderRadius: 18, background: "rgba(8,12,16,.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 20, textAlign: "center" } },
+                gh("div", { style: { fontSize: 46 } }, hud.over === "w" ? "🏆" : "😤"),
+                gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, hud.over === "w" ? "You win!" : "CPU wins"),
+                gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#C5CCD6" } }, hud.msg),
+                gh("button", { onClick: rematch, style: { ...gameBtn, background: "#35D0BA", color: "#0E1116", border: "none", padding: "11px 26px" } }, "Rematch"))),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C5CCD6", textAlign: "center", minHeight: 36, maxWidth: 420 } }, hud.over ? "" : hud.msg),
+        stats && (stats.w || stats.l) ? gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Record vs CPU: " + (stats.w || 0) + " won · " + (stats.l || 0) + " lost") : null);
+}
+
+// ---------- the Games tab ----------
+const GAME_LIST = [
+  { id: "ttt", name: "Tic-Tac-Toe", emoji: "❌", blurb: "Beat the computer", color: "#8B7CF6" },
+  { id: "memory", name: "Memory Match", emoji: "🧠", blurb: "Find all the pairs", color: "#35D0BA" },
+  { id: "snake", name: "Snake", emoji: "🐍", blurb: "Eat, grow, don't crash", color: "#4FA8E0" },
+  { id: "g2048", name: "2048", emoji: "🔢", blurb: "Slide and merge tiles", color: "#F2B84B" },
+  { id: "pool", name: "8-Ball Pool", emoji: "🎱", blurb: "Pot your balls, sink the 8", color: "#1E9450" },
+];
+function GamesScreen({ myId }) {
+  const [scores, setScores] = useState(() => loadJSON("games:" + myId, {}));
+  const [playing, setPlaying] = useState(null);
+  const [round, setRound] = useState(0);
+  const record = (id, v) => setScores(prev => {
+    const cur = prev[id];
+    let next;
+    if (id === "ttt") { const t = cur || { w: 0, d: 0, l: 0 }; next = { ...t, [v]: t[v] + 1 }; }
+    else if (id === "pool") { const t = cur || { w: 0, l: 0 }; next = { ...t, [v]: (t[v] || 0) + 1 }; }
+    else if (id === "memory") next = { best: cur && cur.best ? Math.min(cur.best, v) : v };
+    else next = { best: Math.max((cur && cur.best) || 0, v) };
+    const all = { ...prev, [id]: next };
+    saveJSON("games:" + myId, all);
+    return all;
+  });
+  const line = (id) => {
+    const s = scores[id];
+    if (id === "pool") return s ? "Won " + (s.w || 0) + " · Lost " + (s.l || 0) : "Not played yet";
+    if (id === "ttt") return s ? "W " + s.w + " · D " + s.d + " · L " + s.l : "Not played yet";
+    return s && s.best ? "Best: " + s.best + (id === "memory" ? " moves" : "") : "Not played yet";
+  };
+  if (playing) {
+    const game = GAME_LIST.find(x => x.id === playing);
+    const best = scores[playing] && scores[playing].best;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "14px 16px", flexShrink: 0 }}>
+          <button aria-label="Back to games" onClick={() => setPlaying(null)} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
+          <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA" }}>{game.emoji} {game.name}</div>
+          <button aria-label="Restart" onClick={() => setRound(r => r + 1)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><RotateCcw size={20} color="#9BA7B4" /></button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+          {playing === "ttt" && <TicTacToeGame key={round} stats={scores.ttt} onResult={(r) => record("ttt", r)} />}
+          {playing === "memory" && <MemoryGame key={round} best={best} onScore={(v) => record("memory", v)} />}
+          {playing === "snake" && <SnakeGame key={round} best={best} onScore={(v) => v > 0 && record("snake", v)} />}
+          {playing === "pool" && <PoolGame key={round} stats={scores.pool} onResult={(r) => record("pool", r)} />}
+          {playing === "g2048" && <Game2048 key={round} best={best} onScore={(v) => record("g2048", v)} />}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Games" />
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 20px" }}>
+        <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 14 }}>Pick a game. Your best scores are saved on this device.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, counterIncrement: "lcgap-12" }}>
+          {GAME_LIST.map(gm => (
+            <div key={gm.id} onClick={() => { setRound(0); setPlaying(gm.id); }} style={{ background: "#161B22", border: "1px solid #262E3A", borderRadius: 18, padding: "16px 14px", cursor: "pointer" }}>
+              <div style={{ width: 52, height: 52, borderRadius: 16, background: gm.color + "26", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 12 }}>{gm.emoji}</div>
+              <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15.5, color: "#F5F7FA" }}>{gm.name}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "3px 0 8px" }}>{gm.blurb}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: gm.color }}>{line(gm.id)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===================== GAMES HUB =====================
+// Plain JS on purpose (no JSX): the same block is used in app.jsx and the compiled index.html.
+const gh = React.createElement;
+const LUDO_SAFE = [0, 8, 13, 21, 26, 34, 39, 47];
+const SNL_JUMPS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100, 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
+// ---- chess engine (shared with the server) ----
+const CH_N = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]], CH_K = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]], CH_B = [[-1,-1],[-1,1],[1,-1],[1,1]], CH_R = [[-1,0],[1,0],[0,-1],[0,1]];
+function chKing(b, p) { return b.indexOf(6 + 8 * p); }
+function chAtt(b, sq, by) {
+  const r = sq >> 3, c = sq & 7, pr = by === 0 ? r + 1 : r - 1;
+  for (const dc of [-1, 1]) { const cc = c + dc; if (pr >= 0 && pr < 8 && cc >= 0 && cc < 8 && b[pr * 8 + cc] === 1 + 8 * by) return true; }
+  for (const [dr, dc] of CH_N) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 2 + 8 * by) return true; }
+  for (const [dr, dc] of CH_K) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === 6 + 8 * by) return true; }
+  for (const [dirs, a, q] of [[CH_B, 3, 5], [CH_R, 4, 5]]) for (const [dr, dc] of dirs) {
+    let rr = r + dr, cc = c + dc;
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const v = b[rr * 8 + cc]; if (v != null) { if (v === a + 8 * by || v === q + 8 * by) return true; break; } rr += dr; cc += dc; }
+  }
+  return false;
+}
+function chPseudo(s, p) {
+  const b = s.b, out = [], fwd = p === 0 ? -1 : 1, start = p === 0 ? 6 : 1, last = p === 0 ? 0 : 7;
+  for (let i = 0; i < 64; i++) {
+    const v = b[i]; if (v == null || (v >> 3) !== p) continue; const t = v & 7, r = i >> 3, c = i & 7;
+    if (t === 1) {
+      const r1 = r + fwd; if (r1 < 0 || r1 > 7) continue;
+      const add = (to) => { if (r1 === last) for (let pt = 2; pt <= 5; pt++) out.push(i * 64 + to + 4096 * pt); else out.push(i * 64 + to); };
+      if (b[r1 * 8 + c] == null) { add(r1 * 8 + c); if (r === start && b[(r + 2 * fwd) * 8 + c] == null) out.push(i * 64 + (r + 2 * fwd) * 8 + c); }
+      for (const dc of [-1, 1]) { const cc = c + dc; if (cc < 0 || cc > 7) continue; const to = r1 * 8 + cc, o = b[to]; if ((o != null && (o >> 3) !== p) || (o == null && to === s.ep)) add(to); }
+    } else if (t === 2 || t === 6) {
+      for (const [dr, dc] of t === 2 ? CH_N : CH_K) { const rr = r + dr, cc = c + dc; if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue; const o = b[rr * 8 + cc]; if (o == null || (o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); }
+    } else {
+      for (const [dr, dc] of t === 3 ? CH_B : t === 4 ? CH_R : CH_B.concat(CH_R)) {
+        let rr = r + dr, cc = c + dc;
+        while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) { const o = b[rr * 8 + cc]; if (o == null) out.push(i * 64 + rr * 8 + cc); else { if ((o >> 3) !== p) out.push(i * 64 + rr * 8 + cc); break; } rr += dr; cc += dc; }
+      }
+    }
+  }
+  const base = p === 0 ? 56 : 0, ks = base + 4;
+  if (b[ks] === 6 + 8 * p && !chAtt(b, ks, 1 - p)) {
+    if (s.c[p * 2] && b[base + 5] == null && b[base + 6] == null && b[base + 7] === 4 + 8 * p && !chAtt(b, base + 5, 1 - p) && !chAtt(b, base + 6, 1 - p)) out.push(ks * 64 + base + 6);
+    if (s.c[p * 2 + 1] && b[base + 3] == null && b[base + 2] == null && b[base + 1] == null && b[base] === 4 + 8 * p && !chAtt(b, base + 3, 1 - p) && !chAtt(b, base + 2, 1 - p)) out.push(ks * 64 + base + 2);
+  }
+  return out;
+}
+function chApply(s, m) {
+  const pt = Math.floor(m / 4096), mm = m % 4096, from = mm >> 6, to = mm & 63, b = s.b.slice(), v = b[from], p = v >> 3, t = v & 7, cap = b[to], c = s.c.slice();
+  let ep = -1, reset = t === 1 || cap != null; b[from] = null; b[to] = v;
+  if (t === 1) {
+    if (cap == null && (from & 7) !== (to & 7)) { b[to + (p === 0 ? 8 : -8)] = null; reset = true; }
+    if (Math.abs((to >> 3) - (from >> 3)) === 2) ep = (from + to) / 2;
+    if (pt) b[to] = pt + 8 * p;
+  }
+  if (t === 6) {
+    c[p * 2] = false; c[p * 2 + 1] = false;
+    if (Math.abs((to & 7) - (from & 7)) === 2) { const base = from - (from & 7); if ((to & 7) === 6) { b[base + 5] = b[base + 7]; b[base + 7] = null; } else { b[base + 3] = b[base]; b[base] = null; } }
+  }
+  for (const sq of [from, to]) { if (sq === 63) c[0] = false; if (sq === 56) c[1] = false; if (sq === 7) c[2] = false; if (sq === 0) c[3] = false; }
+  return { b, nx: 1 - p, c, ep, hm: reset ? 0 : s.hm + 1, lm: mm };
+}
+function chLegal(s, p) { return chPseudo(s, p).filter((m) => { const ns = chApply(s, m); return !chAtt(ns.b, chKing(ns.b, p), 1 - p); }); }
+// ---- end chess engine ----
+
+const GAME_RULES = {
+  ttt: {
+    init: () => Array(9).fill(null),
+    moves: (s) => s.map((v, i) => (v == null ? i : -1)).filter((i) => i >= 0),
+    play: (s, m, p) => { const n = s.slice(); n[m] = p; return n; },
+    win: (s) => {
+      for (const l of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]])
+        if (s[l[0]] != null && s[l[0]] === s[l[1]] && s[l[1]] === s[l[2]]) return { p: s[l[0]], line: l };
+      return null;
+    },
+  },
+  c4: {
+    init: () => Array(42).fill(null),
+    moves: (s) => [0,1,2,3,4,5,6].filter((c) => s[c] == null),
+    play: (s, c, p) => { const n = s.slice(); for (let r = 5; r >= 0; r--) if (n[r * 7 + c] == null) { n[r * 7 + c] = p; break; } return n; },
+    win: (s) => {
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) {
+        const p = s[r * 7 + c]; if (p == null) continue;
+        for (const [dr, dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+          const line = [];
+          for (let k = 0; k < 4; k++) { const rr = r + dr * k, cc = c + dc * k; if (rr < 0 || rr > 5 || cc < 0 || cc > 6 || s[rr * 7 + cc] !== p) break; line.push(rr * 7 + cc); }
+          if (line.length === 4) return { p, line };
+        }
+      }
+      return null;
+    },
+  },
+  ludo: {
+    // 2 players, 4 pieces each. Piece position: -1 base, 0..50 ring, 51..55 home column, 56 finished.
+    init: () => ({ t: [[-1,-1,-1,-1],[-1,-1,-1,-1]], d: null, last: 0, nx: 0 }),
+    can: (s, p, i) => { const r = s.t[p][i], d = s.d; if (r === 56 || d == null) return false; if (r === -1) return d === 6; return r + d <= 56; },
+    moves: (s, p) => (s.nx !== p ? [] : s.d == null ? [-1] : [0,1,2,3].filter((i) => GAME_RULES.ludo.can(s, p, i))),
+    play: (s, m, p, rnd) => {
+      const t = s.t.map((a) => a.slice());
+      if (m === -1) {
+        const d = 1 + Math.floor(rnd() * 6), ns = { t, d, last: d, nx: p };
+        if (![0,1,2,3].some((i) => GAME_RULES.ludo.can(ns, p, i))) { ns.d = null; ns.nx = 1 - p; }
+        return ns;
+      }
+      const d = s.d, r = t[p][m], nr = r === -1 ? 0 : r + d; let extra = d === 6; t[p][m] = nr;
+      if (nr <= 50) { const a = (p * 26 + nr) % 52; if (!LUDO_SAFE.includes(a)) { const q = 1 - p; t[q].forEach((qr, j) => { if (qr >= 0 && qr <= 50 && (q * 26 + qr) % 52 === a) { t[q][j] = -1; extra = true; } }); } }
+      if (nr === 56) extra = true;
+      return { t, d: null, last: d, nx: extra ? p : 1 - p };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.t[p].every((r) => r === 56)) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
+  },
+  snl: {
+    // Snakes & Ladders, 2 players, squares 1..100 (0 = not started). Exact roll needed to finish on 100.
+    init: () => ({ p: [0, 0], last: 0, nx: 0, ev: 0 }),
+    moves: (s, p) => (s.nx === p ? [-1] : []),
+    play: (s, m, p, rnd) => {
+      const d = 1 + Math.floor(rnd() * 6), pos = s.p.slice(); let np = pos[p] + d; if (np > 100) np = pos[p];
+      const jump = SNL_JUMPS[np], ev = jump ? (jump > np ? 1 : -1) : 0; if (jump) np = jump; pos[p] = np;
+      return { p: pos, last: d, nx: d === 6 && np !== 100 ? p : 1 - p, ev };
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.p[p] === 100) return { p, line: null }; return null; },
+    next: (s) => s.nx,
+    draw: () => false,
+  },
+  checkers: {
+    // Nigerian draughts on 8x8. Men step forward but capture forward AND backward, kings fly any distance, capturing is compulsory and you must take the route that captures the most pieces.
+    // Captured pieces stay on the board until your move ends (and can't be jumped twice). A man is crowned only if its move ends on the far row.
+    // 0/1 = player men, 2/3 = kings (owner = v % 2). Move = from * 64 + to. A multi-capture is a chain of jumps by one piece: mj = that piece, cp = pieces jumped so far this turn.
+    D: [[-1, -1], [-1, 1], [1, -1], [1, 1]],
+    init: () => { const b = Array(64).fill(null); for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if ((r + c) % 2 === 1) { if (r < 3) b[r * 8 + c] = 1; else if (r > 4) b[r * 8 + c] = 0; } return { b, nx: 0, mj: -1, q: 0, cp: [] }; },
+    jumps: (b, cp, i) => { // every jump the piece on square i could make now: [landing square, captured square]
+      const v = b[i], p = v % 2, r0 = Math.floor(i / 8), c0 = i % 8, out = [];
+      for (const [dr, dc] of GAME_RULES.checkers.D) {
+        let r = r0 + dr, c = c0 + dc;
+        if (v >= 2) while (r >= 0 && r < 8 && c >= 0 && c < 8 && b[r * 8 + c] == null) { r += dr; c += dc; }
+        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+        const j = r * 8 + c, t = b[j]; if (t == null || t % 2 === p || cp.includes(j)) continue;
+        let r2 = r + dr, c2 = c + dc;
+        while (r2 >= 0 && r2 < 8 && c2 >= 0 && c2 < 8 && b[r2 * 8 + c2] == null) { out.push([r2 * 8 + c2, j]); if (v < 2) break; r2 += dr; c2 += dc; }
+      }
+      return out;
+    },
+    dep: (b, cp, i) => { // most further pieces this piece can still capture from square i
+      const R = GAME_RULES.checkers, v = b[i]; let best = 0;
+      for (const [to, x] of R.jumps(b, cp, i)) { const b2 = b.slice(); b2[to] = v; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to); if (d > best) best = d; }
+      return best;
+    },
+    cap: (b, m) => { // the square jumped by move m, or -1 for a plain move
+      const from = Math.floor(m / 64), to = m % 64, dr = Math.sign(Math.floor(to / 8) - Math.floor(from / 8)), dc = Math.sign((to % 8) - (from % 8)); let x = -1;
+      for (let r = Math.floor(from / 8) + dr, c = (from % 8) + dc; r * 8 + c !== to; r += dr, c += dc) if (b[r * 8 + c] != null) x = r * 8 + c;
+      return x;
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return [];
+      const R = GAME_RULES.checkers, cp = s.cp || [], own = s.mj >= 0 ? [s.mj] : s.b.map((v, i) => (v != null && v % 2 === p ? i : -1)).filter((i) => i >= 0);
+      let best = 0, caps = [];
+      for (const i of own) for (const [to, x] of R.jumps(s.b, cp, i)) {
+        const b2 = s.b.slice(); b2[to] = b2[i]; b2[i] = null; const d = 1 + R.dep(b2, cp.concat(x), to);
+        if (d > best) { best = d; caps = []; } if (d === best) caps.push(i * 64 + to);
+      }
+      if (caps.length || s.mj >= 0) return caps;
+      const out = [];
+      for (const i of own) {
+        const v = s.b[i], r0 = Math.floor(i / 8), c0 = i % 8, dirs = v >= 2 ? R.D : p === 0 ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+        for (const [dr, dc] of dirs) { let r = r0 + dr, c = c0 + dc; while (r >= 0 && r < 8 && c >= 0 && c < 8 && s.b[r * 8 + c] == null) { out.push(i * 64 + r * 8 + c); if (v < 2) break; r += dr; c += dc; } }
+      }
+      return out;
+    },
+    play: (s, m, p) => {
+      const R = GAME_RULES.checkers, b = s.b.slice(), from = Math.floor(m / 64), to = m % 64, v = b[from], cp = (s.cp || []).slice(), x = R.cap(s.b, m);
+      b[from] = null; b[to] = v;
+      if (x >= 0) { cp.push(x); if (R.jumps(b, cp, to).length) return { b, nx: p, mj: to, q: 0, cp }; }
+      cp.forEach((i) => { b[i] = null; });
+      if (v < 2 && (p === 0 ? to < 8 : to >= 56)) b[to] = v + 2;
+      return { b, nx: 1 - p, mj: -1, q: x >= 0 || v < 2 ? 0 : s.q + 1, cp: [] };
+    },
+    win: (s) => (GAME_RULES.checkers.moves(s, s.nx).length ? null : { p: 1 - s.nx, line: null }),
+    next: (s) => s.nx,
+    draw: (s) => s.q >= 80,
+  },
+  whot: {
+    // Whot, Nigerian rules, 2 players, 54 cards. Card id = shape*100 + number (shapes 0-4; Whot = 520). Move: -1 draw, id plays a card, 520 + 1000*(shape+1) plays Whot calling a shape. Add 100000 to call "Last card".
+    // 1 Hold on / 8 Suspension: play again. 2 Pick two / 5 Pick three: stack the same number or draw. 14 General market: opponent picks one, you play again.
+    // Last card: when you play down to ONE card you must have called it (the +100000 flag, only offered with 2 cards in hand), otherwise you pick 2 as a penalty.
+    sh: (c) => Math.floor(c / 100), nm: (c) => c % 100,
+    shuf: (a, rnd) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; },
+    init: () => {
+      const R = GAME_RULES.whot, set = { 0: [1,2,3,4,5,7,8,10,11,12,13,14], 1: [1,2,3,4,5,7,8,10,11,12,13,14], 2: [1,2,3,5,7,10,11,13,14], 3: [1,2,3,5,7,10,11,13,14], 4: [1,2,3,4,5,7,8] };
+      let deck = []; for (const k in set) set[k].forEach((n) => deck.push(k * 100 + n)); for (let i = 0; i < 5; i++) deck.push(520);
+      deck = R.shuf(deck, Math.random); const h = [deck.splice(0, 6), deck.splice(0, 6)]; let disc = [];
+      for (;;) { const c = deck.shift(); if (R.sh(c) < 5 && ![1,2,5,8,14].includes(R.nm(c))) { disc = [c]; break; } deck.push(c); }
+      return { h, deck, disc, want: -1, pend: 0, pk: 0, nx: 0, last: null, t: 0 };
+    },
+    ok: (s, c) => {
+      const R = GAME_RULES.whot; if (s.pend > 0) return R.nm(c) === s.pk; if (R.sh(c) === 5) return true;
+      const top = s.disc[s.disc.length - 1]; return s.want >= 0 ? R.sh(c) === s.want : R.sh(c) === R.sh(top) || R.nm(c) === R.nm(top);
+    },
+    moves: (s, p) => {
+      if (s.nx !== p) return []; const R = GAME_RULES.whot, out = [-1];
+      const calls = s.h[p].length === 2 ? [0, 100000] : [0];
+      new Set(s.h[p]).forEach((c) => { if (!R.ok(s, c)) return; for (const f of calls) { if (R.sh(c) === 5) for (let k = 0; k < 5; k++) out.push(c + 1000 * (k + 1) + f); else out.push(c + f); } });
+      return out;
+    },
+    take: (s, p, n, rnd) => {
+      const R = GAME_RULES.whot;
+      for (let i = 0; i < n; i++) { if (!s.deck.length) { const top = s.disc.pop(); s.deck = R.shuf(s.disc, rnd); s.disc = [top]; if (!s.deck.length) break; } s.h[p].push(s.deck.shift()); }
+    },
+    play: (s, m, p, rnd) => {
+      const R = GAME_RULES.whot, ns = { ...s, h: s.h.map((a) => a.slice()), deck: s.deck.slice(), disc: s.disc.slice(), t: s.t + 1 };
+      if (m === -1) { const n = s.pend > 0 ? s.pend : 1; R.take(ns, p, n, rnd); ns.pend = 0; ns.pk = 0; ns.nx = 1 - p; ns.last = { by: p, draw: n }; return ns; }
+      const call = m >= 100000; if (call) m -= 100000;
+      const c = m % 1000, k = Math.floor(m / 1000) - 1, n = R.nm(c); ns.h[p].splice(ns.h[p].indexOf(c), 1); ns.disc.push(c);
+      ns.want = R.sh(c) === 5 ? k : -1; ns.last = { by: p, card: c, want: ns.want }; ns.nx = 1 - p;
+      if (n === 2) { ns.pend = s.pend + 2; ns.pk = 2; } else if (n === 5) { ns.pend = s.pend + 3; ns.pk = 5; }
+      else if (n === 1 || n === 8) ns.nx = p;
+      else if (n === 14) { R.take(ns, 1 - p, 1, rnd); ns.nx = p; }
+      if (ns.h[p].length === 1) { if (call) ns.last.lc = true; else { R.take(ns, p, 2, rnd); ns.last.pen = true; } }
+      return ns;
+    },
+    win: (s) => { for (const p of [0, 1]) if (s.h[p].length === 0) return { p, line: null }; return null; },
+    view: (s, i) => ({ ...s, h: s.h.map((a, j) => (j === i ? a : a.map(() => null))), deck: s.deck.map(() => 0), disc: s.disc.slice(-1) }),
+    next: (s) => s.nx,
+    draw: (s) => s.t > 400,
+  },
+  race: {
+    // Turbo Racer is real-time, so it has no turns or moves. The room only carries the track seed; positions go through race:pos / race:finish.
+    init: () => ({ seed: Math.floor(Math.random() * 2147483647), len: 1800 }),
+    moves: () => [],
+    play: (s) => s,
+    win: () => null,
+    next: () => 0,
+    draw: () => false,
+  },
+  chess: {
+    // Chess. Player 0 = white (starts at the bottom), player 1 = black. Piece = type + 8*owner (1 P, 2 N, 3 B, 4 R, 5 Q, 6 K). Move = from*64 + to (+ 4096 * promotion type).
+    init: () => { const b = Array(64).fill(null), back = [4, 2, 3, 5, 6, 3, 2, 4]; for (let c = 0; c < 8; c++) { b[c] = back[c] + 8; b[8 + c] = 9; b[48 + c] = 1; b[56 + c] = back[c]; } return { b, nx: 0, c: [true, true, true, true], ep: -1, hm: 0, lm: null }; },
+    moves: (s, p) => (s.nx === p ? chLegal(s, p) : []),
+    play: (s, m) => chApply(s, m),
+    win: (s) => (chLegal(s, s.nx).length === 0 && chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx) ? { p: 1 - s.nx, line: null } : null),
+    draw: (s) => {
+      if (s.hm >= 100) return true;
+      const o = []; s.b.forEach((v) => { if (v != null && (v & 7) !== 6) o.push(v & 7); });
+      if (o.length === 0 || (o.length === 1 && (o[0] === 2 || o[0] === 3))) return true;
+      return chLegal(s, s.nx).length === 0 && !chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx);
+    },
+    next: (s) => s.nx,
+  },
+};
+// ---- 8-ball pool: shared rules for online play (the server runs the real physics; clients replay the shot as an animation) ----
+// State: b = [x, y, on] for balls 0..15 (flat), nx = whose shot, g = [group of player 0, group of player 1], k = 1 once the break was taken,
+// hand = 1 when nx has the cue ball in hand, t = shots taken, w = winner (-1 while playing), last = what the previous shot did.
+// A move is a free-form shot: { a: angle in 1/1000 rad, v: speed in 1/10 units (1..250), x, y: where the cue ball was placed (only with ball in hand) }.
+function poolPack(B) { const o = []; for (let i = 0; i < 16; i++) o.push(B[i].x, B[i].y, B[i].on ? 1 : 0); return o; }
+function poolUnpack(a) {
+    const B = [];
+    for (let n = 0; n < 16; n++) B.push({ n, x: a[n * 3], y: a[n * 3 + 1], vx: 0, vy: 0, on: a[n * 3 + 2] === 1, fall: a[n * 3 + 2] === 1 ? 0 : 1 });
+    return B;
+}
+function poolInitState() { return { b: poolPack(poolNewBalls()), nx: 0, g: [null, null], k: 0, hand: 0, t: 0, w: -1, last: null }; }
+function poolValid(s, m, p) {
+    if (!s || s.w >= 0 || s.nx !== p || !m || typeof m !== "object") return false;
+    if (!Number.isInteger(m.a) || Math.abs(m.a) > 6400 || !Number.isInteger(m.v) || m.v < 1 || m.v > 250) return false;
+    if (m.x == null && m.y == null) return true;
+    if (!s.hand || !Number.isInteger(m.x) || !Number.isInteger(m.y)) return false;
+    const R = POOL.R; if (m.x < R || m.x > POOL.W - R || m.y < R || m.y > POOL.H - R) return false;
+    const B = poolUnpack(s.b);
+    for (let i = 1; i < 16; i++) if (B[i].on && Math.hypot(B[i].x - m.x, B[i].y - m.y) < 2 * R - 1) return false;
+    return true;
+}
+function poolPlay(s, m) {
+    const B = poolUnpack(s.b), p = s.nx, ev = poolNewEvent();
+    if (s.hand && m.x != null) { B[0].x = m.x; B[0].y = m.y; }
+    B[0].on = true; B[0].fall = 0;
+    const g = { B, turn: p, groups: s.g.slice(), broke: !!s.k, ev, cleared: false };
+    const me = g.groups[p]; g.cleared = !!me && poolRemaining(B, me) === 0;
+    const sp = m.v / 10, ang = m.a / 1000; B[0].vx = Math.cos(ang) * sp; B[0].vy = Math.sin(ang) * sp;
+    for (let f = 0; f < 3000 && poolMoving(B); f++) poolFrame(B, ev);
+    for (let i = 0; i < 16; i++) { B[i].vx = 0; B[i].vy = 0; }
+    const r = poolResolve(g);
+    if (r.respot8) { const b8 = B[8]; let y = POOL.H * 0.27 - POOL.R * 3.6; for (let k = 0; k < 40 && !poolFree(B, POOL.W / 2, y, 8); k++) y -= POOL.R * 2.1; b8.on = true; b8.x = POOL.W / 2; b8.y = y; }
+    if (!B[0].on) { const c = B[0]; c.on = true; c.x = POOL.W / 2; c.y = POOL.H * 0.75; for (let k = 0; k < 60 && !poolFree(B, c.x, c.y, 0); k++) c.y -= POOL.R * 2.2; }
+    let nx = p, hand = 0, w = -1;
+    if (r.winner != null) w = r.winner; else { if (r.switched) nx = 1 - p; hand = r.foul ? 1 : 0; }
+    return { b: poolPack(B), nx, g: g.groups, k: 1, hand, t: s.t + 1, w, last: { by: p, m, first: ev.first, pot: r.pocketed, foul: r.foul ? 1 : 0, why: r.foul ? r.reason : (r.why || ""), res: r.respot8 ? 1 : 0, asg: r.assigned ? 1 : 0 } };
+}
+const POOL_RULES = {
+    init: poolInitState,
+    moves: (s, p) => (s.w < 0 && s.nx === p ? [0] : []), // shots are free-form, so they are checked by valid() instead of being listed
+    valid: poolValid,
+    play: (s, m) => poolPlay(s, m),
+    win: (s) => (s.w >= 0 ? { p: s.w, line: null } : null),
+    next: (s) => s.nx,
+    draw: (s) => s.t > 300,
+};
+
+// ---- 8-ball pool inside the game room (online + vs Robot) ----
+const poolBusy = { n: 0 }; // > 0 while a shot is being replayed on screen, so the robot waits for the animation
+function poolRobotMove(s, me, level) {
+    const B = poolUnpack(s.b), grp = s.g[me], cleared = !!grp && poolRemaining(B, grp) === 0;
+    const plan = poolPlan(B, grp, cleared, !!s.hand, ["easy", "normal", "hard", "expert"][Math.max(0, Math.min(3, level | 0))]);
+    let a = plan.ang; while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI;
+    const m = { a: Math.round(a * 1000), v: Math.max(1, Math.min(250, Math.round(plan.speed * 10))) };
+    if (s.hand && plan.place) { m.x = Math.round(plan.place.x); m.y = Math.round(plan.place.y); }
+    return m;
+}
+function poolGroupLabel(s, i) { const g = s.g && s.g[i]; return g === "solid" ? "Solids" : g === "stripe" ? "Stripes" : "Open table"; }
+function poolStatusText(s, you, myTurn) {
+    const l = s.last;
+    if (s.w >= 0) return l && l.why ? (l.by === you ? "You " : "Opponent ") + l.why + "." : "Game over.";
+    if (!l) return myTurn ? "Break! Pull back anywhere and let go to shoot." : "Your opponent is breaking…";
+    const who = l.by === you ? "You" : "Opponent";
+    let t = who + (l.pot.length ? " potted " + l.pot.join(", ") : " missed");
+    if (l.asg) t += " · " + (l.by === you ? "you are " : "they are ") + (s.g[l.by] === "solid" ? "solids" : "stripes");
+    if (l.foul) t += " · Foul: " + l.why + (s.nx === you ? " — ball in hand, drag the cue ball anywhere" : " — they get ball in hand");
+    else if (s.nx === l.by) t += " · " + (l.by === you ? "shoot again" : "they shoot again");
+    return t;
+}
+function PoolBoard({ s, you, myTurn, onTap, fit }) {
+    const cvRef = useRef(null), tableRef = useRef(null), L = useRef(null);
+    const [pot, setPot] = useState(0);
+    if (!L.current) L.current = { B: poolUnpack(s.b), prev: s, phase: "idle", ev: null, aim: { ang: -Math.PI / 2, pow: 0, drag: null, sx: 0, sy: 0 }, sent: 0, spin: 0 };
+    const S = useRef(s), MT = useRef(myTurn), ON = useRef(onTap), YOU = useRef(you);
+    S.current = s; MT.current = myTurn; ON.current = onTap; YOU.current = you;
+    // a new state arrived: replay the shot that produced it (both players see the same shot), then settle on the server's positions
+    useEffect(() => {
+        const l = L.current, prev = l.prev; if (s === prev) return;
+        l.prev = s; l.sent = 0; l.aim.pow = 0; l.aim.drag = null;
+        const m = s.last && s.last.m;
+        if (m && s.t === prev.t + 1) {
+            const B = poolUnpack(prev.b);
+            if (prev.hand && m.x != null) { B[0].x = m.x; B[0].y = m.y; }
+            B[0].on = true; B[0].fall = 0;
+            B[0].vx = Math.cos(m.a / 1000) * m.v / 10; B[0].vy = Math.sin(m.a / 1000) * m.v / 10;
+            if (l.phase !== "rolling") poolBusy.n++;
+            l.B = B; l.ev = poolNewEvent(); l.phase = "rolling"; l.frames = 0; poolBlip("ball", m.v / 18);
+        } else { l.B = poolUnpack(s.b); if (l.phase === "rolling") poolBusy.n = Math.max(0, poolBusy.n - 1); l.phase = "idle"; }
+        setPot((x) => x + 1);
+    }, [s]);
+    useEffect(() => () => { if (L.current.phase === "rolling") poolBusy.n = Math.max(0, poolBusy.n - 1); }, []);
+    const TW = POOL.W + 2 * POOL.RAIL, TH = POOL.H + 2 * POOL.RAIL;
+    const k = Math.max(0.2, Math.min(Math.max(120, fit.w) / TW, Math.max(180, fit.h - 66) / TH)), w = Math.floor(TW * k), h = Math.floor(TH * k);
+    useEffect(() => {
+        const cv = cvRef.current; if (!cv) return;
+        tableRef.current = poolBuildTable();
+        let raf = 0, last = 0, acc = 0, alive = true;
+        const tick = (ts) => {
+            if (!alive) return; raf = requestAnimationFrame(tick);
+            const l = L.current, c = cv.getContext("2d"), dt = Math.min(64, ts - (last || ts)); last = ts; acc += dt;
+            while (acc >= 16.667) {
+                acc -= 16.667;
+                if (l.phase === "rolling") {
+                    poolFrame(l.B, l.ev); l.frames++;
+                    if (l.ev.snd.length) { for (let i = 0; i < l.ev.snd.length && i < 3; i++) poolBlip(l.ev.snd[i].k, l.ev.snd[i].v); l.ev.snd = []; }
+                    if (!poolMoving(l.B) || l.frames > 2500) { // done: settle on the server's final positions
+                        const fall = l.B.map((b) => b.fall);
+                        l.B = poolUnpack(S.current.b); l.B.forEach((b, i) => { if (!b.on) b.fall = Math.max(b.fall, fall[i] || 0); });
+                        l.phase = "idle"; poolBusy.n = Math.max(0, poolBusy.n - 1); setPot((x) => x + 1);
+                    }
+                }
+                for (let i = 0; i < l.B.length; i++) { const b = l.B[i]; if (!b.on && b.fall < 1) b.fall = Math.min(1, b.fall + 0.07); }
+            }
+            const can = MT.current && l.phase === "idle" && !l.sent && S.current.w < 0;
+            const g = { B: l.B, aim: l.aim, hand: can && !!S.current.hand, phase: can ? "aim" : l.phase === "rolling" ? "rolling" : "wait" };
+            c.setTransform(cv.width / TW, 0, 0, cv.width / TW, 0, 0);
+            poolDraw(c, g, tableRef.current, ts);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => { alive = false; cancelAnimationFrame(raf); };
+    }, []);
+    const pos = (e) => { const r = cvRef.current.getBoundingClientRect(), q = TW / r.width; return { x: (e.clientX - r.left) * q - POOL.RAIL, y: (e.clientY - r.top) * q - POOL.RAIL }; };
+    const canShoot = () => { const l = L.current; return MT.current && l.phase === "idle" && !l.sent && S.current.w < 0; };
+    const onDown = (e) => {
+        if (!canShoot()) return; const l = L.current, a = l.aim, p = pos(e), c = l.B[0];
+        try { cvRef.current.setPointerCapture(e.pointerId); } catch (x) { }
+        if (S.current.hand && Math.hypot(p.x - c.x, p.y - c.y) < 48) a.drag = "place"; else { a.drag = "aim"; a.sx = p.x; a.sy = p.y; a.pow = 0; }
+        poolBlip("pocket", 0);
+    };
+    const onMove = (e) => {
+        const l = L.current, a = l.aim; if (!a.drag || !canShoot()) return; const p = pos(e);
+        if (a.drag === "place") { const x = Math.max(POOL.R, Math.min(POOL.W - POOL.R, p.x)), y = Math.max(POOL.R, Math.min(POOL.H - POOL.R, p.y)); if (poolFree(l.B, x, y, 0)) { l.B[0].x = x; l.B[0].y = y; } return; }
+        const dx = p.x - a.sx, dy = p.y - a.sy, len = Math.hypot(dx, dy);
+        if (len < 7) { a.pow = 0; return; }
+        a.ang = Math.atan2(-dy, -dx); a.pow = Math.min(1, (len - 7) / POOL.PULL);
+    };
+    const onUp = () => {
+        const l = L.current, a = l.aim, d = a.drag; a.drag = null;
+        if (d !== "aim" || !canShoot()) return;
+        if (a.pow < 0.05) { a.pow = 0; return; }
+        let ang = a.ang; while (ang > Math.PI) ang -= 2 * Math.PI; while (ang < -Math.PI) ang += 2 * Math.PI;
+        const m = { a: Math.round(ang * 1000), v: Math.max(1, Math.min(250, Math.round(a.pow * POOL.MAXV * 10))) };
+        if (S.current.hand) { m.x = Math.round(l.B[0].x); m.y = Math.round(l.B[0].y); }
+        l.sent = 1; const t0 = S.current.t; setTimeout(() => { if (S.current.t === t0) L.current.sent = 0; }, 5000); // not accepted? let them shoot again
+        ON.current(m);
+    };
+    const mini = (p) => {
+        const grp = s.g[p], list = [];
+        if (grp) for (let n = 1; n < 16; n++) if (poolGroup(n) === grp && !s.b[n * 3 + 2]) list.push(n);
+        return gh("div", { style: { display: "flex", gap: 2, alignItems: "center", minHeight: 16, flex: 1, justifyContent: p === you ? "flex-start" : "flex-end", flexWrap: "wrap" } }, gh("span", { style: { fontFamily: "Inter", fontSize: 10.5, fontWeight: 600, color: PCOL[p], marginRight: 3 } }, poolGroupLabel(s, p)), list.map((n) => gh(PoolMini, { key: n, n, size: 13 })));
+    };
+    return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: "100%" } },
+        gh("div", { style: { display: "flex", gap: 8, width: w, minHeight: 18 } }, mini(you), mini(1 - you)),
+        gh("canvas", { ref: cvRef, width: w * 2, height: h * 2, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp, style: { width: w, height: h, display: "block", touchAction: "none", borderRadius: 16, boxShadow: "0 6px 22px rgba(0,0,0,.45)", userSelect: "none", WebkitUserSelect: "none" } }),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#C5CCD6", textAlign: "center", minHeight: 30, width: w, lineHeight: "15px" } }, poolStatusText(s, you, myTurn)));
+}
+
+GAME_RULES.pool = POOL_RULES;
+const HUB_GAMES = [
+  { id: "ttt", name: "Tic-Tac-Toe", emoji: "✖️", color: "#35D0BA", blurb: "Three in a row", ready: true },
+  { id: "c4", name: "Connect 4", emoji: "🔴", color: "#FF4FA3", blurb: "Drop discs, link four", ready: true },
+  { id: "snl", name: "Snakes & Ladders", emoji: "🐍", color: "#2DD4A0", blurb: "Climb up, slide down", ready: true },
+  { id: "whot", name: "Smart Whot", emoji: "🃏", color: "#F5B83D", blurb: "Nigerian rules", ready: true },
+  { id: "chess", name: "Chess", emoji: "♟️", color: "#8B5CF6", blurb: "Classic strategy", ready: true },
+  { id: "checkers", name: "Checkers", emoji: "⚫", color: "#4C8DFF", blurb: "Nigerian rules", ready: true },
+  { id: "ludo", name: "Ludo", emoji: "🎲", color: "#FF7A45", blurb: "Roll, race, capture", ready: true },
+  { id: "race", name: "Turbo Racer", emoji: "🏎️", color: "#FF3B5C", blurb: "Race, dodge, nitro", ready: true },
+  { id: "pool", name: "8-Ball Pool", emoji: "🎱", color: "#1E9450", blurb: "Pot yours, sink the 8", ready: true },
+  { id: "dominoes", name: "Dominoes", emoji: "🧩", color: "#2DD4A0", blurb: "Match the tiles" },
+];
+const hubName = (id) => (HUB_GAMES.find((g) => g.id === id) || { name: id }).name;
+const LEVELS = ["Easy", "Medium", "Hard", "Expert"];
+const PCOL = ["#35D0BA", "#FF4FA3"];
+const ROBOT = { id: "robot", name: "Robot", initials: "🤖", color: "#8B5CF6", level: 0, robot: true };
+const GLASS = { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.11)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: 20 };
+const rankName = (lv) => (lv >= 10 ? "Legend" : lv >= 6 ? "Pro" : lv >= 3 ? "Challenger" : "Rookie");
+const flag = (cc) => (cc && cc.length === 2 ? String.fromCodePoint(...[...cc].map((c) => 127397 + c.charCodeAt(0))) : "🌍");
+const hubPing = () => { try { if (typeof playPing === "function") playPing(); } catch (e) {} };
+
+// ---- robot brain: negamax with alpha-beta; lower levels also blunder on purpose ----
+function robotNega(game, s, p, d, a, b) {
+  const R = GAME_RULES[game], w = R.win(s);
+  if (w) return w.p === p ? 1000 + d : -1000 - d;
+  const mv = R.moves(s);
+  if (!mv.length) return 0;
+  if (d === 0) { if (game !== "c4") return 0; let v = 0; for (let r = 0; r < 6; r++) { const x = s[r * 7 + 3]; if (x != null) v += x === p ? 3 : -3; } return v; }
+  let best = -1e9;
+  for (const m of mv.slice().sort((x, y) => Math.abs(x - 3) - Math.abs(y - 3))) {
+    const v = -robotNega(game, R.play(s, m, p), 1 - p, d - 1, -b, -a);
+    if (v > best) best = v; if (best > a) a = best; if (a >= b) break;
+  }
+  return best;
+}
+function robotPick(game, s, me, level) {
+  if (game === "ludo") return ludoPick(s, me, level);
+  if (game === "snl") return -1;
+  if (game === "chess") return chPick(s, me, level);
+  if (game === "whot") return whotPick(s, me, level);
+  if (game === "pool") return poolRobotMove(s, me, level);
+  if (game === "checkers") return ckPick(s, me, level);
+  const R = GAME_RULES[game], mv = R.moves(s);
+  if (Math.random() < [0.7, 0.35, 0.1, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  const depth = game === "ttt" ? 9 : [1, 3, 5, 6][level];
+  let best = -1e9, picks = [];
+  for (const m of mv) {
+    const v = -robotNega(game, R.play(s, m, me), 1 - me, depth - 1, -1e9, 1e9);
+    if (v > best) { best = v; picks = [m]; } else if (v === best) picks.push(m);
+  }
+  return picks[Math.floor(Math.random() * picks.length)];
+}
+
+// ---- Ludo: robot brain and board ----
+function ludoPick(s, me, level) {
+  const R = GAME_RULES.ludo, mv = R.moves(s, me);
+  if (mv[0] === -1) return -1;
+  if (Math.random() < [0.8, 0.4, 0.1, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  let best = -1e9, pick = mv[0];
+  for (const m of mv) {
+    const ns = R.play(s, m, me, () => 0.5), r0 = s.t[me][m], r1 = ns.t[me][m];
+    let v = (r1 === 56 ? 40 : 0) + (r0 === -1 ? 25 : 0) + r1 * 0.3 + Math.random();
+    ns.t[1 - me].forEach((q, j) => { if (q === -1 && s.t[1 - me][j] !== -1) v += 50; });
+    if (r1 <= 50) {
+      const a = (me * 26 + r1) % 52;
+      if (LUDO_SAFE.includes(a)) v += 12;
+      else if (level >= 2) s.t[1 - me].forEach((q) => { if (q >= 0 && q <= 50) { const gap = (a - ((1 - me) * 26 + q) + 52) % 52; if (gap >= 1 && gap <= 6) v -= level === 3 ? 30 : 18; } });
+    }
+    if (v > best) { best = v; pick = m; }
+  }
+  return pick;
+}
+const LUDO_RING = [[6,1],[6,2],[6,3],[6,4],[6,5],[5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],[8,14],[8,13],[8,12],[8,11],[8,10],[8,9],[9,8],[10,8],[11,8],[12,8],[13,8],[14,8],[14,7],[14,6],[13,6],[12,6],[11,6],[10,6],[9,6],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0]];
+function ludoXY(p, r, i) {
+  if (r === -1) return [[[1.5,1.5],[3.5,1.5],[1.5,3.5],[3.5,3.5]], [[10.5,10.5],[12.5,10.5],[10.5,12.5],[12.5,12.5]]][p][i];
+  if (r === 56) return [7.5 + (p ? 1 : -1) * 0.95, 7.5 + (i - 1.5) * 0.3];
+  const c = r > 50 ? [7, p ? 64 - r : r - 50] : LUDO_RING[(p * 26 + r) % 52];
+  return [c[1] + 0.5, c[0] + 0.5];
+}
+// ---- fit-to-screen helpers: boards size themselves to the space the game card has, so nothing scrolls while you play ----
+function useFit() {
+  const ref = useRef(null), [box, setBox] = useState({ w: 320, h: 420 });
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const upd = () => { const w = el.clientWidth, h = el.clientHeight; setBox((b) => (b.w === w && b.h === h ? b : { w, h })); };
+    upd(); let ro; if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(upd); ro.observe(el); }
+    window.addEventListener("resize", upd);
+    return () => { ro && ro.disconnect(); window.removeEventListener("resize", upd); };
+  }, []);
+  return [ref, box];
+}
+const gameColor = (id) => (HUB_GAMES.find((x) => x.id === id) || {}).color || "#8B5CF6";
+const sideOf = (fit, extra) => Math.max(120, Math.floor(Math.min(fit.w - 20, fit.h - extra - 20)));
+// decorated frame around a board: glowing gradient rim, dark inner mat, little studs in the corners
+function GameFrame({ color, children }) {
+  const stud = (pos) => gh("i", { style: { position: "absolute", width: 6, height: 6, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, #fff, " + color + ")", boxShadow: "0 0 6px " + color, ...pos } });
+  return gh("div", { className: "lc-game", style: { position: "relative", padding: 7, borderRadius: 20, background: "linear-gradient(145deg, " + color + ", #F5B83D 48%, " + color + ")", boxShadow: "0 0 22px " + color + "66, 0 6px 18px rgba(0,0,0,.45)" } },
+    gh("div", { style: { padding: 3, borderRadius: 14, background: "#0B0F16", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.18)" } }, children),
+    stud({ top: 1, left: 1 }), stud({ top: 1, right: 1 }), stud({ bottom: 1, left: 1 }), stud({ bottom: 1, right: 1 }));
+}
+const RULES_TEXT = {
+  ttt: "Take turns placing X and O. The first to get three in a row wins.",
+  c4: "Drop a disc into a column. The first to connect four in a row wins.",
+  ludo: "Roll a 6 to leave base. A 6 or a capture gives another roll. Get all your pieces home first.",
+  snl: "Reach 100 with an exact roll. A 6 gives another roll. Ladders take you up, snakes slide you down.",
+  checkers: "Nigerian rules: men capture backwards too, kings fly across the board, and you must take the route that captures the most pieces. Captured pieces come off when your move ends. Reach the far row to be crowned.",
+  whot: "Nigerian rules: match the shape or number. 1 Hold on and 8 Suspension play again. 2 and 5 make the other player pick; pass it on with the same number. 14 is General Market. 20 Whot calls a shape. With 2 cards left, call Last card before you play or you pick 2. Empty your hand to win.",
+  chess: "Castling, en passant and promotion are included. A game is drawn by stalemate, 50 quiet moves or too few pieces.",
+  pool: "Pot all your solids (1-7) or stripes (9-15), then sink the 8-ball. Pull back anywhere on the table and let go to shoot: the pull direction aims and the pull length sets the power. Keep shooting while you pot your own balls. A foul (cue ball potted, wrong ball hit first, or nothing reaching a cushion) gives your opponent the cue ball in hand. Potting the 8-ball early loses.",
+  race: "Tap left or right (or A / D, arrow keys) to change lane, space for nitro. Dodge cars and cones, avoid oil, grab ⚡ and boost pads, and tuck in behind your rival for a slipstream. First across the line wins.",
+};
+function RulesSheet({ game, color, onClose }) {
+  const g = HUB_GAMES.find((x) => x.id === game) || {};
+  return gh("div", { onClick: onClose, style: { position: "absolute", top: 6, right: 6, bottom: 6, left: 6, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(7,10,16,.86)", borderRadius: 18 } },
+    gh("div", { onClick: (e) => e.stopPropagation(), style: { ...GLASS, borderRadius: 18, padding: "16px 18px", maxWidth: 320, border: "1px solid " + color, boxShadow: "0 0 24px " + color + "55", textAlign: "center" } },
+      gh("div", { style: { fontSize: 30 } }, g.emoji),
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: "#F5F7FA", marginTop: 2 } }, (g.name || "Game") + " rules"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#C9D1DC", marginTop: 8 } }, RULES_TEXT[game] || ""),
+      hubBtn("Got it", onClose, { small: true, style: { marginTop: 12 } })));
+}
+function hubStatusRow(onRules, status) {
+  return gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, counterIncrement: "lcgap-10", padding: "2px 10px 5px" } }, status,
+    gh("button", { onClick: onRules, "aria-label": "Game rules", style: { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", borderRadius: 999, padding: "3px 10px", color: "#C9D1DC", fontFamily: "Inter", fontWeight: 600, fontSize: 11.5, cursor: "pointer" } }, "ⓘ Rules"));
+}
+const roomShell = (gc, bg) => ({ display: "flex", flexDirection: "column", height: "calc(100% - 8px)", margin: "4px 6px", boxSizing: "border-box", border: "2px solid transparent", borderRadius: 22, overflow: "hidden", position: "relative", background: bg + " padding-box, linear-gradient(160deg, " + gc + ", rgba(245,184,61,.6) 50%, " + gc + ") border-box", boxShadow: "0 0 24px " + gc + "55, inset 0 0 30px " + gc + "22" });
+
+function LudoBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const R = GAME_RULES.ludo, canRoll = myTurn && s.d == null, legal = myTurn && s.d != null ? R.moves(s, you) : [];
+  const kids = [gh("rect", { key: "bg", x: 0, y: 0, width: 15, height: 15, rx: 0.6, fill: "#0F141C" }),
+    gh("rect", { key: "b0", x: 0, y: 0, width: 6, height: 6, rx: 0.5, fill: PCOL[0] + "22" }), gh("rect", { key: "b1", x: 9, y: 9, width: 6, height: 6, rx: 0.5, fill: PCOL[1] + "22" }),
+    gh("rect", { key: "b2", x: 9, y: 0, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }), gh("rect", { key: "b3", x: 0, y: 9, width: 6, height: 6, rx: 0.5, fill: "#ffffff08" }),
+    gh("rect", { key: "ct", x: 6, y: 6, width: 3, height: 3, fill: "#1B1440", stroke: "#8B5CF6", strokeWidth: 0.06 })];
+  LUDO_RING.forEach((c, i) => kids.push(gh("rect", { key: "r" + i, x: c[1] + 0.04, y: c[0] + 0.04, width: 0.92, height: 0.92, rx: 0.15, fill: i === 0 ? PCOL[0] + "77" : i === 26 ? PCOL[1] + "77" : "#1B2330" }),
+    LUDO_SAFE.includes(i) ? gh("text", { key: "s" + i, x: c[1] + 0.5, y: c[0] + 0.75, fontSize: 0.6, textAnchor: "middle", fill: "#8891A0" }, "★") : null));
+  for (let k = 1; k <= 5; k++) kids.push(gh("rect", { key: "h0" + k, x: k + 0.04, y: 7.04, width: 0.92, height: 0.92, rx: 0.15, fill: PCOL[0] + "55" }), gh("rect", { key: "h1" + k, x: 14 - k + 0.04, y: 7.04, width: 0.92, height: 0.92, rx: 0.15, fill: PCOL[1] + "55" }));
+  const seen = {};
+  [0, 1].forEach((p) => s.t[p].forEach((r, i) => {
+    let [x, y] = ludoXY(p, r, i); const key = x + "," + y, n = seen[key] || 0; seen[key] = n + 1; x += n * 0.14; y -= n * 0.14;
+    const can = p === you && legal.includes(i);
+    kids.push(gh("circle", { key: "t" + p + i, cx: x, cy: y, r: 0.36, fill: PCOL[p], stroke: can ? "#fff" : "#0B0F16", strokeWidth: can ? 0.14 : 0.07, style: { cursor: can ? "pointer" : "default", filter: can ? "drop-shadow(0 0 0.35px #fff)" : "none" }, onClick: can ? () => onTap(i) : undefined, role: can ? "button" : undefined, "aria-label": can ? "Move piece " + (i + 1) : undefined }));
+  }));
+  const side = sideOf(fit, 66);
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh(GameFrame, { color: gameColor("ludo") }, gh("svg", { viewBox: "0 0 15 15", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } },
+      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, myTurn ? (s.d == null ? "Tap the dice to roll." : legal.length > 1 ? "Tap a glowing piece to move it." : "Moving…") : "Waiting for the other player.")));
+}
+
+// ---- Snakes & Ladders: board ----
+function snlXY(n) { const r = Math.floor((n - 1) / 10), c = r % 2 ? 9 - ((n - 1) % 10) : (n - 1) % 10; return [c + 0.5, 9 - r + 0.5]; }
+function SnlBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const canRoll = myTurn;
+  const kids = [];
+  for (let n = 1; n <= 100; n++) { const [x, y] = snlXY(n); kids.push(gh("rect", { key: "c" + n, x: x - 0.5 + 0.02, y: y - 0.5 + 0.02, width: 0.96, height: 0.96, rx: 0.12, fill: (Math.floor((n - 1) / 10) + n) % 2 ? "#1B2330" : "#141B26" }), gh("text", { key: "n" + n, x: x - 0.4, y: y - 0.26, fontSize: 0.3, fill: "#5B6673" }, n)); }
+  Object.keys(SNL_JUMPS).forEach((k) => {
+    const a = +k, b = SNL_JUMPS[k], [x1, y1] = snlXY(a), [x2, y2] = snlXY(b), dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, px = -dy / len, py = dx / len;
+    if (b > a) {
+      kids.push(gh("g", { key: "L" + a, stroke: "#F5B83D", strokeLinecap: "round", opacity: 0.9 }, gh("line", { x1: x1 + px * 0.12, y1: y1 + py * 0.12, x2: x2 + px * 0.12, y2: y2 + py * 0.12, strokeWidth: 0.07 }), gh("line", { x1: x1 - px * 0.12, y1: y1 - py * 0.12, x2: x2 - px * 0.12, y2: y2 - py * 0.12, strokeWidth: 0.07 }),
+        [0.2, 0.4, 0.6, 0.8].map((t) => gh("line", { key: t, x1: x1 + dx * t + px * 0.12, y1: y1 + dy * t + py * 0.12, x2: x1 + dx * t - px * 0.12, y2: y1 + dy * t - py * 0.12, strokeWidth: 0.05 }))));
+    } else {
+      kids.push(gh("g", { key: "S" + a, opacity: 0.9 }, gh("path", { d: "M" + x1 + " " + y1 + " Q" + ((x1 + x2) / 2 + px * 1.1) + " " + ((y1 + y2) / 2 + py * 1.1) + " " + x2 + " " + y2, fill: "none", stroke: "#FF4FA3", strokeWidth: 0.17, strokeLinecap: "round" }), gh("circle", { cx: x1, cy: y1, r: 0.2, fill: "#FF4FA3" }), gh("circle", { cx: x1 - 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" }), gh("circle", { cx: x1 + 0.06, cy: y1 - 0.05, r: 0.04, fill: "#fff" })));
+    }
+  });
+  [0, 1].forEach((p) => { const n = s.p[p], [x, y] = n === 0 ? [p ? 9.6 : 0.4, 10.35] : snlXY(n), off = n > 0 && s.p[0] === s.p[1] ? (p ? 0.18 : -0.18) : 0; kids.push(gh("circle", { key: "t" + p, cx: x + off, cy: y, r: 0.3, fill: PCOL[p], stroke: "#0B0F16", strokeWidth: 0.07, style: { filter: "drop-shadow(0 0 0.25px " + PCOL[p] + ")", transition: "all .35s" } })); });
+  const side = Math.max(120, Math.floor(Math.min(fit.w - 20, (fit.h - 66 - 20) / 1.08)));
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh(GameFrame, { color: gameColor("snl") }, gh("svg", { viewBox: "0 0 10 10.8", width: side, height: Math.round(side * 1.08), style: { display: "block", borderRadius: 10, background: "#0F141C" } }, kids)),
+    gh("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 0 0" } },
+      gh("button", { onClick: () => onTap(-1), disabled: !canRoll, "aria-label": "Roll the dice", style: { width: 52, height: 52, borderRadius: 18, border: "1px solid " + (canRoll ? "#F5B83D" : "rgba(255,255,255,.14)"), background: canRoll ? "rgba(245,184,61,.18)" : "rgba(255,255,255,.05)", boxShadow: canRoll ? "0 0 20px rgba(245,184,61,.55)" : "none", fontSize: 32, cursor: canRoll ? "pointer" : "default", color: "#F5F7FA" } }, s.last ? String.fromCodePoint(0x267F + s.last) : "🎲"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", maxWidth: 190 } }, (s.ev === 1 ? "🪜 Ladder! Climbed up. " : s.ev === -1 ? "🐍 Snake! Slid down. " : "") + (myTurn ? "Tap the dice to roll." : "Waiting for the other player."))));
+}
+
+// ---- Draughts: robot brain and board ----
+function ckEval(s, p) { let v = 0; s.b.forEach((x, i) => { if (x == null) return; const o = x % 2, k = x >= 2, r = i >> 3, val = (k ? 28 : 10) + (k ? 0 : (o ? r : 7 - r)) * 0.3; v += o === p ? val : -val; }); return v; }
+function ckNega(s, d, a, b) {
+  const R = GAME_RULES.checkers, p = s.nx, w = R.win(s);
+  if (w) return -1000 - d; if (R.draw(s)) return 0; if (d === 0) return ckEval(s, p);
+  let best = -1e9;
+  for (const m of R.moves(s, p)) { const ns = R.play(s, m, p), v = ns.nx === p ? ckNega(ns, d - 1, a, b) : -ckNega(ns, d - 1, -b, -a); if (v > best) best = v; if (best > a) a = best; if (a >= b) break; }
+  return best;
+}
+function ckPick(s, me, level) {
+  const R = GAME_RULES.checkers, mv = R.moves(s, me);
+  if (Math.random() < [0.6, 0.25, 0.05, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  const depth = [1, 3, 5, 6][level]; let best = -1e9, picks = [];
+  for (const m of mv) { const ns = R.play(s, m, me), v = ns.nx === me ? ckNega(ns, depth - 1, -1e9, 1e9) : -ckNega(ns, depth - 1, -1e9, 1e9); if (v > best) { best = v; picks = [m]; } else if (v === best) picks.push(m); }
+  return picks[Math.floor(Math.random() * picks.length)];
+}
+function CheckersBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const R = GAME_RULES.checkers, [sel, setSel] = useState(null);
+  const legal = myTurn ? R.moves(s, you) : [], froms = new Set(legal.map((m) => Math.floor(m / 64)));
+  const cur = s.mj >= 0 && myTurn ? s.mj : sel != null && froms.has(sel) ? sel : null;
+  const xy = (i) => { const r = i >> 3, c = i & 7; return you === 1 ? [7 - c, 7 - r] : [c, r]; };
+  const kids = [];
+  for (let i = 0; i < 64; i++) { const [x, y] = xy(i), dark = ((i >> 3) + (i & 7)) % 2 === 1, dest = cur != null && legal.includes(cur * 64 + i);
+    kids.push(gh("rect", { key: "q" + i, x, y, width: 1, height: 1, fill: dark ? "#1E2A3D" : "#121821", onClick: dest ? () => { setSel(null); onTap(cur * 64 + i); } : undefined, style: { cursor: dest ? "pointer" : "default" } }));
+    if (dest) kids.push(gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.18, fill: "#F5B83D", style: { pointerEvents: "none" } })); }
+  s.b.forEach((v, i) => { if (v == null) return; const [x, y] = xy(i), o = v % 2, can = froms.has(i), on = cur === i;
+    kids.push(gh("g", { key: "p" + i, opacity: (s.cp || []).includes(i) ? 0.35 : 1, onClick: can && s.mj < 0 ? () => setSel(i) : undefined, style: { cursor: can ? "pointer" : "default" }, role: can ? "button" : undefined, "aria-label": can ? "Select piece" : undefined },
+      gh("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.38, fill: PCOL[o], stroke: on ? "#fff" : can ? "#F5B83D" : "#0B0F16", strokeWidth: on ? 0.1 : can ? 0.07 : 0.05, style: { filter: "drop-shadow(0 0 0.2px " + PCOL[o] + ")" } }),
+      v >= 2 ? gh("text", { x: x + 0.5, y: y + 0.68, fontSize: 0.55, textAnchor: "middle", fill: "#0B0F16" }, "♛") : gh("circle", { cx: x + 0.5, cy: y + 0.5, r: 0.2, fill: "none", stroke: "#0B0F16", strokeWidth: 0.04, opacity: 0.4 }))); });
+  const side = sideOf(fit, 26);
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh(GameFrame, { color: gameColor("checkers") }, gh("svg", { viewBox: "0 0 8 8", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#C9D1DC", textAlign: "center", padding: "6px 0 0", height: 20, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, !myTurn ? "Waiting for the other player." : s.mj >= 0 ? "Keep jumping with the same piece." : cur != null ? "Tap a gold dot to move there." : legal.length && R.cap(s.b, legal[0]) >= 0 ? "You must capture. Take the route that captures the most pieces." : "Tap a glowing piece to move it."));
+}
+
+// ---- Smart Whot: robot brain and cards ----
+function whotPick(s, me, level) {
+  const R = GAME_RULES.whot, callIt = Math.random() < [0.7, 0.88, 0.97, 1][level], plays = R.moves(s, me).filter((m) => m >= 0 && (s.h[me].length !== 2 || (m >= 100000) === callIt)), rand = () => plays[Math.floor(Math.random() * plays.length)];
+  if (!plays.length) return -1;
+  if (s.pend > 0) return Math.random() < [0.3, 0.15, 0.05, 0][level] ? -1 : rand();
+  if (Math.random() < [0.55, 0.25, 0.05, 0][level]) return Math.random() < 0.15 ? -1 : rand();
+  const hand = s.h[me], opp = s.h[1 - me].length; let best = -1e9, pick = plays[0];
+  for (const m of plays) {
+    const mm = m % 100000, c = mm % 1000, n = R.nm(c), sh = R.sh(c), k = Math.floor(mm / 1000) - 1; let v = 3 + hand.filter((x) => R.sh(x) === sh).length * 0.5;
+    if (hand.length === 1) v = 100; else if (n === 1 || n === 8) v = 8; else if (n === 2) v = 6 + (opp <= 3 ? 4 : 0); else if (n === 5) v = 7 + (opp <= 3 ? 4 : 0); else if (n === 14) v = 7;
+    else if (sh === 5) v = (hand.length <= 2 ? 10 : 0.5) + hand.filter((x) => R.sh(x) === k).length * 0.8;
+    v += Math.random() * [8, 4, 1.2, 0.2][level]; if (v > best) { best = v; pick = m; }
+  }
+  return pick;
+}
+const WHOT_SH = [["●", "#FF5A5F"], ["▲", "#35D0BA"], ["✚", "#A78BFA"], ["■", "#4C8DFF"], ["★", "#F5B83D"]];
+const WHOT_TAG = { 1: "Hold on", 2: "Pick 2", 5: "Pick 3", 8: "Suspend", 14: "Market" };
+function WhotCard({ c, can, onClick, big, sc = 1, ml = 0 }) {
+  const w = Math.round((big ? 70 : 52) * sc), hgt = Math.round((big ? 100 : 76) * sc), R = GAME_RULES.whot, base = { width: w, height: hgt, borderRadius: 12, flexShrink: 0, marginLeft: ml, boxSizing: "border-box", padding: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", cursor: can ? "pointer" : "default", transform: can ? "translateY(-8px)" : "none", transition: "transform .15s" };
+  if (c == null) return gh("div", { className: "lc-card", style: { ...base, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "2px solid rgba(255,255,255,.35)", color: "#fff", fontFamily: "Sora", fontWeight: 800, fontSize: big ? 26 : 20 } }, "W");
+  const sh = R.sh(c), n = R.nm(c), col = sh === 5 ? "#F5B83D" : WHOT_SH[sh][1];
+  return gh("button", { className: "lc-card", onClick: can ? onClick : undefined, "aria-label": sh === 5 ? "Whot 20" : ["circle", "triangle", "cross", "square", "star"][sh] + " " + n, style: { ...base, background: sh === 5 ? "linear-gradient(145deg,#2A1A52,#0F141C)" : "#F5F7FA", border: "2px solid " + (can ? "#fff" : col), boxShadow: can ? "0 0 14px " + col : "none", opacity: can || big ? 1 : 0.62 } },
+    gh("div", { style: { position: "absolute", top: 4, left: 6, fontFamily: "Sora", fontWeight: 800, fontSize: big ? 15 : 13, color: sh === 5 ? "#F5B83D" : "#0B0F16" } }, n),
+    gh("div", { style: { fontSize: (sh === 5 ? (big ? 15 : 12) : (big ? 38 : 28)) * (sc < 1 ? 0.88 : 1), color: col, fontFamily: "Sora", fontWeight: 800, lineHeight: 1 } }, sh === 5 ? "WHOT" : WHOT_SH[sh][0]),
+    WHOT_TAG[n] && sh < 5 ? gh("div", { style: { position: "absolute", bottom: 3, fontFamily: "Inter", fontSize: big ? 9.5 : 8, fontWeight: 700, color: "#4B5563" } }, WHOT_TAG[n]) : null);
+}
+function WhotBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const R = GAME_RULES.whot, [pick, setPick] = useState(false), [lc, setLc] = useState(false), mv = myTurn ? R.moves(s, you) : [], ids = new Set(mv.filter((m) => m >= 0).map((m) => m % 1000));
+  const hand = s.h[you].slice().sort((a, b) => a - b), top = s.disc[s.disc.length - 1], opp = s.h[1 - you].length, l = s.last;
+  const sc = fit.h >= 430 ? 1 : fit.h >= 390 ? 0.86 : 0.72, cw = 52 * sc, nh = hand.length, step = nh > 1 ? Math.min(cw + 6, (fit.w - 8 - cw) / (nh - 1)) : 0;
+  const who = l ? (l.by === you ? "You" : "Opponent") : "";
+  let note = !l ? "" : l.draw ? who + " picked " + l.draw + " card" + (l.draw > 1 ? "s" : "") + "." : R.nm(l.card) === 14 ? who + " played General Market: the other player picked 1." : R.nm(l.card) === 1 || R.nm(l.card) === 8 ? who + " played " + WHOT_TAG[R.nm(l.card)] + " and plays again." : "";
+  if (l && l.card != null) { if (l.pen) note = (note + " " + who + " forgot to call Last card and picks 2!").trim(); else if (l.lc) note = (note + " " + who + " called Last card!").trim(); }
+  const call = lc && hand.length === 2 ? 100000 : 0, tapCard = (c) => { if (R.sh(c) === 5) setPick(true); else { setLc(false); onTap(c + call); } };
+  return gh("div", { style: { width: "100%", maxWidth: 380, display: "flex", flexDirection: "column" } },
+    gh("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", marginBottom: 4 } }, gh("div", { style: { display: "flex" } }, Array.from({ length: Math.min(opp, 7) }, (_, i) => gh("div", { key: i, style: { width: 18, height: 28, borderRadius: 5, marginLeft: i ? -10 : 0, background: "linear-gradient(135deg,#8B5CF6,#35D0BA)", border: "1px solid rgba(255,255,255,.4)" } }))), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC" } }, "Opponent has " + opp + " card" + (opp === 1 ? "" : "s"))),
+    gh("div", { style: { ...GLASS, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 22, counterIncrement: "lcgap-22", marginBottom: 6, border: "2px solid rgba(245,184,61,.6)", boxShadow: "0 0 18px rgba(245,184,61,.28), inset 0 0 0 3px rgba(11,15,22,.9), inset 0 0 0 4px rgba(245,184,61,.3)" } },
+      gh("button", { onClick: myTurn ? () => onTap(-1) : undefined, disabled: !myTurn, "aria-label": s.pend > 0 && myTurn ? "Pick " + s.pend + " cards" : "Pick a card from the market", style: { background: "none", border: "none", padding: 0, cursor: myTurn ? "pointer" : "default", textAlign: "center" } }, gh(WhotCard, { c: null, big: true, sc, can: myTurn }), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: myTurn ? "#F5B83D" : "#8891A0", marginTop: 6 } }, (s.pend > 0 && myTurn ? "Pick " + s.pend : "Market") + " · " + s.deck.length)),
+      gh("div", { style: { textAlign: "center" } }, gh(WhotCard, { c: top, big: true, sc }), s.want >= 0 ? gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 12.5, color: WHOT_SH[s.want][1], marginTop: 6 } }, "Needs " + WHOT_SH[s.want][0]) : gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", marginTop: 6 } }, "Play pile"))),
+    s.pend > 0 ? gh("div", { style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#FF4FA3", marginBottom: 3 } }, s.nx === you ? "Pick " + s.pend + " is coming! Play a " + s.pk + " or pick." : "Opponent must play a " + s.pk + " or pick " + s.pend + ".") : null,
+    note ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 3 } }, note) : null,
+    pick ? gh("div", { style: { ...GLASS, padding: 8, marginBottom: 4, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginBottom: 8 } }, "Call a shape"), gh("div", { style: { display: "flex", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8" } }, WHOT_SH.map(([g, col], k) => gh("button", { key: k, onClick: () => { setPick(false); setLc(false); onTap(520 + 1000 * (k + 1) + call); }, "aria-label": "Call " + ["circle", "triangle", "cross", "square", "star"][k], style: { width: 48, height: 48, borderRadius: 14, border: "2px solid " + col, background: "rgba(255,255,255,.06)", color: col, fontSize: 24, cursor: "pointer" } }, g))), gh("button", { onClick: () => setPick(false), style: { background: "none", border: "none", color: "#9BA7B4", fontFamily: "Inter", fontSize: 12.5, marginTop: 8, cursor: "pointer" } }, "Cancel")) : null,
+    myTurn && hand.length === 2 && ids.size ? gh("button", { onClick: () => setLc(!lc), "aria-pressed": lc, style: { display: "block", margin: "2px auto 0", padding: "8px 18px", borderRadius: 999, border: "2px solid " + (lc ? "#F5B83D" : "rgba(255,255,255,.25)"), background: lc ? "rgba(245,184,61,.2)" : "rgba(255,255,255,.06)", color: lc ? "#F5B83D" : "#C9D1DC", fontFamily: "Sora", fontWeight: 800, fontSize: 13, cursor: "pointer" } }, lc ? "✋ Last card! (called)" : "Tap to call Last card before you play") : null,
+    gh("div", { style: { display: "flex", justifyContent: "center", padding: "12px 4px 4px" } }, hand.map((c, i) => gh(WhotCard, { key: i + "-" + c, c, sc, ml: i ? step - cw : 0, can: ids.has(c), onClick: () => tapCard(c) }))),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "center", padding: "2px 0" } }, !myTurn ? "Waiting for the other player." : s.pend > 0 ? "Play a " + s.pk + " to pass it on, or tap the market." : ids.size ? "Tap a raised card to play it, or tap the market." : "No card fits. Tap the market to pick one."));
+}
+
+// ---- Chess: robot brain and board ----
+const CH_VAL = [0, 100, 320, 330, 500, 900, 0];
+function chEval(b) {
+  let v = 0;
+  for (let i = 0; i < 64; i++) {
+    const x = b[i]; if (x == null) continue; const t = x & 7, o = x >> 3, r = i >> 3, c = i & 7, cen = 7 - Math.abs(c - 3.5) - Math.abs(r - 3.5);
+    let sc = CH_VAL[t]; if (t === 1) sc += (o === 0 ? 6 - r : r - 1) * 6 + (c > 1 && c < 6 ? cen : 0); else if (t === 2 || t === 3) sc += cen * 4;
+    v += o === 0 ? sc : -sc;
+  }
+  return v;
+}
+const chOrder = (s, mv) => mv.map((m) => { const f = (m % 4096) >> 6, t = m & 63, cp = s.b[t]; return [m, (cp != null ? CH_VAL[cp & 7] * 10 - CH_VAL[s.b[f] & 7] : 0) + (m >= 4096 ? 800 : 0)]; }).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+function chQ(s, a, bt, qd, ctx) {
+  const p = s.nx, e = chEval(s.b), stand = p === 0 ? e : -e;
+  if (stand >= bt) return stand; if (stand > a) a = stand; if (qd === 0) return stand;
+  for (const m of chOrder(s, chLegal(s, p).filter((x) => s.b[x & 63] != null))) { const v = -chQ(chApply(s, m), -bt, -a, qd - 1, ctx); if (v >= bt) return v; if (v > a) a = v; }
+  return a;
+}
+function chSearch(s, d, a, bt, ply, ctx) {
+  if ((++ctx.n & 255) === 0 && Date.now() > ctx.t) throw ctx;
+  const p = s.nx, mv = chLegal(s, p);
+  if (!mv.length) return chAtt(s.b, chKing(s.b, p), 1 - p) ? -30000 + ply : 0;
+  if (s.hm >= 100) return 0; if (d === 0) return chQ(s, a, bt, 2, ctx);
+  let best = -1e9;
+  for (const m of chOrder(s, mv)) { const v = -chSearch(chApply(s, m), d - 1, -bt, -a, ply + 1, ctx); if (v > best) best = v; if (best > a) a = best; if (a >= bt) break; }
+  return best;
+}
+function chPick(s, me, level) {
+  const mv = chLegal(s, me);
+  if (Math.random() < [0.45, 0.15, 0.03, 0][level]) return mv[Math.floor(Math.random() * mv.length)];
+  const ctx = { n: 0, t: Date.now() + [150, 450, 900, 1500][level] }; let best = chOrder(s, mv)[0], order = chOrder(s, mv);
+  for (let d = 1; d <= [1, 2, 3, 5][level]; d++) {
+    try {
+      let bv = -1e9, bm = order[0]; const scored = [];
+      for (const m of order) { const v = -chSearch(chApply(s, m), d - 1, -1e9, 1e9, 1, ctx) + Math.random() * [40, 15, 4, 1][level]; scored.push([m, v]); if (v > bv) { bv = v; bm = m; } }
+      best = bm; order = scored.sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+      if (bv > 20000) break;
+    } catch (e) { if (e !== ctx) throw e; break; }
+  }
+  return best;
+}
+function ChessBoard({ s, you, myTurn, onTap, fit = { w: 330, h: 420 } }) {
+  const [sel, setSel] = useState(null), [promo, setPromo] = useState(null);
+  const legal = myTurn ? chLegal(s, you) : [], froms = new Set(legal.map((m) => (m % 4096) >> 6)), cur = sel != null && froms.has(sel) ? sel : null;
+  const xy = (i) => { const r = i >> 3, c = i & 7; return you === 1 ? [7 - c, 7 - r] : [c, r]; };
+  const inCheck = chAtt(s.b, chKing(s.b, s.nx), 1 - s.nx), kingSq = chKing(s.b, s.nx), G = ["", "♟", "♞", "♝", "♜", "♛", "♚"];
+  const handle = (i) => {
+    if (!myTurn) return;
+    const vs = cur != null ? legal.filter((m) => m % 4096 === cur * 64 + i) : [];
+    if (vs.length) { setSel(null); if (vs.length > 1) setPromo(cur * 64 + i); else onTap(vs[0]); return; }
+    setSel(froms.has(i) ? i : null);
+  };
+  const kids = [];
+  for (let i = 0; i < 64; i++) {
+    const [x, y] = xy(i), dark = ((i >> 3) + (i & 7)) % 2 === 1, dest = cur != null && legal.some((m) => m % 4096 === cur * 64 + i), isLast = s.lm != null && (i === s.lm >> 6 || i === (s.lm & 63));
+    kids.push(gh("rect", { key: "q" + i, x, y, width: 1, height: 1, fill: dark ? "#16202E" : "#27364D", onClick: () => handle(i), style: { cursor: myTurn && (dest || froms.has(i)) ? "pointer" : "default" }, "aria-label": "abcdefgh"[i & 7] + (8 - (i >> 3)) }));
+    if (isLast) kids.push(gh("rect", { key: "l" + i, x, y, width: 1, height: 1, fill: "rgba(245,184,61,.2)", style: { pointerEvents: "none" } }));
+    if (inCheck && i === kingSq) kids.push(gh("circle", { key: "k" + i, cx: x + 0.5, cy: y + 0.5, r: 0.48, fill: "rgba(255,70,70,.5)", style: { pointerEvents: "none" } }));
+    if (cur === i) kids.push(gh("rect", { key: "s" + i, x: x + 0.04, y: y + 0.04, width: 0.92, height: 0.92, fill: "none", stroke: "#fff", strokeWidth: 0.07, style: { pointerEvents: "none" } }));
+    if (dest) kids.push(s.b[i] != null ? gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.44, fill: "none", stroke: "#F5B83D", strokeWidth: 0.09, style: { pointerEvents: "none" } }) : gh("circle", { key: "d" + i, cx: x + 0.5, cy: y + 0.5, r: 0.16, fill: "#F5B83D", style: { pointerEvents: "none" } }));
+  }
+  s.b.forEach((v, i) => { if (v == null) return; const [x, y] = xy(i), o = v >> 3; kids.push(gh("text", { key: "p" + i, x: x + 0.5, y: y + 0.78, fontSize: 0.86, textAnchor: "middle", fill: o ? "#1A1030" : "#F5F7FA", stroke: o ? "#FF4FA3" : "#35D0BA", strokeWidth: 0.035, style: { pointerEvents: "none", userSelect: "none" } }, G[v & 7] + "\uFE0E")); });
+  const side = sideOf(fit, 26);
+  return gh("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" } },
+    gh("div", { style: { position: "relative" } },
+      gh(GameFrame, { color: gameColor("chess") }, gh("svg", { viewBox: "0 0 8 8", width: side, height: side, style: { display: "block", borderRadius: 10 } }, kids)),
+      promo != null ? gh("div", { style: { ...GLASS, position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 3, background: "rgba(11,15,22,.95)", padding: 10, textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", marginBottom: 6 } }, "Promote your pawn to"), gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", justifyContent: "center" } }, [5, 4, 3, 2].map((t) => gh("button", { key: t, onClick: () => { const m = promo + 4096 * t; setPromo(null); onTap(m); }, "aria-label": ["", "", "Knight", "Bishop", "Rook", "Queen"][t], style: { width: 48, height: 48, borderRadius: 14, border: "1px solid #F5B83D", background: "rgba(255,255,255,.07)", color: "#F5F7FA", fontSize: 28, cursor: "pointer" } }, G[t] + "\uFE0E")))) : null),
+    gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: inCheck ? "#FF8A8A" : "#C9D1DC", textAlign: "center", padding: "6px 0 0", height: 20, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (inCheck ? "Check! " : "") + (!myTurn ? "Waiting for the other player." : cur != null ? "Tap a gold dot to move there." : "Tap one of your pieces.")));
+}
+
+// ---- Turbo Racer: real-time racing. Both drivers get the same track (built from a seed); first across the line wins. ----
+const RACE = { vmax: 45, accel: 30, len: 1800 };
+function raceItems(seed, len) {
+  let a = seed >>> 0;
+  const rnd = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const it = [];
+  for (let d = 150; d < len - 100; d += 30) {
+    const r = rnd(), dd = d + rnd() * 8, lanes = [0, 1, 2, 3];
+    for (let i = 3; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const x = lanes[i]; lanes[i] = lanes[j]; lanes[j] = x; }
+    if (r < 0.36) { const n = rnd() < 0.3 ? 2 : 1; for (let k = 0; k < n; k++) it.push({ d: dd, l: lanes[k], t: rnd() < 0.6 ? "car" : "cone" }); }
+    else if (r < 0.5) it.push({ d: dd, l: lanes[0], t: "oil" });
+    else if (r < 0.64) it.push({ d: dd, l: lanes[0], t: "boost" });
+    else if (r < 0.74) it.push({ d: dd, l: lanes[0], t: "nitro" });
+  }
+  return it;
+}
+const raceCar = (n) => ({ d: 0, x: 1.5, l: 1, v: 0, crash: 0, oil: 0, boost: 0, nt: 0, nitro: 1, hit: new Uint8Array(n), i: 0, draft: false });
+const raceDraft = (c, o) => { const g = o.d - c.d; return g > 3.5 && g < 24 && Math.abs(o.x - c.x) < 0.7; };
+// one physics step for any car (you, the robot). inp = { lane: 0..3 or null, nitro: bool }, vm = speed multiplier. Returns "crash" / "boost" / "nitro" / "oil" or null.
+function raceStep(c, dt, items, inp, vm, draft) {
+  if (inp.nitro && c.nitro > 0 && c.nt <= 0) { c.nitro--; c.nt = 2; }
+  if (inp.lane != null && c.oil <= 0 && c.crash <= 0) c.l = Math.max(0, Math.min(3, inp.lane));
+  const dx = c.l - c.x, st = 6.5 * dt; c.x += Math.abs(dx) <= st ? dx : Math.sign(dx) * st;
+  c.crash = Math.max(0, c.crash - dt); c.oil = Math.max(0, c.oil - dt); c.boost = Math.max(0, c.boost - dt); c.nt = Math.max(0, c.nt - dt);
+  const tv = RACE.vmax * vm * (c.crash > 0 ? 0.4 : c.oil > 0 ? 0.7 : 1) * (c.boost > 0 ? 1.45 : 1) * (c.nt > 0 ? 1.35 : 1) * (draft ? 1.08 : 1);
+  c.v += Math.sign(tv - c.v) * Math.min(Math.abs(tv - c.v), (tv > c.v ? RACE.accel : 70) * dt);
+  c.d += c.v * dt;
+  while (c.i < items.length && items[c.i].d < c.d - 6) c.i++;
+  let ev = null;
+  for (let k = c.i; k < items.length && items[k].d < c.d + 3.5; k++) {
+    const it = items[k];
+    if (c.hit[k] || it.d < c.d - 3.5 || Math.abs(c.x - it.l) > 0.62) continue;
+    c.hit[k] = 1;
+    if (it.t === "car" || it.t === "cone") { if (c.crash <= 0) { c.crash = it.t === "car" ? 0.9 : 0.5; c.v *= 0.35; ev = "crash"; } }
+    else if (it.t === "oil") { c.oil = 1; ev = ev || "oil"; }
+    else if (it.t === "boost") { c.boost = 1.4; ev = ev || "boost"; }
+    else if (it.t === "nitro") { c.nitro = Math.min(3, c.nitro + 1); ev = ev || "nitro"; }
+  }
+  return ev;
+}
+// robot driver: looks ahead, picks the safest lane (and likes boost pads / nitro), sometimes misses things on lower levels
+function raceBotThink(b, items, level) {
+  const look = [16, 22, 28, 34][level] + b.v * 0.2, att = [0.55, 0.78, 0.92, 0.99][level];
+  const danger = [0, 0, 0, 0], bonus = [0, 0, 0, 0];
+  for (let k = b.i; k < items.length && items[k].d < b.d + look; k++) {
+    const it = items[k]; if (b.hit[k] || it.d < b.d + 1) continue;
+    if (it.t === "car" || it.t === "cone") danger[it.l] += 2; else if (it.t === "oil") danger[it.l] += 0.8; else bonus[it.l] += it.t === "nitro" ? 1.2 : 1;
+  }
+  let lane = null;
+  if (Math.random() < att) {
+    let best = 1e9;
+    for (let l = 0; l < 4; l++) { const cost = danger[l] * 10 - bonus[l] * 3 + Math.abs(l - b.l) * 1.6 + Math.random() * [3, 1.5, 0.6, 0.15][level]; if (cost < best) { best = cost; lane = l; } }
+    if (lane === b.l) lane = null;
+  }
+  const nitro = b.nitro > 0 && b.nt <= 0 && b.crash <= 0 && danger[b.l] === 0 && Math.random() < [0.02, 0.08, 0.18, 0.3][level];
+  return { lane, nitro };
+}
+const RACE_BOT_SPEED = [0.84, 0.92, 0.97, 1];
+const fmtRace = (s) => (s == null ? "–" : s.toFixed(1) + "s");
+
+function RaceRoom({ cfg, socket, myId, onExit, active }) {
+  const robot = cfg.mode === "robot";
+  const [g, setG] = useState(() => ({ you: cfg.you, players: cfg.players, score: cfg.score || [0, 0], seed: robot ? (Math.random() * 2147483647) | 0 : cfg.state.seed, len: robot ? RACE.len : cfg.state.len, round: 0, over: false, winner: null, reward: null, times: null, myTime: null, best: null, asked: false, theyAsked: false, gone: false, note: "" }));
+  const [stat, setStat] = useState("Get ready…");
+  const [msgs, setMsgs] = useState([]); const [text, setText] = useState(""); const [floats, setFloats] = useState([]);
+  const gRef = useRef(g); gRef.current = g;
+  const [fitRef, box] = useFit(), [rules, setRules] = useState(false), gc = gameColor("race");
+  const cv = useRef(null), ctl = useRef({}), sRef = useRef(null), actRef = useRef(active); actRef.current = active;
+  const float = (e) => { const id = Math.random(); setFloats((f) => [...f, { id, e, x: 15 + Math.random() * 70 }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800); };
+
+  useEffect(() => {
+    const G = gRef.current, items = raceItems(G.seed, G.len), you = G.you, len = G.len, level = cfg.level || 0, canvas = cv.current, ctx = canvas.getContext("2d");
+    const dpr = Math.min(2, window.devicePixelRatio || 1), W = 360, H = 500, PX = 5.6, PY = H - 115, LW = 74, RX = (W - 4 * LW) / 2, cx = (l) => RX + (l + 0.5) * LW;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const COL = [PCOL[you], PCOL[1 - you]];
+    const me = raceCar(items.length), opp = raceCar(items.length), bot = { t: 0, inp: { lane: null, nitro: false } };
+    me.l = me.x = you ? 2 : 1; opp.l = opp.x = you ? 1 : 2;
+    const S = { phase: robot ? "count" : "wait", t0: performance.now(), last: performance.now(), tm: 0, want: null, nit: false, shake: 0, sent: false, done: false, sendT: 0, R: null };
+    sRef.current = S; setStat("Get ready…");
+    const move = (dir) => { if (S.phase === "go") S.want = Math.max(0, Math.min(3, me.l + dir)); };
+    const boost = () => { if (S.phase === "go") S.nit = true; };
+    ctl.current = { move, boost };
+    const onKey = (e) => {
+      if (/^(input|textarea)$/i.test((e.target && e.target.tagName) || "")) return; const k = e.key;
+      if (k === "ArrowLeft" || k === "a" || k === "A") { e.preventDefault(); move(-1); }
+      else if (k === "ArrowRight" || k === "d" || k === "D") { e.preventDefault(); move(1); }
+      else if (k === " " || k === "ArrowUp" || k === "w" || k === "W" || k === "Shift") { e.preventDefault(); boost(); }
+    };
+    window.addEventListener("keydown", onKey);
+    const onPos = (d) => { if (d.room === cfg.room) S.R = { d: d.d, x: d.x, v: d.v, c: d.c, n: d.n, at: performance.now() }; };
+    const onGo = (d) => { if (d.room === cfg.room && S.phase === "wait") { S.phase = "go"; S.last = performance.now(); setStat("Racing!"); } };
+    if (!robot && socket) { socket.on("race:pos", onPos); socket.on("race:go", onGo); }
+
+    const endRobot = (w) => { // w: 0 = you crossed first, 1 = the robot did
+      if (S.done) return; S.done = true; S.phase = "over";
+      const cur = gRef.current, score = cur.score.slice(); score[w === 0 ? cur.you : 1 - cur.you] += 1;
+      let best = null;
+      if (w === 0) { try { best = loadJSON("race:best", null); if (best == null || S.tm < best) { best = S.tm; saveJSON("race:best", best); } } catch (e) {} }
+      setG((p) => ({ ...p, over: true, winner: w === 0 ? p.you : 1 - p.you, score, myTime: w === 0 ? S.tm : null, best }));
+      setStat("Race over");
+      if (socket) socket.emit("game:solo", { game: "race", level, result: w === 0 ? "w" : "l" }, (r) => r && setG((p) => ({ ...p, reward: r })));
+    };
+
+    const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+    const drawCar = (x, y, col, o) => {
+      ctx.save(); ctx.globalAlpha = o.a == null ? 1 : o.a; ctx.translate(x, y); if (o.tilt) ctx.rotate(o.tilt);
+      if (o.flame) { const f = 14 + Math.random() * 14, gr = ctx.createLinearGradient(0, 28, 0, 28 + f); gr.addColorStop(0, "#FFF3B0"); gr.addColorStop(0.5, "#35D0FF"); gr.addColorStop(1, "rgba(53,160,255,0)"); ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(-7, 27); ctx.lineTo(0, 28 + f); ctx.lineTo(7, 27); ctx.closePath(); ctx.fill(); }
+      ctx.fillStyle = "#05070A"; ctx.fillRect(-20, -22, 7, 14); ctx.fillRect(13, -22, 7, 14); ctx.fillRect(-20, 10, 7, 14); ctx.fillRect(13, 10, 7, 14);
+      if (o.glow) { ctx.shadowColor = col; ctx.shadowBlur = 18; }
+      ctx.fillStyle = col; rr(-14, -30, 28, 60, 9); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(255,255,255,.28)"; ctx.fillRect(-2.5, -30, 5, 60);
+      ctx.fillStyle = "#0B0F16"; rr(-9, -9, 18, 18, 5); ctx.fill(); ctx.fillStyle = "rgba(160,220,255,.5)"; rr(-7, -8, 14, 6, 3); ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,.45)"; rr(-15, 24, 30, 5, 2); ctx.fill();
+      ctx.fillStyle = "#FFE9A0"; ctx.fillRect(-10, -29, 5, 3); ctx.fillRect(5, -29, 5, 3);
+      ctx.restore();
+    };
+    const draw = (now) => {
+      const t = now / 1000, camD = me.d, yOf = (d) => PY - (d - camD) * PX;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = "#070A10"; ctx.fillRect(0, 0, W, H);
+      ctx.save(); if (S.shake > 0) ctx.translate((Math.random() - 0.5) * S.shake * 16, (Math.random() - 0.5) * S.shake * 16);
+      ctx.fillStyle = "#0C1219"; ctx.fillRect(-10, 0, RX + 10, H); ctx.fillRect(RX + 4 * LW, 0, RX + 10, H);
+      const rg = ctx.createLinearGradient(RX, 0, RX + 4 * LW, 0); rg.addColorStop(0, "#151B25"); rg.addColorStop(0.5, "#1D2533"); rg.addColorStop(1, "#151B25"); ctx.fillStyle = rg; ctx.fillRect(RX, 0, 4 * LW, H);
+      for (let dd = Math.floor((camD - (H - PY) / PX - 8) / 8) * 8; yOf(dd) > -8 * PX; dd += 8) { const y = yOf(dd); ctx.fillStyle = (dd / 8) & 1 ? "#FF4FA3" : "#F5F7FA"; ctx.fillRect(RX - 5, y - 8 * PX, 5, 8 * PX); ctx.fillRect(RX + 4 * LW, y - 8 * PX, 5, 8 * PX); }
+      ctx.fillStyle = "rgba(255,255,255,.22)";
+      for (let i = 1; i < 4; i++) for (let dd = Math.floor((camD - (H - PY) / PX - 7) / 7) * 7; yOf(dd) > -7 * PX; dd += 7) ctx.fillRect(RX + i * LW - 1.5, yOf(dd) - 3 * PX, 3, 3 * PX);
+      [[0, "START"], [len, "FINISH"]].forEach(([d, label]) => { const y = yOf(d); if (y < -40 || y > H + 40) return; for (let r = 0; r < 2; r++) for (let c = 0; c < (4 * LW) / 12; c++) { ctx.fillStyle = (r + c) % 2 ? "#F5F7FA" : "#0B0F16"; ctx.fillRect(RX + c * 12, y - 12 + r * 12, 12, 12); } ctx.fillStyle = "#F5B83D"; ctx.font = "800 13px Sora, sans-serif"; ctx.textAlign = "center"; ctx.fillText(label, W / 2, y - 18); });
+      for (let k = 0; k < items.length && items[k].d < camD + PY / PX + 8; k++) {
+        const it = items[k], y = yOf(it.d); if (y > H + 40 || y < -40) continue; const x = cx(it.l);
+        if ((it.t === "boost" || it.t === "nitro") && me.hit[k]) continue;
+        if (it.t === "car") { ctx.fillStyle = ["#8A94A6", "#B08A5A", "#6B8FB0", "#9A7BB8"][k % 4]; rr(x - 15, y - 28, 30, 56, 8); ctx.fill(); ctx.fillStyle = "#0B0F16"; rr(x - 10, y - 12, 20, 16, 4); ctx.fill(); ctx.fillStyle = "#FF3B3B"; ctx.fillRect(x - 12, y + 24, 6, 3); ctx.fillRect(x + 6, y + 24, 6, 3); }
+        else if (it.t === "cone") { ctx.fillStyle = "#FF8A3D"; ctx.beginPath(); ctx.moveTo(x, y - 17); ctx.lineTo(x + 14, y + 14); ctx.lineTo(x - 14, y + 14); ctx.closePath(); ctx.fill(); ctx.fillStyle = "#F5F7FA"; ctx.fillRect(x - 8, y + 1, 16, 5); }
+        else if (it.t === "oil") { ctx.fillStyle = "#04060A"; ctx.beginPath(); ctx.ellipse(x, y, 30, 22, 0, 0, 7); ctx.fill(); ctx.fillStyle = "rgba(139,92,246,.35)"; ctx.beginPath(); ctx.ellipse(x - 6, y - 5, 14, 7, 0.4, 0, 7); ctx.fill(); }
+        else if (it.t === "boost") { ctx.fillStyle = "rgba(53,208,255,.16)"; rr(x - 26, y - 30, 52, 60, 8); ctx.fill(); ctx.strokeStyle = "#35D0FF"; ctx.lineWidth = 4; ctx.lineCap = "round"; for (let a = 0; a < 3; a++) { const yy = y + 14 - a * 14 - ((t * 40) % 14); ctx.beginPath(); ctx.moveTo(x - 14, yy + 8); ctx.lineTo(x, yy - 4); ctx.lineTo(x + 14, yy + 8); ctx.stroke(); } }
+        else { ctx.shadowColor = "#F5B83D"; ctx.shadowBlur = 14; ctx.fillStyle = "#F5B83D"; ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.fill(); ctx.shadowBlur = 0; ctx.fillStyle = "#0B0F16"; ctx.beginPath(); ctx.moveTo(x + 3, y - 10); ctx.lineTo(x - 6, y + 2); ctx.lineTo(x, y + 2); ctx.lineTo(x - 3, y + 10); ctx.lineTo(x + 6, y - 2); ctx.lineTo(x, y - 2); ctx.closePath(); ctx.fill(); }
+      }
+      if (me.v > 50) { ctx.fillStyle = "rgba(255,255,255,.09)"; for (let i = 0; i < 12; i++) ctx.fillRect(RX + ((i * 97) % (4 * LW)), (t * 500 * (me.v / 45) + i * 83) % H, 2, 30 + me.v * 0.5); }
+      const oy = PY - (opp.d - camD) * PX, ox = cx(opp.x), wob = (c) => (c.crash > 0 ? Math.sin(t * 40) * 0.25 : c.oil > 0 ? Math.sin(t * 18) * 0.12 : 0);
+      if (oy > -40 && oy < H + 40) drawCar(ox, oy, COL[1], { a: 0.95, tilt: wob(opp), flame: opp.nt > 0, glow: opp.boost > 0 || opp.nt > 0 });
+      else { const ahead = oy < 0, yy = ahead ? 62 : H - 14; ctx.fillStyle = COL[1]; ctx.beginPath(); if (ahead) { ctx.moveTo(ox, yy - 8); ctx.lineTo(ox + 9, yy + 6); ctx.lineTo(ox - 9, yy + 6); } else { ctx.moveTo(ox, yy + 6); ctx.lineTo(ox + 9, yy - 8); ctx.lineTo(ox - 9, yy - 8); } ctx.closePath(); ctx.fill(); ctx.font = "700 11px Inter, sans-serif"; ctx.textAlign = "left"; ctx.fillText((Math.abs(opp.d - me.d) | 0) + " m", ox + 13, yy + 4); }
+      drawCar(cx(me.x), PY, COL[0], { tilt: wob(me), flame: me.nt > 0, glow: true });
+      if (me.crash > 0) { ctx.fillStyle = "rgba(255,60,60," + 0.25 * Math.min(1, me.crash) + ")"; ctx.fillRect(-10, -10, W + 20, H + 20); }
+      if (me.boost > 0 || me.nt > 0) { const g2 = ctx.createLinearGradient(0, 0, 0, H); g2.addColorStop(0, "rgba(53,208,255,.0)"); g2.addColorStop(1, "rgba(53,208,255,.22)"); ctx.fillStyle = g2; ctx.fillRect(-10, -10, W + 20, H + 20); }
+      ctx.restore();
+      // HUD
+      const pct = (c) => Math.max(0, Math.min(1, c.d / len)), bx = 18, bw = W - 36;
+      ctx.fillStyle = "rgba(255,255,255,.14)"; rr(bx, 12, bw, 7, 3.5); ctx.fill(); ctx.fillStyle = COL[0]; rr(bx, 12, Math.max(7, bw * pct(me)), 7, 3.5); ctx.fill();
+      [[opp, COL[1]], [me, COL[0]]].forEach(([c, col]) => { ctx.fillStyle = col; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bx + bw * pct(c), 15.5, 7, 0, 7); ctx.fill(); ctx.stroke(); });
+      const lead = me.d >= opp.d; ctx.textAlign = "left"; ctx.fillStyle = lead ? "#F5B83D" : "#F5F7FA"; ctx.font = "800 24px Sora, sans-serif"; ctx.fillText(lead ? "1st" : "2nd", 18, 50);
+      ctx.font = "600 12px Inter, sans-serif"; ctx.fillStyle = "#C9D1DC"; ctx.fillText((Math.abs(me.d - opp.d) | 0) + " m " + (lead ? "ahead" : "behind"), 18, 66);
+      ctx.textAlign = "right"; ctx.font = "700 13px Sora, sans-serif"; ctx.fillStyle = "#F5F7FA"; ctx.fillText(Math.max(0, len - me.d | 0) + " m to go", W - 18, 50);
+      ctx.textAlign = "left"; ctx.font = "800 20px Sora, sans-serif"; ctx.fillStyle = "#F5F7FA"; ctx.fillText((me.v * 4 | 0) + "", 14, H - 14); ctx.font = "600 11px Inter, sans-serif"; ctx.fillStyle = "#8891A0"; ctx.fillText("km/h", 14 + ((me.v * 4 | 0) + "").length * 12 + 4, H - 14);
+      ctx.textAlign = "right"; ctx.font = "700 11px Inter, sans-serif"; ctx.fillStyle = "#8891A0"; ctx.fillText("NITRO", W - 62, H - 14);
+      for (let i = 0; i < 3; i++) { ctx.fillStyle = i < me.nitro ? "#F5B83D" : "rgba(255,255,255,.18)"; rr(W - 56 + i * 14, H - 26, 11, 14, 3); ctx.fill(); }
+      if (me.draft && S.phase === "go") { ctx.textAlign = "center"; ctx.font = "800 12px Sora, sans-serif"; ctx.fillStyle = "#35D0FF"; ctx.fillText("SLIPSTREAM", W / 2, 90); }
+      ctx.textAlign = "center"; ctx.font = "800 64px Sora, sans-serif"; ctx.shadowColor = "#8B5CF6"; ctx.shadowBlur = 24; ctx.fillStyle = "#F5F7FA";
+      if (S.phase === "count") { const e = (now - S.t0) / 1000; ctx.fillText(e < 3 ? String(Math.ceil(3 - e)) : "GO!", W / 2, H / 2 - 30); }
+      else if (S.phase === "wait") { ctx.font = "800 28px Sora, sans-serif"; ctx.fillText("GET READY…", W / 2, H / 2 - 30); }
+      else if (S.phase === "go" && S.tm < 0.7) ctx.fillText("GO!", W / 2, H / 2 - 30);
+      ctx.shadowBlur = 0;
+    };
+
+    let raf;
+    const frame = (now) => {
+      raf = requestAnimationFrame(frame);
+      if (robot && !actRef.current) { S.last = now; return; }
+      const dt = Math.min(0.05, Math.max(0, (now - S.last) / 1000)); S.last = now;
+      if (S.phase === "count" && now - S.t0 > 3200) { S.phase = "go"; setStat("Racing!"); }
+      if (S.phase === "go" || S.phase === "fin") {
+        S.tm += dt;
+        const dr = raceDraft(me, opp), ev = raceStep(me, dt, items, { lane: S.want, nitro: S.nit }, 1, dr); S.want = null; S.nit = false; me.draft = dr;
+        if (ev === "crash") { S.shake = 0.4; try { navigator.vibrate && navigator.vibrate(70); } catch (e) {} }
+        if (robot) {
+          bot.t -= dt; if (bot.t <= 0) { bot.t = 0.09; bot.inp = raceBotThink(opp, items, level); }
+          const inn = bot.inp; bot.inp = { lane: inn.lane, nitro: false };
+          raceStep(opp, dt, items, inn, RACE_BOT_SPEED[level], raceDraft(opp, me));
+          if (S.phase === "go") { if (me.d >= len) endRobot(0); else if (opp.d >= len) endRobot(1); }
+        } else {
+          const R = S.R;
+          if (R) { const est = R.d + R.v * (now - R.at) / 1000; opp.d += (est - opp.d) * Math.min(1, dt * 10); opp.x += (R.x - opp.x) * Math.min(1, dt * 12); opp.v = R.v; opp.crash = R.c ? 0.3 : 0; opp.nt = R.n ? 1 : 0; }
+          if (!S.sent && socket) {
+            S.sendT -= dt;
+            if (me.d >= len) { S.sent = true; S.phase = "fin"; setStat("Finished! Waiting for the result…"); socket.emit("race:pos", { room: cfg.room, d: me.d, x: me.x, v: me.v, c: 0, n: 0 }); socket.emit("race:finish", { room: cfg.room }); }
+            else if (S.sendT <= 0) { S.sendT = 0.1; socket.emit("race:pos", { room: cfg.room, d: me.d, x: me.x, v: me.v, c: me.crash > 0 ? 1 : 0, n: me.nt > 0 ? 1 : 0 }); }
+          }
+        }
+      }
+      if (S.shake > 0) S.shake = Math.max(0, S.shake - dt);
+      draw(now);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("keydown", onKey); if (!robot && socket) { socket.off("race:pos", onPos); socket.off("race:go", onGo); } };
+  }, [g.round]);
+
+  useEffect(() => {
+    if (robot || !socket) return;
+    const mine = (d) => d.room === cfg.room;
+    const hs = {
+      "game:over": (d) => { if (!mine(d)) return; if (sRef.current) sRef.current.phase = "over"; setStat("Race over"); setG((p) => ({ ...p, over: true, winner: d.winner, score: d.score, reward: d.reward, times: d.times, note: d.forfeit ? "Your opponent left, so you win." : "" })); },
+      "game:chat": (d) => mine(d) && setMsgs((m) => [...m.slice(-40), d]),
+      "game:react": (d) => mine(d) && float(d.emoji),
+      "game:rematch-request": (d) => mine(d) && setG((p) => ({ ...p, theyAsked: true })),
+      "game:start": (d) => { if (mine(d) && d.rematch) setG((p) => ({ you: d.you, players: d.players, score: d.score, seed: d.state.seed, len: d.state.len, round: p.round + 1, over: false, winner: null, reward: null, times: null, myTime: null, best: null, asked: false, theyAsked: false, gone: false, note: "" })); },
+      "game:left": (d) => mine(d) && setG((p) => ({ ...p, gone: true })),
+    };
+    for (const k in hs) socket.on(k, hs[k]);
+    return () => { for (const k in hs) socket.off(k, hs[k]); };
+  }, []);
+
+  const rematch = () => {
+    if (robot) { setG((p) => ({ ...p, you: 1 - p.you, players: [p.players[1], p.players[0]], score: [p.score[1], p.score[0]], seed: (Math.random() * 2147483647) | 0, round: p.round + 1, over: false, winner: null, reward: null, myTime: null, best: null, note: "" })); return; }
+    setG((p) => ({ ...p, asked: true })); socket.emit("game:rematch", { room: cfg.room });
+  };
+  const send = () => { const t = text.trim(); if (!t) return; socket.emit("game:chat", { room: cfg.room, text: t }); setText(""); };
+  const react = (e) => (robot ? float(e) : socket.emit("game:react", { room: cfg.room, emoji: e }));
+  const chip = (i) => {
+    const p = g.players[i];
+    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)" } },
+      gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
+      gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
+        gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, i === g.you ? "You" : p.name),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (i ? "Pink" : "Teal") + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 20, color: "#F5F7FA" } }, g.score[i]));
+  };
+  const won = g.over && g.winner === g.you, draw = g.over && g.winner === -1;
+  const verdict = !g.over ? null : draw ? "It's a draw" : won ? "🏆 You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
+  const tline = !g.over ? "" : robot ? (g.myTime != null ? "Your time " + fmtRace(g.myTime) + (g.best != null ? " · Best " + fmtRace(g.best) : "") : "Better luck next lap") : g.times ? "You " + fmtRace(g.times[g.you] == null ? null : g.times[g.you] / 1000) + " · Them " + fmtRace(g.times[1 - g.you] == null ? null : g.times[1 - g.you] / 1000) : "";
+  const ctlBtn = (label, onDown, o = {}) => gh("button", { onPointerDown: (e) => { e.preventDefault(); onDown(); }, "aria-label": o.aria || label, style: { flex: o.flex || 1, height: 48, borderRadius: 16, border: "1px solid " + (o.col || "rgba(255,255,255,.16)"), background: o.bg || "rgba(255,255,255,.07)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 800, fontSize: o.fs || 24, cursor: "pointer", touchAction: "manipulation", userSelect: "none", WebkitUserSelect: "none", boxShadow: o.glow || "none" } }, label);
+  const cH = Math.max(160, Math.floor(Math.min(box.h - 6 - 20 - 58, (box.w - 24 - 20) * 500 / 360))), cW = Math.floor(cH * 360 / 500);
+  return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #2A1030 0%, #0B0F16 60%)") },
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
+    hubStatusRow(() => setRules(true), gh("div", { role: "status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : stat)),
+    g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
+    gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative", gap: 8, counterIncrement: "lcgap-8" } },
+      gh("div", { style: { position: "relative" } }, gh(GameFrame, { color: gc }, gh("div", { style: { position: "relative" } },
+        gh("canvas", { ref: cv, "aria-label": "Race track", onPointerDown: (e) => { const r = e.currentTarget.getBoundingClientRect(); ctl.current.move && ctl.current.move(e.clientX - r.left < r.width / 2 ? -1 : 1); }, style: { width: cW, height: cH, display: "block", borderRadius: 10, touchAction: "none" } }),
+        g.over ? gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 10, background: "rgba(7,10,16,.72)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 26, color: "#F5F7FA" } }, verdict), gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#C9D1DC" } }, tline)) : null,
+        floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e))))),
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", width: cW + 20 } },
+        ctlBtn("◀", () => ctl.current.move && ctl.current.move(-1), { aria: "Move left" }),
+        ctlBtn("⚡ NITRO", () => ctl.current.boost && ctl.current.boost(), { flex: 1.6, fs: 15, col: "#F5B83D", bg: "rgba(245,184,61,.16)", glow: "0 0 16px rgba(245,184,61,.4)", aria: "Use nitro" }),
+        ctlBtn("▶", () => ctl.current.move && ctl.current.move(1), { aria: "Move right" })),
+      rules ? gh(RulesSheet, { game: "race", color: gc, onClose: () => setRules(false) }) : null),
+    gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } },
+      gh("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", alignItems: "center", marginBottom: 6 } }, ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e))),
+      robot ? null : gh("div", null,
+        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, counterIncrement: "lcgap-3", marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Talk some trash while you race.")),
+        gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 8 } },
+          gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Race chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
+          hubBtn("Send", send, { small: true }))),
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
+        hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
+        hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
+}
+
+function hubBtn(label, onClick, o = {}) {
+  return gh("button", { onClick, disabled: o.disabled, "aria-label": o.aria || label, style: { border: o.ghost ? "1px solid rgba(255,255,255,0.18)" : "none", cursor: o.disabled ? "default" : "pointer", opacity: o.disabled ? 0.45 : 1, borderRadius: 999, padding: o.small ? "7px 14px" : "12px 20px", fontFamily: "Sora", fontWeight: 700, fontSize: o.small ? 12.5 : 14.5, color: o.ghost ? "#E8ECF2" : "#04110F", background: o.ghost ? "transparent" : (o.bg || "linear-gradient(135deg,#35D0BA,#6EE7D2)"), boxShadow: o.ghost || o.disabled ? "none" : "0 0 18px " + (o.glow || "rgba(53,208,186,0.45)"), ...(o.style || {}) } }, label);
+}
+
+function PlayerCard({ p, onPlay, onChallenge }) {
+  const dot = { online: "#35D0BA", looking: "#F5B83D", playing: "#FF4FA3" }[p.status] || "#5B6673";
+  const label = { online: "Online", looking: "Wants a game", playing: "In a game", offline: "Offline" }[p.status];
+  return gh("div", { style: { ...GLASS, padding: 12, display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } },
+    gh(Ring, { size: 48, color: p.color, initials: p.initials, photo: p.avatar, online: p.status !== "offline" }),
+    gh("div", { style: { flex: 1, minWidth: 0 } },
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, flag(p.country) + " " + (p.username || p.name)),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Lv " + p.level + " " + rankName(p.level) + " · " + p.w + "W " + p.l + "L"),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, marginTop: 3, color: dot, display: "flex", alignItems: "center", gap: 5, counterIncrement: "lcgap-5" } },
+        gh("span", { style: { width: 7, height: 7, borderRadius: 4, background: dot, boxShadow: "0 0 8px " + dot } }), label + (p.fav ? " · Likes " + hubName(p.fav) : ""))),
+    p.status === "playing" ? null : gh("div", { style: { display: "flex", flexDirection: "column", gap: 6, counterIncrement: "lcgap-6" } },
+      hubBtn("Play", onPlay, { small: true, aria: "Invite " + p.name + " to play" }),
+      hubBtn("Challenge", onChallenge, { small: true, ghost: true, aria: "Challenge " + p.name })));
+}
+
+// ---- the game room: board, avatars, score, turn, live chat, reactions, rematch, exit ----
+function GameRoom({ cfg, socket, myId, onExit, onCall, convo }) {
+  const R = GAME_RULES[cfg.game], robot = cfg.mode === "robot";
+  const [fitRef, box] = useFit(), [rules, setRules] = useState(false), fit = { w: box.w - 24, h: box.h - 6 }, gc = gameColor(cfg.game);
+  const [g, setG] = useState({ you: cfg.you, players: cfg.players, state: cfg.state || R.init(), turn: cfg.turn || 0, over: false, winner: null, line: null, score: cfg.score || [0, 0], reward: null, note: "", asked: false, theyAsked: false });
+  const [msgs, setMsgs] = useState([]); const [text, setText] = useState(""); const [floats, setFloats] = useState([]);
+  const gRef = useRef(g); gRef.current = g;
+  const robotIdx = 1 - g.you;
+  const float = (e) => { const id = Math.random(); setFloats((f) => [...f, { id, e, x: 15 + Math.random() * 70 }]); setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1800); };
+  const finish = (state, w, idx) => {
+    const cur = gRef.current, full = R.draw ? R.draw(state) : R.moves(state).length === 0;
+    if (!w && !full) { setG((p) => ({ ...p, state, turn: R.next ? R.next(state) : 1 - idx })); return; }
+    const result = !w ? "d" : w.p === cur.you ? "w" : "l";
+    const score = cur.score.slice(); if (w) score[w.p] += 1;
+    setG((p) => ({ ...p, state, turn: -1, over: true, winner: w ? w.p : -1, line: w ? w.line : null, score, reward: null }));
+    if (socket) socket.emit("game:solo", { game: cfg.game, level: cfg.level, result }, (r) => r && setG((p) => ({ ...p, reward: r })));
+  };
+  const place = (m, idx) => { const state = R.play(gRef.current.state, m, idx, Math.random); finish(state, R.win(state), idx); };
+  const tap = (m) => {
+    if (g.over || g.turn !== g.you || !(R.valid ? R.valid(g.state, m, g.you) : R.moves(g.state, g.you).includes(m))) return;
+    if (robot) place(m, g.you); else socket.emit("game:move", { room: cfg.room, move: m });
+  };
+  useEffect(() => {
+    if (!robot || g.over || g.turn !== robotIdx) return;
+    let t; const go = () => { if (cfg.game === "pool" && poolBusy.n > 0) { t = setTimeout(go, 300); return; } const m = robotPick(cfg.game, gRef.current.state, robotIdx, cfg.level); if (m != null) place(m, robotIdx); }; t = setTimeout(go, 550 + Math.random() * 500); return () => clearTimeout(t);
+  }, [g.turn, g.over, g.state]);
+  useEffect(() => { if (!robot && !g.over && g.turn === g.you) hubPing(); }, [g.turn]);
+  useEffect(() => {
+    if (robot || !socket) return;
+    const mine = (d) => d.room === cfg.room;
+    const hs = {
+      "game:move": (d) => mine(d) && setG((p) => ({ ...p, state: d.state, turn: d.turn })),
+      "game:over": (d) => mine(d) && setG((p) => ({ ...p, over: true, turn: -1, winner: d.winner, line: d.line, score: d.score, reward: d.reward, note: d.forfeit ? "Your opponent left, so you win." : "" })),
+      "game:chat": (d) => mine(d) && setMsgs((m) => [...m.slice(-40), d]),
+      "game:react": (d) => mine(d) && float(d.emoji),
+      "game:rematch-request": (d) => mine(d) && setG((p) => ({ ...p, theyAsked: true })),
+      "game:start": (d) => { if (d.room === cfg.room && d.rematch) setG({ you: d.you, players: d.players, state: d.state, turn: d.turn, over: false, winner: null, line: null, score: d.score, reward: null, note: "", asked: false, theyAsked: false }); },
+      "game:left": (d) => mine(d) && setG((p) => ({ ...p, gone: true })),
+    };
+    for (const k in hs) socket.on(k, hs[k]);
+    return () => { for (const k in hs) socket.off(k, hs[k]); };
+  }, []);
+  const rematch = () => {
+    if (robot) { const you = 1 - g.you; setG({ you, players: [g.players[1], g.players[0]], state: R.init(), turn: 0, over: false, winner: null, line: null, score: [g.score[1], g.score[0]], reward: null, note: "", asked: false, theyAsked: false }); return; }
+    setG((p) => ({ ...p, asked: true })); socket.emit("game:rematch", { room: cfg.room });
+  };
+  const send = () => { const t = text.trim(); if (!t) return; socket.emit("game:chat", { room: cfg.room, text: t }); setText(""); };
+  const react = (e) => (robot ? float(e) : socket.emit("game:react", { room: cfg.room, emoji: e }));
+  const myTurn = !g.over && g.turn === g.you;
+  const chip = (i) => {
+    const p = g.players[i], on = !g.over && g.turn === i;
+    return gh("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", flexDirection: i ? "row-reverse" : "row", padding: "5px 8px", borderRadius: 16, border: "1px solid " + (on ? PCOL[i] : "rgba(255,255,255,0.1)"), boxShadow: on ? "0 0 18px " + PCOL[i] + "88" : "none", transition: "box-shadow .25s, border-color .25s", background: "rgba(255,255,255,0.05)" } },
+      gh(Ring, { size: 34, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
+      gh("div", { style: { minWidth: 0, textAlign: i ? "right" : "left", flex: 1 } },
+        gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, (i === g.you ? "You" : p.name)),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 11, color: PCOL[i] } }, (cfg.game === "ttt" ? (i ? "O" : "X") : cfg.game === "pool" ? poolGroupLabel(g.state, i) : cfg.game === "chess" ? (i ? "Black" : "White") : (i ? "Pink" : "Teal")) + (p.robot ? " · " + LEVELS[cfg.level] : " · Lv " + p.level))),
+      gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 20, color: "#F5F7FA" } }, g.score[i]));
+  };
+  const hit = (i) => g.line && g.line.includes(i);
+  const cells = !Array.isArray(g.state) ? null : g.state.map((v, i) => {
+    const col = v == null ? null : PCOL[v];
+    if (cfg.game === "ttt") return gh("button", { key: i, onClick: () => tap(i), "aria-label": "Cell " + (i + 1), style: { aspectRatio: "1", counterReset: "lcar-1-1", borderRadius: 16, border: "1px solid " + (hit(i) ? col : "rgba(255,255,255,0.12)"), background: hit(i) ? col + "30" : "rgba(255,255,255,0.05)", color: col, fontFamily: "Sora", fontWeight: 800, fontSize: 44, cursor: myTurn && v == null ? "pointer" : "default", textShadow: v == null ? "none" : "0 0 14px " + col } }, v == null ? "" : gh("span", { key: "m" + v, className: "lc-mark" }, v === 0 ? "X" : "O"));
+    return gh("button", { key: i, onClick: () => tap(i % 7), "aria-label": "Column " + ((i % 7) + 1), style: { aspectRatio: "1", counterReset: "lcar-1-1", padding: 0, border: "none", background: "transparent", cursor: myTurn ? "pointer" : "default" } },
+      gh("div", { key: col ? "f" : "e", className: col ? "lc-disc" : undefined, style: { width: "84%", height: "84%", margin: "8%", borderRadius: "50%", background: col || "#0A0E14", boxShadow: col ? "0 0 " + (hit(i) ? 16 : 8) + "px " + col : "inset 0 2px 6px rgba(0,0,0,.7)", border: hit(i) ? "2px solid #fff" : "none" } }));
+  });
+  const gw = cfg.game === "c4" ? Math.max(140, Math.floor(Math.min(fit.w - 20, (fit.h - 20) * 7 / 6, 420))) : Math.max(140, Math.floor(Math.min(fit.w - 20, fit.h - 20, 340)));
+  const verdict = !g.over ? null : g.winner === -1 ? "It's a draw" : g.winner === g.you ? "You won!" : (robot ? "Robot won" : g.players[g.winner].name + " won");
+  return gh("div", { style: roomShell(gc, "radial-gradient(120% 60% at 50% 0%, #1B1440 0%, #0B0F16 60%)") },
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: "8px 8px 4px", alignItems: "center" } }, chip(0), gh("div", { style: { fontFamily: "Sora", fontSize: 12, color: "#8891A0" } }, "vs"), chip(1)),
+    hubStatusRow(() => setRules(true), gh("div", { role: "status", key: g.over ? "over" : "t" + g.turn, className: g.over ? "lc-status lc-over" : "lc-status", style: { textAlign: "center", fontFamily: "Sora", fontWeight: 700, fontSize: 14, padding: 0, color: g.over ? "#F5B83D" : myTurn ? PCOL[g.you] : "#9BA7B4" } }, g.over ? (verdict + (g.reward ? "  +" + g.reward.gain + " XP" : "")) : myTurn ? "Your turn" : (robot ? "Robot is thinking…" : g.players[g.turn].name + " is playing…"))),
+    g.note || g.gone ? gh("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12.5, color: "#F5B83D", paddingBottom: 6 } }, g.note || "Your opponent left the room.") : null,
+    gh("div", { ref: fitRef, style: { flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", position: "relative" } },
+      cfg.game === "ludo" ? gh(LudoBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "snl" ? gh(SnlBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "checkers" ? gh(CheckersBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "whot" ? gh(WhotBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "chess" ? gh(ChessBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : cfg.game === "pool" ? gh(PoolBoard, { s: g.state, you: g.you, myTurn, onTap: tap, fit }) : gh(GameFrame, { color: gc }, gh("div", { style: { width: gw, display: "grid", gridTemplateColumns: "repeat(" + (cfg.game === "c4" ? 7 : 3) + ",1fr)", gap: cfg.game === "c4" ? 0 : 10, padding: cfg.game === "c4" ? 6 : 0, borderRadius: 20, background: cfg.game === "c4" ? "linear-gradient(160deg,#2A2D6B,#171A45)" : "none", boxShadow: cfg.game === "c4" ? "0 0 26px rgba(139,92,246,.35)" : "none" } }, cells)),
+      floats.map((f) => gh("div", { key: f.id, style: { position: "absolute", bottom: 8, left: f.x + "%", fontSize: 34, animation: "hubFloat 1.8s ease-out forwards", pointerEvents: "none" } }, f.e)), rules ? gh(RulesSheet, { game: cfg.game, color: gc, onClose: () => setRules(false) }) : null),
+    gh("div", { style: { ...GLASS, borderRadius: 0, borderLeft: "none", borderRight: "none", padding: "6px 10px 8px", flexShrink: 0 } },
+      gh("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", alignItems: "center", marginBottom: 6 } },
+        ["👍", "😂", "😮", "🔥", "👏", "😡"].map((e) => gh("button", { key: e, onClick: () => react(e), "aria-label": "React " + e, style: { background: "rgba(255,255,255,0.07)", border: "none", borderRadius: 12, padding: "3px 8px", fontSize: 16, cursor: "pointer" } }, e)),
+        gh("div", { style: { flex: 1 } }),
+        !robot && convo ? hubBtn("🎙 Voice", () => onCall(convo, false), { small: true, ghost: true, aria: "Start voice call" }) : null),
+      robot ? null : gh("div", null,
+        gh("div", { style: { maxHeight: 20, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3, counterIncrement: "lcgap-3", marginBottom: 4 } }, msgs.length ? msgs.slice(-1).map((m, i) => gh("div", { key: i, style: { fontFamily: "Inter", fontSize: 13, color: m.from === myId ? "#35D0BA" : "#FF8FC4" } }, (m.from === myId ? "You: " : "Them: ") + m.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "Say hi while you play.")),
+        gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 6 } },
+          gh("input", { value: text, onChange: (e) => setText(e.target.value), onKeyDown: (e) => e.key === "Enter" && send(), placeholder: "Type a message", "aria-label": "Game chat", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "9px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, outline: "none" } }),
+          hubBtn("Send", send, { small: true }))),
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
+        hubBtn(g.theyAsked ? "Accept rematch" : g.asked ? "Waiting…" : "Rematch", rematch, { small: true, disabled: !g.over || g.asked || g.gone, style: { flex: 1 }, bg: "linear-gradient(135deg,#8B5CF6,#FF4FA3)", glow: "rgba(139,92,246,.5)" }),
+        hubBtn("Exit game", onExit, { small: true, ghost: true, style: { flex: 1 } }))));
+}
+
+// ---- hub: tabs, setup sheet, lobby, rankings, notifications, challenge pop-ups ----
+function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goGames }) {
+  const [sub, setSub] = useState("play"); const [sk, setSk] = useState(null);
+  const [lobby, setLobby] = useState({ players: [], recent: [], me: null });
+  const [setup, setSetup] = useState(null); const [room, setRoom] = useState(null); const [searching, setSearching] = useState(null);
+  const [invites, setInvites] = useState([]); const [alerts, setAlerts] = useState([]); const [unread, setUnread] = useState(0); const [bell, setBell] = useState(false);
+  const [arcade, setArcade] = useState(false); const [period, setPeriod] = useState("day"); const [board, setBoard] = useState({ rows: [], me: null });
+  const [toast, setToast] = useState(""); const [onlinePops, setOnlinePops] = useState([]);
+  const roomRef = useRef(room); roomRef.current = room; const activeRef = useRef(active); activeRef.current = active;
+  const sock = () => socketRef.current;
+  const alertNow = (icon, text) => { setAlerts((a) => [{ id: Math.random(), icon, text, at: Date.now() }, ...a].slice(0, 30)); setUnread((n) => n + 1); setToast(icon + " " + text); setTimeout(() => setToast(""), 3500); };
+  const refresh = () => { const s = sock(); if (s) s.emit("game:lobby", setLobby); };
+  useEffect(() => { const t = setInterval(() => { if (socketRef.current !== sk) setSk(socketRef.current); }, 700); return () => clearInterval(t); }, [sk]);
+  useEffect(() => { if (!sk) return; refresh(); const t = setInterval(() => activeRef.current && refresh(), 8000); return () => clearInterval(t); }, [sk]);
+  useEffect(() => { if (active) { refresh(); setUnread(0); } }, [active]);
+  useEffect(() => { if (sk && active && sub === "ranks") sk.emit("game:board", { period }, setBoard); }, [sk, active, sub, period, room]);
+  useEffect(() => {
+    if (!sk) return;
+    const hs = {
+      "game:invite": (d) => { setInvites((v) => [...v, d]); alertNow("⚔️", d.from.name + (d.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(d.game)); hubPing(); },
+      "game:invite-expired": (d) => setInvites((v) => v.filter((i) => i.id !== d.id)),
+      "game:player-online": (d) => { const p = d && d.player; if (!p || p.id === myId) return; alertNow("🟢", p.name + " is online"); setLobby((l) => (l.players.some((x) => x.id === p.id) ? l : { ...l, players: [...l.players, { ...p, status: "online" }] })); if (activeRef.current && !roomRef.current) { setOnlinePops((v) => [...v.filter((x) => x.id !== p.id), p].slice(-3)); setTimeout(() => setOnlinePops((v) => v.filter((x) => x.id !== p.id)), 6000); hubPing(); } refresh(); },
+      "game:accepted": (d) => alertNow("✅", d.by.name + " accepted your game"),
+      "game:declined": (d) => alertNow("🙈", d.by.name + " declined your invite"),
+      "game:start": (d) => { if (d.rematch) return; setSearching(null); setSetup(null); setInvites([]); setArcade(false); setRoom({ mode: "online", room: d.room, game: d.game, you: d.you, players: d.players, state: d.state, turn: d.turn, score: d.score }); goGames(); refresh(); },
+      "game:over": (d) => alertNow(d.result === "w" ? "🏆" : d.result === "l" ? "💔" : "🤝", d.result === "w" ? "You won! +" + (d.reward ? d.reward.gain : 0) + " XP" : d.result === "l" ? "You lost this one. Rematch?" : "It was a draw"),
+      "game:rematch-request": (d) => alertNow("🔁", d.from.name + " wants a rematch"),
+      "game:move": (d) => { if (d.next === myId && !activeRef.current) { alertNow("⏰", "Your turn"); hubPing(); } },
+    };
+    for (const k in hs) sk.on(k, hs[k]);
+    return () => { for (const k in hs) sk.off(k, hs[k]); };
+  }, [sk]);
+  const meCard = lobby.me || { id: myId, name: me.name, initials: me.initials, color: me.color, avatar: me.avatar, level: 1, xp: 0, w: 0, l: 0, d: 0, streak: 0, best: 0 };
+  const startRobot = (game, level) => setRoom({ mode: "robot", game, level, you: 0, players: [meCard, ROBOT], score: [0, 0] });
+  const findRandom = (game) => { const s = sock(); if (!s) return; setSearching({ game }); s.emit("game:find", { game }, (r) => r && !r.ok && setSearching(null)); };
+  const invite = (p, game, kind) => {
+    const s = sock(); if (!s) return;
+    s.emit("game:invite", { to: p.id, game, kind }, (r) => {
+      if (!r || !r.ok) return alertNow("⚠️", p.name + (r && r.reason === "busy" ? " is in a game" : " is not available"));
+      alertNow("📨", "Invite sent to " + p.name);
+      const c = conversations.find((x) => !x.isGroup && x.other && x.other.id === p.id);
+      if (c) s.emit("message:send", { conversationId: c.id, text: "🎮 " + (kind === "challenge" ? "I challenge you to " : "Let's play ") + hubName(game) + "! Open the Games tab to accept." });
+    });
+  };
+  const go = (patch) => {
+    const s = { ...(setup || {}), ...patch };
+    if (s.mode === "random" && s.game) { setSetup(null); return findRandom(s.game); }
+    if (s.mode === "friend" && s.game && s.player) { setSetup(null); return invite(s.player, s.game, s.kind || "invite"); }
+    if (s.mode === "robot" && s.game && s.level != null) { setSetup(null); return startRobot(s.game, s.level); }
+    setSetup(s);
+  };
+  const respond = (iv, accept) => { sock().emit("game:respond", { id: iv.id, accept }); setInvites((v) => v.filter((i) => i.id !== iv.id)); };
+  const exitRoom = () => { const r = roomRef.current; if (r && r.mode === "online" && sock()) sock().emit("game:leave"); setRoom(null); refresh(); };
+    useInnerBack(active && !!(searching || bell || setup || room || arcade), () => {
+      if (searching) { const sk2 = sock(); if (sk2) sk2.emit("game:cancel"); setSearching(null); refresh(); }
+      else if (bell) setBell(false);
+      else if (setup) setSetup(null);
+      else if (room) exitRoom();
+      else if (arcade) setArcade(false);
+    });
+  const dmOf = (id) => conversations.find((x) => !x.isGroup && x.other && x.other.id === id);
+  const others = lobby.players;
+  const section = (title, list, empty) => gh("div", { style: { marginBottom: 18 } },
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, title + " (" + list.length + ")"),
+    list.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8" } }, list.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ mode: "friend", player: p, kind: "invite" }), onChallenge: () => go({ mode: "friend", player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", padding: "2px 2px" } }, empty));
+  const xpInLevel = meCard.xp % 100;
+  const badges = [["🏆", "Champion", "Win 10 games", meCard.w >= 10], ["🔥", "Win Streak", "Win 3 in a row", meCard.best >= 3], ["🎯", "Master Player", "Reach level 5", meCard.level >= 5], ["👑", "Top Player", "Be #1 on a leaderboard", board.rows[0] && board.rows[0].user.id === myId], ["⭐", "Rising Star", "Win 3 games", meCard.w >= 3]];
+
+  const playTab = gh("div", null,
+    gh("div", { style: { ...GLASS, padding: 14, display: "flex", gap: 12, counterIncrement: "lcgap-12", alignItems: "center", marginBottom: 14, boxShadow: "0 0 24px rgba(139,92,246,.18)" } },
+      gh(Ring, { size: 52, color: meCard.color, initials: meCard.initials, photo: meCard.avatar, online: true }),
+      gh("div", { style: { flex: 1 } },
+        gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, "Level " + meCard.level + " " + rankName(meCard.level)),
+        gh("div", { style: { height: 7, borderRadius: 4, background: "rgba(255,255,255,0.1)", margin: "7px 0 5px", overflow: "hidden" } }, gh("div", { style: { width: xpInLevel + "%", height: "100%", background: "linear-gradient(90deg,#35D0BA,#8B5CF6)", transition: "width .6s" } })),
+        gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, xpInLevel + "/100 XP · " + meCard.w + "W " + meCard.l + "L · 🔥 " + meCard.streak))),
+    gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginBottom: 10 } },
+      hubBtn("👥 Find a Player", () => go({ mode: "friend" }), { style: { flex: 1 } }),
+      hubBtn("🎲 Random Player", () => go({ mode: "random" }), { style: { flex: 1 }, bg: "linear-gradient(135deg,#FF4FA3,#FF8FC4)", glow: "rgba(255,79,163,.45)" })),
+    gh("button", { onClick: () => go({ mode: "robot" }), style: { width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid rgba(139,92,246,.5)", borderRadius: 22, padding: "18px 18px", marginBottom: 18, background: "linear-gradient(135deg,rgba(139,92,246,.35),rgba(53,208,186,.18))", boxShadow: "0 0 26px rgba(139,92,246,.3)", display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" } },
+      gh("div", { style: { fontSize: 44 } }, "🤖"),
+      gh("div", null, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 19, color: "#F5F7FA" } }, "Play vs Robot"), gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC", marginTop: 2 } }, "Easy to Expert. Starts right away."))),
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 10px" } }, "Pick a game"),
+    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, counterIncrement: "lcgap-12" } },
+      HUB_GAMES.map((gm) => gh("button", { key: gm.id, disabled: !gm.ready, onClick: () => go({ game: gm.id, mode: null }), "aria-label": gm.name + (gm.ready ? "" : " coming soon"), style: { textAlign: "left", padding: 0, border: "1px solid " + gm.color + "55", borderRadius: 20, overflow: "hidden", cursor: gm.ready ? "pointer" : "default", background: "#121821", opacity: gm.ready ? 1 : 0.6 } },
+        gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "linear-gradient(145deg," + gm.color + "55," + gm.color + "10)" } }, gm.emoji),
+        gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, gm.name), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: gm.ready ? "#9BA7B4" : "#F5B83D", marginTop: 2 } }, gm.ready ? gm.blurb : "Coming soon")))),
+      gh("button", { onClick: () => setArcade(true), style: { textAlign: "left", padding: 0, border: "1px solid rgba(255,255,255,.14)", borderRadius: 20, overflow: "hidden", cursor: "pointer", background: "#121821" } },
+        gh("div", { style: { height: 84, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, background: "rgba(255,255,255,0.06)" } }, "🕹️"),
+        gh("div", { style: { padding: "10px 12px 12px" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, color: "#F5F7FA" } }, "Solo arcade"), gh("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 2 } }, "Pool, Snake, 2048, Memory")))));
+
+  const lobbyTab = gh("div", null,
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 16 } }, [["Online", others.length, "#35D0BA"], ["Playing", others.filter((p) => p.status === "playing").length, "#FF4FA3"], ["Looking", others.filter((p) => p.status === "looking").length, "#F5B83D"]].map(([l, n, c]) => gh("div", { key: l, style: { ...GLASS, flex: 1, padding: "10px 6px", textAlign: "center" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 22, color: c } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, l)))),
+    section("Friends available", others.filter((p) => dmOf(p.id) && p.status !== "playing"), "None of your chat friends are free right now."),
+    section("Looking for opponents", others.filter((p) => p.status === "looking"), "Nobody is waiting. Tap Random Player to be the first."),
+    section("Playing now", others.filter((p) => p.status === "playing"), "No games running."),
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "0 2px 8px" } }, "Recently played"),
+    lobby.recent.length ? lobby.recent.map((r, i) => gh("div", { key: i, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13, color: "#C9D1DC" } }, hubName(r.game) + ": " + (r.aName || "Player") + " vs " + (r.bName || "Player") + (r.w ? " · " + (r.w === r.a ? r.aName : r.bName) + " won" : " · draw"))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Finished games show up here."));
+
+  const ranksTab = gh("div", null,
+    gh("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]].map(([k, l]) => gh("button", { key: k, onClick: () => setPeriod(k), style: { flex: 1, padding: "9px 0", borderRadius: 999, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "1px solid " + (period === k ? "#35D0BA" : "rgba(255,255,255,.14)"), background: period === k ? "rgba(53,208,186,.18)" : "transparent", color: period === k ? "#35D0BA" : "#9BA7B4" } }, l))),
+    board.rows.length ? board.rows.map((r) => gh("div", { key: r.user.id, style: { ...GLASS, padding: "9px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", borderColor: r.user.id === myId ? "#35D0BA" : "rgba(255,255,255,.11)" } },
+      gh("div", { style: { width: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 800, fontSize: 16, color: r.rank === 1 ? "#F5B83D" : "#9BA7B4" } }, r.rank === 1 ? "👑" : r.rank),
+      gh(Ring, { size: 38, color: r.user.color, initials: r.user.initials, photo: r.user.avatar }),
+      gh("div", { style: { flex: 1, minWidth: 0 } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA" } }, r.user.id === myId ? "You" : r.user.username || r.user.name), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, "Lv " + r.user.level + " · " + r.xp + " XP earned")),
+      gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DC", textAlign: "right" } }, r.w + "W " + r.l + "L"))) : gh("div", { style: { ...GLASS, padding: 18, textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 14 } }, "No ranked games yet this " + period + ". Beat a real player to take the first spot."),
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", margin: "14px 2px 8px" } }, "Your badges"),
+    gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, counterIncrement: "lcgap-10" } }, badges.map(([e, n, how, got]) => gh("div", { key: n, style: { ...GLASS, padding: 12, opacity: got ? 1 : 0.5, borderColor: got ? "#F5B83D" : "rgba(255,255,255,.11)" } }, gh("div", { style: { fontSize: 26, filter: got ? "none" : "grayscale(1)" } }, e), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13.5, color: "#F5F7FA", marginTop: 4 } }, n), gh("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" } }, got ? "Unlocked" : how)))));
+
+  // setup sheet (one question at a time: game → how → difficulty / player)
+  let sheet = null;
+  if (setup) {
+    const s = setup; let title, body;
+    if (!s.game) { title = "Pick a game"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, counterIncrement: "lcgap-10" } }, HUB_GAMES.filter((x) => x.ready).map((gm) => gh("button", { key: gm.id, onClick: () => go({ game: gm.id }), style: { padding: 14, borderRadius: 18, border: "1px solid " + gm.color + "88", background: gm.color + "1f", cursor: "pointer", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 14 } }, gh("div", { style: { fontSize: 32 } }, gm.emoji), gm.name))); }
+    else if (!s.mode) { title = hubName(s.game) + ": how do you want to play?"; body = gh("div", { style: { display: "flex", flexDirection: "column", gap: 10, counterIncrement: "lcgap-10" } }, [["friend", "👥 Play vs Friend", "Invite someone who is online"], ["random", "🎲 Play vs Random Player", "We match you with anyone waiting"], ["robot", "🤖 Play vs Robot", "Practice at your own level"]].map(([m, t, d]) => gh("button", { key: m, onClick: () => go({ mode: m }), style: { textAlign: "left", padding: "14px 16px", borderRadius: 18, border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.06)", cursor: "pointer" } }, gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" } }, t), gh("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", marginTop: 2 } }, d)))); }
+    else if (s.mode === "robot") { title = "Choose difficulty"; body = gh("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, counterIncrement: "lcgap-10" } }, LEVELS.map((l, i) => gh("button", { key: l, onClick: () => go({ level: i }), style: { padding: "16px 8px", borderRadius: 18, border: "1px solid " + ["#35D0BA", "#F5B83D", "#FF7A45", "#FF4FA3"][i], background: "rgba(255,255,255,.05)", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, ["🌱", "⚡", "🔥", "💀"][i] + " " + l))); }
+    else { title = "Who do you want to play?"; const pool = others.filter((p) => p.status !== "playing").sort((a, b) => !!dmOf(b.id) - !!dmOf(a.id)); body = pool.length ? gh("div", { style: { display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8" } }, pool.map((p) => gh(PlayerCard, { key: p.id, p, onPlay: () => go({ player: p, kind: "invite" }), onChallenge: () => go({ player: p, kind: "challenge" }) }))) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", padding: "8px 2px" } }, "No one is online right now. Try Random Player, or play the Robot."); }
+    sheet = gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setSetup(null) },
+      gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "82%", overflowY: "auto", background: "#0F141C", borderTop: "1px solid rgba(139,92,246,.5)", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", animation: "hubUp .25s ease-out" } },
+        gh("div", { style: { display: "flex", alignItems: "center", marginBottom: 14 } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, title), gh("button", { onClick: () => setSetup(null), "aria-label": "Close", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 20 } }, "✕")), body));
+  }
+
+  const popups = gh("div", { style: { position: "fixed", top: 10, left: 10, right: 10, zIndex: 60, display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8", pointerEvents: "none" } },
+    invites.map((iv) => gh("div", { key: iv.id, style: { ...GLASS, background: "rgba(15,20,28,.92)", borderColor: "#8B5CF6", padding: 12, pointerEvents: "auto", boxShadow: "0 0 24px rgba(139,92,246,.5)", animation: "hubUp .25s ease-out" } },
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", alignItems: "center", marginBottom: 10 } }, gh(Ring, { size: 40, color: iv.from.color, initials: iv.from.initials, photo: iv.from.avatar }), gh("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, gh("b", null, iv.from.name), (iv.kind === "challenge" ? " challenged you to " : " invited you to play ") + hubName(iv.game))),
+      gh("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } }, hubBtn("Accept", () => respond(iv, true), { style: { flex: 1 }, small: true }), hubBtn("Decline", () => respond(iv, false), { style: { flex: 1 }, small: true, ghost: true })))),
+    active ? onlinePops.map((p) => gh("div", { key: "on" + p.id, style: { ...GLASS, background: "rgba(15,20,28,.94)", borderColor: "#35D0BA", padding: 10, pointerEvents: "auto", display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", boxShadow: "0 0 20px rgba(53,208,186,.4)", animation: "hubUp .25s ease-out" } },
+      gh(Ring, { size: 38, color: p.color, initials: p.initials, photo: p.avatar, online: true }),
+      gh("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, gh("b", null, p.name), " is online"),
+      hubBtn("Play", () => { setOnlinePops((v) => v.filter((x) => x.id !== p.id)); go({ mode: "friend", player: p, kind: "invite" }); }, { small: true }),
+      gh("button", { onClick: () => setOnlinePops((v) => v.filter((x) => x.id !== p.id)), "aria-label": "Dismiss", style: { background: "none", border: "none", color: "#9BA7B4", cursor: "pointer", fontSize: 16 } }, "✕"))) : null,
+    toast && !active ? gh("div", { style: { ...GLASS, background: "rgba(15,20,28,.92)", padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, toast) : null);
+
+  const tabs = gh("div", { role: "tablist", style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", padding: "0 16px 10px" } }, [["play", "🎮 Play"], ["lobby", "👥 Lobby"], ["ranks", "🏆 Ranks"]].map(([k, l]) => gh("button", { key: k, role: "tab", "aria-selected": sub === k, onClick: () => setSub(k), style: { flex: 1, padding: "9px 0", borderRadius: 14, cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 13, border: "none", background: sub === k ? "linear-gradient(135deg,rgba(53,208,186,.3),rgba(139,92,246,.3))" : "rgba(255,255,255,.05)", color: sub === k ? "#F5F7FA" : "#8891A0", boxShadow: sub === k ? "0 0 14px rgba(53,208,186,.3)" : "none" } }, l)));
+  let main;
+  if (room) main = gh(room.game === "race" ? RaceRoom : GameRoom, { key: room.room || "robot", cfg: room, socket: sock(), myId, onExit: exitRoom, onCall, active, convo: room.mode === "online" ? dmOf((room.players.find((p) => p.id !== myId) || {}).id) : null });
+  else if (arcade) main = gh("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, gh("button", { onClick: () => setArcade(false), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, textAlign: "left", padding: "12px 16px 0", cursor: "pointer" } }, "← Back to Games"), gh("div", { style: { flex: 1, minHeight: 0 } }, gh(GamesScreen, { myId })));
+  else main = gh(React.Fragment, null,
+    gh(CreditMarquee, null),
+    gh("div", { style: { display: "flex", alignItems: "center", padding: "14px 16px 10px" } }, gh("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 24, color: "#F5F7FA" } }, "Games"),
+      gh("button", { onClick: () => { setBell(true); setUnread(0); }, "aria-label": "Game notifications", style: { position: "relative", background: "rgba(255,255,255,.07)", border: "none", borderRadius: 14, padding: "8px 11px", fontSize: 18, cursor: "pointer" } }, "🔔", unread ? gh("span", { style: { position: "absolute", top: -4, right: -4, background: "#FF4FA3", color: "#fff", borderRadius: 10, fontSize: 10.5, fontFamily: "Sora", fontWeight: 700, padding: "1px 6px" } }, unread) : null)),
+    tabs, gh("div", { style: { flex: 1, overflowY: "auto", padding: "4px 16px 24px", WebkitOverflowScrolling: "touch" } }, sub === "play" ? playTab : sub === "lobby" ? lobbyTab : ranksTab));
+  const bellPanel = bell ? gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 30, background: "rgba(3,5,9,.6)", display: "flex", alignItems: "flex-end" }, onClick: () => setBell(false) }, gh("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", overflowY: "auto", background: "#0F141C", borderRadius: "26px 26px 0 0", padding: "16px 16px 22px", borderTop: "1px solid rgba(53,208,186,.5)" } },
+    gh("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Game notifications"),
+    alerts.length ? alerts.map((a) => gh("div", { key: a.id, style: { ...GLASS, padding: "10px 14px", marginBottom: 8, fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA" } }, a.icon + " " + a.text)) : gh("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, "Challenges, turns and results will show up here."))) : null;
+  const searchBox = searching ? gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 25, background: "rgba(3,5,9,.82)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, counterIncrement: "lcgap-14" } },
+    gh("div", { style: { fontSize: 54, animation: "hubPulse 1.2s infinite" } }, "🔎"), gh("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" } }, "Finding a " + hubName(searching.game) + " opponent…"), hubBtn("Cancel", () => { sock().emit("game:cancel"); setSearching(null); refresh(); }, { ghost: true })) : null;
+  return gh(React.Fragment, null,
+    gh("style", null, "@keyframes hubUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}@keyframes hubPulse{50%{transform:scale(1.18)}}@keyframes hubFloat{to{transform:translateY(-170px);opacity:0}}@keyframes lcPop{from{opacity:0;transform:scale(.4)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDeal{from{opacity:0;transform:translateY(-14px) scale(.9)}to{opacity:1;transform:none}}@keyframes lcDrop{from{opacity:0;transform:translateY(-60%)}70%{transform:translateY(4%)}to{opacity:1;transform:none}}@keyframes lcGlow{50%{box-shadow:0 0 28px rgba(245,184,61,.9);transform:scale(1.07)}}@keyframes lcWin{from{opacity:0;transform:scale(.7)}60%{transform:scale(1.12)}to{opacity:1;transform:none}}@keyframes lcDot{50%{opacity:.45;transform:scale(.8)}}.lc-game svg circle,.lc-game svg text{transition:cx .35s ease,cy .35s ease,x .35s ease,y .35s ease,fill .2s,opacity .25s;transform-box:fill-box;transform-origin:center;animation:lcPop .3s ease-out backwards}.lc-game svg g{transform-box:fill-box;transform-origin:center}.lc-mark{display:inline-block;animation:lcPop .28s ease-out backwards}.lc-disc{animation:lcDrop .38s cubic-bezier(.3,.7,.4,1) backwards}.lc-card{animation:lcDeal .28s ease-out backwards}.lc-status{animation:lcFade .25s ease-out backwards}.lc-status.lc-over{animation:lcWin .5s ease-out backwards}button[aria-label='Roll the dice']:not(:disabled){animation:lcGlow 1.4s ease-in-out infinite}.lc-game svg circle[fill='#F5B83D']:not([stroke]){animation:lcDot 1.3s ease-in-out infinite}@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}"),
+    gh("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: active ? "flex" : "none", flexDirection: "column", background: "radial-gradient(120% 50% at 50% 0%, #1A1240 0%, #0B0F16 55%)" } }, main, sheet, bellPanel, searchBox),
+    popups);
+}
+
+// ---- search: suggests words that appear in your chats and groups, and lists the messages that match ----
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function Marked({ text, tokens }) {
+  const t = tokens.filter(Boolean);
+  if (!t.length) return <>{text}</>;
+  return <>{text.split(new RegExp("(" + t.map(escRe).join("|") + ")", "ig")).map((p, i) => (i % 2 ? <b key={i} style={{ color: "#35D0BA", fontWeight: 700 }}>{p}</b> : p))}</>;
+}
+const snippetOf = (text, tokens) => {
+  const low = text.toLowerCase();
+  const at = Math.min(...tokens.map(t => { const k = low.indexOf(t); return k < 0 ? Infinity : k; }));
+  return !isFinite(at) || at < 25 ? text : "…" + text.slice(at - 20);
+};
+function SearchPanel({ token, conversations, onOpen, onClose }) {
+  const [q, setQ] = useState("");
+  const [data, setData] = useState({ suggestions: [], results: [] });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const reqId = useRef(0);
+  const inputRef = useRef(null);
+  const term = q.trim();
+  const low = term.toLowerCase();
+  const tokens = low.split(/\s+/).filter(Boolean);
+
+  useEffect(() => {
+    const id = ++reqId.current;
+    if (!term) { setData({ suggestions: [], results: [] }); setBusy(false); setError(""); return; }
+    setBusy(true);
+    const t = setTimeout(() => {
+      api("/api/v1/search?q=" + encodeURIComponent(term), { token })
+        .then(d => { if (id === reqId.current) { setData(d); setError(""); } })
+        .catch(e => { if (id === reqId.current) setError(e.message); })
+        .finally(() => { if (id === reqId.current) setBusy(false); });
+    }, 220);
+    return () => clearTimeout(t);
+  }, [term]);
+
+  const byId = new Map(conversations.map(c => [c.id, c]));
+  const nameHits = term ? conversations.filter(c => (c.other.name || "").toLowerCase().includes(low)).slice(0, 5) : [];
+  const pick = (text) => { setQ(text); if (inputRef.current) inputRef.current.blur(); };
+  const who = (c, h) => (h.mine ? "You: " : c.isGroup ? ((c.members.find(x => x.id === h.senderId) || {}).name || "Former member").split(" ")[0] + ": " : "");
+  const empty = term && !busy && !error && !nameHits.length && !data.suggestions.length && !data.results.length;
+  const label = { fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: "#8A96A5", textTransform: "uppercase", letterSpacing: 0.6, padding: "12px 16px 4px" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", borderBottom: "1px solid #1B212B", flexShrink: 0 }}>
+        <button aria-label="Close search" onClick={onClose} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" }}><ArrowLeft size={22} /></button>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "#1E2530", borderRadius: 22, padding: "9px 14px" }}>
+          <Search size={17} color="#8891A0" style={{ flexShrink: 0 }} />
+          <input ref={inputRef} autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search chats and groups" maxLength={100}
+            style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
+          {q && <button aria-label="Clear" onClick={() => { setQ(""); if (inputRef.current) inputRef.current.focus(); }} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={17} color="#8891A0" /></button>}
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+        {error && <Banner text={error} onClose={() => setError("")} />}
+        {!term && (
+          <div style={{ padding: "50px 30px", textAlign: "center" }}>
+            <Search size={32} color="#262E3A" style={{ marginBottom: 12 }} />
+            <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8A96A5" }}>Search for a word from any of your chats or groups. Matching words are suggested as you type.</div>
+          </div>
+        )}
+        {empty && <div style={{ padding: "40px 30px", textAlign: "center", fontFamily: "Inter", fontSize: 13.5, color: "#8A96A5" }}>No matches for “{term}”</div>}
+        {data.suggestions.length > 0 && (
+          <>
+            <div style={label}>Suggestions</div>
+            {data.suggestions.map(s => {
+              const starts = s.text.startsWith(low);
+              return (
+                <div key={s.text} onClick={() => pick(s.text)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "10px 16px", cursor: "pointer" }}>
+                  <Search size={16} color="#5B6673" style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 15, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {starts ? <>{s.text.slice(0, low.length)}<b style={{ color: "#F5F7FA", fontWeight: 600 }}>{s.text.slice(low.length)}</b></> : <span style={{ color: "#F5F7FA" }}>{s.text}</span>}
+                  </span>
+                  <span style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5" }}>{s.count}×</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+        {nameHits.length > 0 && (
+          <>
+            <div style={label}>Chats and groups</div>
+            {nameHits.map(c => (
+              <div key={c.id} onClick={() => onOpen(c)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "9px 16px", cursor: "pointer" }}>
+                <Ring size={40} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} />
+                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}><Marked text={c.other.name} tokens={tokens} /></span>
+              </div>
+            ))}
+          </>
+        )}
+        {data.results.length > 0 && (
+          <>
+            <div style={label}>Messages{data.results.length >= 50 ? " (latest 50)" : ""}</div>
+            {data.results.map(h => {
+              const c = byId.get(h.conversationId);
+              if (!c) return null;
+              return (
+                <div key={h.id} onClick={() => onOpen(c, h)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "9px 16px", cursor: "pointer" }}>
+                  <Ring size={44} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} />
+                  <div style={{ flex: 1, minWidth: 0, borderBottom: "1px solid #1B212B", paddingBottom: 9 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, counterIncrement: "lcgap-8", marginBottom: 2 }}>
+                      <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}</span>
+                      <span style={{ fontFamily: "Inter", fontSize: 11.5, color: "#8A96A5", flexShrink: 0 }}>{timeLabel(h.time)}</span>
+                    </div>
+                    <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {who(c, h)}<Marked text={snippetOf(h.text, tokens)} tokens={tokens} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+        {busy && !data.results.length && !data.suggestions.length && <div style={{ padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 }}>Searching…</div>}
+      </div>
+    </div>
+  );
+}
+
+function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, presence, favorites = [], pinned = [], onSetPinned = () => {}, muted = {}, onMute = () => Promise.resolve(true) }) {
+  const [searching, setSearching] = useState(false);
+  const [sel, setSel] = useState([]); // ids of the highlighted (selected) chats
+  const [muteSheet, setMuteSheet] = useState(false);
+  const [, lcxBump] = useState(0);
+  useEffect(() => { const h = () => lcxBump((n) => n + 1); window.addEventListener("lcx", h); return () => window.removeEventListener("lcx", h); }, []);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  // chats archived / deleted on this device: id -> { kind: "archived" | "deleted", at: ms }
+  const [away, setAway] = useState(() => { const a = loadJSON("chatAway", {}); return a && typeof a === "object" && !Array.isArray(a) ? a : {}; });
+  const pressTimer = useRef(null), longPressed = useRef(false);
+  if (searching) return <SearchPanel token={token} conversations={conversations} onClose={() => setSearching(false)} onOpen={(c, hit) => { setSearching(false); onOpenChat(c, hit); }} />;
+
+  const lastTs = (c) => (c.lastMessage ? new Date(c.lastMessage.time).getTime() || 0 : 0);
+  // archived chats stay hidden; a deleted chat comes back only when a newer message arrives
+  const isHidden = (c) => { const a = away[c.id]; return !!a && (a.kind === "archived" || lastTs(c) <= a.at); };
+  const archivedAll = conversations.filter((c) => away[c.id] && away[c.id].kind === "archived");
+  const visible = showArchived ? archivedAll : conversations.filter((c) => !isHidden(c));
+  // pinned chats first (in the order they were pinned), then everything else in the normal order
+  const ordered = showArchived ? visible : [...pinned.map((id) => visible.find((c) => c.id === id)).filter(Boolean), ...visible.filter((c) => !pinned.includes(c.id))];
+  const selecting = sel.length > 0;
+  const clearSel = () => { setSel([]); setMenuOpen(false); };
+  const saveAway = (n) => { setAway(n); saveJSON("chatAway", n); };
+
+  const startPress = (c) => { longPressed.current = false; clearTimeout(pressTimer.current); pressTimer.current = setTimeout(() => { longPressed.current = true; setSel((s) => (s.includes(c.id) ? s : [...s, c.id])); }, 450); };
+  const endPress = () => clearTimeout(pressTimer.current);
+  const tapRow = (c) => {
+    if (longPressed.current) { longPressed.current = false; return; }
+    if (selecting) setSel((s) => (s.includes(c.id) ? s.filter((x) => x !== c.id) : [...s, c.id]));
+    else onOpenChat(c);
+  };
+
+  const allPinned = selecting && sel.every((id) => pinned.includes(id));
+  const allMuted = selecting && sel.every((id) => isMutedChat(muted, id));
+  const doPin = () => { onSetPinned(allPinned ? sel : sel.filter((id) => !pinned.includes(id)), !allPinned); clearSel(); };
+  const doDelete = () => {
+    const n = sel.length;
+    if (!window.confirm("Delete " + (n === 1 ? "this chat" : n + " chats") + "? The messages are removed from this device only. Other people keep their copy.")) return;
+    const next = { ...away }, now = Date.now();
+    sel.forEach((id) => { const c = conversations.find((x) => x.id === id); next[id] = { kind: "deleted", at: Math.max(now, c ? lastTs(c) : 0) }; saveJSON("chatCleared:" + id, now); });
+    saveAway(next);
+    const was = sel.filter((id) => pinned.includes(id)); if (was.length) onSetPinned(was, false, true);
+    clearSel();
+  };
+  const doArchive = () => {
+    const next = { ...away };
+    if (showArchived) sel.forEach((id) => { delete next[id]; });
+    else { sel.forEach((id) => { next[id] = { kind: "archived", at: Date.now() }; }); const was = sel.filter((id) => pinned.includes(id)); if (was.length) onSetPinned(was, false, true); }
+    saveAway(next); clearSel();
+  };
+  const doMarkUnread = () => { const all = sel.every((id) => LCX.mark(id)); sel.forEach((id) => LCX.setMark(id, !all)); clearSel(); };
+  const doMute = async (duration) => { const ids = sel; clearSel(); for (const id of ids) await onMute(id, duration); }; // one at a time so each reply keeps the earlier changes
+  const onMuteClick = () => { if (allMuted) doMute("off"); else setMuteSheet(true); };
+
+  const iconBtn = { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" };
+  const selBar = (
+    <div style={{ display: "flex", alignItems: "center", padding: "16px 16px 14px", gap: 12, counterIncrement: "lcgap-12", flexShrink: 0, background: "#0E1116", position: "relative" }}>
+      <button aria-label="Cancel selection" onClick={clearSel} style={iconBtn}><ArrowLeft size={22} color="#F5F7FA" /></button>
+      <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 22, color: "#F5F7FA" }}>{sel.length}</div>
+      <button aria-label={allPinned ? "Unpin chat" : "Pin chat"} onClick={doPin} style={iconBtn}><Pin size={22} color="#F5F7FA" /></button>
+      <button aria-label="Delete chat" onClick={doDelete} style={iconBtn}><Trash2 size={22} color="#F5F7FA" /></button>
+      <button aria-label={allMuted ? "Unmute notifications" : "Mute notifications"} onClick={onMuteClick} style={iconBtn}>{allMuted ? <Bell size={22} color="#F5F7FA" /> : <BellOff size={22} color="#F5F7FA" />}</button>
+      <button aria-label={sel.every((id) => LCX.mark(id)) ? "Mark as read" : "Mark as unread"} onClick={doMarkUnread} style={iconBtn}><span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 7, border: "2px solid #F5F7FA", background: sel.every((id) => LCX.mark(id)) ? "transparent" : "#F5F7FA", display: "block", margin: 4 }} /></button>
+      <button aria-label={showArchived ? "Unarchive chat" : "Archive chat"} onClick={doArchive} style={iconBtn}><Archive size={22} color="#F5F7FA" /></button>
+      <button aria-label="More" onClick={() => setMenuOpen((v) => !v)} style={iconBtn}><MoreVertical size={22} color="#F5F7FA" /></button>
+      {menuOpen && (
+        <>
+          <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 }} />
+          <div role="menu" style={{ position: "absolute", top: 54, right: 8, zIndex: 41, minWidth: 180, background: "#12161B", border: "1px solid #1E252E", borderRadius: 18, padding: "6px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
+            <div role="menuitem" onClick={() => { setSel(visible.map((c) => c.id)); setMenuOpen(false); }} style={{ padding: "13px 20px", cursor: "pointer", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" }}>Select all</div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {selecting ? selBar : showArchived ? <TopBar title="Archived" onBack={() => setShowArchived(false)} /> : (
+        <TopBar
+          title={<span>Lets<span style={{ color: "#35D0BA" }}>chat</span></span>}
+          right={
+            <div style={{ display: "flex", gap: 18, counterIncrement: "lcgap-18", alignItems: "center" }}>
+              <div onClick={onNewGroup} title="New group" style={{ cursor: "pointer", display: "flex" }}><Users size={21} color="#9BA7B4" /></div>
+              <div onClick={() => setSearching(true)} role="button" aria-label="Search" style={{ cursor: "pointer", display: "flex" }}><Search size={20} color="#9BA7B4" /></div>
+              <div onClick={onProfile} style={{ cursor: "pointer" }}>
+                <Ring size={30} color="#35D0BA" initials={profile.initials} photo={profile.avatar} online />
+              </div>
+            </div>
+          }
+        />
+      )}
+      {error && <Banner text={error} />}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {loading && (
+          <div style={{ padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 }}>Loading chats…</div>
+        )}
+        {!loading && conversations.length === 0 && (
+          <div style={{ padding: "50px 30px", textAlign: "center" }}>
+            <MessageCircle size={34} color="#262E3A" style={{ marginBottom: 12 }} />
+            <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 }}>No chats yet</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8A96A5" }}>Tap the pencil to message someone by their nickname, email or phone number.</div>
+          </div>
+        )}
+        {!loading && showArchived && ordered.length === 0 && (
+          <div style={{ padding: "50px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 }}>No archived chats</div>
+        )}
+        {!showArchived && !selecting && archivedAll.length > 0 && (
+          <div onClick={() => setShowArchived(true)} style={{ display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "12px 16px", cursor: "pointer" }}>
+            <div style={{ width: 52, display: "flex", justifyContent: "center" }}><Archive size={22} color="#8891A0" /></div>
+            <span style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>Archived</span>
+            <span style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>{archivedAll.length}</span>
+          </div>
+        )}
+        {ordered.map((c) => {
+          const isSel = sel.includes(c.id), isPin = pinned.includes(c.id);
+          return (
+          <div key={c.id}
+            onClick={() => tapRow(c)}
+            onContextMenu={(e) => { e.preventDefault(); setSel((s) => (s.includes(c.id) ? s : [...s, c.id])); }}
+            onTouchStart={() => startPress(c)} onTouchEnd={endPress} onTouchMove={endPress} onTouchCancel={endPress}
+            style={{ display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", cursor: "pointer", background: isSel ? "#262A2E" : "transparent", WebkitTouchCallout: "none", userSelect: "none" }}>
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <Ring size={52} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
+              {isSel && <div style={{ position: "absolute", right: -3, bottom: -3, width: 22, height: 22, borderRadius: 11, background: "#21C063", border: "2px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center" }}><Check size={13} color="#0E1116" strokeWidth={3} /></div>}
+            </div>
+            <div style={{ flex: 1, minWidth: 0, borderBottom: isSel ? "1px solid transparent" : "1px solid #1B212B", paddingBottom: 11 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6" }}>{c.other.name}{c.other.verified && <VerifiedBadge />}{favorites.includes(c.id) && <Star size={13} color="#F2B84B" style={{ fill: "#F2B84B" }} />}</span>
+                <span style={{ fontFamily: "Inter", fontSize: 12, color: c.unread ? "#35D0BA" : "#5B6673" }}>{c.lastMessage ? timeLabel(c.lastMessage.time) : ""}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>
+                  {c.lastMessage && c.lastMessage.senderId === c.myId && !c.lastMessage.deleted && !LCX.locked(c.id) && !LCX.draft(c.id) && <><Tick state={tickState(c.lastMessage)} size={13} /><span style={{ display: "inline-block", width: 5 }} /></>}
+                  {LCX.preview(c, c.lastMessage ? (c.lastMessage.senderId === c.myId && !c.isGroup ? "" : senderPrefix(c)) + stripRich(c.lastMessage.text) : "Say hello 👋")}
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6" }}>
+                  {isMutedChat(muted, c.id) && <BellOff size={15} color="#8891A0" aria-label="Muted" />}
+                  {isPin && <Pin size={15} color="#8891A0" aria-label="Pinned" />}
+                  {LCX.locked(c.id) && <span role="img" aria-label="Locked chat" style={{ fontSize: 13 }}>{"\uD83D\uDD12"}</span>}
+                  {!c.unread && LCX.mark(c.id) && <span role="img" aria-label="Marked as unread" style={{ width: 12, height: 12, borderRadius: 6, background: "#35D0BA", display: "inline-block" }} />}
+                  {c.unread > 0 && (
+                    <span style={{ background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter", padding: "0 5px" }}>{c.unread}</span>
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+          );
+        })}
+      </div>
+      {muteSheet && <MuteSheet onPick={(d) => { setMuteSheet(false); doMute(d); }} onClose={() => setMuteSheet(false)} />}
+      <button onClick={onNewChat} style={{
+        position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27,
+        background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: "0 8px 20px #35D0BA44", cursor: "pointer",
+      }}>
+        <Edit3 size={22} color="#0E1116" />
+      </button>
+    </div>
+  );
+}
+
+function PostProductModal({ token, onClose, onPosted }) {
+  const [f, setF] = useState({ title: "", price: "", description: "" });
+  const [tags, setTags] = useState([]);
+  const descRef = useRef(null);
+  const insertAt = () => { setF((p) => ({ ...p, description: (p.description && !/\s$/.test(p.description) ? p.description + " " : p.description) + "@" })); setTimeout(() => descRef.current && descRef.current.focus(), 0); };
+  const [photo, setPhoto] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const pick = async (e) => {
+    const file = e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    if (!isJpgOrPng(file)) return setError("Photo must be a JPG or PNG image");
+    try { setPhoto(await resizeImageToDataURL(file, 640)); setError(""); } catch (err) { setError(err.message); }
+  };
+  const post = async () => {
+    setBusy(true); setError("");
+    try { await api("/api/v1/market", { method: "POST", token, body: { ...f, photo, tags: liveTags(f.description, tags).map((t) => ({ type: t.type, id: t.id })) } }); onPosted(); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 6 }}>Post a product</div>
+        <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12 }}>Posts are removed automatically after 24 hours.</div>
+        {error && <Banner text={error} />}
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          <label style={{ ...inputBox, cursor: "pointer", justifyContent: "center", color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, fontWeight: 600 }}>
+            {photo ? <img loading="lazy" decoding="async" src={photo} alt="" style={{ width: 90, height: 90, borderRadius: 10, objectFit: "cover" }} /> : <><Camera size={18} /> Add a photo</>}
+            <input type="file" accept={PHOTO_ACCEPT} style={{ display: "none" }} onChange={pick} />
+          </label>
+          <div style={inputBox}><input value={f.title} maxLength={80} onChange={set("title")} placeholder="Product name" style={inputEl} /></div>
+          <div style={inputBox}><input value={f.price} maxLength={30} onChange={set("price")} placeholder="Price (e.g. ₦5,000)" style={inputEl} /></div>
+          <div style={inputBox}><MentionField token={token} fieldRef={descRef} multiline value={f.description} onChange={(t) => setF({ ...f, description: t })} tags={tags} setTags={setTags} maxLength={1000} rows={4} placeholder="Describe it: condition, size, location… Type @ to tag a contact or group" className="lc-plain" style={{ ...inputEl, width: "100%", boxSizing: "border-box", fontFamily: "Inter", fontWeight: 400, fontSize: 14, resize: "none" }} /><button onClick={insertAt} aria-label="Tag a contact or group" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignSelf: "flex-start" }}><AtSign size={22} color="#8891A0" /></button></div>
+        </div>
+        <button onClick={post} disabled={busy || !f.title.trim() || !f.price.trim()} style={primaryBtn(busy)}>{busy ? "Posting…" : "Post"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ---- market: seller ratings + product comments with emoji ----
+const EMOJIS = ["😀", "😂", "🤣", "😊", "😍", "🥰", "😘", "😎", "🤩", "😢", "😭", "😡", "😮", "🤔", "🙄", "😴", "😅", "🤗", "🤝", "👍", "👎", "👏", "🙏", "💪", "🙌", "👌", "❤️", "💔", "🔥", "✨", "🎉", "💯", "✅", "❌", "⭐", "🛍️", "💰", "📦", "🚚", "🏷️"];
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\s)+$/u;
+const ratingText = (r) => (r && r.count ? "\u2605 " + r.avg.toFixed(1) + " (" + r.count + ")" : "No ratings yet");
+function StarRow({ value, onChange, size = 28 }) {
+    return (React.createElement("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6" } }, [1, 2, 3, 4, 5].map(n => (React.createElement("button", { key: n, "aria-label": n + (n === 1 ? " star" : " stars"), onClick: onChange ? () => onChange(n) : undefined, style: { background: "none", border: "none", padding: 0, cursor: onChange ? "pointer" : "default", display: "flex" } },
+        React.createElement(Star, { size: size, color: n <= value ? "#F2B84B" : "#3A4452", style: { fill: n <= value ? "#F2B84B" : "none" } }))))));
+}
+function SheetFrame({ title, onClose, tall, children }) {
+    return (React.createElement("div", { onClick: onClose, style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 60, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: { width: "100%", maxWidth: 640, height: tall ? "82%" : "auto", maxHeight: "88%", background: "#12161C", borderTop: "1px solid #262E3A", borderTopLeftRadius: 20, borderTopRightRadius: 20, display: "flex", flexDirection: "column" } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "16px 16px 10px", flexShrink: 0 } },
+                React.createElement("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA" } }, title),
+                React.createElement("button", { onClick: onClose, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
+                    React.createElement(X, { size: 22, color: "#8891A0" }))),
+            children)));
+}
+function RateSellerSheet({ seller, token, onClose, onDone }) {
+    const [info, setInfo] = useState(null);
+    const [pick, setPick] = useState(0);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    useEffect(() => {
+        api("/api/v1/market/seller/" + seller.id + "/rating", { token }).then(d => { setInfo(d); setPick(d.mine || 0); }).catch(e => setErr(e.message));
+    }, [seller.id, token]);
+    const submit = async () => {
+        if (!pick) return;
+        setBusy(true);
+        try {
+            await api("/api/v1/market/seller/" + seller.id + "/rate", { method: "POST", token, body: { stars: pick } });
+            onDone();
+        }
+        catch (e) {
+            setErr(e.message);
+            setBusy(false);
+        }
+    };
+    return (React.createElement(SheetFrame, { title: "Rate " + seller.name, onClose: onClose },
+        React.createElement("div", { style: { padding: "6px 16px 22px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" } },
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", textAlign: "center" } }, info ? ratingText(info) + (info.mine ? " \u00B7 you rated " + info.mine : "") : "Loading\u2026"),
+            React.createElement(StarRow, { value: pick, onChange: setPick, size: 38 }),
+            err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#FF6B5D", textAlign: "center" } }, err),
+            React.createElement("button", { onClick: submit, disabled: busy || !pick, style: { ...primaryBtn(busy || !pick), marginTop: 4 } }, busy ? "Saving\u2026" : info && info.mine ? "Update rating" : "Submit rating"))));
+}
+function CommentsSheet({ listing, token, onClose, onChanged }) {
+    const [comments, setComments] = useState(null);
+    const [text, setText] = useState("");
+    const [tags, setTags] = useState([]);
+    const inputRef = useRef(null);
+    const [showEmoji, setShowEmoji] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const listRef = useRef(null);
+    const base = "/api/v1/market/" + listing.id + "/comments";
+    useEffect(() => { api(base, { token }).then(d => setComments(d.comments)).catch(e => setErr(e.message)); }, [base, token]);
+    useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [comments && comments.length]);
+    const send = async (t) => {
+        const body = (t === undefined ? text : t).trim();
+        if (!body || busy) return;
+        setBusy(true);
+        try {
+            const d = await api(base, { method: "POST", token, body: { text: body, tags: t === undefined ? liveTags(body, tags).map((x) => ({ type: x.type, id: x.id })) : [] } });
+            setComments(d.comments);
+            if (t === undefined) { setText(""); setTags([]); setShowEmoji(false); }
+            setErr("");
+            onChanged();
+        }
+        catch (e) { setErr(e.message); }
+        setBusy(false);
+    };
+    const remove = async (id) => {
+        try {
+            const d = await api(base + "/" + id, { method: "DELETE", token });
+            setComments(d.comments);
+            onChanged();
+        }
+        catch (e) { setErr(e.message); }
+    };
+    return (React.createElement(SheetFrame, { title: "Comments" + (comments ? " \u00B7 " + comments.length : ""), onClose: onClose, tall: true },
+        React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px" } },
+            comments === null && !err && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading\u2026"),
+            comments && comments.length === 0 && React.createElement("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No comments yet. Ask a question or say something nice."),
+            (comments || []).map(c => (React.createElement("div", { key: c.id, style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "9px 0", borderBottom: "1px solid #1B212B" } },
+                React.createElement(Ring, { size: 32, color: c.author ? c.author.color : "#5B6673", initials: c.author ? c.author.initials : "?", photo: c.author ? c.author.avatar : null }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8, counterIncrement: "lcgap-8" } },
+                        React.createElement("span", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, color: "#F5F7FA" } }, c.mine ? "You" : c.author ? c.author.name : "Former member", c.author && c.author.verified && React.createElement(VerifiedBadge, { size: 13 })),
+                        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8A96A5" } }, timeLabel(c.time)),
+                        c.canDelete && React.createElement("button", { onClick: () => window.confirm("Delete this comment?") && remove(c.id), style: { marginLeft: "auto", background: "none", border: "none", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12, cursor: "pointer", padding: 0 } }, "Delete")),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: EMOJI_ONLY.test(c.text) ? 28 : 14, color: "#C9D1DB", whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 2 } }, richText(c.text), React.createElement(TagPills, { tags: c.tags }))))))),
+        err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#FF6B5D", padding: "6px 16px 0" } }, err),
+        React.createElement("div", { style: { display: "flex", gap: 6, counterIncrement: "lcgap-6", padding: "8px 16px 0", flexShrink: 0 } }, QUICK_EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => send(e), disabled: busy, "aria-label": "Send " + e, style: { flex: 1, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 10, padding: "6px 0", fontSize: 20, cursor: "pointer" } }, e)))),
+        showEmoji && React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 2, counterIncrement: "lcgap-2", padding: "8px 12px 0", maxHeight: 130, overflowY: "auto", flexShrink: 0 } }, EMOJIS.map(e => (React.createElement("button", { key: e, onClick: () => setText(t => (t + e).slice(0, 500)), style: { background: "none", border: "none", fontSize: 24, padding: 5, cursor: "pointer" } }, e)))),
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "10px 16px 16px", flexShrink: 0 } },
+            React.createElement("button", { onClick: () => setShowEmoji(v => !v), "aria-label": "Emoji", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
+                React.createElement(Smile, { size: 24, color: showEmoji ? "#35D0BA" : "#8891A0" })),
+            React.createElement("button", { onClick: () => { setText(t => (t && !/\s$/.test(t) ? t + " " : t) + "@"); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } },
+                React.createElement(AtSign, { size: 24, color: "#8891A0" })),
+            React.createElement("div", { style: { ...inputBox, marginBottom: 0, flex: 1, padding: "9px 12px" } },
+                React.createElement(MentionField, { token: token, fieldRef: inputRef, value: text, onChange: setText, tags: tags, setTags: setTags, maxLength: 500, onEnter: () => send(), placeholder: "Add a comment\u2026 Type @ to tag", className: "lc-plain", style: { ...inputEl, width: "100%", fontFamily: "Inter", fontWeight: 400, fontSize: 14 } })),
+            React.createElement("button", { onClick: () => send(), disabled: busy || !text.trim(), "aria-label": "Send comment", style: { width: 42, height: 42, borderRadius: 21, border: "none", background: "#35D0BA", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } },
+                React.createElement(Send, { size: 19, color: "#0E1116" })))));
+}
+function MarketScreen({ token, myId, onMessageSeller }) {
+  const [items, setItems] = useState(null);
+  const [q, setQ] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState("");
+  const [zoom, setZoom] = useState(null);
+  const [commentsFor, setCommentsFor] = useState(null);
+  const [ratingFor, setRatingFor] = useState(null);
+  const load = useCallback(() => api("/api/v1/market?q=" + encodeURIComponent(q), { token }).then(d => { setItems(d.listings); setError(""); }).catch(e => setError(e.message)), [q, token]);
+  useInnerBack(!!(posting || zoom || commentsFor || ratingFor), () => {
+    if (ratingFor) setRatingFor(null);
+    else if (commentsFor) setCommentsFor(null);
+    else if (zoom) setZoom(null);
+    else if (posting) setPosting(false);
+  });
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  const act = (id, path, method = "POST") => api("/api/v1/market/" + id + path, { method, token }).then(load).catch(e => setError(e.message));
+  const note = { padding: "40px 20px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Market" />
+      <div style={{ padding: "0 16px 10px" }}>
+        <div style={{ ...inputBox, marginBottom: 0, padding: "9px 12px" }}>
+          <Search size={17} color="#8891A0" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search products" style={{ ...inputEl, fontFamily: "Inter", fontWeight: 400, fontSize: 14 }} />
+        </div>
+      </div>
+      {error && <Banner text={error} onClose={() => setError("")} />}
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 90px" }}>
+        {items === null && !error && <div style={note}>Loading…</div>}
+        {items && items.length === 0 && <div style={note}>Nothing here yet. Tap + to post the first product.</div>}
+        {(items || []).map(l => {
+          const mine = l.seller && l.seller.id === myId;
+          return (
+            <div key={l.id} style={{ background: "#161B22", border: "1px solid #262E3A", borderRadius: 16, marginBottom: 12, overflow: "hidden", opacity: l.sold ? 0.6 : 1 }}>
+              {l.photo && <img loading="lazy" decoding="async" src={photoSrc(l.photo)} alt="" onClick={() => setZoom(l)} style={{ width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", objectFit: "cover", display: "block", cursor: "pointer" }} />}
+              <div style={{ padding: "12px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, counterIncrement: "lcgap-8" }}>
+                  <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#F5F7FA" }}>{l.title}</span>
+                  <span style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 15, color: "#35D0BA", whiteSpace: "nowrap" }}>{l.sold ? "SOLD" : l.price}</span>
+                </div>
+                {l.description && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", margin: "6px 0 10px", whiteSpace: "pre-wrap" }}>{richText(l.description)}</div>}
+                {l.tags && l.tags.length > 0 && <div style={{ margin: "-4px 0 10px" }}><TagPills tags={l.tags} /></div>}
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, counterIncrement: "lcgap-8", margin: l.description ? "0 0 10px" : "8px 0 10px" }}>
+                  <button onClick={() => setCommentsFor(l)} style={smallBtn}>{"\u{1F4AC} Comments" + (l.commentCount ? " (" + l.commentCount + ")" : "")}</button>
+                  {l.seller && <span style={{ fontFamily: "Inter", fontSize: 12.5, color: l.seller.rating && l.seller.rating.count ? "#F2B84B" : "#5B6673" }}>{ratingText(l.seller.rating)}</span>}
+                  {!mine && l.seller && <button onClick={() => setRatingFor(l.seller)} style={smallBtn}>Rate seller</button>}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", marginTop: l.description ? 0 : 10 }}>
+                  {l.seller && <Ring size={26} color={l.seller.color} initials={l.seller.initials} photo={l.seller.avatar} />}
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" }}>{mine ? "You" : l.seller ? l.seller.name : "Unknown"}{l.seller && l.seller.verified && <VerifiedBadge size={13} />} · {timeLabel(l.time)}</span>
+                  {mine ? (
+                    <>
+                      <button onClick={() => act(l.id, "/sold")} style={smallBtn}>{l.sold ? "Relist" : "Mark sold"}</button>
+                      <button onClick={() => window.confirm("Remove this listing?") && act(l.id, "", "DELETE")} style={{ ...smallBtn, color: "#FF6B5D" }}>Remove</button>
+                    </>
+                  ) : l.seller && <button onClick={() => onMessageSeller(l.seller).catch(e => setError(e.message))} style={smallBtn}>Message seller</button>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button onClick={() => setPosting(true)} style={{ position: "absolute", bottom: 78, right: 20, width: 54, height: 54, borderRadius: 27, background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 20px #35D0BA44", cursor: "pointer" }}><Plus size={24} color="#0E1116" /></button>
+      {posting && <PostProductModal token={token} onClose={() => setPosting(false)} onPosted={() => { setPosting(false); load(); }} />}
+      {zoom && <ImageZoomModal photo={zoom.photo} initials="" color="#35D0BA" onClose={() => setZoom(null)} />}
+      {commentsFor && <CommentsSheet listing={commentsFor} token={token} onClose={() => setCommentsFor(null)} onChanged={load} />}
+      {ratingFor && <RateSellerSheet seller={ratingFor} token={token} onClose={() => setRatingFor(null)} onDone={() => { setRatingFor(null); load(); }} />}
+    </div>
+  );
+}
+
+// ============================================================================
+// Sounds, voice / video calls, status updates and the "Sounds & features" settings.
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+// ============================================================================
+const ce = React.createElement;
+
+// ---- feature switches, stored on this device ("Notification sound" lives in the notifs settings: notifs.sound) ----
+const DEFAULT_FEATURES = { pingTone: "classic", msgPing: true, onlineSound: true, callSound: true, sound: true, typingSound: true, sendSound: true, status: true, videoCalls: true, voiceCalls: true, clearVoice: true, voiceNotes: true, disappearing: true, viewOnce: true, pinMessages: true, chatLock: true, polls: true, scheduling: true, linkPreviews: true, typingStatus: true, msgEffects: true };
+const getFeatures = () => ({ ...DEFAULT_FEATURES, ...loadJSON("features", {}) });
+const featOn = (k) => getFeatures()[k] !== false;
+
+// ---- sounds: synthesized in the browser (no audio files to download) ----
+let _sndCtx = null;
+function audioCtx() {
+    const A = window.AudioContext || window.webkitAudioContext;
+    if (!A) return null;
+    _sndCtx = _sndCtx || new A();
+    if (_sndCtx.state === "suspended") _sndCtx.resume();
+    return _sndCtx;
+}
+// phones only allow sound after a tap, so unlock the audio engine on the first touch / key press
+["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, () => { try { const c = audioCtx(); if (c) { loadSwoosh(c); loadTyping(c); } } catch { } }, { passive: true }));
+function noiseSource(ctx, dur) {
+    const n = Math.max(1, Math.floor(ctx.sampleRate * dur)), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    return s;
+}
+let _swooshBuf = null, _swooshLoading = false;
+function loadSwoosh(ctx) { // the send sound is the file swoosh.mp3, decoded once and kept in memory
+    if (_swooshBuf || _swooshLoading) return;
+    _swooshLoading = true;
+    fetch("swoosh.mp3").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _swooshBuf = buf; }).catch(() => { _swooshLoading = false; });
+}
+let _typeBuf = null, _typeLoading = false;
+function loadTyping(ctx) { // typing.wav = one key click, played once per key press (pitch varied a little)
+    if (_typeBuf || _typeLoading) return;
+    _typeLoading = true;
+    fetch("typing.wav").then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => { _typeBuf = buf; }).catch(() => { _typeLoading = false; });
+}
+// One click per key press. Phones/PCs report the key straight away (keydown); some Android keyboards only report the text change,
+// so that path covers them. They never double up: playSound ignores a second click within 30 ms.
+function typingKeySound(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k === "Backspace" || k === "Delete" || k === "Enter" || k === " ") playSound("typing", true); // deeper click for these keys
+    else if (typeof k === "string" && k.length === 1) playSound("typing");
+}
+function typingChangeSound(e, before) {
+    const ne = e.nativeEvent || {}, t = ne.inputType || "", add = e.target.value.length - before.length;
+    if (add === 0 || /^(insertFromPaste|insertFromDrop|insertReplacementText|historyUndo|historyRedo)/.test(t)) return;
+    playSound("typing", add < 0 || /^(insertLineBreak|insertParagraph)/.test(t) || ne.data === " ");
+}
+let _lastTick = 0;
+function playSound(kind, alt) { // "typing" | "send"
+    if (!featOn("sound")) return;
+    if (kind === "typing" && !featOn("typingSound")) return;
+    if (kind === "send" && !featOn("sendSound")) return;
+    try {
+        const ctx = audioCtx();
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        if (kind === "typing") { // a soft keyboard tick
+            const now = Date.now();
+            if (now - _lastTick < 30) return;
+            _lastTick = now;
+            if (_typeBuf) { const s = ctx.createBufferSource(), tg = ctx.createGain(), k = 0; s.buffer = _typeBuf; s.playbackRate.value = (alt ? 0.8 : 1) * (0.96 + Math.random() * 0.08); tg.gain.setValueAtTime(0.8, t); tg.gain.linearRampToValueAtTime(0, t + 0.045); s.connect(tg); tg.connect(ctx.destination); s.start(t, k * 0.1, 0.05); return; }
+            loadTyping(ctx); // not loaded yet: use the built-in tick this one time
+            const src = noiseSource(ctx, 0.04), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            f.type = "bandpass"; f.frequency.value = 1900 + Math.random() * 900; f.Q.value = 1.4;
+            g.gain.value = 0.55;
+            src.connect(f); f.connect(g); g.connect(ctx.destination);
+            src.start(t);
+        } else if (kind === "send") { // a quick upward "whoosh"
+            if (_swooshBuf) { const s = ctx.createBufferSource(), sg = ctx.createGain(); s.buffer = _swooshBuf; sg.gain.value = 0.9; s.connect(sg); sg.connect(ctx.destination); s.start(t); return; }
+            loadSwoosh(ctx); // not loaded yet: use the built-in whoosh this one time
+                        const src = noiseSource(ctx, 0.32), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            f.type = "bandpass"; f.Q.value = 0.9;
+            f.frequency.setValueAtTime(500, t);
+            f.frequency.exponentialRampToValueAtTime(3600, t + 0.26);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(0.5, t + 0.07);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+            src.connect(f); f.connect(g); g.connect(ctx.destination);
+            src.start(t);
+            const o = ctx.createOscillator(), og = ctx.createGain();
+            o.type = "sine"; o.frequency.setValueAtTime(700, t); o.frequency.exponentialRampToValueAtTime(1500, t + 0.12);
+            og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.09, t + 0.02); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+            o.connect(og); og.connect(ctx.destination);
+            o.start(t); o.stop(t + 0.18);
+        }
+    } catch { }
+}
+// ringing: [seconds from start, Hz] notes repeated every few seconds; returns a function that stops it
+function startRing(outgoing) {
+    let on = true;
+    const pattern = outgoing ? [[0, 440], [0.04, 480]] : [[0, 880], [0.2, 1175], [0.4, 880], [0.6, 1175]];
+    const len = outgoing ? 1.0 : 0.22, every = outgoing ? 3200 : 2600;
+    const ring = () => {
+        if (!on || !featOn("sound")) return;
+        try {
+            const ctx = audioCtx();
+            if (!ctx) return;
+            const t0 = ctx.currentTime;
+            for (const [off, hz] of pattern) {
+                const o = ctx.createOscillator(), g = ctx.createGain();
+                o.type = "sine"; o.frequency.value = hz;
+                g.gain.setValueAtTime(0.0001, t0 + off);
+                g.gain.exponentialRampToValueAtTime(0.18, t0 + off + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + len);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(t0 + off); o.stop(t0 + off + len + 0.02);
+            }
+        } catch { }
+        if (!outgoing) { try { const n = getNotifs(); if (n.vibrate && navigator.vibrate) navigator.vibrate([350, 150, 350]); } catch { } }
+    };
+    ring();
+    const timer = setInterval(ring, every);
+    return () => { on = false; clearInterval(timer); try { navigator.vibrate && navigator.vibrate(0); } catch { } };
+}
+
+// ---- calls ----
+const ICE_SERVERS = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+const fmtDur = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+const getCallLog = () => loadJSON("calllog", []);
+const addCallLog = (e) => saveJSON("calllog", [e, ...getCallLog()].slice(0, 50));
+const iconBtnStyle = { background: "none", border: "none", cursor: "pointer", padding: 0, marginRight: 16, display: "flex" };
+function mediaError(e, video) {
+    const n = e && e.name;
+    if (n === "NotAllowedError" || n === "SecurityError") return "Allow microphone" + (video ? " and camera" : "") + " access to make calls";
+    if (n === "NotFoundError") return "No microphone" + (video ? " or camera" : "") + " found on this device";
+    return "Could not start the " + (video ? "camera or " : "") + "microphone";
+}
+
+function CallLayer({ socket, apiRef, notify }) {
+    const [call, setCall] = useState(null);
+    const [remoteStream, setRemoteStream] = useState(null);
+    const [localStream, setLocalStream] = useState(null);
+    const [secs, setSecs] = useState(0);
+    const callRef = useRef(null), pcRef = useRef(null), localRef = useRef(null), pendingRef = useRef([]), candRef = useRef([]), ringRef = useRef(null);
+    const begin = (c) => { callRef.current = c; setCall(c); };
+    const upd = (patch) => { if (!callRef.current) return; callRef.current = { ...callRef.current, ...patch }; setCall(callRef.current); };
+    const stopRing = () => { if (ringRef.current) { ringRef.current(); ringRef.current = null; } };
+// keep the screen on during a call so it never drops when the display would have gone to sleep
+useEffect(() => {
+  if (!call) return;
+  let lock = null, dead = false;
+  const get = async () => { try { if (navigator.wakeLock && !document.hidden) { lock = await navigator.wakeLock.request("screen"); if (dead && lock) lock.release().catch(() => { }); } } catch (e) { } };
+  get();
+  const vis = () => { if (!document.hidden) get(); };
+  document.addEventListener("visibilitychange", vis);
+  return () => { dead = true; document.removeEventListener("visibilitychange", vis); try { lock && lock.release(); } catch (e) { } };
+}, [!!call]);
+
+    // closes everything and returns the call that was open
+    const teardown = () => {
+        const c = callRef.current;
+        stopRing();
+        if (pcRef.current) { try { pcRef.current.close(); } catch { } pcRef.current = null; }
+        if (localRef.current) { localRef.current.getTracks().forEach((t) => t.stop()); localRef.current = null; }
+        pendingRef.current = []; candRef.current = [];
+        callRef.current = null;
+        setCall(null); setRemoteStream(null); setLocalStream(null); setSecs(0);
+        return c;
+    };
+    const finish = (outcome, note) => {
+        const c = teardown();
+        if (!c) return;
+        addCallLog({ id: c.id || String(Date.now()), peer: { id: c.peer.id, name: c.peer.name, initials: c.peer.initials, color: c.peer.color, avatar: c.peer.avatar || null }, conversationId: c.conversationId, video: c.video, dir: c.dir, outcome, dur: c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0, time: Date.now() });
+        if (note) notify(note);
+    };
+    const getMedia = (video) => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) return Promise.reject({ name: "Unsupported" });
+        const clear = featOn("clearVoice"); // "Clear voice": echo cancellation, noise suppression and automatic volume
+        return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false });
+    };
+    const makePc = (c, stream) => {
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        pcRef.current = pc;
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        pc.onicecandidate = (e) => { if (e.candidate) socket.emit("call:signal", { callId: c.id, data: { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate } }); };
+        pc.ontrack = (e) => setRemoteStream(e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]));
+        pc.onconnectionstatechange = () => {
+            const s = pc.connectionState, cur = callRef.current;
+            if (!cur || cur.id !== c.id) return;
+            if (s === "connected" && cur.phase !== "active") { stopRing(); upd({ phase: "active", t0: Date.now() });
+                playPing("call"); }
+            else if (s === "failed") { socket.emit("call:end", { callId: c.id }); finish(cur.phase === "active" ? "completed" : "failed", "The call lost its connection"); }
+        };
+        return pc;
+    };
+    const applySignal = async (pc, c, data) => {
+        try {
+            if (data.sdp) {
+                await pc.setRemoteDescription({ type: data.sdp.type, sdp: data.sdp.sdp });
+                const q = candRef.current; candRef.current = [];
+                for (const cand of q) { try { await pc.addIceCandidate(cand); } catch { } }
+                if (data.sdp.type === "offer") {
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit("call:signal", { callId: c.id, data: { sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } } });
+                }
+            } else if (data.candidate) {
+                if (pc.remoteDescription) { try { await pc.addIceCandidate(data.candidate); } catch { } }
+                else candRef.current.push(data.candidate);
+            }
+        } catch (e) { console.warn("call signal failed", e); }
+    };
+
+    // calls made from a chat or the Calls tab
+    useEffect(() => {
+        window.__lcCallBusy = () => !!callRef.current;
+        apiRef.current = {
+            start: async (conversation, video) => {
+                if (!socket) return notify("Not connected yet. Try again in a moment.");
+                if (callRef.current || (window.__lcGroupBusy && window.__lcGroupBusy()))
+                    return notify("You are already in a call");
+                const peer = conversation.other;
+                begin({ id: null, peer, conversationId: conversation.id, video: !!video, dir: "out", phase: "calling", muted: false, camOff: false });
+                let stream;
+                try { stream = await getMedia(!!video); }
+                catch (e) { teardown(); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, video)); }
+                if (!callRef.current) { stream.getTracks().forEach((t) => t.stop()); return; } // cancelled while asking for permission
+                localRef.current = stream; setLocalStream(stream);
+                socket.emit("call:invite", { to: peer.id, conversationId: conversation.id, video: !!video }, (ack) => {
+                    if (!callRef.current) { if (ack && ack.callId) socket.emit("call:end", { callId: ack.callId }); return; }
+                    if (!ack || ack.error) { teardown(); return notify((ack && ack.error) || "Could not start the call"); }
+                    upd({ id: ack.callId, phase: "ringing", offline: !!ack.offline });
+                    stopRing(); ringRef.current = startRing(true);
+                });
+            },
+        };
+    });
+
+    // events from the server
+    useEffect(() => {
+        if (!socket) return;
+        const onIncoming = ({ callId, conversationId, video, from }) => {
+            const off = video ? !featOn("videoCalls") : !featOn("voiceCalls");
+            if (callRef.current && callRef.current.id === callId)
+                return; // a repeat of the same ring
+            if (callRef.current || off || (window.__lcGroupBusy && window.__lcGroupBusy())) { socket.emit("call:answer", { callId, accept: false, reason: "unavailable" }); return; }
+            begin({ id: callId, peer: from, conversationId, video: !!video, dir: "in", phase: "ringing", muted: false, camOff: false });
+            stopRing(); ringRef.current = startRing(false);
+            try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification(from.name, { body: "Incoming " + (video ? "video" : "voice") + " call", tag: "call-" + callId }); } catch { }
+        };
+        const onReached = ({ callId }) => { const c = callRef.current; if (c && c.id === callId) upd({ offline: false }); }; // their phone came online: "Connecting…" becomes "Ringing…"
+        const onAccepted = async ({ callId }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || c.dir !== "out" || !localRef.current) return;
+            stopRing();
+            upd({ phase: "connecting" });
+            try {
+                const pc = makePc(c, localRef.current);
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit("call:signal", { callId, data: { sdp: { type: offer.type, sdp: offer.sdp } } });
+            } catch (e) { socket.emit("call:end", { callId }); finish("failed", "Could not connect the call"); }
+        };
+        const onSignal = ({ callId, data }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || !data) return;
+            if (!pcRef.current) pendingRef.current.push(data); else applySignal(pcRef.current, c, data);
+        };
+        const onEnded = ({ callId, reason }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId) return;
+            const first = String(c.peer.name || "They").split(" ")[0];
+            if (c.phase === "active") return finish("completed");
+            if (c.dir === "in") return finish(reason === "ended" || reason === "missed" ? "missed" : reason);
+            const notes = { declined: first + " declined the call", unavailable: first + " can't take " + (c.video ? "video" : "voice") + " calls right now", missed: first + " didn't answer", failed: "The call was disconnected", ended: "Call ended" };
+            finish(reason === "missed" ? "unanswered" : reason, notes[reason]);
+        };
+        socket.on("call:reached", onReached);
+        socket.on("call:incoming", onIncoming);
+        socket.on("call:accepted", onAccepted);
+        socket.on("call:signal", onSignal);
+        socket.on("call:ended", onEnded);
+        return () => { socket.off("call:reached", onReached); socket.off("call:incoming", onIncoming); socket.off("call:accepted", onAccepted); socket.off("call:signal", onSignal); socket.off("call:ended", onEnded); };
+    }, [socket]);
+
+    useEffect(() => { // call timer
+        if (!call || call.phase !== "active") return;
+        const t = setInterval(() => { const c = callRef.current; if (c && c.t0) setSecs(Math.round((Date.now() - c.t0) / 1000)); }, 1000);
+        return () => clearInterval(t);
+    }, [call && call.phase]);
+    useEffect(() => () => { teardown(); }, []);
+
+    const accept = async () => {
+        const c = callRef.current;
+        if (!c || c.dir !== "in" || c.phase !== "ringing") return;
+        stopRing();
+        upd({ phase: "connecting" });
+        let stream;
+        try { stream = await getMedia(c.video); }
+        catch (e) { socket.emit("call:answer", { callId: c.id, accept: false }); finish("failed"); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, c.video)); }
+        if (!callRef.current || callRef.current.id !== c.id) { stream.getTracks().forEach((t) => t.stop()); return; } // caller hung up meanwhile
+        localRef.current = stream; setLocalStream(stream);
+        const pc = makePc(c, stream);
+        socket.emit("call:answer", { callId: c.id, accept: true });
+        const queued = pendingRef.current; pendingRef.current = [];
+        for (const d of queued) await applySignal(pc, c, d);
+    };
+    const decline = () => { const c = callRef.current; if (!c) return; socket.emit("call:answer", { callId: c.id, accept: false }); finish("declined"); };
+    const hangUp = () => {
+        const c = callRef.current;
+        if (!c) return;
+        if (c.id) socket.emit("call:end", { callId: c.id });
+        finish(c.phase === "active" ? "completed" : c.dir === "out" ? "unanswered" : "missed");
+    };
+    const toggleMute = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getAudioTracks().forEach((t) => { t.enabled = c.muted; }); upd({ muted: !c.muted }); };
+    const toggleCam = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getVideoTracks().forEach((t) => { t.enabled = c.camOff; }); upd({ camOff: !c.camOff }); };
+
+    if (!call) return null;
+    const peer = call.peer, vid = call.video, active = call.phase === "active";
+    const status = call.phase === "calling" ? "Calling…" : call.phase === "ringing" ? (call.dir === "in" ? "Incoming " + (vid ? "video" : "voice") + " call" : (call.offline ? "Connecting…" : "Ringing…")) : call.phase === "connecting" ? "Connecting…" : (call.t0 && Date.now() - call.t0 < 2000 ? "Connected" : fmtDur(secs));
+    const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
+    const showRemoteVideo = vid && active && remoteStream;
+    return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 95, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" } },
+        ce("video", { ref: (el) => { if (el && el.srcObject !== remoteStream) el.srcObject = remoteStream; }, autoPlay: true, playsInline: true, style: showRemoteVideo ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", background: "#000" } : { display: "none" } }),
+        vid && localStream && !call.camOff && ce("video", { ref: (el) => { if (el && el.srcObject !== localStream) el.srcObject = localStream; }, autoPlay: true, playsInline: true, muted: true, style: showRemoteVideo ? { position: "absolute", top: 16, right: 16, width: 96, height: 128, objectFit: "cover", borderRadius: 14, border: "2px solid #ffffff55", background: "#000", transform: "scaleX(-1)", zIndex: 2 } : { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, transform: "scaleX(-1)" } }),
+        ce("div", { style: { position: "relative", zIndex: 3, marginTop: showRemoteVideo ? 18 : "16%", textAlign: "center", textShadow: showRemoteVideo ? "0 1px 8px rgba(0,0,0,.8)" : "none" } },
+            !showRemoteVideo && ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: peer.color || "#35D0BA", initials: peer.initials || "?", photo: peer.avatar, ring: true })),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: showRemoteVideo ? 18 : 24, color: "#F5F7FA" } }, peer.name),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: active ? "#35D0BA" : "#9BA7B4", marginTop: 6 } }, status)),
+        ce("div", { style: { flex: 1 } }),
+        ce("div", { style: { position: "relative", zIndex: 3, display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
+            call.dir === "in" && call.phase === "ringing"
+                ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Decline")),
+                    ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Accept call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, "Accept"))]
+                : [ce("div", { key: "m", style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.muted ? "Unmute" : "Mute")),
+                    vid && ce("div", { key: "c", style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.camOff ? "Camera on" : "Camera off")),
+                    ce("div", { key: "e", style: { textAlign: "center" } }, round("#FF6B5D", hangUp, "End call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, call.phase === "calling" || call.phase === "ringing" ? "Cancel" : "End"))]));
+}
+
+// ---- group voice / video calls: everyone connects to everyone (peer to peer); the server only keeps the room and passes the signals ----
+function gcMedia(video) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) return Promise.reject({ name: "Unsupported" });
+    const clear = featOn("clearVoice");
+    return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } } : false });
+}
+function GCTile({ user, stream, local, video, media, state }) {
+    const u = user || {}, showVid = !!(video && stream && !(media && media.camOff));
+    return ce("div", { style: { position: "relative", background: "#141A22", borderRadius: 14, overflow: "hidden", minHeight: 0, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1E2530" } },
+        stream && ce("video", { ref: (el) => { if (el && el.srcObject !== stream) el.srcObject = stream; }, autoPlay: true, playsInline: true, muted: !!local, style: showVid ? { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", transform: local ? "scaleX(-1)" : "none" } : { position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" } }),
+        !showVid && ce(Ring, { size: 68, color: u.color || "#35D0BA", initials: u.initials || "?", photo: u.avatar }),
+        ce("div", { style: { position: "absolute", left: 8, right: 8, bottom: 6, display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", fontFamily: "Inter", fontSize: 12.5, color: "#F5F7FA", textShadow: "0 1px 6px rgba(0,0,0,.9)" } },
+            ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, local ? "You" : String(u.name || "").split(" ")[0]),
+            media && media.muted && ce("span", { style: { background: "rgba(255,107,93,.92)", borderRadius: 8, padding: "1px 6px", fontSize: 11, flexShrink: 0 } }, "Muted"),
+            !local && state && state !== "connected" && ce("span", { style: { color: "#F2B84B", fontSize: 11.5, flexShrink: 0 } }, state === "lost" ? "Lost connection" : "Connecting\u2026")));
+}
+function GroupCallLayer({ socket, apiRef, notify, me }) {
+    const [call, setCall] = useState(null);
+    const [tiles, setTiles] = useState([]);
+    const [localStream, setLocalStream] = useState(null);
+    const [secs, setSecs] = useState(0);
+    const [live, setLive] = useState({}); // conversationId -> the call running there right now
+    const callRef = useRef(null), localRef = useRef(null), pcs = useRef({}), cands = useRef({}), ringRef = useRef(null), ringTimer = useRef(null), tilesRef = useRef([]), metRef = useRef(false);
+    const begin = (c) => { callRef.current = c; metRef.current = false; setCall(c); };
+    const upd = (patch) => { if (!callRef.current) return; callRef.current = { ...callRef.current, ...patch }; setCall(callRef.current); };
+    const setT = (fn) => { tilesRef.current = fn(tilesRef.current); setTiles(tilesRef.current); };
+    const patchTile = (id, patch) => setT((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const addTile = (user) => { if (!user) return; metRef.current = true; setT((t) => (t.some((x) => x.id === user.id) ? t : [...t, { id: user.id, user, stream: null, media: {}, state: "connecting" }])); };
+    const stopRing = () => { if (ringRef.current) { ringRef.current(); ringRef.current = null; } clearTimeout(ringTimer.current); };
+    const closePeer = (uid) => { const pc = pcs.current[uid]; if (pc) { try { pc.close(); } catch { } } delete pcs.current[uid]; delete cands.current[uid]; };
+    const closeAll = () => { Object.keys(pcs.current).forEach(closePeer); };
+    const teardown = () => {
+        const c = callRef.current;
+        stopRing(); closeAll();
+        if (localRef.current) { localRef.current.getTracks().forEach((t) => t.stop()); localRef.current = null; }
+        callRef.current = null; tilesRef.current = [];
+        setCall(null); setTiles([]); setLocalStream(null); setSecs(0);
+        return c;
+    };
+    const finish = (outcome, note) => {
+        const c = teardown();
+        if (!c) return;
+        addCallLog({ id: c.id || String(Date.now()), peer: { id: c.conversationId, name: c.name, initials: c.initials, color: c.color, avatar: c.avatar || null }, conversationId: c.conversationId, video: c.video, dir: c.dir === "out" ? "out" : "in", outcome, dur: c.t0 ? Math.round((Date.now() - c.t0) / 1000) : 0, time: Date.now() });
+        if (note) notify(note);
+    };
+    const sendTo = (uid, data) => { const c = callRef.current; if (c && c.id && socket) socket.emit("gcall:signal", { callId: c.id, to: uid, data }); };
+    const mediaState = () => { const c = callRef.current || {}; return { muted: !!c.muted, camOff: !!c.camOff }; };
+    const tellMedia = () => { Object.keys(pcs.current).forEach((uid) => sendTo(uid, { media: mediaState() })); };
+    const makePeer = (uid) => {
+        closePeer(uid);
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        pcs.current[uid] = pc;
+        localRef.current.getTracks().forEach((t) => pc.addTrack(t, localRef.current));
+        pc.onicecandidate = (e) => { if (e.candidate) sendTo(uid, { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
+        pc.ontrack = (e) => patchTile(uid, { stream: e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]) });
+        pc.onconnectionstatechange = () => {
+            if (pcs.current[uid] !== pc) return;
+            const s = pc.connectionState;
+            if (s === "connected") { const was = tilesRef.current.find((x) => x.id === uid); patchTile(uid, { state: "connected" }); if (!was || was.state !== "connected") { if (callRef.current && !callRef.current.connectedAt) upd({ connectedAt: Date.now() }); playPing("call"); } }
+            else if (s === "failed") patchTile(uid, { state: "lost" });
+            else if (s === "disconnected") patchTile(uid, { state: "connecting" });
+        };
+        return pc;
+    };
+    // the person who joins makes the offer to everyone already in the room, so two people never offer at once
+    const offerTo = async (uid) => {
+        try {
+            const pc = makePeer(uid);
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            sendTo(uid, { sdp: { type: offer.type, sdp: offer.sdp } });
+            sendTo(uid, { media: mediaState() });
+        } catch (e) { patchTile(uid, { state: "lost" }); }
+    };
+    const enterRoom = (callId, onFail) => {
+        socket.emit("gcall:join", { callId }, (ack) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId) { if (ack && !ack.error) socket.emit("gcall:leave", { callId }); return; }
+            if (!ack || ack.error) return onFail((ack && ack.error) || "Could not join the call");
+            closeAll(); setT(() => []);
+            upd({ phase: "active", t0: c.t0 || Date.now(), video: !!ack.video });
+            (ack.peers || []).forEach((u) => addTile(u));
+            (ack.peers || []).forEach((u) => offerTo(u.id));
+        });
+    };
+    const incoming = ({ callId, conversationId, video, groupName, groupAvatar, from }) => {
+        const off = video ? !featOn("videoCalls") : !featOn("voiceCalls");
+        if (callRef.current && callRef.current.id === callId) return; // a repeat of the same ring
+        if (off || callRef.current || (window.__lcCallBusy && window.__lcCallBusy())) return; // busy: it still shows as a "Join" bar
+        begin({ id: callId, conversationId, name: groupName || "Group", initials: String(groupName || "G").slice(0, 1).toUpperCase(), color: "#8B5CF6", avatar: groupAvatar || null, video: !!video, dir: "in", phase: "ringing", from, muted: false, camOff: false });
+        stopRing(); ringRef.current = startRing(false);
+        ringTimer.current = setTimeout(() => { const c = callRef.current; if (c && c.id === callId && c.phase === "ringing") finish("missed"); }, 45000);
+        try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification((groupName || "Group") + " \u00B7 " + (from && from.name), { body: "Group " + (video ? "video" : "voice") + " call", tag: "gcall-" + callId }); } catch { }
+    };
+
+    useEffect(() => {
+        apiRef.current = {
+            busy: () => !!callRef.current,
+            start: async (conversation, video) => {
+                if (!socket) return notify("Not connected yet. Try again in a moment.");
+                if (callRef.current || (window.__lcCallBusy && window.__lcCallBusy())) return notify("You are already in a call");
+                const g = conversation.other || {};
+                begin({ id: null, conversationId: conversation.id, name: conversation.name || g.name || "Group", initials: g.initials || String(conversation.name || "G").slice(0, 1).toUpperCase(), color: g.color || "#8B5CF6", avatar: g.avatar || null, video: !!video, dir: "out", phase: "joining", muted: false, camOff: false });
+                let stream;
+                try { stream = await gcMedia(!!video); }
+                catch (e) { teardown(); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, video)); }
+                if (!callRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+                localRef.current = stream; setLocalStream(stream);
+                socket.emit("gcall:start", { conversationId: conversation.id, video: !!video }, (ack) => {
+                    if (!callRef.current) { if (ack && ack.callId) socket.emit("gcall:leave", { callId: ack.callId }); return; }
+                    if (ack && ack.joinCallId) { upd({ id: ack.joinCallId, dir: "in" }); return enterRoom(ack.joinCallId, (m) => finish("failed", m)); } // a call is already running here: join it
+                    if (!ack || ack.error) { teardown(); return notify((ack && ack.error) || "Could not start the call"); }
+                    upd({ id: ack.callId, phase: "active", t0: Date.now() });
+                });
+            },
+        };
+        window.__lcGroupBusy = () => !!callRef.current;
+    });
+
+    useEffect(() => {
+        if (!socket) return;
+        const sync = () => socket.emit("gcall:sync", (list) => {
+            if (!Array.isArray(list)) return;
+            const n = {}; list.forEach((st) => { n[st.conversationId] = st; }); setLive(n);
+            // opened from a "calling you" alert a few seconds after the call began: ring now
+            list.forEach((st) => { if (st.host && me && st.host.id !== me.id && st.age < 40000 && !callRef.current) incoming({ callId: st.callId, conversationId: st.conversationId, video: st.video, groupName: st.name, groupAvatar: st.avatar, from: st.host }); });
+        });
+        const onState = (st) => {
+            setLive((p) => { const n = { ...p }; if (st.callId) n[st.conversationId] = st; else delete n[st.conversationId]; return n; });
+            const c = callRef.current;
+            if (c && c.phase === "ringing" && c.conversationId === st.conversationId && !st.callId) finish("missed");
+        };
+        const onJoined = ({ callId, user }) => { const c = callRef.current; if (c && c.id === callId && c.phase === "active") addTile(user); };
+        const onLeft = ({ callId, userId }) => { const c = callRef.current; if (!c || c.id !== callId) return; closePeer(userId); setT((t) => t.filter((x) => x.id !== userId)); };
+        const onSignal = async ({ callId, from, data }) => {
+            const c = callRef.current;
+            if (!c || c.id !== callId || !data || !from || c.phase !== "active" || !localRef.current) return;
+            if (data.media) patchTile(from, { media: data.media });
+            try {
+                if (data.sdp) {
+                    let pc = pcs.current[from];
+                    if (data.sdp.type === "offer") pc = makePeer(from); // the one already in the room answers on a fresh connection
+                    if (!pc) return;
+                    await pc.setRemoteDescription({ type: data.sdp.type, sdp: data.sdp.sdp });
+                    const q = cands.current[from] || []; cands.current[from] = [];
+                    for (const cand of q) { try { await pc.addIceCandidate(cand); } catch { } }
+                    if (data.sdp.type === "offer") {
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        sendTo(from, { sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+                        sendTo(from, { media: mediaState() });
+                    }
+                } else if (data.candidate) {
+                    const pc = pcs.current[from];
+                    if (pc && pc.remoteDescription) { try { await pc.addIceCandidate(data.candidate); } catch { } }
+                    else (cands.current[from] = cands.current[from] || []).push(data.candidate);
+                }
+            } catch (e) { console.warn("group call signal failed", e); }
+        };
+        // the phone lost its connection to the server and got it back: step into the room again
+        const onConnect = () => {
+            sync();
+            const c = callRef.current;
+            if (c && c.phase === "active" && c.id && localRef.current) enterRoom(c.id, () => finish("completed", "The call ended"));
+        };
+        socket.on("gcall:incoming", incoming);
+        socket.on("gcall:state", onState);
+        socket.on("gcall:joined", onJoined);
+        socket.on("gcall:left", onLeft);
+        socket.on("gcall:signal", onSignal);
+        socket.on("connect", onConnect);
+        if (socket.connected) sync();
+        return () => { socket.off("gcall:incoming", incoming); socket.off("gcall:state", onState); socket.off("gcall:joined", onJoined); socket.off("gcall:left", onLeft); socket.off("gcall:signal", onSignal); socket.off("connect", onConnect); };
+    }, [socket]);
+
+    useEffect(() => {
+        if (!call || call.phase !== "active") return;
+        const t = setInterval(() => { const c = callRef.current; if (c && c.t0) setSecs(Math.round((Date.now() - c.t0) / 1000)); }, 1000);
+        return () => clearInterval(t);
+    }, [call && call.phase]);
+    useEffect(() => () => { teardown(); }, []);
+
+    const accept = async () => {
+        const c = callRef.current;
+        if (!c || !c.id || c.phase === "active") return;
+        stopRing();
+        upd({ phase: "joining" });
+        let stream;
+        try { stream = await gcMedia(c.video); }
+        catch (e) { finish("failed"); return notify(e && e.name === "Unsupported" ? "Calling is not supported in this browser (it needs a secure https page)" : mediaError(e, c.video)); }
+        if (!callRef.current || callRef.current.id !== c.id) { stream.getTracks().forEach((t) => t.stop()); return; }
+        localRef.current = stream; setLocalStream(stream);
+        enterRoom(c.id, (m) => finish("failed", m));
+    };
+    const decline = () => finish("declined");
+    const joinLive = (st) => {
+        if (callRef.current || (window.__lcCallBusy && window.__lcCallBusy())) return notify("You are already in a call");
+        begin({ id: st.callId, conversationId: st.conversationId, name: st.name, initials: String(st.name || "G").slice(0, 1).toUpperCase(), color: "#8B5CF6", avatar: st.avatar || null, video: !!st.video, dir: "in", phase: "ringing", muted: false, camOff: false });
+        accept();
+    };
+    const leave = () => {
+        const c = callRef.current;
+        if (!c) return;
+        if (c.id) socket.emit("gcall:leave", { callId: c.id });
+        finish(c.phase === "active" && (metRef.current || c.dir !== "out") ? "completed" : c.dir === "out" ? "unanswered" : "completed");
+    };
+    const toggleMute = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getAudioTracks().forEach((t) => { t.enabled = c.muted; }); upd({ muted: !c.muted }); tellMedia(); };
+    const toggleCam = () => { const c = callRef.current; if (!c || !localRef.current) return; localRef.current.getVideoTracks().forEach((t) => { t.enabled = c.camOff; }); upd({ camOff: !c.camOff }); tellMedia(); };
+
+    const running = Object.values(live).filter((st) => st && st.callId && st.count > 0);
+    if (!call) {
+        const st = running[0];
+        if (!st) return null;
+        return ce("div", { style: { position: "absolute", top: 62, left: 10, right: 10, zIndex: 90, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#10211D", border: "1px solid #1E8677", borderRadius: 14, padding: "9px 12px", boxShadow: "0 6px 18px rgba(0,0,0,.45)" } },
+            st.video ? ce(Video, { size: 20, color: "#35D0BA" }) : ce(Phone, { size: 20, color: "#35D0BA" }),
+            ce("div", { style: { flex: 1, minWidth: 0 } },
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, st.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4" } }, "Group " + (st.video ? "video" : "voice") + " call \u00B7 " + st.count + " in the call")),
+            ce("button", { onClick: () => joinLive(st), style: { background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 999, padding: "8px 18px", fontFamily: "Inter", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Join"));
+    }
+    const vid = call.video, active = call.phase === "active", ringing = call.phase === "ringing";
+    const round = (bg, onClick, label, icon) => ce("button", { onClick, "aria-label": label, style: { width: 62, height: 62, borderRadius: "50%", border: "none", background: bg, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,.4)" } }, icon);
+    const cap = (t) => ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginTop: 8 } }, t);
+    const shell = { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 96, background: "#0B0E13", display: "flex", flexDirection: "column", alignItems: "center", overflow: "hidden" };
+    if (!active) {
+        const who = call.from && call.from.name ? String(call.from.name).split(" ")[0] : "Someone";
+        const status = ringing ? who + " is calling the group" : "Connecting\u2026";
+        return ce("div", { style: shell },
+            ce("div", { style: { marginTop: "16%", textAlign: "center", padding: "0 20px" } },
+                ce("div", { style: { display: "flex", justifyContent: "center", marginBottom: 18 } }, ce(Ring, { size: 108, color: call.color, initials: call.initials || "G", photo: call.avatar, ring: true })),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA" } }, call.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: "#35D0BA", marginTop: 6 } }, "Group " + (vid ? "video" : "voice") + " call"),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginTop: 4 } }, status)),
+            ce("div", { style: { flex: 1 } }),
+            ce("div", { style: { display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "0 20px 44px" } },
+                ringing
+                    ? [ce("div", { key: "d", style: { textAlign: "center" } }, round("#FF6B5D", decline, "Decline call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Decline")),
+                        ce("div", { key: "a", style: { textAlign: "center" } }, round("#35D0BA", accept, "Join call", vid ? ce(Video, { size: 26, color: "#0E1116" }) : ce(Phone, { size: 26, color: "#0E1116" })), cap("Join"))]
+                    : ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Cancel", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Cancel"))));
+    }
+    const people = [{ id: "me", user: me, stream: localStream, local: true, media: { muted: call.muted, camOff: call.camOff }, state: "connected" }, ...tiles];
+    const n = people.length, cols = n <= 1 ? 1 : n === 2 ? (vid ? 1 : 1) : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
+    const sub = tiles.length === 0 ? "Waiting for others to join\u2026" : !call.connectedAt ? "Connecting\u2026" : Date.now() - call.connectedAt < 2000 ? "Connected" : fmtDur(secs) + " \u00B7 " + n + " in the call";
+    return ce("div", { style: shell },
+        ce("div", { style: { width: "100%", textAlign: "center", padding: "16px 16px 8px", flexShrink: 0 } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, call.name),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#35D0BA", marginTop: 3 } }, sub)),
+        ce("div", { style: { flex: 1, minHeight: 0, width: "100%", padding: "6px 10px", boxSizing: "border-box", display: "grid", gap: 8, counterIncrement: "lcgap-8", gridTemplateColumns: "repeat(" + cols + ", minmax(0, 1fr))", gridTemplateRows: "repeat(" + rows + ", minmax(0, 1fr))" } },
+            people.map((p) => ce(GCTile, { key: p.id, user: p.user, stream: p.stream, local: p.local, video: vid, media: p.media, state: p.state }))),
+        ce("div", { style: { display: "flex", gap: 26, counterIncrement: "lcgap-26", alignItems: "center", justifyContent: "center", padding: "14px 20px 36px", flexShrink: 0 } },
+            ce("div", { style: { textAlign: "center" } }, round(call.muted ? "#F5F7FA" : "#2B3544", toggleMute, call.muted ? "Unmute" : "Mute", ce(Mic, { size: 25, color: call.muted ? "#0E1116" : "#F5F7FA" })), cap(call.muted ? "Unmute" : "Mute")),
+            vid && ce("div", { style: { textAlign: "center" } }, round(call.camOff ? "#F5F7FA" : "#2B3544", toggleCam, call.camOff ? "Turn camera on" : "Turn camera off", ce(Video, { size: 25, color: call.camOff ? "#0E1116" : "#F5F7FA" })), cap(call.camOff ? "Camera on" : "Camera off")),
+            ce("div", { style: { textAlign: "center" } }, round("#FF6B5D", leave, "Leave call", ce(Phone, { size: 26, color: "#fff", style: { transform: "rotate(135deg)" } })), cap("Leave"))));
+}
+
+function CallsScreen({ conversations = [], onCall = () => { } }) {
+    const [log, setLog] = useState(getCallLog);
+    const F = getFeatures();
+    const bad = { missed: 1, declined: 1, unanswered: 1, failed: 1 };
+    const label = (e) => {
+        const kind = e.video ? "Video" : "Voice";
+        const what = e.outcome === "completed" ? (e.dir === "out" ? "Outgoing" : "Incoming") + (e.dur ? " · " + fmtDur(e.dur) : "") : e.outcome === "missed" ? "Missed" : e.outcome === "declined" ? (e.dir === "out" ? "Declined" : "You declined") : e.outcome === "unanswered" ? "No answer" : e.outcome === "unavailable" ? "Unavailable" : "Failed";
+        return kind + " · " + what + " · " + timeLabel(e.time);
+    };
+    const clear = () => { clearJSON("calllog"); setLog([]); };
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Calls", right: log.length ? ce("button", { onClick: clear, style: smallBtn }, "Clear") : null }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            !log.length && ce("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                ce(PhoneCall, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No calls yet"),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8A96A5" } }, "Open a chat and tap the phone or video icon at the top to call someone.")),
+            log.map((e) => {
+                const convo = conversations.find((c) => c.id === e.conversationId);
+                return ce("div", { key: e.id + e.time, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", borderBottom: "1px solid #1B212B" } },
+                    ce(Ring, { size: 46, color: e.peer.color || "#5B6673", initials: e.peer.initials || "?", photo: e.peer.avatar }),
+                    ce("div", { style: { flex: 1, minWidth: 0 } },
+                        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: bad[e.outcome] && e.dir === "in" ? "#FF6B5D" : "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, e.peer.name),
+                        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, label(e))),
+                    convo && F.voiceCalls && ce("button", { onClick: () => onCall(convo, false), "aria-label": "Voice call", style: { ...iconBtnStyle, marginRight: 14 } }, ce(Phone, { size: 19, color: "#35D0BA" })),
+                    convo && F.videoCalls && ce("button", { onClick: () => onCall(convo, true), "aria-label": "Video call", style: { ...iconBtnStyle, marginRight: 0 } }, ce(Video, { size: 20, color: "#35D0BA" })));
+            })));
+}
+
+// ---- status ----
+const STATUS_COLORS = ["#1E8677", "#8B7CF6", "#FF6B5D", "#4FA8E0", "#F2B84B", "#5B6673"];
+function ago(ts) {
+    const m = Math.round((Date.now() - ts) / 60000);
+    return m < 1 ? "Just now" : m < 60 ? m + " min ago" : Math.floor(m / 60) + " h ago";
+}
+// ---- @tagging: type @ to tag a contact or a group (used by status captions and market posts) ----
+let TAG_CACHE = null;
+function useTagTargets(token) {
+    const [list, setList] = useState(TAG_CACHE || []);
+    useEffect(() => {
+        let off = false;
+        api("/api/v1/conversations", { token }).then((d) => {
+            const out = [];
+            for (const c of (d && d.conversations) || []) {
+                if (c.isGroup) out.push({ type: "group", id: c.id, name: c.name, color: "#8B5CF6", initials: String(c.name || "G").slice(0, 1).toUpperCase(), avatar: c.avatar });
+                else if (c.other && c.other.id) out.push({ type: "user", id: c.other.id, name: c.other.name, color: c.other.color, initials: c.other.initials, avatar: c.other.avatar });
+            }
+            TAG_CACHE = out;
+            if (!off) setList(out);
+        }).catch(() => { });
+        return () => { off = true; };
+    }, [token]);
+    return list;
+}
+function TagPills({ tags, light }) {
+    if (!tags || !tags.length) return null;
+    return ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, counterIncrement: "lcgap-6", marginTop: 8, justifyContent: light ? "center" : "flex-start" } },
+        tags.map((t) => ce("span", { key: t.type + t.id, style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#35D0BA", background: "rgba(53,208,186,.14)", border: "1px solid rgba(53,208,186,.4)", borderRadius: 999, padding: "3px 10px" } }, (t.type === "group" ? "\u{1F465} " : "") + "@" + t.name)));
+}
+function MentionField({ token, value, onChange, tags, setTags, placeholder, multiline, maxLength, rows, style, fieldRef, onEnter, className }) {
+    const targets = useTagTargets(token);
+    const own = useRef(null), el = fieldRef || own;
+    const [open, setOpen] = useState(false);
+    const m = open ? /(^|\s)@([^\s@]{0,24})$/.exec(value || "") : null;
+    const q = m ? m[2].toLowerCase() : null;
+    const matches = q == null ? [] : targets.filter((t) => t.name && t.name.toLowerCase().includes(q)).slice(0, 6);
+    const pick = (t) => {
+        onChange(String(value).replace(/@[^\s@]*$/, "@" + t.name + " "));
+        setTags((p) => (p.some((x) => x.type === t.type && x.id === t.id) ? p : [...p, { type: t.type, id: t.id, name: t.name }]));
+        setTimeout(() => el.current && el.current.focus(), 0);
+    };
+    const common = {
+        ref: el, value, placeholder, className, style,
+        onChange: (e) => { onChange(maxLength ? e.target.value.slice(0, maxLength) : e.target.value); setOpen(true); },
+        onFocus: () => setOpen(true), onBlur: () => setTimeout(() => setOpen(false), 150),
+    };
+    return ce("div", { style: { position: "relative", flex: 1, minWidth: 0 } },
+        matches.length > 0 && ce("div", { onMouseDown: (e) => e.preventDefault(), role: "listbox", "aria-label": "Tag a contact or group", style: { position: "absolute", left: 0, right: 0, bottom: "calc(100% + 10px)", zIndex: 6, minWidth: 230, background: "#0F141C", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,.55), 0 0 14px rgba(53,208,186,.2)", animation: "lcFadeUp .18s ease-out" } },
+            matches.map((t) => ce("div", { key: t.type + t.id, onClick: () => pick(t), role: "option", style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+                ce(Ring, { size: 30, color: t.color || "#5B6673", initials: t.initials || "?", photo: t.avatar }),
+                ce("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.name),
+                ce("span", { style: { fontFamily: "Inter", fontSize: 11, color: t.type === "group" ? "#A78BFA" : "#35D0BA" } }, t.type === "group" ? "Group" : "Contact")))),
+        multiline ? ce("textarea", { ...common, rows: rows || 3 }) : ce("input", { ...common, onKeyDown: onEnter ? (e) => { if (e.key === "Enter") onEnter(); } : undefined }));
+}
+const liveTags = (text, tags) => (tags || []).filter((t) => String(text || "").toLowerCase().includes("@" + String(t.name).toLowerCase()));
+
+// ---- status editor helpers: photo loading, flattening stickers/text/drawing into the picture, trimmed music ----
+const loadImg = (url) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("Could not read that image")); i.src = url; });
+const STATUS_TEXT_COLORS = ["#FFFFFF", "#FFD60A", "#FF6B5D", "#35D0BA", "#A78BFA", "#4FA8E0", "#000000"];
+const STICKERS = ["\u{1F600}", "\u{1F602}", "\u{1F979}", "\u{1F60D}", "\u{1F973}", "\u{1F60E}", "\u{1F929}", "\u{1F62D}", "\u{1F621}", "\u{1F914}", "\u{1F64F}", "\u{1F44D}", "\u{1F44F}", "\u{1F525}", "❤️", "\u{1F4AF}", "\u{1F389}", "\u{1F382}", "\u{1F381}", "✨", "⭐", "\u{1F339}", "\u{1F334}", "☀️", "\u{1F319}", "\u{1F355}", "\u{1F354}", "\u{1F357}", "\u{1F37A}", "⚽", "\u{1F3C0}", "\u{1F3B5}", "\u{1F3B6}", "\u{1F483}", "\u{1F57A}", "\u{1F697}", "✈️", "\u{1F3E0}", "\u{1F4F8}", "\u{1F4B0}", "\u{1F451}", "\u{1F4AA}", "\u{1F64C}", "\u{1F91D}"];
+const clock = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+const SHAPE_DEFS = {
+    rect: { d: "M6 14H94V86H6Z", h: 100 }, round: { d: "M24 14H76A18 18 0 0 1 94 32V68A18 18 0 0 1 76 86H24A18 18 0 0 1 6 68V32A18 18 0 0 1 24 14Z", h: 100 },
+    circle: { d: "M8 50a42 42 0 1 0 84 0a42 42 0 1 0 -84 0Z", h: 100 }, triangle: { d: "M50 10L92 88H8Z", h: 100 }, diamond: { d: "M50 8L92 50L50 92L8 50Z", h: 100 },
+    star: { d: "M50 6L61 38L95 38L67 58L78 92L50 71L22 92L33 58L5 38L39 38Z", h: 100 },
+    heart: { d: "M50 88C10 58 4 30 24 18C38 10 50 22 50 30C50 22 62 10 76 18C96 30 90 58 50 88Z", h: 100 },
+    line: { d: "M6 15H94", h: 30, open: true }, arrow: { d: "M6 15H82", head: "M95 15L76 3V27Z", h: 30, open: true },
+};
+const SHAPE_LIST = ["arrow", "line", "rect", "round", "circle", "triangle", "diamond", "star", "heart"];
+async function bakeStatus(photo, nat, bg, items, strokes) {
+    const W = photo ? nat.w : 720, H = photo ? nat.h : 1280;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    if (photo) g.drawImage(await loadImg(photo), 0, 0, W, H); else { g.fillStyle = bg; g.fillRect(0, 0, W, H); }
+    g.lineCap = "round"; g.lineJoin = "round";
+    for (const s of strokes) {
+        if (!s.p.length) continue;
+        g.strokeStyle = s.c; g.lineWidth = s.w * W; g.beginPath();
+        s.p.forEach((pt, i) => (i ? g.lineTo(pt[0] * W, pt[1] * H) : g.moveTo(pt[0] * W, pt[1] * H)));
+        if (s.p.length === 1) g.lineTo(s.p[0][0] * W + 0.1, s.p[0][1] * H);
+        g.stroke();
+    }
+    for (const it of items) {
+        const fs = it.s * W;
+        g.save(); g.translate(it.x * W, it.y * H); g.rotate(((it.r || 0) * Math.PI) / 180);
+        g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = it.c || "#fff";
+        if (it.kind === "shape") {
+            const df = SHAPE_DEFS[it.v] || SHAPE_DEFS.rect, k = fs / 100;
+            g.scale(k, k); g.translate(-50, -df.h / 2);
+            g.strokeStyle = it.c || "#fff"; g.lineWidth = 6; g.lineCap = "round"; g.lineJoin = "round";
+            if (df.head) { g.stroke(new Path2D(df.d)); g.fill(new Path2D(df.head)); }
+            else if (df.open) g.stroke(new Path2D(df.d));
+            else { const p = new Path2D(df.d); if (it.f) g.fill(p); g.stroke(p); }
+        } else if (it.kind === "text") {
+            g.font = "700 " + fs + "px Sora, Inter, sans-serif";
+            g.shadowColor = "rgba(0,0,0,.6)"; g.shadowBlur = fs * 0.2; g.shadowOffsetY = fs * 0.06;
+            const lines = it.v.split("\n");
+            lines.forEach((ln, i) => g.fillText(ln, 0, (i - (lines.length - 1) / 2) * fs * 1.2));
+            g.shadowColor = "transparent";
+        } else { g.font = fs + "px 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif"; g.fillText(it.v, 0, 0); }
+        g.restore();
+    }
+    let q = 0.85, out;
+    do { out = c.toDataURL("image/jpeg", q); q -= 0.1; } while (out.length > 1400000 && q > 0.3);
+    return out;
+}
+function decodeAudioFile(file) {
+    return file.arrayBuffer().then((ab) => new Promise((res, rej) => {
+        const AC = window.AudioContext || window.webkitAudioContext; const ctx = new AC();
+        ctx.decodeAudioData(ab, (b) => { try { ctx.close(); } catch (e) { } res(b); }, (e) => rej(e || new Error("decode")));
+    }));
+}
+async function encodeClip(buf, start, len) { // trimmed clip -> small mono WAV data URL (22 kHz, 16-bit)
+    const rate = 22050, frames = Math.max(1, Math.floor(len * rate));
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const off = new OAC(1, frames, rate);
+    const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(0, start, len);
+    const out = await new Promise((res, rej) => { off.oncomplete = (e) => res(e.renderedBuffer); const p = off.startRendering(); if (p && p.then) p.then(res, rej); });
+    const d = out.getChannelData(0), n = d.length, fade = Math.min(n, Math.floor(rate * 0.4));
+    const ab = new ArrayBuffer(44 + n * 2), v = new DataView(ab);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) { let s = d[i]; if (i > n - fade) s *= (n - i) / fade; s = Math.max(-1, Math.min(1, s)); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+    const u = new Uint8Array(ab); let bin = "";
+    for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return "data:audio/wav;base64," + btoa(bin);
+}
+
+// ---- status editor (full screen): top icons = close, music, rotate, sticker, text, draw; caption bar with @; audience + send ----
+function StatusComposer({ token, onClose, onPosted, mode }) {
+    const [photo, setPhoto] = useState(null);
+    const [nat, setNat] = useState({ w: 720, h: 1280 });
+    const [bg, setBg] = useState(STATUS_COLORS[0]);
+    const [items, setItems] = useState([]);
+    const [strokes, setStrokes] = useState([]);
+    const [sel, setSel] = useState(null);
+    const [panel, setPanel] = useState(null); // "text" | "sticker" | "music"
+    const [draw, setDraw] = useState(false);
+    const [pen, setPen] = useState("#FFFFFF");
+    const [txt, setTxt] = useState({ id: null, v: "", c: "#FFFFFF" });
+    const [caption, setCaption] = useState("");
+    const [tags, setTags] = useState([]);
+    const [music, setMusic] = useState(null); // { name, buf, dur, start, len }
+    const [playing, setPlaying] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const [box, setBox] = useState({ w: 0, h: 0 });
+    const areaRef = useRef(null), fileRef = useRef(null), audioRef = useRef(null), capRef = useRef(null), dragRef = useRef(null), penRef = useRef(null), playRef = useRef(null), hRef = useRef(null);
+    useEffect(() => {
+        const el = areaRef.current; if (!el) return;
+        const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+        measure();
+        let ro; if (window.ResizeObserver) { ro = new ResizeObserver(measure); ro.observe(el); }
+        window.addEventListener("resize", measure);
+        return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", measure); };
+    }, []);
+    const stopPlay = () => { const p = playRef.current; playRef.current = null; if (p) { try { p.src.onended = null; p.src.stop(); } catch (e) { } try { p.ctx.close(); } catch (e) { } } setPlaying(false); };
+    useEffect(() => () => stopPlay(), []);
+    const startPlay = (m) => {
+        const mm = m || music; if (!mm) return; stopPlay();
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext; const ctx = new AC(); const src = ctx.createBufferSource();
+            src.buffer = mm.buf; src.connect(ctx.destination); src.onended = () => stopPlay(); src.start(0, mm.start, mm.len);
+            playRef.current = { ctx, src }; setPlaying(true);
+        } catch (e) { setError("Could not play that audio"); }
+    };
+    const aspect = nat.w / nat.h, pad = 8;
+    const availW = Math.max(0, box.w - pad * 2), availH = Math.max(0, box.h - pad * 2);
+    let sw = availW, sh = sw / aspect; if (sh > availH) { sh = availH; sw = sh * aspect; }
+    sw = Math.floor(sw); sh = Math.floor(sh);
+    const hasArt = !!photo || items.length > 0 || strokes.length > 0;
+    const canPost = !busy && (hasArt || caption.trim().length > 0);
+    const pick = async (e) => {
+        const f = e.target.files && e.target.files[0]; e.target.value = "";
+        if (!f) return;
+        if (!/^image\//.test(f.type)) return setError("Please choose a photo (videos are not supported yet)");
+        try { const url = await compressImage(f, 1080); const img = await loadImg(url); setPhoto(url); setNat({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height }); setError(""); }
+        catch (err) { setError(err.message || "Could not open that photo"); }
+    };
+    const rotate = async () => {
+        if (!photo) return setBg(STATUS_COLORS[(STATUS_COLORS.indexOf(bg) + 1) % STATUS_COLORS.length]);
+        try {
+            const img = await loadImg(photo); const c = document.createElement("canvas"); c.width = img.height; c.height = img.width;
+            const g = c.getContext("2d"); g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(img, 0, 0);
+            const k = nat.w / nat.h;
+            setItems((a) => a.map((it) => ({ ...it, x: 1 - it.y, y: it.x, s: Math.min(1, it.s * k), r: ((it.r || 0) + 90) % 360 })));
+            setStrokes((a) => a.map((s) => ({ ...s, w: s.w * k, p: s.p.map((pt) => [1 - pt[1], pt[0]]) })));
+            setPhoto(c.toDataURL("image/jpeg", 0.9)); setNat({ w: c.width, h: c.height });
+        } catch (e) { }
+    };
+    const upd = (id, patch) => setItems((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const addItem = (it) => { const id = Math.random().toString(36).slice(2); setItems((a) => [...a, { id, x: 0.5, y: 0.5, ...it }]); setSel(id); };
+    const selItem = items.find((x) => x.id === sel);
+    const ptrs = useRef({}), gest = useRef(null);
+    const down = (e, it) => {
+        e.stopPropagation(); setSel(it.id);
+        const r = e.currentTarget.parentNode.getBoundingClientRect();
+        ptrs.current[e.pointerId] = [e.clientX, e.clientY];
+        const ids = Object.keys(ptrs.current);
+        if (ids.length >= 2) { // two fingers on the item: pinch to resize, twist to rotate
+            const a = ptrs.current[ids[0]], b = ptrs.current[ids[1]];
+            gest.current = { id: it.id, d0: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, a0: Math.atan2(b[1] - a[1], b[0] - a[0]), s0: it.s, r0: it.r || 0 };
+            dragRef.current = null;
+        } else {
+            dragRef.current = { id: it.id, r, dx: (e.clientX - r.left) / r.width - it.x, dy: (e.clientY - r.top) / r.height - it.y };
+        }
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { }
+    };
+    const move = (e) => {
+        if (ptrs.current[e.pointerId]) ptrs.current[e.pointerId] = [e.clientX, e.clientY];
+        const ids = Object.keys(ptrs.current), gs = gest.current;
+        if (gs && ids.length >= 2) {
+            const a = ptrs.current[ids[0]], b = ptrs.current[ids[1]];
+            upd(gs.id, { s: Math.min(1, Math.max(0.03, gs.s0 * (Math.hypot(a[0] - b[0], a[1] - b[1]) / gs.d0))), r: gs.r0 + ((Math.atan2(b[1] - a[1], b[0] - a[0]) - gs.a0) * 180) / Math.PI });
+            return;
+        }
+        const d = dragRef.current; if (!d) return;
+        upd(d.id, { x: Math.min(1, Math.max(0, (e.clientX - d.r.left) / d.r.width - d.dx)), y: Math.min(1, Math.max(0, (e.clientY - d.r.top) / d.r.height - d.dy)) });
+    };
+    const up = (e) => { if (e && e.pointerId !== undefined) delete ptrs.current[e.pointerId]; if (!Object.keys(ptrs.current).length) { dragRef.current = null; gest.current = null; } else if (Object.keys(ptrs.current).length < 2) gest.current = null; };
+    const hDown = (e, it) => { // corner handle: drag to resize and rotate in one go
+        e.stopPropagation();
+        const box = e.currentTarget.parentNode.getBoundingClientRect(), cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+        hRef.current = { id: it.id, cx, cy, d0: Math.hypot(e.clientX - cx, e.clientY - cy) || 1, a0: Math.atan2(e.clientY - cy, e.clientX - cx), s0: it.s, r0: it.r || 0 };
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { }
+    };
+    const hMove = (e) => { const h = hRef.current; if (!h) return; e.stopPropagation(); upd(h.id, { s: Math.min(1, Math.max(0.03, h.s0 * (Math.hypot(e.clientX - h.cx, e.clientY - h.cy) / h.d0))), r: h.r0 + ((Math.atan2(e.clientY - h.cy, e.clientX - h.cx) - h.a0) * 180) / Math.PI }); };
+    const hUp = () => { hRef.current = null; };
+    const handle = (pos, label, glyph, on) => ce("div", Object.assign({ "aria-label": label, style: { position: "absolute", width: 26, height: 26, borderRadius: 13, background: "#fff", color: "#0E1116", fontSize: 14, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 6px rgba(0,0,0,.5)", touchAction: "none", cursor: "pointer", fontFamily: "Inter", ...pos } }, on), glyph);
+    const renderItem = (it) => {
+        const isSel = sel === it.id, w = it.s * sw, df = it.kind === "shape" ? (SHAPE_DEFS[it.v] || SHAPE_DEFS.rect) : null;
+        const inner = df
+            ? ce("svg", { width: w, height: w * df.h / 100, viewBox: "0 0 100 " + df.h, style: { display: "block", overflow: "visible", pointerEvents: "none" } },
+                ce("path", { d: df.d, fill: df.head || df.open ? "none" : it.f ? it.c : "none", stroke: it.c, strokeWidth: 6, strokeLinecap: "round", strokeLinejoin: "round" }),
+                df.head && ce("path", { d: df.head, fill: it.c, stroke: it.c, strokeWidth: 2, strokeLinejoin: "round" }))
+            : it.v;
+        return ce("div", { key: it.id, onPointerDown: (e) => down(e, it), onPointerMove: move, onPointerUp: up, onPointerCancel: up, style: { position: "absolute", left: it.x * sw, top: it.y * sh, transform: "translate(-50%,-50%) rotate(" + (it.r || 0) + "deg)", fontSize: it.s * sw, lineHeight: it.kind === "text" ? 1.2 : 1, color: it.c, fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, textAlign: "center", whiteSpace: "pre", cursor: "grab", touchAction: "none", userSelect: "none", pointerEvents: draw ? "none" : "auto", textShadow: it.kind === "text" ? "0 2px 8px rgba(0,0,0,.6)" : "none", outline: isSel ? "1.5px dashed rgba(255,255,255,.9)" : "1.5px dashed transparent", outlineOffset: 6, borderRadius: 4, background: "transparent" } },
+            inner,
+            isSel && !draw && handle({ top: -20, left: -20 }, "Delete", "×", { onPointerDown: (e) => { e.stopPropagation(); setItems((a) => a.filter((x) => x.id !== it.id)); setSel(null); } }),
+            isSel && !draw && handle({ bottom: -20, right: -20 }, "Resize and rotate", "⤡", { onPointerDown: (e) => hDown(e, it), onPointerMove: hMove, onPointerUp: hUp, onPointerCancel: hUp }));
+    };
+
+    const pt = (e, r) => [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+    const dDown = (e) => { const r = e.currentTarget.getBoundingClientRect(); penRef.current = r; const p = pt(e, r); setStrokes((a) => [...a, { c: pen, w: 0.012, p: [p] }]); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { } };
+    const dMove = (e) => { const r = penRef.current; if (!r) return; const p = pt(e, r); setStrokes((a) => { const b = a.slice(); const l = b[b.length - 1]; if (l) b[b.length - 1] = { ...l, p: [...l.p, p] }; return b; }); };
+    const dUp = () => { penRef.current = null; };
+    const openText = (it) => { setTxt(it ? { id: it.id, v: it.v, c: it.c } : { id: null, v: "", c: "#FFFFFF" }); setSel(null); setPanel("text"); };
+    useEffect(() => { if (mode === "text") openText(null); }, []);
+    const saveText = () => {
+        const v = txt.v.replace(/\s+$/, "").replace(/^\s+/, "");
+        if (v) { if (txt.id) upd(txt.id, { v, c: txt.c }); else addItem({ kind: "text", v, c: txt.c, s: v.length > 14 ? 0.055 : 0.075 }); }
+        setPanel(null);
+    };
+    const resize = (k) => selItem && upd(selItem.id, { s: Math.min(1, Math.max(0.03, selItem.s * k)) });
+    const insertAt = () => { setCaption((c) => (c && !/\s$/.test(c) ? c + " " : c) + "@"); setTimeout(() => capRef.current && capRef.current.focus(), 0); };
+    const pickAudio = async (e) => {
+        const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+        if (f.size > 40 * 1024 * 1024) return setError("That audio file is too big (max 40 MB)");
+        try {
+            const buf = await decodeAudioFile(f);
+            const m = { name: f.name.replace(/\.[^.]+$/, "").slice(0, 40) || "Music", buf, dur: buf.duration, start: 0, len: Math.max(1, Math.min(15, Math.floor(buf.duration))) };
+            setMusic(m); setError(""); startPlay(m);
+        } catch (err) { setError("Could not read that audio file. Try an MP3, M4A or WAV."); }
+    };
+    const setClip = (patch) => { stopPlay(); setMusic((m) => { const n = { ...m, ...patch }; n.start = Math.max(0, Math.min(n.start, Math.max(0, n.dur - n.len))); return n; }); };
+    const close = () => { if ((hasArt || caption.trim() || music) && !window.confirm("Discard this status?")) return; stopPlay(); onClose(); };
+    const post = async () => {
+        if (!canPost) return;
+        setBusy(true); setError(""); stopPlay();
+        try {
+            const body = { text: caption.trim(), bg, tags: liveTags(caption, tags).map((t) => ({ type: t.type, id: t.id })) };
+            if (hasArt) body.photo = await bakeStatus(photo, nat, bg, items, strokes);
+            if (music) { const data = await encodeClip(music.buf, music.start, music.len); body.music = { data, name: music.name, dur: music.len }; }
+            await api("/api/v1/status", { method: "POST", token, body });
+            onPosted();
+        } catch (e) { setError((e && e.message) || "Could not post your status"); setBusy(false); }
+    };
+    const round = (on) => ({ width: 44, height: 44, borderRadius: 22, border: "none", background: on ? "#35D0BA" : "transparent", filter: on ? "none" : "drop-shadow(0 1px 3px rgba(0,0,0,.8))", color: on ? "#0E1116" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, flexShrink: 0 });
+    const tool = (label, on, onClick, child) => ce("button", { key: label, onClick, "aria-label": label, style: round(on) }, child);
+    const top = ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "12px 12px 8px", flexShrink: 0 } },
+        tool("Close", false, close, ce(X, { size: 24, color: "#fff" })),
+        ce("div", { style: { flex: 1 } }),
+        tool("Add music", !!music, () => { setDraw(false); setPanel("music"); }, ce(MusicIcon, { size: 22, color: music ? "#0E1116" : "#fff" })),
+        tool(photo ? "Rotate photo" : "Change background colour", false, rotate, ce(RotateIcon, { size: 22, color: "#fff" })),
+        tool("Add sticker", false, () => { setDraw(false); setPanel("sticker"); }, ce(StickerIcon, { size: 22, color: "#fff" })),
+        tool("Add text", false, () => { setDraw(false); openText(null); }, ce("span", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 18 } }, "Aa")),
+        tool("Draw", draw, () => { setSel(null); setDraw((d) => !d); }, ce(Pencil, { size: 22, color: draw ? "#0E1116" : "#fff" })));
+    const stage = ce("div", { onPointerDown: () => setSel(null), style: { position: "relative", width: sw, height: sh, background: photo ? "#000" : bg, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(255,255,255,.08)", touchAction: "none", animation: "lcFade .3s ease-out" } },
+        photo && ce("img", { src: photo, alt: "", draggable: false, style: { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "fill", userSelect: "none", pointerEvents: "none" } }),
+        !photo && !items.length && !strokes.length && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "rgba(255,255,255,.75)", pointerEvents: "none" } }, "Tap Aa to write, or add a photo"),
+        ce("svg", { width: sw, height: sh, viewBox: "0 0 " + sw + " " + sh, onPointerDown: draw ? dDown : undefined, onPointerMove: draw ? dMove : undefined, onPointerUp: draw ? dUp : undefined, onPointerCancel: draw ? dUp : undefined, style: { position: "absolute", left: 0, top: 0, touchAction: "none", pointerEvents: draw ? "auto" : "none", cursor: draw ? "crosshair" : "default" } },
+            strokes.map((s, i) => ce("polyline", { key: i, fill: "none", stroke: s.c, strokeWidth: s.w * sw, strokeLinecap: "round", strokeLinejoin: "round", points: s.p.map((q) => (q[0] * sw).toFixed(1) + "," + (q[1] * sh).toFixed(1)).join(" ") }))),
+        items.map(renderItem));
+    const selBar = selItem && !draw && ce("div", { style: { position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, counterIncrement: "lcgap-8", zIndex: 3 } },
+        [["Smaller", "A−", () => resize(0.87)], ["Bigger", "A+", () => resize(1.15)], selItem.kind !== "sticker" ? ["Colour", ce("span", { style: { color: selItem.c, fontSize: 20, lineHeight: 1 } }, "●"), () => upd(selItem.id, { c: STATUS_TEXT_COLORS[(STATUS_TEXT_COLORS.indexOf(selItem.c) + 1) % STATUS_TEXT_COLORS.length] })] : null, selItem.kind === "shape" && !(SHAPE_DEFS[selItem.v] || {}).open ? ["Fill", selItem.f ? "◼" : "◻", () => upd(selItem.id, { f: !selItem.f })] : null, ["Rotate", "↻", () => upd(selItem.id, { r: ((selItem.r || 0) + 15) % 360 })], selItem.kind === "text" ? ["Edit text", "✎", () => openText(selItem)] : null, ["Delete", "\u{1F5D1}", () => { setItems((a) => a.filter((x) => x.id !== selItem.id)); setSel(null); }]].filter(Boolean).map(([l, g, f]) => ce("button", { key: l, onClick: f, "aria-label": l, style: { ...round(false), width: 38, height: 38, fontFamily: "Inter", fontWeight: 700, fontSize: 14, background: "transparent", textShadow: "0 1px 4px rgba(0,0,0,.9)" } }, g)));
+    const musicChip = music && ce("button", { onClick: () => setPanel("music"), style: { position: "absolute", bottom: 6, left: "50%", transform: "translateX(-50%)", maxWidth: "88%", display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", background: "transparent", border: "1px solid rgba(53,208,186,.6)", borderRadius: 999, padding: "6px 12px", color: "#fff", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer", zIndex: 3 } }, ce(MusicIcon, { size: 15, color: "#35D0BA" }), ce("span", { style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, music.name + " · " + clock(music.start) + "–" + clock(music.start + music.len)));
+    const dot = (c, on, f) => ce("button", { key: c, onClick: f, "aria-label": "Colour " + c, style: { width: 28, height: 28, borderRadius: 14, background: c, border: on ? "3px solid #fff" : "3px solid rgba(255,255,255,.25)", cursor: "pointer", padding: 0, flexShrink: 0 } });
+    const bottom = draw
+        ? ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "10px 14px 18px", flexShrink: 0 } },
+            STATUS_TEXT_COLORS.map((c) => dot(c, pen === c, () => setPen(c))), ce("div", { style: { flex: 1 } }),
+            ce("button", { onClick: () => setStrokes((a) => a.slice(0, -1)), disabled: !strokes.length, style: { ...smallBtn, opacity: strokes.length ? 1 : 0.4 } }, "Undo"),
+            ce("button", { onClick: () => setDraw(false), style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done"))
+        : ce("div", { style: { flexShrink: 0 } },
+            !photo && ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))),
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } },
+                ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
+                ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })),
+                ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }),
+                ce("button", { onClick: insertAt, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))),
+            ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } },
+                ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"),
+                ce("div", { style: { flex: 1 } }),
+                ce("button", { onClick: post, disabled: !canPost, "aria-label": "Post status", style: { width: 56, height: 56, borderRadius: 28, border: "none", background: "#21C063", cursor: canPost ? "pointer" : "default", opacity: canPost ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: canPost ? "0 0 18px rgba(33,192,99,.55)" : "none" } }, busy ? ce("span", { style: { color: "#06210F", fontFamily: "Inter", fontWeight: 700, fontSize: 12 } }, "…") : ce(Send, { size: 26, color: "#06210F" }))));
+    const sheetBox = { position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(15,20,28,.4)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: "22px 22px 0 0", borderTop: "1px solid rgba(53,208,186,.5)", padding: "14px 16px 22px", maxHeight: "70%", overflowY: "auto", animation: "hubUp .22s ease-out", zIndex: 10 };
+    const musicPanel = panel === "music" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => { stopPlay(); setPanel(null); } },
+        ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
+            ce("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, "Add music"), ce("button", { onClick: () => { stopPlay(); setPanel(null); }, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
+            ce("input", { ref: audioRef, type: "file", accept: "audio/*", onChange: pickAudio, style: { display: "none" } }),
+            !music && ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 12 } }, "Pick a song or sound from your phone, then choose the part you want (up to 15 seconds)."),
+            ce("button", { onClick: () => audioRef.current && audioRef.current.click(), style: { ...smallBtn, width: "100%", padding: "11px 12px", marginBottom: 14 } }, music ? "Choose a different file" : "Choose audio from your device"),
+            music && ce("div", null,
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, "♪ " + music.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 12px" } }, "Full length " + clock(music.dur) + " · playing " + clock(music.start) + " to " + clock(music.start + music.len)),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 4 } }, "Start at"),
+                ce("input", { type: "range", min: 0, max: Math.max(0, Math.floor((music.dur - music.len) * 2) / 2), step: 0.5, value: music.start, disabled: music.dur - music.len < 0.5, onChange: (e) => setClip({ start: Number(e.target.value) }), style: { width: "100%", accentColor: "#35D0BA", marginBottom: 12 } }),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 6 } }, "Length"),
+                ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [5, 10, 15].filter((n) => n <= Math.floor(music.dur) || n === 5).map((n) => ce("button", { key: n, onClick: () => setClip({ len: Math.min(n, Math.floor(music.dur) || n) }), style: { ...smallBtn, flex: 1, background: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#35D0BA" : "#1E2530", color: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#0E1116" : "#35D0BA" } }, n + " sec"))),
+                ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } },
+                    ce("button", { onClick: () => (playing ? stopPlay() : startPlay()), style: { ...smallBtn, flex: 1, padding: "10px 12px" } }, playing ? "⏹ Stop preview" : "▶ Preview"),
+                    ce("button", { onClick: () => { stopPlay(); setMusic(null); }, style: { ...smallBtn, flex: 1, padding: "10px 12px", color: "#FF6B5D" } }, "Remove music")))));
+    const stickerPanel = panel === "sticker" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => setPanel(null) },
+        ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Stickers and emojis"),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, counterIncrement: "lcgap-6" } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s))),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", margin: "18px 0 10px" } }, "Shapes and arrows"),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, counterIncrement: "lcgap-6" } }, SHAPE_LIST.map((k) => { const df = SHAPE_DEFS[k]; return ce("button", { key: k, onClick: () => { addItem({ kind: "shape", v: k, c: "#FFFFFF", f: false, s: df.open ? 0.4 : 0.3 }); setPanel(null); }, "aria-label": "Shape " + k, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "10px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("svg", { width: 34, height: 34 * df.h / 100 + 6, viewBox: "0 0 100 " + df.h, style: { overflow: "visible" } }, ce("path", { d: df.d, fill: "none", stroke: "#fff", strokeWidth: 7, strokeLinecap: "round", strokeLinejoin: "round" }), df.head && ce("path", { d: df.head, fill: "#fff", stroke: "#fff", strokeWidth: 2 }))); }))));
+    const textPanel = panel === "text" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } },
+        ce("div", { style: { display: "flex", alignItems: "center", padding: "12px" } }, ce("button", { onClick: () => setPanel(null), style: { ...smallBtn, color: "#9BA7B4" } }, "Cancel"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: saveText, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")),
+        ce("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" } },
+            ce("textarea", { autoFocus: true, value: txt.v, rows: 3, maxLength: 80, onChange: (e) => setTxt({ ...txt, v: e.target.value.split("\n").slice(0, 3).join("\n") }), placeholder: "Type something…", className: "lc-plain", style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: txt.c, fontFamily: "Sora", fontWeight: 700, fontSize: 30, textShadow: "0 2px 8px rgba(0,0,0,.6)" } })),
+        ce("div", { style: { display: "flex", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12", padding: "10px 12px 24px" } }, STATUS_TEXT_COLORS.map((c) => dot(c, txt.c === c, () => setTxt({ ...txt, c })))));
+    return ce("div", { role: "dialog", "aria-label": "New status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 65, background: "#000", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        top,
+        error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })),
+        ce("div", { ref: areaRef, style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, stage, selBar, musicChip),
+        bottom, musicPanel, stickerPanel, textPanel);
+}
+// ---- status v2: story rail, search, starred, archive, privacy/mute, reactions + replies ----
+const STATUS_QUICK = ["😍", "😂", "😮", "😢", "🙏", "👍"];
+const statusPrefs = () => ({ receipts: true, archive: true, muted: [], ...(loadJSON("statusPrefs", {}) || {}) });
+async function statusThumb(src, w) { // small JPEG data URL so starred/archived updates survive the 24h clear
+    try {
+        const blob = await (await fetch(photoSrc(src))).blob();
+        const url = URL.createObjectURL(blob);
+        const img = await new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = url; });
+        const k = Math.min(1, (w || 420) / img.width), c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        return c.toDataURL("image/jpeg", 0.7);
+    } catch (e) { return null; }
+}
+const statusSnap = async (item, name) => ({ id: item.id, name, text: item.text || "", bg: item.bg, time: item.time, photo: item.photo ? await statusThumb(item.photo) : null });
+function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
+    const [g, setG] = useState(start);
+    const [i, setI] = useState(0);
+    const [paused, setPaused] = useState(false);
+    const [menu, setMenu] = useState(false);
+    const [more, setMore] = useState(false);
+    const [seenOpen, setSeenOpen] = useState(false);
+    const [reply, setReply] = useState("");
+    const [toast, setToast] = useState("");
+    const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
+    const group = groups[g], item = group && group.items[i];
+    const timer = useRef({ t: null, left: 0, at: 0 });
+    const sw = useRef({ x: 0, y: 0, mx: 0, my: 0, on: false, moved: false, block: 0 }), dirRef = useRef(1);
+    const [dx, setDx] = useState(0);
+    const next = () => { dirRef.current = 1; if (i + 1 < group.items.length) setI(i + 1); else if (g + 1 < groups.length) { setG(g + 1); setI(0); } else onClose(); };
+    const prev = () => { dirRef.current = -1; if (i > 0) setI(i - 1); else if (g > 0) { setG(g - 1); setI(groups[g - 1].items.length - 1); } };
+    const nextRef = useRef(next); nextRef.current = next;
+    const dur = item ? Math.max(5500, (item.musicDur || 0) * 1000) : 5500;
+    const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
+    useEffect(() => { setPaused(false); setMore(false); setMenu(false); setSeenOpen(false); setReply(""); }, [g, i]);
+    useEffect(() => {
+        if (!item) return;
+        if (!group.mine && !item.seen && statusPrefs().receipts) { api("/api/v1/status/" + item.id + "/view", { method: "POST", token }).then(() => { item.seen = true; }).catch(() => { }); }
+        timer.current.left = dur;
+    }, [g, i]);
+    useEffect(() => { // run / pause the auto-advance timer (hold, menu, typing a reply or expanded caption pause it)
+        const t = timer.current;
+        if (!item) return;
+        if (paused || menu || more || seenOpen) { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } return; }
+        t.at = Date.now(); t.t = setTimeout(() => nextRef.current(), t.left);
+        return () => { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } };
+    }, [g, i, paused, menu, more, seenOpen]);
+    useEffect(() => { // play the trimmed music while this update is on screen
+        if (!item || !item.music) return;
+        let audio = null, url = null, dead = false;
+        fetch(photoSrc(item.music)).then((r) => r.blob()).then((b) => {
+            if (dead) return;
+            url = URL.createObjectURL(b); audio = new Audio(url); audio.loop = true;
+            const p = audio.play(); if (p && p.catch) p.catch(() => { });
+        }).catch(() => { });
+        return () => { dead = true; if (audio) audio.pause(); if (url) URL.revokeObjectURL(url); };
+    }, [g, i]);
+    if (!item) return null;
+    const remove = async () => {
+        if (!window.confirm("Delete this status update?")) return;
+        try { await api("/api/v1/status/" + item.id, { method: "DELETE", token }); onChanged(); if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } }
+        catch { }
+    };
+    const isStar = starred.some((s) => s.id === item.id);
+    const toggleStar = async () => {
+        setMenu(false);
+        if (isStar) { const n = starred.filter((s) => s.id !== item.id); setStarred(n); saveJSON("statusStarred", n); return flash("Removed from Starred"); }
+        const snap = await statusSnap(item, group.mine ? "My status" : group.user.name);
+        const n = [snap, ...starred].slice(0, 30); setStarred(n); saveJSON("statusStarred", n); flash("Starred ⭐");
+    };
+    const muteUser = () => {
+        setMenu(false);
+        const p = statusPrefs(); if (!p.muted.includes(group.user.id)) saveJSON("statusPrefs", { ...p, muted: [...p.muted, group.user.id] });
+        flash("Muted " + group.user.name); onChanged(); setTimeout(onClose, 600);
+    };
+    const sendToOwner = async (text) => { // replies and reactions arrive as a private message from the viewer
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: group.user.id } });
+            const s = window.__lcSocket && window.__lcSocket();
+            if (!s) throw new Error("Not connected. Try again in a moment.");
+            const about = item.text ? ": “" + item.text.slice(0, 60) + (item.text.length > 60 ? "…" : "") + "”" : (item.photo ? " (photo)" : "");
+            s.emit("message:send", { conversationId: conversation.id, text: "↩ Status" + about + "\n" + text }, (ack) => { if (ack && ack.error) flash(ack.error); else flash("Sent to " + group.user.name); });
+        } catch (e) { flash((e && e.message) || "Could not send"); }
+    };
+    const sendReply = () => { const t = reply.trim(); if (!t) return; setReply(""); sendToOwner(t); };
+    const long = !!(item.photo && item.text && item.text.length > 110);
+    const hold = { // press = pause, swipe left/right = next/previous post (across people too), swipe down = close
+        onMouseDown: () => setPaused(true), onMouseUp: () => setPaused(false),
+        onTouchStart: (e) => { const t = e.touches[0]; sw.current = { x: t.clientX, y: t.clientY, mx: 0, my: 0, on: true, moved: false, block: sw.current.block }; setPaused(true); },
+        onTouchMove: (e) => { const s = sw.current; if (!s.on) return; const t = e.touches[0]; s.mx = t.clientX - s.x; s.my = t.clientY - s.y; if (!s.moved && Math.abs(s.mx) > 12 && Math.abs(s.mx) > Math.abs(s.my)) s.moved = true; if (s.moved) setDx(s.mx); },
+        onTouchEnd: () => { const s = sw.current; s.on = false; setPaused(false); setDx(0); if (s.moved) { s.block = Date.now(); if (s.mx < -60) next(); else if (s.mx > 60) prev(); } else if (s.my > 110 && s.my > Math.abs(s.mx) * 1.5) { s.block = Date.now(); onClose(); } },
+        onTouchCancel: () => { sw.current.on = false; setPaused(false); setDx(0); } };
+    const mi = (label, fn, color) => ce("button", { key: label, onClick: fn, style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 18px", fontFamily: "Inter", fontSize: 14.5, color: color || "#E6EAF0", cursor: "pointer" } }, label);
+    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}@keyframes lcStIn{from{opacity:0;transform:translateX(var(--d,28px))}to{opacity:1;transform:none}}"),
+        ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } },
+            ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more || seenOpen ? "paused" : "running" } })))),
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", position: "relative", zIndex: 3 } },
+            ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })),
+            ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
+            ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (group.items.length > 1 ? " · " + (i + 1) + "/" + group.items.length : "") + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))),
+            ce("button", { onClick: () => setMenu(!menu), "aria-label": "More", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(MoreVertical, { size: 22, color: "#fff" })),
+            menu && ce("div", { style: { position: "absolute", top: 54, right: 12, background: "#1B212B", borderRadius: 12, minWidth: 190, boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden" } },
+                mi(isStar ? "Remove star" : "Star", toggleStar), !group.mine && mi("Mute " + group.user.name, muteUser), group.mine && mi("Delete", () => { setMenu(false); remove(); }, "#FF6B5D"))),
+        ce("div", Object.assign({ style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", transform: dx ? "translateX(" + dx + "px)" : "none", opacity: dx ? Math.max(0.5, 1 - Math.abs(dx) / 400) : 1, transition: dx ? "none" : "transform .2s ease, opacity .2s ease" } }, hold),
+            item.photo && ce("img", { key: item.id, src: photoSrc(item.photo), alt: "", draggable: false, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out" } }),
+            !item.photo && ce("div", { key: item.id, style: { "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out", padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(item.text)),
+            ce("div", { onClick: () => { if (Date.now() - sw.current.block > 350) prev(); }, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }),
+            ce("div", { onClick: () => { if (Date.now() - sw.current.block > 350) next(); }, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })),
+        ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { onClick: () => long && setMore(!more), style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)", maxHeight: more ? "45%" : undefined, overflowY: more ? "auto" : undefined, cursor: long ? "pointer" : "default" } },
+            item.photo && item.text ? (long && !more ? ce("span", null, richText(item.text.slice(0, 110).trim() + "… "), ce("b", null, "Read more")) : richText(item.text)) : null, ce(TagPills, { tags: item.tags, light: true })),
+        group.mine ? ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+            ce("button", { onClick: () => setSeenOpen(true), "aria-label": "See who viewed", style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "none", border: "none", cursor: "pointer", padding: 0, color: "#fff", fontFamily: "Inter", fontSize: 13.5, textAlign: "left" } },
+                ce("span", { style: { display: "flex", alignItems: "center" } }, (item.viewers || []).slice(0, 3).map((v, k) => ce("div", { key: v.id, style: { marginLeft: k ? -8 : 0, border: "2px solid #000", borderRadius: "50%", display: "flex" } }, ce(Ring, { size: 24, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false })))),
+                ce("span", null, (item.views || 0) ? "Seen by " + (item.views || 0) + " · tap to chat" : "No views yet")),
+            ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete"))
+            : ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "10px 12px 20px", background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } },
+                ce("input", { value: reply, onChange: (e) => setReply(e.target.value), onFocus: () => setPaused(true), onBlur: () => setPaused(false), onKeyDown: (e) => { if (e.key === "Enter") sendReply(); }, placeholder: "Reply", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,.14)", border: "none", outline: "none", borderRadius: 999, padding: "10px 16px", color: "#fff", fontFamily: "Inter", fontSize: 14.5 } }),
+                reply.trim() ? ce("button", { onClick: sendReply, "aria-label": "Send reply", style: { width: 38, height: 38, borderRadius: 19, border: "none", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ce(Send, { size: 18, color: "#06210F" }))
+                    : STATUS_QUICK.slice(0, 5).map((e) => ce("button", { key: e, onClick: () => sendToOwner(e + " reacted to your status"), "aria-label": "React " + e, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 2 } }, e))),
+        seenOpen && group.mine && ce("div", { onClick: () => setSeenOpen(false), style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 6, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "flex-end" } },
+            ce("div", { onClick: (e) => e.stopPropagation(), role: "dialog", "aria-label": "Status viewers", style: { width: "100%", maxHeight: "68%", background: "#161B22", borderRadius: "20px 20px 0 0", display: "flex", flexDirection: "column", boxShadow: "0 -8px 28px rgba(0,0,0,.5)" } },
+                ce("div", { style: { display: "flex", alignItems: "center", padding: "16px 18px 8px" } },
+                    ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, "Viewed by " + (item.views || 0)),
+                    ce("button", { onClick: () => setSeenOpen(false), "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(X, { size: 20, color: "#8891A0" }))),
+                ce("div", { style: { overflowY: "auto", padding: "0 6px 18px" } },
+                    !(item.viewers || []).length && ce("div", { style: { padding: "26px 20px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Nobody has viewed this update yet."),
+                    (item.viewers || []).map((v) => ce("div", { key: v.id, onClick: () => { Promise.resolve(onChat && onChat(v)).catch((e) => flash((e && e.message) || "Could not open chat")); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "9px 12px", cursor: "pointer", borderRadius: 12 } },
+                        ce(Ring, { size: 46, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false }),
+                        ce("div", { style: { flex: 1, minWidth: 0 } },
+                            ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, v.name),
+                            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, v.at ? "Viewed " + ago(v.at) : "Viewed")),
+                        ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#21C063", flexShrink: 0 } }, "Chat")))))),
+        toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
+}
+// A tiny grid of saved updates (used by Starred and Archive)
+function StatusSaved({ title, list, empty, onBack, onRemove, top }) {
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title, onBack }),
+        top,
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 12px 24px" } },
+            !list.length && ce("div", { style: { padding: "40px 24px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, empty),
+            ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, counterIncrement: "lcgap-8" } }, list.map((s) =>
+                ce("div", { key: s.id, style: { position: "relative", aspectRatio: "9 / 16", counterReset: "lcar-9-16", borderRadius: 12, overflow: "hidden", background: s.bg || "#1E8677", display: "flex", alignItems: "center", justifyContent: "center" } },
+                    s.photo ? ce("img", { src: s.photo, alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { padding: 8, color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 12, textAlign: "center", wordBreak: "break-word" } }, (s.text || "").slice(0, 70)),
+                    ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "14px 6px 5px", background: "linear-gradient(transparent, rgba(0,0,0,.7))", color: "#fff", fontFamily: "Inter", fontSize: 10.5 } }, (s.name ? s.name + " · " : "") + new Date(s.time).toLocaleDateString()),
+                    ce("button", { onClick: () => onRemove(s.id), "aria-label": "Remove", style: { position: "absolute", top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" } }, ce(X, { size: 13, color: "#fff" })))))));
+}
+// ---- Broadcast lists: write once, it goes to every chosen contact as a private message. Lists are saved on this device ----
+const loadLists = () => { const l = loadJSON("broadcastLists", []); return Array.isArray(l) ? l : []; };
+async function sendBroadcast(token, ids, text) {
+    const s = window.__lcSocket && window.__lcSocket();
+    if (!s) throw new Error("Not connected. Try again in a moment.");
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+        try {
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: id } });
+            await Promise.race([
+                new Promise((res, rej) => s.emit("message:send", { conversationId: conversation.id, text }, (ack) => (ack && ack.error ? rej(new Error(ack.error)) : res()))),
+                new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000))]);
+            ok++;
+        } catch (e) { fail++; }
+    }
+    return { ok, fail };
+}
+function BroadcastScreen({ token, contacts, onBack }) {
+    const [lists, setLists] = useState(loadLists);
+    const [view, setView] = useState(null); // null = all lists, { mode: "edit" | "send", id }
+    const [name, setName] = useState(""), [picked, setPicked] = useState([]), [q, setQ] = useState("");
+    const [text, setText] = useState(""), [busy, setBusy] = useState(false), [msg, setMsg] = useState(""), [err, setErr] = useState("");
+    const save = (n) => { setLists(n); saveJSON("broadcastLists", n); };
+    const byId = (id) => contacts.find((c) => c.id === id);
+    const cur = view && view.id ? lists.find((l) => l.id === view.id) : null;
+    const col = { display: "flex", flexDirection: "column", height: "100%" };
+    const startEdit = (l) => { setName(l ? l.name : ""); setPicked(l ? l.ids.filter(byId) : []); setQ(""); setErr(""); setView({ mode: "edit", id: l ? l.id : null }); };
+    const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+    const commit = () => {
+        if (!name.trim()) return setErr("Give the list a name");
+        if (!picked.length) return setErr("Pick at least one contact");
+        if (view.id) { save(lists.map((l) => (l.id === view.id ? { ...l, name: name.trim(), ids: picked } : l))); setMsg(""); setView({ mode: "send", id: view.id }); }
+        else { const id = "bl" + Date.now().toString(36); save([{ id, name: name.trim(), ids: picked, history: [], created: Date.now() }, ...lists]); setMsg(""); setView({ mode: "send", id }); }
+    };
+    const remove = () => { if (!window.confirm("Delete this broadcast list?")) return; save(lists.filter((l) => l.id !== view.id)); setView(null); };
+    const send = async () => {
+        const t = text.trim(); if (!t || busy || !cur) return;
+        const ids = cur.ids.filter(byId);
+        if (!ids.length) return setMsg("None of the contacts on this list are available.");
+        setBusy(true); setMsg("");
+        let r;
+        try { r = await sendBroadcast(token, ids, t); } catch (e) { r = { ok: 0, fail: ids.length, error: e.message }; }
+        setBusy(false);
+        if (r.ok) { setText(""); save(lists.map((l) => (l.id === cur.id ? { ...l, history: [...(l.history || []), { text: t, time: Date.now(), ok: r.ok, fail: r.fail }].slice(-30) } : l))); }
+        setMsg(r.error || ("Sent to " + r.ok + " of " + ids.length + (r.fail ? " · " + r.fail + " failed" : "")));
+    };
+    const tick = (on) => ce("div", { style: { width: 22, height: 22, borderRadius: 6, border: "2px solid " + (on ? "#21C063" : "#262E3A"), background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center" } }, on && ce(Check, { size: 14, color: "#06210F", strokeWidth: 3 }));
+    const bAvatar = ce("div", { style: { width: 46, height: 46, borderRadius: 23, background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(Megaphone, { size: 22, color: "#06210F" }));
+
+    if (!view) return ce("div", { style: col },
+        ce(TopBar, { title: "Broadcast lists", onBack, right: ce("button", { onClick: () => startEdit(null), style: smallBtn }, "New list") }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: { padding: "0 16px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", lineHeight: 1.45 } }, "Create a list of chosen contacts and send them the same message any time. Each person receives it as a private chat message."),
+            !lists.length && ce("div", { style: { padding: "30px 24px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "No broadcast lists yet. Tap New list to create one."),
+            lists.map((l) => { const n = l.ids.filter(byId).length, last = (l.history || [])[(l.history || []).length - 1];
+                return ce("div", { key: l.id, onClick: () => { setMsg(""); setText(""); setView({ mode: "send", id: l.id }); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 16px", cursor: "pointer" } }, bAvatar,
+                    ce("div", { style: { flex: 1, minWidth: 0 } },
+                        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, l.name),
+                        ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, last ? last.text : n + (n === 1 ? " recipient" : " recipients")))); })));
+
+    if (view.mode === "edit") {
+        const needle = q.trim().toLowerCase(), shown = contacts.filter((c) => !needle || (c.name || "").toLowerCase().includes(needle));
+        return ce("div", { style: col },
+            ce(TopBar, { title: view.id ? "Edit list" : "New broadcast list", onBack: () => setView(view.id ? { mode: "send", id: view.id } : null) }),
+            err && ce(Banner, { text: err, onClose: () => setErr("") }),
+            ce("div", { style: { padding: "0 16px" } },
+                ce("div", { style: inputBox }, ce("input", { value: name, maxLength: 40, onChange: (e) => setName(e.target.value), placeholder: "List name", style: inputEl })),
+                ce("div", { style: { ...inputBox, marginBottom: 6 } }, ce(Search, { size: 18, color: "#8A96A5" }), ce("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search contacts", style: { ...inputEl, fontWeight: 500, fontFamily: "Inter" } })),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", paddingBottom: 4 } }, picked.length + " selected")),
+            ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px" } },
+                !contacts.length && ce("div", { style: { padding: "24px 0", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "No contacts yet. Start a chat with someone first."),
+                shown.map((c) => ce(PersonRow, { key: c.id, u: c, status: "", onClick: () => toggle(c.id), right: tick(picked.includes(c.id)) }))),
+            ce("div", { style: { padding: "10px 16px 16px", flexShrink: 0 } }, ce("button", { onClick: commit, style: { ...primaryBtn(false), background: "#21C063", color: "#06210F" } }, view.id ? "Save changes" : "Create list")));
+    }
+
+    if (!cur) return null;
+    const members = cur.ids.map(byId).filter(Boolean), hist = cur.history || [];
+    return ce("div", { style: col },
+        ce(TopBar, { title: cur.name, onBack: () => setView(null), right: ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8" } }, ce("button", { onClick: () => startEdit(cur), style: smallBtn }, "Edit"), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 12px" } },
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12, lineHeight: 1.5 } }, "Recipients (" + members.length + "): " + (members.map((m) => m.name).join(", ") || "none available")),
+            !hist.length && ce("div", { style: { padding: "26px 10px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Type a message below to send it to everyone on this list."),
+            hist.map((h, k) => ce("div", { key: k, style: { display: "flex", justifyContent: "flex-end", marginBottom: 10 } },
+                ce("div", { style: { maxWidth: "82%", background: "#1E8677", color: "#fff", borderRadius: "14px 14px 4px 14px", padding: "9px 12px", fontFamily: "Inter", fontSize: 14.5, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, h.text,
+                    ce("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 4, textAlign: "right" } }, "Sent to " + h.ok + " · " + new Date(h.time).toLocaleString()))))),
+        msg && ce("div", { style: { padding: "6px 16px", fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA", flexShrink: 0 } }, msg),
+        ce("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px 14px", flexShrink: 0, borderTop: "1px solid #1F2733" } },
+            ce("textarea", { value: text, rows: 1, maxLength: MAX_MSG_CHARS, onChange: (e) => setText(e.target.value), placeholder: "Broadcast message", style: { flex: 1, minWidth: 0, resize: "none", maxHeight: 120, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 18, outline: "none", padding: "10px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } }),
+            ce("button", { onClick: send, disabled: busy || !text.trim(), "aria-label": "Send broadcast", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#21C063", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, busy ? ce("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : ce(Send, { size: 22, color: "#06210F" }))));
+}
+function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
+    const [data, setData] = useState({ mine: [], feed: [] });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [composer, setComposer] = useState(false);
+    const [mode, setMode] = useState(null), [info, setInfo] = useState("");
+    const [view, setView] = useState(null); // { groups, start }
+    const [menu, setMenu] = useState(false);
+    const [searching, setSearching] = useState(false);
+    const [q, setQ] = useState("");
+    const [recents, setRecents] = useState(() => loadJSON("statusRecents", []));
+    const [sub, setSub] = useState(null); // "starred" | "privacy" | "archive"
+    const [prefs, setPrefs] = useState(statusPrefs);
+    const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
+    const [archive, setArchive] = useState(() => loadJSON("statusArchive", []));
+    const F = getFeatures();
+    const setPref = (patch) => { const n = { ...prefs, ...patch }; setPrefs(n); saveJSON("statusPrefs", n); };
+    const load = useCallback(() => api("/api/v1/status", { token }).then((d) => { setData(d); setError(""); setPrefs(statusPrefs()); setStarred(loadJSON("statusStarred", [])); }).catch((e) => setError(e.message)).finally(() => setLoading(false)), [token]);
+    useEffect(() => { load(); }, [load]);
+    useEffect(() => { // archive my own updates before the server clears them after 24h
+        if (!prefs.archive || !data.mine.length) return;
+        const have = new Set(loadJSON("statusArchive", []).map((s) => s.id)), fresh = data.mine.filter((s) => !have.has(s.id));
+        if (!fresh.length) return;
+        let dead = false;
+        Promise.all(fresh.map((s) => statusSnap(s, "My status"))).then((snaps) => { if (dead) return; const n = [...snaps, ...loadJSON("statusArchive", [])].slice(0, 60); saveJSON("statusArchive", n); setArchive(n); });
+        return () => { dead = true; };
+    }, [data.mine.map((s) => s.id).join(","), prefs.archive]);
+    const mineGroup = { mine: true, user: profile, items: data.mine };
+    useInnerBack(!!(view || composer || searching || menu || sub), () => {
+      if (view) { setView(null); load(); }
+      else if (composer) setComposer(false);
+      else if (menu) setMenu(false);
+      else if (searching) { setSearching(false); setQ(""); }
+      else if (sub) setSub(null);
+    });
+    const open = (groups, start) => setView({ groups, start });
+    const addTap = (m) => { if (!F.status) return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setMode(m || null); setComposer(true); };
+    const feed = data.feed.filter((gr) => !prefs.muted.includes(gr.user.id)).slice().sort((a, b) => (a.allSeen === b.allSeen ? b.latest - a.latest : a.allSeen ? 1 : -1));
+    const mutedFeed = data.feed.filter((gr) => prefs.muted.includes(gr.user.id));
+    const needle = q.trim().toLowerCase();
+    const hits = needle ? feed.filter((gr) => gr.user.name.toLowerCase().includes(needle) || gr.items.some((it) => (it.text || "").toLowerCase().includes(needle))) : [];
+    const remember = (t) => { const n = [t, ...recents.filter((x) => x !== t)].slice(0, 8); setRecents(n); saveJSON("statusRecents", n); };
+    const openFrom = (gr) => { remember(gr.user.name); open(feed, feed.indexOf(gr)); };
+    const iconBtn = (label, child, fn) => ce("button", { key: label, onClick: fn, "aria-label": label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, child);
+    const head = (t) => ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, t);
+    const row = (key, ring, title, sub2, onClick, right) => ce("div", { key, onClick, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 16px", cursor: "pointer" } }, ring, ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA" } }, title), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, sub2)), right);
+    if (sub === "broadcast") return ce(BroadcastScreen, { token, contacts: contacts || [], onBack: () => setSub(null) });
+    if (sub === "starred") return ce(StatusSaved, { title: "Starred", list: starred, empty: "Star a status update from its ⋮ menu to keep a copy here.", onBack: () => setSub(null), onRemove: (id) => { const n = starred.filter((s) => s.id !== id); setStarred(n); saveJSON("statusStarred", n); } });
+    if (sub === "archive") return ce(StatusSaved, { title: "Status archive", list: archive, empty: "Nothing archived yet. New updates you post are saved here.", onBack: () => setSub(null), onRemove: (id) => { const n = archive.filter((s) => s.id !== id); setArchive(n); saveJSON("statusArchive", n); },
+        top: ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Archive my status updates"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Keep a copy on this device after your update disappears.")), ce(Toggle, { on: prefs.archive, onChange: (v) => setPref({ archive: v }) })) });
+    if (sub === "privacy") return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Status privacy", onBack: () => setSub(null) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "View receipts"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Let people know when you have seen their status. Turn off to view privately.")), ce(Toggle, { on: prefs.receipts, onChange: (v) => setPref({ receipts: v }) })),
+            head("Muted updates"),
+            !mutedFeed.length && ce("div", { style: { padding: "6px 16px 16px", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No muted contacts. Mute someone from the ⋮ menu while viewing their status."),
+            mutedFeed.map((gr) => row(gr.user.id, ce(Ring, { size: 44, color: "#8A96A5", initials: gr.user.initials, photo: gr.user.avatar, ring: false }), gr.user.name, "Muted", null, ce("button", { onClick: () => setPref({ muted: prefs.muted.filter((x) => x !== gr.user.id) }), style: smallBtn }, "Unmute")))));
+    const stRing = (u, size, seen) => ce("div", { style: { width: size, height: size, borderRadius: "50%", border: "3px solid " + (seen ? "#5B6673" : "#21C063"), padding: 2, boxSizing: "border-box", background: "rgba(0,0,0,.35)", flexShrink: 0 } }, ce(Ring, { size: size - 10, color: u.color || "#35D0BA", initials: u.initials, photo: u.avatar, ring: false }));
+    const card = (key, onClick, bgNode, label, avatar, extra) => ce("div", { key, onClick, style: { flex: "0 0 auto", width: 90, height: 158, borderRadius: 18, overflow: "hidden", position: "relative", cursor: "pointer", background: "#101820", border: "1px solid #1F2733", boxSizing: "border-box" } },
+        bgNode, avatar, extra,
+        ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 9px 10px", background: "linear-gradient(transparent, rgba(0,0,0,.82))" } },
+            ce("div", { style: { color: "#fff", fontFamily: "Sora", fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, textAlign: "left", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "break-word" } }, label)));
+    const thumb = (gr) => { const it = gr.items[gr.items.length - 1]; return it.photo ? ce("img", { src: photoSrc(it.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { width: "100%", height: "100%", background: it.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, boxSizing: "border-box", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 11, textAlign: "center", wordBreak: "break-word", overflow: "hidden" } }, (it.text || "").slice(0, 50)); };
+    const topRight = ce("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", position: "relative" } },
+        iconBtn("Search status", ce(Search, { size: 22, color: "#F5F7FA" }), () => { setSearching(true); setQ(""); }),
+        iconBtn("Menu", ce(MoreVertical, { size: 22, color: "#F5F7FA" }), () => setMenu(!menu)),
+        menu && ce("div", { style: { position: "absolute", top: 40, right: 0, background: "#161B22", borderRadius: 20, minWidth: 225, padding: "6px 0", boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden", zIndex: 30 } },
+            [["Advertise", () => setInfo("Advertise is coming soon.")], ["Create channel", () => setInfo("Channels are coming soon.")], ["Broadcast", () => setSub("broadcast")], ["Status privacy", () => setSub("privacy")], ["Starred", () => setSub("starred")], ["Status archive settings", () => setSub("archive")], ["Settings", () => onSettings && onSettings()]].map(([l, fn]) =>
+                ce("button", { key: l, onClick: () => { setMenu(false); fn(); }, style: { display: "block", position: "relative", width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 20px 14px 32px", fontFamily: "Inter", fontSize: 16.5, color: "#E6EAF0", cursor: "pointer", whiteSpace: "nowrap" } }, l === "Settings" && ce("span", { style: { position: "absolute", left: 14, top: "50%", marginTop: -4, width: 8, height: 8, borderRadius: 4, background: "#21C063" } }), l))));
+    const searchBar = ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", background: "#0E1116", flexShrink: 0 } },
+        iconBtn("Back", ce(ArrowLeft, { size: 22, color: "#F5F7FA" }), () => { setSearching(false); setQ(""); }),
+        ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search status", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }),
+        q && iconBtn("Clear", ce(X, { size: 18, color: "#8891A0" }), () => setQ("")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        searching ? searchBar : ce(TopBar, { title: "Updates", right: topRight }),
+        searching ? ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            !needle && recents.length > 0 && ce("div", { style: { display: "flex", alignItems: "center", padding: "6px 16px" } }, ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Recent searches"), ce("button", { onClick: () => { setRecents([]); saveJSON("statusRecents", []); }, style: smallBtn }, "Clear all")),
+            !needle && recents.map((t) => row("r" + t, ce(Search, { size: 20, color: "#8A96A5" }), t, "", () => setQ(t), ce("button", { onClick: (e) => { e.stopPropagation(); const n = recents.filter((x) => x !== t); setRecents(n); saveJSON("statusRecents", n); }, "aria-label": "Remove", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 16, color: "#8A96A5" })))),
+            needle && hits.map((gr) => row(gr.user.id, ce(Ring, { size: 48, color: gr.allSeen ? "#5B6673" : gr.user.color, initials: gr.user.initials, photo: gr.user.avatar, ring: true }), gr.user.name, gr.items.length + (gr.items.length === 1 ? " new status" : " new statuses") + " · " + ago(gr.latest), () => openFrom(gr))),
+            needle && !hits.length && ce("div", { style: { padding: "30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "No status updates match “" + q.trim() + "”."))
+            : ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 150 }, onClick: () => menu && setMenu(false) },
+                error && ce(Banner, { text: error, onClose: () => setError("") }),
+                info && ce(Banner, { text: info, tone: "info", onClose: () => setInfo("") }),
+                ce("div", { style: { padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 700, fontSize: 22, color: "#F5F7FA" } }, "Status"),
+                ce("div", { style: { display: "flex", gap: 7, counterIncrement: "lcgap-7", overflowX: "auto", padding: "0 16px 14px", scrollbarWidth: "none" } },
+                    card("add", () => addTap("photo"), ce("div", { style: { position: "absolute", left: 0, right: 0, top: 36, display: "flex", justifyContent: "center" } }, ce("div", { style: { position: "relative" } }, ce(Ring, { size: 50, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: false }), ce("div", { "aria-label": "Add status", style: { position: "absolute", right: -5, bottom: -5, width: 24, height: 24, borderRadius: 12, background: F.status ? "#21C063" : "#5B6673", border: "2px solid #101820", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Plus, { size: 15, color: "#06210F" })))), "Add status", null, null),
+                    data.mine.length > 0 && card("mine", () => open([mineGroup], 0), thumb(mineGroup), "My status",
+                        ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(profile, 52, false)),
+                        data.mine.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, data.mine.length)),
+                    feed.map((gr, k) => card(gr.user.id, () => { remember(gr.user.name); open(feed, k); }, thumb(gr), gr.user.name,
+                        ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(gr.user, 52, gr.allSeen)),
+                        gr.items.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, gr.items.length) ))),
+                ce("button", { onClick: () => setInfo("Boost status is coming soon."), style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12", width: "calc(100% - 44px)", margin: "4px 22px 6px", height: 42, borderRadius: 999, background: "transparent", border: "1px solid #2B3544", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 16, cursor: "pointer" } }, ce(Megaphone, { size: 20, color: "#21C063" }), "Boost status"),
+                loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+                !loading && !feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")),
+        !searching && ce("div", { style: { position: "absolute", right: 16, bottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 14, counterIncrement: "lcgap-14", zIndex: 20 } },
+            ce("button", { onClick: () => addTap("text"), "aria-label": "Text status", style: { width: 46, height: 46, borderRadius: 15, border: "none", background: "#1F2630", boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Pencil, { size: 22, color: "#E6EAF0" })),
+            ce("button", { onClick: () => addTap("photo"), "aria-label": "Add status", style: { width: 62, height: 62, borderRadius: 20, border: "none", background: "#21C063", boxShadow: "0 6px 18px rgba(33,192,99,.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce("div", { style: { position: "relative", display: "flex" } }, ce(Camera, { size: 28, color: "#06210F" }), ce("div", { style: { position: "absolute", top: -8, right: -9, display: "flex" } }, ce(Plus, { size: 14, color: "#06210F" }))))),
+        composer && ce(StatusComposer, { token, mode, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }),
+        view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load, onChat }));
+}
+
+// ---- Tools > Sounds & features ----
+function FeaturesScreen({ onBack }) {
+    const [f, setF] = useState(getFeatures);
+    const [notifs, setNotifs] = useState(getNotifs);
+    const setFeat = (patch) => { const next = { ...f, ...patch }; setF(next); saveJSON("features", next); };
+    const setNotif = (patch) => { const next = { ...notifs, ...patch }; setNotifs(next); saveJSON("notifs", next); };
+    const head = (t) => ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, t);
+    const row = (title, sub, on, onChange, disabled) => ce("div", { key: title, style: settingRow },
+        ce("div", { style: { flex: 1 } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, sub)),
+        ce(Toggle, { on, onChange, disabled }));
+    const quiet = !f.sound;
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Sounds & features", onBack }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
+            head("Sounds"),
+            row("All sounds", "Turn every sound on or off: pings, ringing, typing and send sounds.", f.sound, (v) => { setFeat({ sound: v }); if (v) setTimeout(() => playSound("send"), 30); }),
+            row("Typing sound", "A soft keyboard tick while you type.", f.typingSound, (v) => { setFeat({ typingSound: v }); if (v && f.sound) setTimeout(() => playSound("typing"), 30); }, quiet),
+            row("Send sound", "A whoosh when your message is sent.", f.sendSound, (v) => { setFeat({ sendSound: v }); if (v && f.sound) setTimeout(() => playSound("send"), 30); }, quiet),
+            row("Notification sound", "A ping when a message arrives in another chat.", notifs.sound, (v) => { setNotif({ sound: v }); if (v && f.sound) playPing(); }, quiet),
+            row("Message ping", "A ping when someone sends a message in the chat you are looking at.", f.msgPing, (v) => { setFeat({ msgPing: v }); if (v && f.sound) setTimeout(() => playPing("message"), 30); }, quiet),
+            row("Online ping", "A ping when one of your contacts comes online.", f.onlineSound, (v) => { setFeat({ onlineSound: v }); if (v && f.sound) setTimeout(() => playPing("online"), 30); }, quiet),
+            row("Call connected ping", "A ping when a call connects.", f.callSound, (v) => { setFeat({ callSound: v }); if (v && f.sound) setTimeout(() => playPing("call"), 30); }, quiet),
+            ce(PingTonePicker, { f, setFeat, quiet }),
+            head("Status"),
+            row("Status upload", "Post photo and text updates that disappear after 24 hours.", f.status, (v) => setFeat({ status: v })),
+            head("Chat extras"),
+            row("Link previews", "Show a title, picture and summary under web links in chats. The preview is fetched by our server, so the site never sees your phone.", f.linkPreviews, (v) => setFeat({ linkPreviews: v })),
+            row("Message effects", "Confetti for \uD83C\uDF89 and congratulations, floating hearts for \u2764\uFE0F, and a heart burst when you double-tap a message.", f.msgEffects, (v) => setFeat({ msgEffects: v })),
+            row("Share typing status", "Let people in a chat see when you are typing, recording a voice note or sending a photo.", f.typingStatus, (v) => setFeat({ typingStatus: v })),
+            head("Calls"),
+            row("Voice calling", "Make and receive voice calls. When off, incoming voice calls are declined.", f.voiceCalls, (v) => setFeat({ voiceCalls: v })),
+            row("Video calling", "Make and receive video calls. When off, incoming video calls are declined.", f.videoCalls, (v) => setFeat({ videoCalls: v })),
+            row("Clear voice", "Cut echo and background noise in calls and voice notes.", f.clearVoice, (v) => setFeat({ clearVoice: v })),
+            head("Voice notes"),
+            row("Voice recording and sending", "Show the microphone button so you can record and send voice notes.", f.voiceNotes, (v) => setFeat({ voiceNotes: v })), row("Disappearing messages", "Let chats delete new messages automatically after a timer you choose (Chat menu > More).", f.disappearing, (v) => setFeat({ disappearing: v })), row("View once photos and videos", "Show the 1 button when sending a photo or video so it can be opened only once.", f.viewOnce, (v) => setFeat({ viewOnce: v })), row("Pin messages", "Let you pin up to 3 messages to the top of a chat (select a message, then the ⋮ menu).", f.pinMessages, (v) => setFeat({ pinMessages: v })), row("Chat lock", "Lock chats behind a PIN (Chat menu > More). Locked chats hide their preview in the chat list.", f.chatLock, (v) => setFeat({ chatLock: v })), row("Polls", "Let people create polls in chats and groups (attach tray > Poll).", f.polls, (v) => setFeat({ polls: v })), row("Scheduled messages", "Write a message now and have it sent later (attach tray > Schedule).", f.scheduling, (v) => setFeat({ scheduling: v })),
+            ce("div", { style: { padding: "16px 16px 0", fontFamily: "Inter", fontSize: 12, color: "#8A96A5", lineHeight: 1.5 } }, "These switches are saved on this device.")));
+}
+
+const SUPPORT = {
+  whatsapp: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_WHATSAPP) || "").replace(/\D/g, ""),
+  email: String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.SUPPORT_EMAIL) || "").trim(),
+};
+const DEFAULT_SETTINGS = { favorites: [], privacy: { readReceipts: true, lastSeen: "everyone" }, blocked: [], muted: {}, biz: { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] } };
+const isMutedChat = (muted, id) => { const v = muted && muted[id]; return v !== undefined && (v === 0 || v > Date.now()); };
+
+// ---- Tools tab (business-style layout): performance, For you, Grow your business, Organize your chats, Manage your account, How to ----
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+const ToolInfo = makeIcon([["c", 12, 12, 10], ["p", "M12 16v-4"], ["p", "M12 8h.01"]]);
+const ToolZap = makeIcon([["p", "M13 2 3 14h9l-1 8 10-12h-9l1-8z"]]);
+const ToolMegaphone = makeIcon([["p", "m3 11 18-5v12L3 14v-3z"], ["p", "M11.6 16.8a3 3 0 1 1-5.8-1.6"]]);
+const ToolMoon = makeIcon([["p", "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"]]);
+const ToolLink = makeIcon([["p", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"], ["p", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"]]);
+const ToolStore = makeIcon([["p", "m2 7 2-4h16l2 4"], ["p", "M3 7v13h18V7"], ["p", "M9 20v-6h6v6"]]);
+const ToolMsg = makeIcon([["p", "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"], ["p", "M8 9h8"], ["p", "M8 13h5"]]);
+const ToolPlay = makeIcon([["p", "m6 3 14 9-14 9z"]]);
+const ToolTrash = makeIcon([["p", "M3 6h18"], ["p", "M8 6V4h8v2"], ["p", "M19 6l-1 14H6L5 6"]]);
+const DEFAULT_BIZ = { greeting: { on: false, text: "" }, away: { on: false, text: "" }, quickReplies: [] };
+const bizOfSettings = (s) => ({ ...DEFAULT_BIZ, ...((s && s.biz) || {}) });
+
+function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, settings = DEFAULT_SETTINGS, token, conversations = [], isCreator = false }) {
+    const ce = React.createElement;
+    const [menu, setMenu] = useState(false);
+    const [info, setInfo] = useState(false);
+    const [promoOff, setPromoOff] = useState(() => !!loadJSON("toolsPromoOff", false));
+    const [statusViews, setStatusViews] = useState(null);
+    const [catViews, setCatViews] = useState(null);
+    useEffect(() => { let live = true; api("/api/v1/catalog/me", { token }).then((d) => { if (live) setCatViews(Number(d.views) || 0); }).catch(() => { }); return () => { live = false; }; }, []);
+    const [howTo, setHowTo] = useState(null);
+    const biz = bizOfSettings(settings);
+    useEffect(() => {
+        let live = true;
+        if (!token) return;
+        api("/api/v1/status", { token }).then((d) => { if (live) setStatusViews((d.mine || []).reduce((n, s) => n + (Number(s.views) || 0), 0)); }).catch(() => { });
+        return () => { live = false; };
+    }, [token]);
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const started = conversations.filter((c) => !c.isGroup && (c.createdAt || 0) >= weekAgo).length;
+    const nFav = settings.favorites.length;
+    const dismissPromo = () => { setPromoOff(true); saveJSON("toolsPromoOff", true); };
+    const heading = (t) => ce("div", { style: { padding: "20px 16px 6px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, t);
+    const row = (Icon, title, sub, onClick, badge) => ce("div", { key: title, onClick, style: { display: "flex", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "12px 16px", cursor: "pointer" } },
+        ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(Icon, { size: 21, color: "#9BA7B4" })),
+        ce("div", { style: { flex: 1, minWidth: 0 } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35 } }, sub)),
+        badge && ce("span", { style: { width: 9, height: 9, borderRadius: "50%", background: "#35D0BA", flexShrink: 0 } }));
+    const stat = (Icon, value, label) => ce("div", { key: label, style: { flex: 1, minWidth: 0, border: "1px solid #262E3A", borderRadius: 14, padding: "12px 12px 10px", background: "#10151C" } },
+        ce(Icon, { size: 18, color: "#35D0BA" }),
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA", margin: "6px 0 2px" } }, value),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", lineHeight: 1.25 } }, label));
+    const guides = [
+        { title: "Build trust with your profile", bg: "linear-gradient(135deg,#1F6F66,#35D0BA)", body: "A complete profile helps people trust you.\n\n1. Open Profile and add a clear photo and your name.\n2. Add a short bio so people know what you do.\n3. Share your profile link so anyone can start a chat with you.", go: "Open profile", act: onProfile },
+        { title: "Show off your products", bg: "linear-gradient(135deg,#7A4B16,#F2B84B)", body: "Post what you sell in Market.\n\n1. Open the Market tab.\n2. Add a listing with a photo, price and description.\n3. Mark it as sold when it is gone.", go: "Open Market", act: () => onTab("market") },
+        { title: "Reach out with status", bg: "linear-gradient(135deg,#243B6B,#6E8BFF)", body: "Status updates reach your contacts for 24 hours.\n\n1. Open the Updates tab.\n2. Tap the green camera button and post a photo, or the pencil for a text update.\n3. Come back to Tools to see how many people viewed it.", go: "Open Status", act: () => onTab("status") },
+    ];
+    const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }),
+        menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 } },
+            ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } },
+                menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } },
+            ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } },
+                "Last 7 days performance",
+                ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))),
+            info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."),
+            ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "0 16px" } },
+                stat(ToolMsg, String(started), "Conversations started"),
+                stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"),
+                stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")),
+            !promoOff && heading("For you"),
+            !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } },
+                ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })),
+                ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", paddingRight: 24 } },
+                    ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })),
+                    ce("div", { style: { flex: 1 } },
+                        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"),
+                        ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))),
+                ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")),
+            heading("Grow your business"),
+            row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")),
+            row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile),
+            row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")),
+            heading("Organize your chats"),
+            row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")),
+            row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")),
+            row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")),
+            row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")),
+            heading("Manage your account"),
+            row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile),
+            row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")),
+            row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()),
+            row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")),
+            heading("How to"),
+            ce("div", { style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", overflowX: "auto", padding: "4px 16px 8px" } }, guides.map((g) => ce("div", { key: g.title, onClick: () => setHowTo(g), style: { flex: "0 0 150px", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
+                ce("div", { style: { height: 86, background: g.bg, display: "flex", alignItems: "center", justifyContent: "center" } },
+                    ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))),
+                ce("div", { style: { padding: "10px 10px 12px", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5, color: "#F5F7FA", lineHeight: 1.3 } }, g.title))))),
+        howTo && ce("div", { onClick: () => setHowTo(null), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,.6)", zIndex: 30, display: "flex", alignItems: "flex-end" } },
+            ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderRadius: "20px 20px 0 0", padding: "20px 18px 22px", maxHeight: "75%", overflowY: "auto" } },
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 10 } }, howTo.title),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#C5CDD8", lineHeight: 1.55, whiteSpace: "pre-line" } }, howTo.body),
+                ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginTop: 18 } },
+                    ce("button", { onClick: () => { const a = howTo.act; setHowTo(null); a(); }, style: { flex: 1, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "11px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, howTo.go),
+                    ce("button", { onClick: () => setHowTo(null), style: { ...smallBtn, borderRadius: 22, padding: "11px 20px" } }, "Close")))));
+}
+
+// Greeting message and Away message share one screen (saved on your account; the server sends them).
+function AutoMessageScreen({ kind, settings, onBack, onSave }) {
+    const ce = React.createElement;
+    const isGreeting = kind === "greeting";
+    const cur = bizOfSettings(settings)[kind];
+    const [on, setOn] = useState(cur.on);
+    const [text, setText] = useState(cur.text);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const dirty = on !== cur.on || text.trim() !== cur.text;
+    const save = async () => {
+        if (on && !text.trim()) { setErr("Write the message before turning it on."); return; }
+        setBusy(true); setErr("");
+        const ok = await onSave({ [kind]: { on, text: text.trim() } }, isGreeting ? "Greeting message saved" : "Away message saved");
+        setBusy(false);
+        if (!ok) setErr("Could not save. Check your connection and try again.");
+    };
+    const title = isGreeting ? "Greeting message" : "Away message";
+    const blurb = isGreeting ? "Sent once when someone messages you for the first time." : "Sent when you are offline. Each chat gets it at most once every 12 hours.";
+    const sample = isGreeting ? "Hello! Thanks for reaching out. How can I help you today?" : "Thanks for your message. I\u2019m away right now and will reply as soon as I\u2019m back.";
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title, onBack }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            ce("div", { style: settingRow },
+                ce("div", { style: { flex: 1 } },
+                    ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Send " + title.toLowerCase()),
+                    ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, blurb)),
+                ce(Toggle, { on, onChange: setOn })),
+            ce("div", { style: { padding: "16px 16px 0" } },
+                ce("div", { style: { ...sectionTitle, margin: "0 0 8px" } }, "Message"),
+                ce("textarea", { value: text, maxLength: 1000, rows: 5, onChange: (e) => setText(e.target.value), placeholder: sample, style: { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: 12, resize: "none", outline: "none" } }),
+                ce("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 } },
+                    ce("button", { onClick: () => setText(sample), style: smallBtn }, "Use example"),
+                    ce("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8A96A5" } }, text.length + "/1000")),
+                err && ce("div", { style: { marginTop: 10, fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+                ce("button", { onClick: save, disabled: busy || !dirty, style: { marginTop: 16, width: "100%", background: dirty ? "#35D0BA" : "#1E2530", color: dirty ? "#0E1116" : "#5B6673", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: dirty ? "pointer" : "default" } }, busy ? "Saving\u2026" : "Save"))));
+}
+
+// Quick replies: saved messages with a shortcut. In any chat, type / and the shortcut to insert one.
+function QuickRepliesScreen({ settings, onBack, onSave }) {
+    const ce = React.createElement;
+    const list = bizOfSettings(settings).quickReplies;
+    const [edit, setEdit] = useState(null); // { id?, shortcut, text }
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    const commit = async (next, msg) => { setBusy(true); setErr(""); const ok = await onSave({ quickReplies: next }, msg); setBusy(false); if (!ok) setErr("Could not save. Check your connection and try again."); return ok; };
+    const saveEdit = async () => {
+        const shortcut = edit.shortcut.trim().replace(/^\/+/, "").replace(/\s+/g, "-").toLowerCase(), text = edit.text.trim();
+        if (!shortcut || !text) { setErr("Add a shortcut and a message."); return; }
+        if (list.some((q) => q.shortcut === shortcut && q.id !== edit.id)) { setErr("You already have a quick reply with that shortcut."); return; }
+        const item = { id: edit.id || Math.random().toString(36).slice(2, 10), shortcut, text };
+        const next = edit.id ? list.map((q) => (q.id === edit.id ? item : q)) : [...list, item];
+        if (await commit(next, "Quick reply saved")) setEdit(null);
+    };
+    const field = { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5, padding: 12, outline: "none" };
+    if (edit) return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: edit.id ? "Edit quick reply" : "New quick reply", onBack: () => { setEdit(null); setErr(""); } }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: 16 } },
+            ce("div", { style: { ...sectionTitle, margin: "0 0 8px" } }, "Shortcut"),
+            ce("input", { value: edit.shortcut, maxLength: 24, placeholder: "e.g. price", onChange: (e) => setEdit({ ...edit, shortcut: e.target.value }), style: field }),
+            ce("div", { style: { ...sectionTitle, margin: "18px 0 8px" } }, "Message"),
+            ce("textarea", { value: edit.text, maxLength: 1000, rows: 6, placeholder: "The message that will be inserted", onChange: (e) => setEdit({ ...edit, text: e.target.value }), style: { ...field, resize: "none" } }),
+            err && ce("div", { style: { marginTop: 10, fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+            ce("button", { onClick: saveEdit, disabled: busy, style: { marginTop: 16, width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, busy ? "Saving\u2026" : "Save")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Quick replies", onBack, right: ce("button", { onClick: () => { setErr(""); setEdit({ shortcut: "", text: "" }); }, style: smallBtn }, "New") }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            list.length === 0 && ce("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                ce(ToolZap, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No quick replies yet"),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8A96A5" } }, "Save messages you send often. In any chat, type / then the shortcut to insert one.")),
+            err && ce("div", { style: { padding: "10px 16px", fontFamily: "Inter", fontSize: 13, color: "#FF6B5D" } }, err),
+            list.map((q) => ce("div", { key: q.id, onClick: () => { setErr(""); setEdit({ ...q }); }, style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "12px 16px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+                ce("div", { style: { flex: 1, minWidth: 0 } },
+                    ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#35D0BA" } }, "/" + q.shortcut),
+                    ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, q.text)),
+                ce("button", { "aria-label": "Delete quick reply", disabled: busy, onClick: (e) => { e.stopPropagation(); commit(list.filter((x) => x.id !== q.id), "Quick reply deleted"); }, style: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" } }, ce(ToolTrash, { size: 19, color: "#8891A0" }))))));
+}
+
+function Toggle({ on, onChange, disabled }) {
+  return (
+    <button role="switch" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)} style={{ width: 46, height: 27, borderRadius: 14, border: "none", padding: 0, position: "relative", cursor: disabled ? "default" : "pointer", background: on ? "#35D0BA" : "#2B3544", transition: "background .15s", flexShrink: 0, opacity: disabled ? 0.6 : 1 }}>
+      <span style={{ position: "absolute", top: 3, left: on ? 22 : 3, width: 21, height: 21, borderRadius: "50%", background: "#F5F7FA", transition: "left .15s" }} />
+    </button>
+  );
+}
+const settingRow = { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "14px 16px", borderBottom: "1px solid #1B212B" };
+
+function FavouritesScreen({ conversations, settings, presence, onBack, onOpenChat, onToggleFavorite }) {
+  const favs = conversations.filter(c => settings.favorites.includes(c.id));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Favourites" onBack={onBack} />
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        {favs.length === 0 && (
+          <div style={{ padding: "50px 30px", textAlign: "center" }}>
+            <Star size={34} color="#262E3A" style={{ marginBottom: 12 }} />
+            <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 }}>No favourites yet</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8A96A5" }}>Open a chat, tap the three dots at the top and choose “Add to favourites”. They will show up here for quick access.</div>
+          </div>
+        )}
+        {favs.map(c => (
+          <div key={c.id} onClick={() => onOpenChat(c)} style={{ display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" }}>
+            <Ring size={46} color={c.other.color} initials={c.other.initials} photo={c.other.avatar} online={c.isGroup ? undefined : !!presence[c.other.id]} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.other.name}{c.other.verified && <VerifiedBadge />}</div>
+              <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.lastMessage ? senderPrefix(c) + stripRich(c.lastMessage.text) : "No messages yet"}</div>
+            </div>
+            {c.unread > 0 && <span style={{ background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" }}>{c.unread}</span>}
+            <button aria-label="Remove from favourites" onClick={(e) => { e.stopPropagation(); onToggleFavorite(c.id); }} style={{ background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" }}><Star size={20} color="#F2B84B" style={{ fill: "#F2B84B" }} /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PrivacyScreen({ settings, onBack, onPrivacy, onBlock }) {
+  const p = settings.privacy;
+  const seg = (val, label) => (
+    <button onClick={() => onPrivacy({ lastSeen: val })} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: "none", cursor: "pointer", fontFamily: "Inter", fontWeight: 600, fontSize: 13, background: p.lastSeen === val ? "#35D0BA" : "transparent", color: p.lastSeen === val ? "#0E1116" : "#9BA7B4" }}>{label}</button>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Privacy" onBack={onBack} />
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <div style={settingRow}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>Read receipts</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 }}>If you turn this off, you won’t send or receive blue ticks. Voice notes and groups are covered too.</div>
+          </div>
+          <Toggle on={p.readReceipts} onChange={(v) => onPrivacy({ readReceipts: v })} />
+        </div>
+        <div style={{ ...settingRow, display: "block" }}>
+          <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" }}>Last seen & online</div>
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 10px" }}>Choose who can see when you are online or were last active.</div>
+          <div style={{ display: "flex", gap: 4, counterIncrement: "lcgap-4", background: "#1E2530", borderRadius: 12, padding: 4 }}>{seg("everyone", "Everyone")}{seg("nobody", "Nobody")}</div>
+        </div>
+        <div style={{ ...sectionTitle, margin: "20px 16px 6px" }}>Blocked contacts · {settings.blocked.length}</div>
+        {settings.blocked.length === 0 && <div style={{ padding: "6px 16px 24px", fontFamily: "Inter", fontSize: 13, color: "#8A96A5" }}>You haven’t blocked anyone. To block someone, open their chat, tap the three dots and choose Block.</div>}
+        <div style={{ padding: "0 16px 24px" }}>
+          {settings.blocked.map(u => (
+            <PersonRow key={u.id} u={u} status={u.phone ? "+" + String(u.phone).replace(/\D/g, "") : "Blocked"} right={<button onClick={() => onBlock(u.id, false)} style={smallBtn}>Unblock</button>} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ---- notification preferences (kept on this device) + alerts for incoming messages ----
+const DEFAULT_NOTIFS = { sound: true, vibrate: true, banner: true, preview: true, groups: true };
+const getNotifs = () => ({ ...DEFAULT_NOTIFS, ...loadJSON("notifs", {}) });
+let _audioCtx = null;
+// ---- ping sounds: pick one of several tones; used for new messages, contacts coming online and connected calls ----
+const PING_TONES = [
+    { id: "classic", name: "Classic", hint: "Two quick rising notes" },
+    { id: "bubble", name: "Bubble", hint: "A soft pop" },
+    { id: "chime", name: "Chime", hint: "Three bright bell notes" },
+    { id: "marimba", name: "Marimba", hint: "A warm wooden tap" },
+    { id: "drop", name: "Water drop", hint: "A falling droplet" },
+    { id: "sparkle", name: "Sparkle", hint: "A quick high twinkle" },
+    { id: "bell", name: "Soft bell", hint: "One long gentle bell" },
+    { id: "retro", name: "Retro", hint: "Game-style blips" },
+    { id: "double", name: "Double tap", hint: "Two short taps" },
+];
+function pingNote(ctx, t, o) { // one soft note: o.f start Hz, o.to end Hz (optional), o.d seconds, o.v volume, o.type wave
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = o.type || "sine";
+    osc.frequency.setValueAtTime(o.f, t);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t + o.d * 0.8);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(o.v || 0.2, t + (o.a || 0.012));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + o.d);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(t); osc.stop(t + o.d + 0.03);
+}
+const PING_SYNTH = {
+    classic: (c, t) => { pingNote(c, t, { f: 880, d: 0.14, v: 0.25 }); pingNote(c, t + 0.12, { f: 1175, d: 0.3, v: 0.25 }); },
+    bubble: (c, t) => pingNote(c, t, { f: 420, to: 1100, d: 0.16, v: 0.3 }),
+    chime: (c, t) => [1047, 1319, 1568].forEach((f, i) => pingNote(c, t + i * 0.11, { f, d: 0.45, v: 0.18, type: "triangle" })),
+    marimba: (c, t) => { pingNote(c, t, { f: 660, d: 0.35, v: 0.3, a: 0.004 }); pingNote(c, t, { f: 1980, d: 0.12, v: 0.08, a: 0.002 }); pingNote(c, t + 0.14, { f: 880, d: 0.35, v: 0.3, a: 0.004 }); },
+    drop: (c, t) => pingNote(c, t, { f: 1500, to: 520, d: 0.22, v: 0.3 }),
+    sparkle: (c, t) => [1568, 1976, 2349, 2637].forEach((f, i) => pingNote(c, t + i * 0.07, { f, d: 0.2, v: 0.12 })),
+    bell: (c, t) => { pingNote(c, t, { f: 784, d: 0.9, v: 0.22 }); pingNote(c, t, { f: 1568, d: 0.5, v: 0.07 }); pingNote(c, t, { f: 2093, d: 0.3, v: 0.04 }); },
+    retro: (c, t) => [523, 659, 784].forEach((f, i) => pingNote(c, t + i * 0.07, { f, d: 0.09, v: 0.09, type: "square" })),
+    double: (c, t) => { pingNote(c, t, { f: 1000, d: 0.08, v: 0.25 }); pingNote(c, t + 0.13, { f: 1000, d: 0.08, v: 0.25 }); },
+};
+// kind: "message" | "online" | "call" | "test" (nothing = a plain message alert). force: previews in settings. toneId: preview one tone.
+function playPing(kind, force, toneId) {
+    try {
+        if (!force) {
+            if (!featOn("sound")) return; // the "All sounds" switch silences every ping
+            if (kind === "message" && !featOn("msgPing")) return;
+            if (kind === "online" && !featOn("onlineSound")) return;
+            if (kind === "call" && !featOn("callSound")) return;
+        }
+        const ctx = audioCtx();
+        if (!ctx) return;
+        const id = toneId || getFeatures().pingTone;
+        (PING_SYNTH[id] || PING_SYNTH.classic)(ctx, ctx.currentTime);
+    } catch { }
+}
+// a contact came online: ping once (and at most once a minute per person), only for people you chat with and not for muted chats
+let _onlineAt = {};
+function alertOnline(userId, convos, muted) {
+    try {
+        const c = (convos || []).find((x) => !x.isGroup && x.other && x.other.id === userId);
+        if (!c || (muted && isMutedChat(muted, c.id))) return;
+        const now = Date.now();
+        if (now - (_onlineAt[userId] || 0) < 60000) return;
+        _onlineAt[userId] = now;
+        playPing("online");
+    } catch { }
+}
+function PingTonePicker({ f, setFeat, quiet }) {
+    const sel = PING_SYNTH[f.pingTone] ? f.pingTone : "classic";
+    return ce("div", { style: { opacity: quiet ? 0.45 : 1 } },
+        ce("div", { style: { padding: "18px 16px 6px", fontFamily: "Inter", fontSize: 12, color: "#35D0BA", textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 } }, "Ping sound"),
+        ce("div", { style: { padding: "0 16px 8px", fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, "Used for new messages, contacts coming online and connected calls. Tap one to pick it and hear it."),
+        PING_TONES.map((t) => ce("div", { key: t.id, role: "radio", "aria-checked": sel === t.id, onClick: () => { if (quiet) return; setFeat({ pingTone: t.id }); setTimeout(() => playPing("test", true, t.id), 30); }, style: { ...settingRow, cursor: quiet ? "default" : "pointer" } },
+            ce("div", { style: { flex: 1 } },
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, t.name),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, t.hint)),
+            ce("span", { style: { width: 22, height: 22, borderRadius: "50%", border: "2px solid " + (sel === t.id ? "#35D0BA" : "#3A4452"), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+                sel === t.id && ce("span", { style: { width: 10, height: 10, borderRadius: "50%", background: "#35D0BA" } })))));
+}
+function alertIncoming(m, convo, viewingThis) {
+    const n = getNotifs();
+    if (convo && convo.isGroup && !n.groups) return;
+    const hidden = document.hidden;
+    if (viewingThis && !hidden) { playPing("message"); return; }
+    if (n.sound && featOn("sound")) playPing();
+    if (n.vibrate) { try { navigator.vibrate && navigator.vibrate(200); } catch { } }
+    if (n.banner && hidden && "Notification" in window && Notification.permission === "granted") {
+        try {
+            const title = convo ? convo.other.name : "Letschat Africa";
+            const body = n.preview ? (m.text || "New message") : "New message";
+            new Notification(title, { body, tag: "conv-" + m.conversationId });
+        } catch { }
+    }
+}
+function PushRow() {
+    const P = window.LetschatPush;
+    const [st, setSt] = useState("checking");
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState("");
+    useEffect(() => { let live = true; if (!P) { setSt("unsupported"); return; } P.status().then((s) => { if (live) setSt(s); }); return () => { live = false; }; }, []);
+    const change = async (v) => {
+        setBusy(true); setErr("");
+        try { if (v) { await P.enable(); setSt("on"); } else { await P.disable(); setSt("off"); } }
+        catch (e) { setErr(e.message || "Something went wrong"); setSt(await P.status()); }
+        setBusy(false);
+    };
+    const note = err || (st === "needs-install" ? "On iPhone: tap Share, then Add to Home Screen, open Letschat from there, and come back to turn this on."
+        : st === "unsupported" ? "Not supported in this browser."
+        : st === "denied" ? "Blocked in your browser settings. Allow notifications for this site to use this."
+        : st === "unavailable" ? "Not set up on the server yet."
+        : "Get message alerts even when the app is closed.");
+    return (React.createElement("div", { style: settingRow },
+        React.createElement("div", { style: { flex: 1 } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Push notifications"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: err ? "#FF6B5D" : "#8891A0", marginTop: 2 } }, note)),
+        React.createElement(Toggle, { on: st === "on", onChange: change, disabled: busy || st === "checking" || st === "unsupported" || st === "needs-install" || st === "denied" || st === "unavailable" })));
+}
+function NotificationsScreen({ onBack }) {
+    const [prefs, setPrefs] = useState(getNotifs);
+    const [perm, setPerm] = useState(() => ("Notification" in window ? Notification.permission : "unsupported"));
+    const set = (patch) => { const next = { ...prefs, ...patch }; setPrefs(next); saveJSON("notifs", next); };
+    const askBanner = async (v) => {
+        if (!v) return set({ banner: false });
+        if (!("Notification" in window)) { setPerm("unsupported"); return; }
+        let p = Notification.permission;
+        if (p === "default") { try { p = await Notification.requestPermission(); } catch { } }
+        setPerm(p);
+        set({ banner: p === "granted" });
+    };
+    const row = (title, sub, on, onChange, disabled) => (React.createElement("div", { style: settingRow },
+        React.createElement("div", { style: { flex: 1 } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, title),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, sub)),
+        React.createElement(Toggle, { on: on, onChange: onChange, disabled: disabled })));
+    const bannerNote = perm === "unsupported" ? "Not supported in this browser." : perm === "denied" ? "Blocked in your browser settings. Allow notifications for this site to use this." : "Show an alert when a message arrives while the app is in the background.";
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Notifications", onBack: onBack }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            row("Message sound", "Play a tone when a new message arrives.", prefs.sound, (v) => { set({ sound: v }); if (v) playPing(); }),
+            row("Vibration", "Vibrate on new messages (supported phones only).", prefs.vibrate, (v) => { set({ vibrate: v }); if (v) { try { navigator.vibrate && navigator.vibrate(200); } catch { } } }),
+            row("Group messages", "Get alerts for messages in groups.", prefs.groups, (v) => set({ groups: v })),
+            React.createElement(PushRow, null), row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"),
+            row("Show message preview", "Include the message text in background alerts.", prefs.preview, (v) => set({ preview: v })),
+            React.createElement("div", { style: { padding: "18px 16px" } },
+                React.createElement("button", { onClick: () => playPing("test", true), style: smallBtn }, "Play test sound")))));
+}
+function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, onNewGroup }) {
+    const groups = conversations.filter(c => c.isGroup);
+    const mine = groups.filter(c => c.adminId === myId);
+    const others = groups.filter(c => c.adminId !== myId);
+    const rowFor = (c) => (React.createElement("div", { key: c.id, onClick: () => onOpenChat(c), style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "11px 16px", cursor: "pointer", borderBottom: "1px solid #1B212B" } },
+        React.createElement(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, (c.members ? c.members.length : 0) + " members \u00B7 " + (c.members ? c.members.filter(m => m.id === myId || presence[m.id]).length : 0) + " online")),
+        c.adminId === myId && React.createElement("span", { style: { fontFamily: "Inter", fontSize: 11, fontWeight: 600, color: "#35D0BA", border: "1px solid #35D0BA55", background: "#35D0BA18", borderRadius: 8, padding: "2px 8px" } }, "Admin"),
+        c.unread > 0 && React.createElement("span", { style: { background: "#35D0BA", color: "#0E1116", fontSize: 11, fontWeight: 700, borderRadius: 10, minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter" } }, c.unread)));
+    return (React.createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        React.createElement(TopBar, { title: "Communities", onBack: onBack, right: React.createElement("button", { onClick: onNewGroup, style: smallBtn }, "New group") }),
+        React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            groups.length === 0 && (React.createElement("div", { style: { padding: "50px 30px", textAlign: "center" } },
+                React.createElement(Users, { size: 34, color: "#262E3A", style: { marginBottom: 12 } }),
+                React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#8891A0", marginBottom: 6 } }, "No groups yet"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8A96A5" } }, "Tap \u201CNew group\u201D to create one, or open an invite link from a friend to join theirs."))),
+            mine.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you manage \u00B7 " + mine.length),
+            mine.map(rowFor),
+            others.length > 0 && React.createElement("div", { style: { ...sectionTitle, margin: "16px 16px 6px" } }, "Groups you\u2019re in \u00B7 " + others.length),
+            others.map(rowFor))));
+}
+const FAQ = [
+  ["How do I start a chat?", "Tap the pencil button on the Chats tab. Type a nickname, email or phone number with country code, or choose “Find friends from my phonebook” to see which of your contacts are already on Letschat Africa."],
+  ["How do I invite a friend who isn’t on the app?", "In the phonebook list, tap Invite next to their name. WhatsApp opens with a message that has the app link, ready to send."],
+  ["How do I send a photo, file or voice note?", "Use the paperclip for files (up to 3 MB), the camera to take a photo and the microphone to record. Tap the mic again, or the send button, to send the voice note."],
+  ["How do I create a group?", "On the Chats tab tap the group icon at the top, pick your contacts and name the group. The admin can add members and share an invite link from Group info."],
+  ["How do I share my profile link?", "Go to Tools → Profile → Profile link. Anyone who opens your link can start a direct message with you. Tap Reset to make the old link stop working."],
+  ["How do favourites work?", "Open a chat, tap the three dots and choose Add to favourites. Find all of them in Tools → Favourites."],
+  ["How do I block someone?", "Open their chat, tap the three dots and choose Block. They can no longer message you. You can unblock them in Tools → Privacy."],
+  ["What do read receipts and last seen do?", "In Tools → Privacy you can switch off blue ticks and hide when you were last online. If you hide yours, you won’t see receipts from others either."],
+  ["I changed my photo but it hasn’t updated.", "Pull the app fresh by closing and reopening it. New photos show for everyone after a moment."],
+  ["Messages are slow or not sending.", "Check your internet connection. The server can take up to a minute to wake up after a quiet period, then everything speeds up."],
+];
+
+// ---- Tools > About the developer ----
+function AboutDeveloperScreen({ onBack }) {
+  const PHONE_LOCAL = "08135351804", PHONE_INTL = "2348135351804";
+  const skills = ["Web Apps", "Mobile Apps", "AI Solutions", "Databases", "Cloud & Hosting"];
+  const card = { margin: "14px 16px 0", padding: "16px", background: "#161B22", border: "1px solid #262E3A", borderRadius: 16 };
+  const label = { fontFamily: "Sora", fontWeight: 700, fontSize: 12, letterSpacing: 1, color: "#F5C518", marginBottom: 8 };
+  const body = { fontFamily: "Inter", fontSize: 14, lineHeight: 1.55, color: "#C9D1DA" };
+  const action = (bg, fg, border) => ({ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8", padding: "13px 10px", borderRadius: 14, border: border || "none", background: bg, color: fg, fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer", textDecoration: "none" });
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+    ce(TopBar, { title: "About the developer", onBack }),
+    ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 28 } },
+      ce("div", { style: { position: "relative", height: 430, overflow: "hidden", background: "#0E1116" } },
+        ce("img", { src: "icons/developer.jpg", alt: "Abdullahi Salawu", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 3%", display: "block" } }),
+        ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(to top, #0E1116 4%, rgba(14,17,22,0) 60%)" } }),
+        ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 12 } },
+          ce("span", { style: { display: "inline-block", background: "#F5C518", color: "#0E1116", fontFamily: "Sora", fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 6, marginBottom: 6 } }, "Developer"),
+          ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 28, lineHeight: 1.1, color: "#F5F7FA" } }, "Abdullahi ", ce("span", { style: { color: "#F5C518" } }, "Salawu")))),
+      ce("div", { style: { padding: "12px 16px 0", fontFamily: "Sora", fontWeight: 600, fontSize: 16, lineHeight: 1.4, color: "#F5F7FA" } }, "Building smart apps for a connected and better Africa."),
+      ce("div", { style: card },
+        ce("div", { style: label }, "MY MISSION"),
+        ce("div", { style: body }, "To build innovative, intelligent, and impactful applications that connect people, solve real-world problems, and showcase the power of African technology to the world.")),
+      ce("div", { style: card },
+        ce("div", { style: label }, "WHAT I BUILD"),
+        ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, counterIncrement: "lcgap-8" } }, skills.map((s) => ce("span", { key: s, style: { padding: "6px 12px", borderRadius: 999, border: "1px solid #2B3544", background: "#0E1116", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13 } }, s)))),
+      ce("div", { style: card },
+        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12", marginBottom: 14 } },
+          ce(MapPin, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }),
+          ce("div", null, ce("div", { style: label }, "LOCATION"), ce("div", { style: body }, "Okerube, Ikotun, Lagos State, Nigeria."))),
+        ce("div", { style: { display: "flex", alignItems: "flex-start", gap: 12, counterIncrement: "lcgap-12" } },
+          ce(Phone, { size: 22, color: "#F5C518", style: { flexShrink: 0, marginTop: 2 } }),
+          ce("div", null, ce("div", { style: label }, "CONTACT"), ce("div", { style: { ...body, fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#F5F7FA" } }, PHONE_LOCAL)))),
+      ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", margin: "14px 16px 0" } },
+        ce("a", { href: "https://wa.me/" + PHONE_INTL, target: "_blank", rel: "noopener noreferrer", style: action("#35D0BA", "#0E1116") }, ce(MessageCircle, { size: 18, color: "#0E1116" }), "WhatsApp"),
+        ce("a", { href: "tel:" + PHONE_LOCAL, style: action("none", "#F5F7FA", "1px solid #2B3544") }, ce(Phone, { size: 18, color: "#F5F7FA" }), "Call")),
+      ce("div", { style: { textAlign: "center", margin: "22px 16px 0", fontFamily: "Sora", fontStyle: "italic", fontWeight: 600, fontSize: 14, color: "#8891A0" } }, "African Technology · Global Impact")));
+}
+
+// ---- Creator panel: only shown to the creator account (server re-checks every request) ----
+function CreatorScreen({ onBack, token }) {
+  const ce = React.createElement;
+  const [tab, setTab] = useState("users"); // users | listings | announce
+  const [q, setQ] = useState("");
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState("");
+  const [note, setNote] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [ann, setAnn] = useState({ title: "", body: "" });
+  const [bc, setBc] = useState("");
+  const [rulesTxt, setRulesTxt] = useState(null);
+  useEffect(() => { if (tab !== "rules") return; api("/api/v1/rules", { token }).then((d) => setRulesTxt(d.rules)).catch((e) => setErr(e.message)); }, [tab, token]);
+  const sendBroadcast = async () => {
+    if (!window.confirm("Send this message to ALL members?")) return;
+    setBusyId("bc"); setErr(""); setNote("");
+    try { const d = await api("/api/v1/creator/broadcast", { method: "POST", token, body: { text: bc } }); setNote("Sent to " + d.sent + " member" + (d.sent === 1 ? "" : "s") + "."); setBc(""); } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const saveRules = async () => {
+    setBusyId("rules"); setErr(""); setNote("");
+    try { await api("/api/v1/creator/rules", { method: "PUT", token, body: { rules: rulesTxt } }); setNote("Rules saved."); } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const load = useCallback(async (which, term) => {
+    try {
+      setErr("");
+      const d = await api("/api/v1/creator/" + which + "?q=" + encodeURIComponent(term || ""), { token });
+      setItems(d[which] || []);
+    } catch (e) { setErr(e.message); setItems([]); }
+  }, [token]);
+  useEffect(() => {
+    if (tab === "announce" || tab === "broadcast" || tab === "rules") return;
+    setItems(null);
+    const t = setTimeout(() => load(tab, q), 300);
+    return () => clearTimeout(t);
+  }, [tab, q, load]);
+  const act = async (u, action) => {
+    if (action === "suspend" && !window.confirm("Suspend " + u.name + "? They will be logged out and blocked.")) return;
+    setBusyId(u.id); setErr("");
+    try {
+      const d = await api("/api/v1/creator/users/" + u.id + "/" + action, { method: "POST", token });
+      setItems((list) => (list || []).map((x) => (x.id === u.id ? d.user : x)));
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const actListing = async (l, action) => {
+    if (action === "remove" && !window.confirm("Remove this listing from the marketplace?")) return;
+    setBusyId(l.id); setErr("");
+    try {
+      const d = await api("/api/v1/creator/listings/" + l.id + "/" + action, { method: "POST", token });
+      setItems((list) => (list || []).map((x) => (x.id === l.id ? { ...x, removed: d.removed } : x)));
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const send = async () => {
+    if (!window.confirm("Send this announcement to everyone with notifications on?")) return;
+    setBusyId("announce"); setErr(""); setNote("");
+    try {
+      const d = await api("/api/v1/creator/announce", { method: "POST", token, body: { title: ann.title, body: ann.body } });
+      setNote("Sent to " + d.sent + " device" + (d.sent === 1 ? "" : "s") + (d.failed ? " (" + d.failed + " failed)" : "") + ".");
+      setAnn({ title: "", body: "" });
+    } catch (e) { setErr(e.message); } finally { setBusyId(""); }
+  };
+  const btn = (label, onClick, color, disabled) => ce("button", { key: label, disabled, onClick, style: { background: "none", border: "1px solid " + color, color, borderRadius: 18, padding: "6px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 12.5, cursor: "pointer", opacity: disabled ? 0.5 : 1 } }, label);
+  const input = { width: "100%", boxSizing: "border-box", background: "#161B22", border: "1px solid #262E3A", borderRadius: 12, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" };
+  const tabs = ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: "8px 16px 0" } },
+    [["users", "Members"], ["listings", "Listings"], ["broadcast", "Broadcast"], ["rules", "Rules"], ["announce", "Push"]].map(([k, label]) => ce("button", { key: k, onClick: () => { setTab(k); setQ(""); setErr(""); setNote(""); }, style: { flex: 1, padding: "9px 0", borderRadius: 12, border: "1px solid " + (tab === k ? "#35D0BA" : "#262E3A"), background: tab === k ? "#35D0BA22" : "none", color: tab === k ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13.5, cursor: "pointer" } }, label)));
+  const errBox = err && ce("div", { style: { color: "#FF6B6B", fontFamily: "Inter", fontSize: 13, margin: "8px 16px 0" } }, err);
+  let body;
+  if (tab === "broadcast") {
+    const ready = bc.trim() && busyId !== "bc";
+    body = ce("div", { style: { padding: "12px 16px" } },
+      ce("textarea", { value: bc, maxLength: 4000, rows: 6, onChange: (e) => setBc(e.target.value), placeholder: "Write your message to all members", style: { ...input, resize: "none" } }),
+      ce("button", { disabled: !ready, onClick: sendBroadcast, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "bc" ? "Sending..." : "Send to all members"),
+      note && ce("div", { style: { color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, marginTop: 10 } }, note));
+  } else if (tab === "rules") {
+    const ready = rulesTxt !== null && rulesTxt.trim() && busyId !== "rules";
+    body = ce("div", { style: { padding: "12px 16px" } },
+      ce("textarea", { value: rulesTxt === null ? "Loading..." : rulesTxt, maxLength: 4000, rows: 12, onChange: (e) => setRulesTxt(e.target.value), style: { ...input, resize: "none" } }),
+      ce("button", { disabled: !ready, onClick: saveRules, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "rules" ? "Saving..." : "Save rules"),
+      note && ce("div", { style: { color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, marginTop: 10 } }, note));
+  } else if (tab === "announce") {
+    const ready = ann.title.trim() && ann.body.trim() && busyId !== "announce";
+    body = ce("div", { style: { padding: "12px 16px" } },
+      ce("input", { value: ann.title, maxLength: 80, onChange: (e) => setAnn({ ...ann, title: e.target.value }), placeholder: "Title", style: { ...input, marginBottom: 10 } }),
+      ce("textarea", { value: ann.body, maxLength: 300, rows: 4, onChange: (e) => setAnn({ ...ann, body: e.target.value }), placeholder: "Message (max 300 characters)", style: { ...input, resize: "none" } }),
+      ce("button", { disabled: !ready, onClick: send, style: { marginTop: 12, width: "100%", background: ready ? "#35D0BA" : "#262E3A", color: ready ? "#0E1116" : "#5B6673", border: "none", borderRadius: 22, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ready ? "pointer" : "default" } }, busyId === "announce" ? "Sending..." : "Send announcement"),
+      note && ce("div", { style: { color: "#35D0BA", fontFamily: "Inter", fontSize: 13.5, marginTop: 10 } }, note));
+  } else {
+    const empty = items && items.length === 0 && !err && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, tab === "users" ? "No users found." : "No listings found.");
+    const rows = (items || []).map((it) => tab === "users"
+      ? ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.suspended ? 0.6 : 1 } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.name, it.verified && ce(VerifiedBadge, {}), it.creator && ce("span", { style: { fontSize: 11, color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 8, padding: "1px 6px" } }, "Creator"), it.suspended && ce("span", { style: { fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Suspended")),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, [it.email, it.phone ? "+" + String(it.phone).replace(/\D/g, "") : null].filter(Boolean).join(" · ") || "No contact info"),
+        !it.creator && ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginTop: 10 } },
+          btn(it.verifiedByCreator ? "Remove badge" : "Verify", () => act(it, it.verifiedByCreator ? "unverify" : "verify"), "#35D0BA", busyId === it.id),
+          btn(it.suspended ? "Unsuspend" : "Suspend", () => act(it, it.suspended ? "unsuspend" : "suspend"), it.suspended ? "#35D0BA" : "#FF6B6B", busyId === it.id)))
+      : ce("div", { key: it.id, style: { padding: "12px 16px", borderBottom: "1px solid #1B212B", opacity: it.removed ? 0.6 : 1 } },
+        ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, it.title, it.removed && ce("span", { style: { marginLeft: 8, fontSize: 11, color: "#FF6B6B", border: "1px solid #FF6B6B", borderRadius: 8, padding: "1px 6px" } }, "Removed")),
+        ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "By " + it.seller + (it.price ? " · " + it.price : "")),
+        ce("div", { style: { marginTop: 10 } }, btn(it.removed ? "Restore" : "Remove", () => actListing(it, it.removed ? "restore" : "remove"), it.removed ? "#35D0BA" : "#FF6B6B", busyId === it.id))));
+    body = ce("div", null,
+      ce("div", { style: { padding: "10px 16px 0" } }, ce("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: tab === "users" ? "Search name, email or phone" : "Search listings", style: input })),
+      items === null && ce("div", { style: { padding: 20, color: "#8891A0", fontFamily: "Inter" } }, "Loading..."), empty, rows);
+  }
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", animation: "lcFadeUp .18s ease-out" } },
+    ce(TopBar, { title: "Letschat Creator", onBack }), tabs, errBox,
+    ce("div", { key: tab, style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24, animation: "lcFade .2s ease-out" } }, body));
+}
+
+function TrashIcon({ size = 21, color = "#9BA7B4" }) { return React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, React.createElement("path", { d: "M3 6h18" }), React.createElement("path", { d: "M8 6V4h8v2" }), React.createElement("path", { d: "M6 6l1 14h10l1-14" })); }
+function BackupIcon({ size = 21, color = "#9BA7B4" }) { return React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }, React.createElement("path", { d: "M12 3v12" }), React.createElement("path", { d: "M7 10l5 5 5-5" }), React.createElement("path", { d: "M4 20h16" })); }
+function CreatorLogo({ size = 21 }) { return React.createElement("img", { src: "icons/icon-192.png", alt: "", width: size, height: size, style: { borderRadius: 6, display: "block" } }); }
+function RulesScreen({ onBack, token }) {
+  const ce = React.createElement;
+  const [text, setText] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { api("/api/v1/rules", { token }).then((d) => setText(d.rules)).catch((e) => setErr(e.message)); }, [token]);
+  return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", animation: "lcFadeUp .18s ease-out" } }, ce(TopBar, { title: "Rules & guidelines", onBack }),
+    ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "16px", fontFamily: "Inter", fontSize: 14.5, lineHeight: 1.6, color: "#DDE3EA", whiteSpace: "pre-wrap" } }, err || (text === null ? "Loading..." : text)));
+}
+
+function HelpScreen({ onBack, user }) {
+  const [open, setOpen] = useState(-1);
+  const [copied, setCopied] = useState(false);
+  const info = [
+    "Letschat Africa support info",
+    "User: " + (user && user.name) + " (" + (user && user.phone ? "+" + String(user.phone).replace(/\D/g, "") : "no phone") + ")",
+    "App: " + window.location.origin,
+    "Browser: " + navigator.userAgent,
+    "Time: " + new Date().toISOString(),
+  ].join("\n");
+  const copyInfo = async () => { try { await navigator.clipboard.writeText(info); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {} };
+  const wa = () => window.open("https://wa.me/" + SUPPORT.whatsapp + "?text=" + encodeURIComponent("Hi Letschat Africa support, I need help with:\n\n\n" + info), "_blank");
+  const mail = () => { window.location.href = "mailto:" + SUPPORT.email + "?subject=" + encodeURIComponent("Letschat Africa support") + "&body=" + encodeURIComponent("Hi, I need help with:\n\n\n" + info); };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <TopBar title="Help" onBack={onBack} />
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 }}>
+        <div style={{ ...sectionTitle, margin: "6px 16px" }}>Frequently asked questions</div>
+        {FAQ.map(([q, ans], i) => (
+          <div key={i} style={{ borderBottom: "1px solid #1B212B" }}>
+            <div onClick={() => setOpen(open === i ? -1 : i)} style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "14px 16px", cursor: "pointer" }}>
+              <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 14.5, color: "#F5F7FA" }}>{q}</div>
+              <ChevronRight size={17} color="#5B6673" style={{ transform: open === i ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+            </div>
+            {open === i && <div style={{ padding: "0 16px 16px", fontFamily: "Inter", fontSize: 13.5, lineHeight: 1.5, color: "#9BA7B4" }}>{ans}</div>}
+          </div>
+        ))}
+        <div style={{ ...sectionTitle, margin: "22px 16px 8px" }}>Contact us</div>
+        <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10, counterIncrement: "lcgap-10" }}>
+          {SUPPORT.whatsapp && <button onClick={wa} style={primaryBtn(false)}>Chat with support on WhatsApp</button>}
+          {SUPPORT.email && <button onClick={mail} style={{ ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" }}>Email support</button>}
+          <button onClick={copyInfo} style={{ ...primaryBtn(false), background: "#1E2530", color: "#35D0BA", border: "1px solid #2B3544" }}>{copied ? "Copied ✓" : "Copy my support info"}</button>
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5", textAlign: "center", marginTop: 4 }}>Letschat Africa · secure chat for everyone</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- emoji tray for the message box ----
+const EMOJI_TABS = [
+  { name: "Smileys", icon: "😀", list: "😀 😃 😄 😁 😆 😅 😂 🤣 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👻 👽 🤖".split(" ") },
+  { name: "Gestures", icon: "👍", list: "👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤝 🙏 👏 🙌 👐 🤲 💪 🙋 🙆 🙅 🤷 🤦 💁 🙇 🤳 ✍️ 💅 👀 👁️ 👂 👃 👄 🧠".split(" ") },
+  { name: "Hearts", icon: "❤️", list: "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 💋 💯 💢 💥 💫 💦 💨 🔥 ✨ ⭐ 🌟 🎉 🎊 🎁 🏆 🥇".split(" ") },
+  { name: "Animals & nature", icon: "🦁", list: "🦁 🐘 🦒 🦓 🐆 🦛 🦜 🐒 🦩 🐊 🐍 🐶 🐱 🐭 🐰 🦊 🐻 🐼 🐨 🐯 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🦅 🦋 🐝 🐢 🐠 🐬 🌳 🌴 🌵 🌸 🌹 🌻 🌞 🌙 ⭐ 🌈 ☀️ ⛅ 🌧️ ⚡ ❄️ 🌍".split(" ") },
+  { name: "Food & drink", icon: "🍔", list: "🍎 🍌 🍉 🍇 🍓 🍍 🥭 🥑 🌽 🥕 🍅 🥔 🍞 🧀 🍳 🥩 🍗 🍖 🍔 🍟 🍕 🌭 🌮 🍝 🍚 🍲 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 ☕ 🍵 🥤 🍺 🍷 💧".split(" ") },
+  { name: "Activities & objects", icon: "⚽", list: "⚽ 🏀 🏈 🎾 🏐 🏏 🥊 🎮 🎲 ♟️ 🎯 🎵 🎶 🎤 🎧 🎸 🥁 📱 💻 📷 📚 ✏️ 💡 🔑 🔒 💰 💵 🚗 🚌 ✈️ 🚀 🏠 ⏰ 📞 ✅ ❌ ❓ ❗ ⚠️ 🚫".split(" ") },
+];
+// ---- tap the name/photo area in a chat header to see that person's profile (full screen, header collapses as you scroll) ----
+const PROFILE_HERO = 190, PROFILE_BAR = 58;
+function ContactProfileSheet({ u, online, lastSeen, conversation, conversations = [], msgs = [], myId, isFav, iBlocked, muted, onVoice, onVideo, onToggleFavorite, onNotifications, onBlock, onReport, onOpenMedia, onOpenImage, onNewGroup, onNote, onClear, onLock, token, onClose }) {
+  const [zoom, setZoom] = useState(false);
+  const [p, setP] = useState(0);                 // 0 = header fully open, 1 = collapsed into the top bar
+  const [menu, setMenu] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState(() => loadJSON("contactNote:" + u.id, ""));
+  const [savedNote, setSavedNote] = useState(noteText);
+  const [pcSheet, setPcSheet] = useState(null);
+  const [mv, setMv] = useState(() => loadJSON("mediaVis:" + conversation.id, "show"));
+  const hideMedia = mv === "hide";
+  const RANGE = PROFILE_HERO - PROFILE_BAR;
+  const onScroll = (e) => { const np = Math.min(1, Math.max(0, e.currentTarget.scrollTop / RANGE)); setP(prev => (Math.abs(prev - np) > 0.004 ? np : prev)); };
+  const heroH = PROFILE_HERO - p * RANGE;
+  const size = 92 - p * (92 - 38);
+  const top = (heroH - size / 2) * (1 - p) + 10 * p;
+  const left = "calc(" + ((1 - p) * 50) + "% - " + ((1 - p) * size / 2) + "px + " + (p * 56) + "px)";
+  const titleOpacity = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+  const live = msgs.filter(m => !m.deleted);
+  const isImg = (m) => m.file && m.file.data && /^data:image\//.test(m.file.data);
+  const media = live.filter(isImg);
+  const docs = live.filter(m => m.file && !isImg(m));
+  let linkCount = 0; live.forEach(m => { if (typeof m.text === "string") linkCount += (m.text.match(/https?:\/\/[^\s]+/g) || []).length; });
+  const total = media.length + docs.length + linkCount;
+  const bytes = live.reduce((n, m) => n + (m.file && m.file.size ? m.file.size : 0), 0);
+  const tiles = hideMedia ? [] : media.slice(-8).reverse();
+  const groups = conversations.filter(c => c.isGroup && (c.members || []).some(m => m.id === u.id));
+  const addable = conversations.filter(c => c.isGroup && !c.chatRoom && c.adminId === myId && !(c.members || []).some(m => m.id === u.id));
+  const biz = u.business || null;
+  const subtitle = u.phone ? "+" + String(u.phone).replace(/\D/g, "") : u.email || (u.username ? "@" + u.username : "");
+  const share = async () => {
+    const text = u.name + (u.phone ? " +" + String(u.phone).replace(/\D/g, "") : u.username ? " @" + u.username : "");
+    try { if (navigator.share) { await navigator.share({ title: u.name + " on Letschat Africa", text }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(text); onNote("Contact copied"); } catch (e) { window.prompt("Copy this contact", text); }
+  };
+  const saveNote = () => { const t = noteText.trim(); saveJSON("contactNote:" + u.id, t); setSavedNote(t); setNoteOpen(false); };
+  const ico = (I) => <I size={22} color="#8891A0" />;
+  const row = (key, icon, title, sub, o = {}) => (
+    <div key={key} onClick={o.onClick} style={{ display: "flex", alignItems: "center", gap: 22, counterIncrement: "lcgap-22", padding: "13px 22px", cursor: o.onClick ? "pointer" : "default" }}>
+      <div style={{ width: 24, display: "flex", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: "Inter", fontSize: 16, color: o.color || "#F5F7FA", overflowWrap: "anywhere" }}>{title}</div>
+        {sub && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, overflow: o.wrapSub ? "visible" : "hidden", textOverflow: "ellipsis", whiteSpace: o.wrapSub ? "normal" : "nowrap", overflowWrap: "anywhere" }}>{sub}</div>}
+      </div>
+      {o.right}
+    </div>
+  );
+  const line = (k) => <div key={k} style={{ height: 1, background: "#1B212B", margin: "6px 0" }} />;
+  const round = (label, Icon, fn) => (
+    <button key={label} onClick={fn} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, counterIncrement: "lcgap-7" }}>
+      <span style={{ width: 52, height: 40, borderRadius: 20, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon size={19} color="#F5F7FA" /></span>
+      <span style={{ fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4" }}>{label}</span>
+    </button>
+  );
+  const hoursOk = biz && typeof biz.open === "boolean";
+  return (
+    <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 45, background: "#0E1116", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* collapsing header: cover photo -> solid top bar */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: heroH, background: "#0E1116", zIndex: 3, boxShadow: p > 0.98 ? "0 1px 0 #1B212B" : "none" }}>
+        <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden", opacity: 1 - p }}>
+          {u.avatar ? <img loading="lazy" decoding="async" src={photoSrc(u.avatar)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 25%", display: "block" }} />
+            : <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg, " + u.color + "55, #0E1116)" }} />}
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 45%, rgba(14,17,22,0.55) 100%)" }} />
+        </div>
+      </div>
+      <button aria-label="Back" onClick={onClose} style={{ position: "absolute", top: 0, left: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowLeft size={23} color="#F5F7FA" /></button>
+      <button aria-label="More" onClick={() => setMenu(m => !m)} style={{ position: "absolute", top: 0, right: 6, height: PROFILE_BAR, width: 44, zIndex: 6, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><MoreVertical size={22} color="#F5F7FA" /></button>
+      <div style={{ position: "absolute", top: 0, left: 106, right: 56, height: PROFILE_BAR, zIndex: 5, display: "flex", alignItems: "center", opacity: titleOpacity, transform: "translateY(" + ((1 - titleOpacity) * 8) + "px)", pointerEvents: "none" }}>
+        <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 18, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{u.name}</span>
+        {u.verified && <VerifiedBadge size={15} />}
+      </div>
+      <div onClick={u.avatar ? () => setZoom(true) : undefined} style={{ position: "absolute", top, left, width: size, height: size, zIndex: 5, borderRadius: "50%", boxSizing: "border-box", border: (3 - 1.5 * p) + "px solid #35D0BA", background: "#0E1116", cursor: u.avatar ? "pointer" : "default" }}>
+        {u.avatar ? <img loading="lazy" decoding="async" src={photoSrc(u.avatar)} alt="" draggable={false} onContextMenu={e => e.preventDefault()} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block" }} />
+          : <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: u.color + "26", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 700, fontSize: size * 0.36 }}>{u.initials}</div>}
+      </div>
+      {menu && (
+        <div onClick={() => setMenu(false)} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 8 }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: PROFILE_BAR - 8, right: 10, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)" }}>
+            {[["Share", () => share()], [iBlocked ? "Unblock" : "Block", () => onBlock()], ["Report", () => onReport()]].map(([label, fn]) => (
+              <div key={label} onClick={() => { setMenu(false); fn(); }} style={{ padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: pcDanger(label) ? "#FF6B5D" : "#F5F7FA", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" }}>{pcDanger(label) ? React.createElement(pcDanger(label), { size: 18, color: "#FF6B5D" }) : null}{label}</div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingTop: PROFILE_HERO + 52, paddingBottom: 30 }}>
+        <div style={{ textAlign: "center", padding: "0 24px" }}>
+          <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", overflowWrap: "anywhere" }}>{u.name}{u.verified && <VerifiedBadge size={20} />}</div>
+          {subtitle && <div style={{ fontFamily: "Inter", fontSize: 16, color: "#9BA7B4", marginTop: 4, overflowWrap: "anywhere" }}>{subtitle}</div>}
+          <div style={{ fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginTop: 4 }}>{statusText(online, lastSeen)}</div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 18, counterIncrement: "lcgap-18", margin: "18px 0 20px" }}>
+            {onVoice && round("Voice", Phone, onVoice)}
+            {onVideo && round("Video", Video, onVideo)}
+            {round("Share", ForwardIcon, share)}
+          </div>
+        </div>
+        {line("l0")}
+        {row("lists", ico(ListPlus), "Add to lists", isFav ? "Favourites" : null, { onClick: onToggleFavorite, right: isFav ? <Check size={20} color="#35D0BA" strokeWidth={3} /> : null })}
+        {row("notes", ico(NotesIcon), savedNote ? "Notes" : "Add notes", savedNote || null, { onClick: () => setNoteOpen(true) })}
+        {biz && (hoursOk || biz.hours) && row("hours", ico(ClockIcon), hoursOk ? (biz.open ? "Open now" : "Closed now") : "Hours", null, { color: hoursOk ? (biz.open ? "#35D0BA" : "#FF6B5D") : undefined, right: biz.hours ? <span style={{ fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" }}>{biz.hours}</span> : null })}
+        {biz && biz.category && row("cat", ico(ShoppingBag), biz.category)}
+        {biz && biz.address && row("addr", ico(MapPin), biz.address, null, { wrapSub: true })}
+        {biz && biz.description && row("bdesc", ico(EpDoc), biz.description, null, { wrapSub: true })}
+        {biz && biz.website && row("bweb", ico(EpGlobe), biz.website, null, { wrapSub: true, onClick: () => window.open(/^https?:\/\//i.test(biz.website) ? biz.website : "https://" + biz.website, "_blank", "noopener") })}
+        {biz && biz.instagram && row("big", ico(EpInstagram), biz.instagram, null, { wrapSub: true })}
+        {biz && biz.facebook && row("bfb", ico(EpFacebook), biz.facebook, null, { wrapSub: true })}
+        {biz && biz.email && row("bmail", ico(EpMail), biz.email, null, { wrapSub: true, onClick: () => { window.location.href = "mailto:" + biz.email; } })}
+        {biz && row("biz", ico(InfoIcon), "Business account", "This account is a business on Letschat Africa")}
+        <ProfileCatalogRow uid={u.id} name={u.name} token={token} />
+        {line("l1")}
+        <div onClick={onOpenMedia} style={{ display: "flex", alignItems: "center", padding: "12px 22px 10px", cursor: "pointer" }}>
+          <span style={{ flex: 1, fontFamily: "Inter", fontSize: 14, color: "#8891A0" }}>Media, links, and docs</span>
+          <span style={{ fontFamily: "Inter", fontSize: 14, color: "#8891A0", marginRight: 4 }}>{total}</span>
+          <ChevronRight size={18} color="#8891A0" />
+        </div>
+        {!hideMedia && (tiles.length > 0 || docs.length > 0) && (
+          <div style={{ display: "flex", gap: 4, counterIncrement: "lcgap-4", overflowX: "auto", padding: "0 22px 12px", scrollbarWidth: "none" }}>
+            {tiles.map(m => <img loading="lazy" decoding="async" key={m.id} src={m.file.data} alt={m.file.name} onClick={() => onOpenImage(m.file.data)} style={{ width: 84, height: 84, flexShrink: 0, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}
+            {tiles.length === 0 && docs.slice(-6).reverse().map(m => (
+              <div key={m.id} onClick={onOpenMedia} style={{ width: 84, height: 84, flexShrink: 0, borderRadius: 8, background: "#1E2530", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6", padding: 6, boxSizing: "border-box", cursor: "pointer" }}>
+                <Paperclip size={20} color="#35D0BA" /><span style={{ fontFamily: "Inter", fontSize: 10.5, color: "#9BA7B4", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.file.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {row("storage", ico(FolderIcon), "Manage storage", bytes ? fmtSize(bytes) : "0 KB", { onClick: onOpenMedia })}
+        <ProfileChatOptions chatId={conversation.id} token={token} onNote={onNote} muted={muted} onNotifications={onNotifications} onLock={onLock} setSheet={setPcSheet} mediaHidden={hideMedia} />
+        {line("l2")}
+        <div style={{ padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" }}>About</div>
+        <div style={{ padding: "4px 22px 12px", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" }}>{u.about || "Hey there! I am using Letschat Africa."}</div>
+        {line("l3")}
+        {groups.length > 0 && <div style={{ padding: "12px 22px 4px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" }}>{groups.length === 1 ? "1 group in common" : groups.length + " groups in common"}</div>}
+        {groups.map(g => row("g" + g.id, <span style={{ margin: "-8px 0", display: "flex" }}><Ring size={40} color="#7B6CF6" initials={(g.name || "G").slice(0, 1).toUpperCase()} photo={g.avatar} /></span>, g.name,
+          (g.members || []).filter(m => m.id !== myId).map(m => m.name).join(", ")))}
+        {row("addgrp", React.createElement("span", { style: { width: 40, height: 40, borderRadius: "50%", background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" } }, React.createElement(Users, { size: 20, color: "#35D0BA" })), "Add to group", addable.length === 0 ? "Groups you manage appear here" : addable.length === 1 ? "1 group you manage" : addable.length + " groups you manage", { onClick: () => setPcSheet("addgroup") })}
+        {row("newgrp", <span style={{ width: 40, height: 40, borderRadius: "50%", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", margin: "-8px 0" }}><Users size={20} color="#0E1116" /></span>, "Create group with " + u.name, null, { onClick: () => onNewGroup(u.id) })}
+        {line("l4")}
+        {row("clear", <Trash2 size={22} color="#FF6B5D" />, "Clear chat", null, { color: "#FF6B5D", onClick: onClear })}
+        {row("block", <Ban size={22} color="#FF6B5D" />, (iBlocked ? "Unblock " : "Block ") + u.name, null, { color: "#FF6B5D", onClick: onBlock })}
+        {row("report", <ThumbsDown size={22} color="#FF6B5D" />, "Report " + u.name, null, { color: "#FF6B5D", onClick: onReport })}
+      </div>
+      <ProfileChatSheets sheet={pcSheet} chatId={conversation.id} token={token} contact={u} addable={addable} mediaVis={mv} onMediaVis={(v) => { saveJSON("mediaVis:" + conversation.id, v); setMv(v); }} onNote={onNote} onClose={() => setPcSheet(null)} />
+      {noteOpen && (
+        <SheetFrame title={"Notes about " + u.name} onClose={() => setNoteOpen(false)}>
+          <textarea value={noteText} onChange={e => setNoteText(e.target.value)} maxLength={500} rows={5} placeholder="Only you can see these notes" style={{ width: "100%", boxSizing: "border-box", background: "#0E1116", border: "1px solid #2B3544", borderRadius: 12, padding: 12, color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", resize: "none" }} />
+          <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5", margin: "6px 2px 14px" }}>Saved on this device only.</div>
+          <button onClick={saveNote} style={{ ...smallBtn, width: "100%", padding: "12px", fontSize: 14 }}>Save</button>
+        </SheetFrame>
+      )}
+      {zoom && <ImageZoomModal photo={u.avatar} initials={u.initials} color={u.color} onClose={() => setZoom(false)} />}
+    </div>
+  );
+}
+
+// ---- make web links inside messages tappable ----
+function withLinks(node) {
+  if (Array.isArray(node)) return node.map((n, i) => (typeof n === "string" ? <React.Fragment key={"l" + i}>{withLinks(n)}</React.Fragment> : n));
+  if (typeof node !== "string" || node.indexOf("http") < 0) return node;
+  return node.split(/(https?:\/\/[^\s]+)/g).map((part, i) => (/^https?:\/\//.test(part)
+    ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: "#7FE3D3", textDecoration: "underline", wordBreak: "break-all" }}>{part}</a>
+    : part));
+}
+
+// ---- quick-reply suggestions (the "Suggestions" button in the message box) ----
+function quickReplies(msgs, myId) {
+  let last = null;
+  for (let i = msgs.length - 1; i >= 0; i--) { const x = msgs[i]; if (x.senderId !== myId && !x.deleted && typeof x.text === "string" && !x.audio && !x.hasAudio && !x.file) { last = x.text.toLowerCase(); break; } }
+  if (!last) return ["Hi 👋", "Hello, how are you?", "Good day"];
+  if (/\b(thanks|thank you|thx)\b/.test(last)) return ["You're welcome", "No problem 👍", "Anytime"];
+  if (/^(hi|hello|hey|good (morning|afternoon|evening))\b/.test(last)) return ["Hi 👋", "Hello, how are you?", "I'm good, you?"];
+  if (/\?\s*$/.test(last)) return ["Yes", "No", "Maybe", "Let me check", "I'll get back to you"];
+  if (/\b(when|what time)\b/.test(last)) return ["Today", "Tomorrow", "In a few minutes", "I'll let you know"];
+  return ["Okay 👍", "Thanks!", "Noted", "Call me", "I'll get back to you"];
+}
+
+// ---- chat menu helpers: theme, media/links/docs, mute ----
+// Money-and-games doodle wallpaper (original line icons: coins, notes, naira, dice, gamepads, cards, trophy, crown...). Drawn as a repeating SVG tile so it stays crisp and costs ~2 KB.
+const DOODLE_TILE = "url(\"data:image/svg+xml," + encodeURIComponent("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"360\" height=\"360\" viewBox=\"0 0 360 360\"><g fill=\"none\" stroke=\"#fff\" stroke-opacity=\".12\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"translate(8 10) rotate(-14 14 14) scale(1.15)\"><path d=\"M2 4h4l3 14h14l3-10H7\"/><circle cx=\"11\" cy=\"23\" r=\"1.8\"/><circle cx=\"21\" cy=\"23\" r=\"1.8\"/><circle cx=\"16\" cy=\"11.5\" r=\"3.6\"/><path d=\"M14.4 11v.1M17.6 11v.1M14.2 12.8c1 1.2 2.6 1.2 3.6 0\"/></g><g transform=\"translate(80 18) rotate(10 14 14) scale(1.15)\"><path d=\"M14 25C3 18 1 11 5.5 7a5.3 5.3 0 0 1 8.5 2 5.3 5.3 0 0 1 8.5-2C27 11 25 18 14 25z\"/></g><g transform=\"translate(152 10) rotate(-8 14 14) scale(1.15)\"><circle cx=\"6\" cy=\"19\" r=\"5\"/><circle cx=\"23\" cy=\"19\" r=\"5\"/><path d=\"M6 19l5-9h8l4 9M11 10l5 9 3-9M9 7h4M18 10l-1-3h3\"/></g><g transform=\"translate(224 18) rotate(16 14 14) scale(1.15)\"><path d=\"M14 9c-3-2.5-10-1-10 6 0 5 3.5 11 7 11 1.5 0 2-.8 3-.8s1.5.8 3 .8c3.5 0 7-6 7-11 0-7-7-8.5-10-6z\"/><path d=\"M14 9c0-3 1.5-5.5 5-6.5\"/></g><g transform=\"translate(296 10) rotate(-18 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"14\" r=\"12\"/><circle cx=\"14\" cy=\"14\" r=\"8.5\"/><path d=\"M10 9l8 10M18 9l-8 10M9.5 12.5h9M9.5 15.5h9\"/></g><g transform=\"translate(44 82) rotate(6 14 14) scale(1.15)\"><rect x=\"5\" y=\"5\" width=\"18\" height=\"13\" rx=\"1.5\"/><path d=\"M1 22h26l-2.5 3h-21z\"/></g><g transform=\"translate(116 90) rotate(12 14 14) scale(1.15)\"><path d=\"M3 4h22v15H12l-6 5v-5H3z\"/><path d=\"M8 9h12M8 13h8\"/></g><g transform=\"translate(188 82) rotate(-10 14 14) scale(1.15)\"><path d=\"M14 6c-3.5-2.5-8-2.5-12-1v17c4-1.5 8.5-1.5 12 1 3.5-2.5 8-2.5 12-1V5c-4-1.5-8.5-1.5-12 1z\"/><path d=\"M14 6v17\"/></g><g transform=\"translate(260 90) rotate(18 14 14) scale(1.15)\"><rect x=\"3\" y=\"3\" width=\"22\" height=\"22\" rx=\"5.5\"/><circle cx=\"9.5\" cy=\"9.5\" r=\"1.5\"/><circle cx=\"18.5\" cy=\"9.5\" r=\"1.5\"/><circle cx=\"14\" cy=\"14\" r=\"1.5\"/><circle cx=\"9.5\" cy=\"18.5\" r=\"1.5\"/><circle cx=\"18.5\" cy=\"18.5\" r=\"1.5\"/></g><g transform=\"translate(332 82) rotate(-6 14 14) scale(1.15)\"><rect x=\"2\" y=\"7\" width=\"24\" height=\"16\" rx=\"2.5\"/><path d=\"M9 2l5 5 5-5M9 26h10\"/></g><g transform=\"translate(-28 82) rotate(-6 14 14) scale(1.15)\"><rect x=\"2\" y=\"7\" width=\"24\" height=\"16\" rx=\"2.5\"/><path d=\"M9 2l5 5 5-5M9 26h10\"/></g><g transform=\"translate(8 154) rotate(8 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"9\" r=\"5.5\"/><path d=\"M8.5 8c.5-4.5 10.5-4.5 11 0M6 27v-3a8 8 0 0 1 16 0v3\"/><path d=\"M12 9.5v.1M16 9.5v.1M12.5 11.5c1 1 2 1 3 0\"/></g><g transform=\"translate(80 162) rotate(-16 14 14) scale(1.15)\"><rect x=\"1\" y=\"6\" width=\"26\" height=\"16\" rx=\"2.5\"/><circle cx=\"14\" cy=\"14\" r=\"4\"/><path d=\"M5 10v.1M23 18v.1\"/></g><g transform=\"translate(152 154) rotate(14 14 14) scale(1.15)\"><path d=\"M4 25l1.5-6.5L20 4l5 5L10.5 23.5z\"/><path d=\"M16.5 7.5l5 5M5.5 18.5l5 5\"/></g><g transform=\"translate(224 162) rotate(-4 14 14) scale(1.15)\"><path d=\"M7 7h14a6.5 6.5 0 0 1 6.5 6.5v2a4.5 4.5 0 0 1-8 2.8L18 17H10l-1.5 1.3a4.5 4.5 0 0 1-8-2.8v-2A6.5 6.5 0 0 1 7 7z\"/><path d=\"M8.5 11v5M6 13.5h5\"/><circle cx=\"20\" cy=\"12.5\" r=\"1.1\"/><circle cx=\"23.5\" cy=\"15\" r=\"1.1\"/></g><g transform=\"translate(296 154) rotate(-12 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"9\" r=\"5.5\"/><circle cx=\"6.5\" cy=\"8\" r=\"2.3\"/><circle cx=\"21.5\" cy=\"8\" r=\"2.3\"/><path d=\"M14 15l-7 12h14z\"/><path d=\"M12 9.5v.1M16 9.5v.1M12.5 11.5c1 1 2 1 3 0\"/></g><g transform=\"translate(44 226) rotate(10 14 14) scale(1.15)\"><ellipse cx=\"14\" cy=\"8.5\" rx=\"5.5\" ry=\"7\"/><path d=\"M14 15.5V27\"/></g><g transform=\"translate(116 234) rotate(-20 14 14) scale(1.15)\"><path d=\"M3 22h22M4 22V9l6 5 4-8 4 8 6-5v13\"/><path d=\"M3 26h22\"/></g><g transform=\"translate(188 226) rotate(6 14 14) scale(1.15)\"><path d=\"M2 3h15v10H8l-4 3.5V13H2z\"/><path d=\"M13 16h12v8h-2v3.5L19 24h-6z\"/></g><g transform=\"translate(260 234) rotate(16 14 14) scale(1.15)\"><path d=\"M7 3h14v8a7 7 0 0 1-14 0z\"/><path d=\"M7 5H2v3a4 4 0 0 0 4 4M21 5h5v3a4 4 0 0 1-4 4M14 18v5M8 26h12\"/></g><g transform=\"translate(332 226) rotate(-8 14 14) scale(1.15)\"><path d=\"M14 2c4 5 11 8 11 14a6 6 0 0 1-11 3 6 6 0 0 1-11-3C3 10 10 7 14 2z\"/><path d=\"M10 27h8M14 20v7\"/></g><g transform=\"translate(-28 226) rotate(-8 14 14) scale(1.15)\"><path d=\"M14 2c4 5 11 8 11 14a6 6 0 0 1-11 3 6 6 0 0 1-11-3C3 10 10 7 14 2z\"/><path d=\"M10 27h8M14 20v7\"/></g><g transform=\"translate(8 298) rotate(12 14 14) scale(1.15)\"><path d=\"M14 25C3 18 1 11 5.5 7a5.3 5.3 0 0 1 8.5 2 5.3 5.3 0 0 1 8.5-2C27 11 25 18 14 25z\"/></g><g transform=\"translate(80 306) rotate(-14 14 14) scale(1.15)\"><path d=\"M14 2l3.5 7.5 8 1-6 5.5 1.7 8L14 20l-7.2 4 1.7-8-6-5.5 8-1z\"/></g><g transform=\"translate(152 298) rotate(8 14 14) scale(1.15)\"><path d=\"M2 4h4l3 14h14l3-10H7\"/><circle cx=\"11\" cy=\"23\" r=\"1.8\"/><circle cx=\"21\" cy=\"23\" r=\"1.8\"/><circle cx=\"16\" cy=\"11.5\" r=\"3.6\"/><path d=\"M14.4 11v.1M17.6 11v.1M14.2 12.8c1 1.2 2.6 1.2 3.6 0\"/></g><g transform=\"translate(224 306) rotate(-10 14 14) scale(1.15)\"><circle cx=\"14\" cy=\"14\" r=\"12\"/><circle cx=\"14\" cy=\"14\" r=\"8.5\"/><path d=\"M10 9l8 10M18 9l-8 10M9.5 12.5h9M9.5 15.5h9\"/></g><g transform=\"translate(296 298) rotate(4 14 14) scale(1.15)\"><path d=\"M14 9c-3-2.5-10-1-10 6 0 5 3.5 11 7 11 1.5 0 2-.8 3-.8s1.5.8 3 .8c3.5 0 7-6 7-11 0-7-7-8.5-10-6z\"/><path d=\"M14 9c0-3 1.5-5.5 5-6.5\"/></g></g></svg>") + "\") 0 0 / 360px 360px repeat";
+const themeBg = (t) => (t.img ? "url(" + t.img + ") center top / cover no-repeat, " + t.bg : t.plain ? t.bg : DOODLE_TILE + ", " + t.bg);
+// The composer strip under the chat can't show a cropped photo, so image themes use their solid colour there.
+const themeBar = (t) => t.bg;
+const CHAT_THEMES = [
+  { id: "lcdark", name: "Letschat dark", bg: "#050505", img: "wallpaper-dark.webp" }, { id: "lccolor", name: "Letschat colour", bg: "#050505", img: "wallpaper-color.webp" }, { id: "default", name: "Default", bg: "#0B0E13" }, { id: "midnight", name: "Midnight", bg: "#0A1224" }, { id: "forest", name: "Forest", bg: "#0A1711" },
+  { id: "plum", name: "Plum", bg: "#170F1C" }, { id: "ember", name: "Ember", bg: "#1C1009" }, { id: "slate", name: "Slate", bg: "#12171E" }, { id: "black", name: "Pure black", bg: "#000000" },
+  { id: "plain", name: "No doodles", bg: "#0B0E13", plain: true },
+];
+function SheetFrame({ title, onClose, children, tall }) {
+  return (
+    <div className="lc-sheet" style={{ ...sheet, zIndex: 65 }} onClick={onClose}>
+      <div className="lc-sheet-card" onClick={e => e.stopPropagation()} style={{ ...card, ...(tall ? { height: "80%" } : {}) }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" }}>{title}</div>
+          <button aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><X size={20} color="#8891A0" /></button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+function ChatThemeSheet({ current, onPick, onClose }) {
+  return (
+    <SheetFrame title="Chat theme" onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, counterIncrement: "lcgap-12" }}>
+        {CHAT_THEMES.map(t => (
+          <button key={t.id} onClick={() => onPick(t.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "center" }}>
+            <div style={{ height: 64, borderRadius: 14, background: themeBg(t), border: current === t.id ? "2px solid #35D0BA" : "1px solid #2B3544", display: "flex", alignItems: "center", justifyContent: "center" }}>{current === t.id && <Check size={20} color="#35D0BA" strokeWidth={3} />}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#B9C2CC", marginTop: 6 }}>{t.name}</div>
+          </button>
+        ))}
+      </div>
+    </SheetFrame>
+  );
+}
+// ---- disappearing messages + view-once media ----
+const DISAPPEAR_OPTIONS = [[0, "Off"], [3600, "1 hour"], [86400, "24 hours"], [604800, "7 days"]];
+const disappearLabel = (s) => (DISAPPEAR_OPTIONS.find((o) => o[0] === s) || [0, "custom"])[1];
+function timeLeft(at) {
+  const ms = at - Date.now();
+  if (ms <= 0) return "now";
+  const m = Math.ceil(ms / 60000);
+  if (m < 60) return m + "m";
+  const h = Math.ceil(m / 60);
+  return h < 24 ? h + "h" : Math.ceil(h / 24) + "d";
+}
+function ExpiryTag({ at }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(t); }, []);
+  return React.createElement("span", { title: "Disappears automatically", style: { fontSize: 10.5, color: "#B9C2CC" } }, "\u23F1 " + timeLeft(at));
+}
+function DisappearSheet({ current, onPick, onClose }) {
+  return React.createElement(SheetFrame, { title: "Disappearing messages", onClose },
+    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", margin: "0 16px 6px" } }, "New messages in this chat are removed for everyone after the time you pick. Messages already sent are not affected."),
+    DISAPPEAR_OPTIONS.map(([s, label]) => React.createElement("div", { key: s, role: "button", tabIndex: 0, onClick: () => onPick(s), onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(s); } }, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 16px", borderBottom: "1px solid #1B212B", cursor: "pointer", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } },
+      React.createElement("span", null, label), current === s ? React.createElement("span", { style: { color: "#35D0BA", fontWeight: 700 } }, "\u2713") : null)));
+}
+function ViewOnceBubble({ m, mine, myId, socket }) {
+  const [shown, setShown] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const isVid = /^video\//.test((m.file && m.file.mime) || "");
+  const viewedBy = m.viewedBy || [];
+  const opened = viewedBy.includes(myId) || !!(m.file && m.file.gone);
+  const caption = m.text && !/^[\u{1F4F7}\u{1F3A5}] (View once|Photo)/u.test(m.text) ? m.text : "";
+  const open = () => {
+    if (!socket || busy || opened || mine) return;
+    setBusy(true); setErr("");
+    socket.emit("message:view-once", { messageId: m.id }, (ack) => {
+      setBusy(false);
+      if (!ack || ack.error) return setErr((ack && ack.error) || "Could not open this");
+      setShown(ack.file);
+    });
+  };
+  useEffect(() => {
+    if (!shown) return;
+    const k = (e) => { if (e.key === "Escape") { e.stopPropagation(); setShown(null); } };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [shown]);
+  const canOpen = !mine && !opened;
+  const status = mine ? (viewedBy.length ? "Opened" : "Not opened yet") : opened ? "Opened" : busy ? "Opening\u2026" : "Tap to view once";
+  const guard = { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" };
+  return React.createElement("div", null,
+    React.createElement("div", { role: canOpen ? "button" : undefined, tabIndex: canOpen ? 0 : undefined, "aria-label": canOpen ? "Open view once " + (isVid ? "video" : "photo") : undefined, onClick: canOpen ? open : undefined, onKeyDown: canOpen ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } : undefined, style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", minWidth: 190, cursor: canOpen ? "pointer" : "default", opacity: canOpen || mine ? 1 : 0.6 } },
+      React.createElement("span", { "aria-hidden": "true", style: { width: 38, height: 38, borderRadius: "50%", border: "2px dashed " + (canOpen ? "#35D0BA" : "#8891A0"), color: canOpen ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Sora", fontWeight: 800, fontSize: 15, flexShrink: 0 } }, "1"),
+      React.createElement("span", { style: { minWidth: 0 } },
+        React.createElement("span", { style: { display: "block", fontWeight: 600, fontSize: 14 } }, isVid ? "Video" : "Photo"),
+        React.createElement("span", { style: { display: "block", fontSize: 12, color: "#B9C2CC" } }, status))),
+    caption ? React.createElement("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 6 } }, caption) : null,
+    err ? React.createElement("div", { role: "alert", style: { fontSize: 12, color: "#FF8A7D", marginTop: 4 } }, err) : null,
+    shown ? React.createElement("div", { role: "dialog", "aria-label": "View once " + (isVid ? "video" : "photo"), style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 95, background: "#000", display: "flex", flexDirection: "column", ...guard }, onContextMenu: (e) => e.preventDefault() },
+      React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "12px 10px", flexShrink: 0 } },
+        React.createElement("button", { onClick: () => setShown(null), "aria-label": "Close", style: { background: "none", border: "none", padding: 8, cursor: "pointer", display: "flex" } }, React.createElement(X, { size: 26, color: "#F5F7FA" })),
+        React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#B9C2CC", marginLeft: 6 } }, "View once \u00B7 it can't be opened again")),
+      React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 8 } },
+        isVid ? React.createElement("video", { src: shown.data, controls: true, autoPlay: true, playsInline: true, controlsList: "nodownload noremoteplayback", disablePictureInPicture: true, style: { maxWidth: "100%", maxHeight: "100%" } })
+              : React.createElement("img", { src: shown.data, alt: "", draggable: false, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", ...guard, pointerEvents: "none" } })),
+      caption ? React.createElement("div", { style: { padding: "10px 16px 18px", color: "#F5F7FA", textAlign: "center", fontFamily: "Inter", fontSize: 15 } }, caption) : null) : null);
+}
+// ---- polls and scheduled messages ----
+function PollBubble({ m, myId, socket }) {
+  const p = m.poll || { question: "", options: [], votes: {} };
+  const [err, setErr] = useState("");
+  const votes = p.votes || {};
+  const voters = new Set(Object.keys(votes).flatMap((k) => votes[k] || []));
+  const total = voters.size;
+  const vote = (id) => { if (!socket) return; setErr(""); socket.emit("poll:vote", { messageId: m.id, optionId: id }, (ack) => { if (ack && ack.error) setErr(ack.error); }); };
+  return React.createElement("div", { style: { minWidth: 210, maxWidth: 270 } },
+    React.createElement("div", { style: { fontWeight: 700, fontSize: 15, marginBottom: 2, overflowWrap: "anywhere" } }, "\uD83D\uDCCA " + p.question),
+    React.createElement("div", { style: { fontSize: 11.5, color: "#B9C2CC", marginBottom: 8 } }, p.multi ? "Select one or more" : "Select one"),
+    (p.options || []).map((o) => {
+      const ids = votes[o.id] || [], mineV = ids.includes(myId), pct = total ? Math.round((ids.length / total) * 100) : 0;
+      return React.createElement("button", { key: o.id, onClick: () => vote(o.id), "aria-pressed": mineV, "aria-label": o.text + ", " + ids.length + (ids.length === 1 ? " vote" : " votes") + (mineV ? ", your choice" : ""), style: { position: "relative", display: "block", width: "100%", textAlign: "left", overflow: "hidden", marginBottom: 6, padding: "9px 12px", borderRadius: 10, border: "1px solid " + (mineV ? "#35D0BA" : "rgba(255,255,255,.14)"), background: "rgba(0,0,0,.18)", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, cursor: "pointer" } },
+        React.createElement("span", { "aria-hidden": "true", style: { position: "absolute", left: 0, top: 0, bottom: 0, width: pct + "%", background: mineV ? "rgba(53,208,186,.35)" : "rgba(255,255,255,.10)", transition: "width .3s" } }),
+        React.createElement("span", { style: { position: "relative", display: "flex", justifyContent: "space-between", gap: 10, counterIncrement: "lcgap-10" } },
+          React.createElement("span", { style: { overflowWrap: "anywhere" } }, (mineV ? "\u2713 " : "") + o.text),
+          React.createElement("span", { style: { color: "#B9C2CC", flexShrink: 0 } }, ids.length)));
+    }),
+    React.createElement("div", { style: { fontSize: 11.5, color: "#B9C2CC" } }, total + (total === 1 ? " vote" : " votes")),
+    err ? React.createElement("div", { role: "alert", style: { fontSize: 12, color: "#FF8A7D", marginTop: 4 } }, err) : null);
+}
+function PollSheet({ onSend, onClose }) {
+  const [q, setQ] = useState("");
+  const [opts, setOpts] = useState(["", ""]);
+  const [multi, setMulti] = useState(false);
+  const clean = opts.map((o) => o.trim()).filter(Boolean);
+  const ok = q.trim() && clean.length >= 2 && new Set(clean.map((o) => o.toLowerCase())).size === clean.length;
+  const field = { width: "100%", boxSizing: "border-box", background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "12px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 8 };
+  return React.createElement(SheetFrame, { title: "Create poll", onClose },
+    React.createElement("div", { style: { padding: "0 16px 18px", overflowY: "auto" } },
+      React.createElement("input", { value: q, maxLength: 200, autoFocus: true, onChange: (e) => setQ(e.target.value), placeholder: "Ask a question", "aria-label": "Poll question", style: field }),
+      opts.map((o, i) => React.createElement("input", { key: i, value: o, maxLength: 80, onChange: (e) => setOpts((a) => a.map((x, j) => (j === i ? e.target.value : x))), placeholder: "Option " + (i + 1), "aria-label": "Option " + (i + 1), style: field })),
+      opts.length < 6 ? React.createElement("button", { onClick: () => setOpts((a) => [...a, ""]), style: { background: "none", border: "none", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer", padding: "6px 2px" } }, "+ Add option") : null,
+      React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", margin: "10px 2px 14px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } },
+        React.createElement("input", { type: "checkbox", checked: multi, onChange: (e) => setMulti(e.target.checked) }), "Allow more than one answer"),
+      React.createElement("button", { disabled: !ok, onClick: () => onSend({ question: q.trim(), options: clean, multi }), style: { width: "100%", padding: "13px 0", borderRadius: 12, border: "none", background: ok ? "#35D0BA" : "#2B3544", color: ok ? "#05070A" : "#8891A0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: ok ? "pointer" : "default" } }, "Send poll")));
+}
+const toLocalInput = (ms) => new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+function ScheduleSheet({ conversationId, socket, onClose }) {
+  const [text, setText] = useState("");
+  const [when, setWhen] = useState(() => toLocalInput(Date.now() + 3600000));
+  const [items, setItems] = useState([]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => { if (socket) socket.emit("message:scheduled:list", { conversationId }, (ack) => ack && ack.items && setItems(ack.items)); };
+  useEffect(() => { load(); }, []);
+  const save = () => {
+    const at = new Date(when).getTime();
+    if (!text.trim()) return setErr("Type the message to schedule");
+    if (!at || at < Date.now() + 5000) return setErr("Pick a time in the future");
+    if (!socket) return setErr("Not connected yet. Try again in a moment.");
+    setBusy(true); setErr("");
+    socket.emit("message:schedule", { conversationId, text: text.trim(), sendAt: at }, (ack) => { setBusy(false); if (ack && ack.error) return setErr(ack.error); setText(""); load(); });
+  };
+  const cancel = (id) => socket && socket.emit("message:schedule:cancel", { id }, () => load());
+  const field = { width: "100%", boxSizing: "border-box", background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "12px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 8, colorScheme: "dark" };
+  return React.createElement(SheetFrame, { title: "Schedule message", onClose },
+    React.createElement("div", { style: { padding: "0 16px 18px", overflowY: "auto" } },
+      React.createElement("textarea", { value: text, rows: 3, maxLength: 15000, onChange: (e) => setText(e.target.value), placeholder: "Message to send later", "aria-label": "Message to send later", style: { ...field, resize: "none" } }),
+      React.createElement("input", { type: "datetime-local", value: when, min: toLocalInput(Date.now()), onChange: (e) => setWhen(e.target.value), "aria-label": "Send time", style: field }),
+      err ? React.createElement("div", { role: "alert", style: { fontSize: 13, color: "#FF8A7D", marginBottom: 8 } }, err) : null,
+      React.createElement("button", { disabled: busy, onClick: save, style: { width: "100%", padding: "13px 0", borderRadius: 12, border: "none", background: "#35D0BA", color: "#05070A", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer", marginBottom: 14 } }, busy ? "Scheduling\u2026" : "Schedule"),
+      items.length ? React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 13, color: "#8891A0", margin: "4px 2px 6px", textTransform: "uppercase", letterSpacing: 0.5 } }, "Waiting to send") : null,
+      items.map((x) => React.createElement("div", { key: x.id, style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "10px 2px", borderBottom: "1px solid #1B212B" } },
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+          React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, x.text),
+          React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0" } }, "\u23F0 " + new Date(x.sendAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))),
+        React.createElement("button", { onClick: () => cancel(x.id), "aria-label": "Cancel scheduled message", style: { background: "none", border: "1px solid #3A4656", borderRadius: 999, color: "#FF8A7D", fontFamily: "Inter", fontSize: 12.5, padding: "6px 12px", cursor: "pointer" } }, "Cancel")))));
+}
+// ---- link previews: a small card (picture, title, summary) under web links; the server fetches the page ----
+const _lpCache = new Map();
+function firstPreviewUrl(text) {
+  if (typeof text !== "string" || text.indexOf("http") < 0) return null;
+  const m = /https?:\/\/[^\s<>"]+/i.exec(text);
+  if (!m) return null;
+  const url = m[0].replace(/[).,!?;:'"\]]+$/, "");
+  try { const u = new URL(url); if (u.origin === window.location.origin || /[?&](call|open)=/.test(u.search)) return null; } catch (e) { return null; }
+  return url;
+}
+function LinkPreview({ url, token }) {
+  const [p, setP] = useState(() => (_lpCache.has(url) ? _lpCache.get(url) : undefined));
+  const [imgOk, setImgOk] = useState(true);
+  useEffect(() => {
+    if (!url) return;
+    if (_lpCache.has(url)) { setP(_lpCache.get(url)); return; }
+    let live = true;
+    api("/api/v1/link-preview?url=" + encodeURIComponent(url), { token })
+      .then((d) => { const v = (d && d.preview) || null; _lpCache.set(url, v); if (live) setP(v); })
+      .catch(() => { if (live) setP(null); });
+    return () => { live = false; };
+  }, [url]);
+  if (!p || (!p.title && !p.description)) return null;
+  const clamp = (n) => ({ display: "-webkit-box", WebkitLineClamp: n, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" });
+  return (
+    <a href={p.url || url} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none", marginTop: 6, minWidth: 200, background: "rgba(0,0,0,0.22)", borderLeft: "4px solid #35D0BA", borderRadius: 10, overflow: "hidden", color: "#F5F7FA" }}>
+      {p.image && imgOk && <img src={p.image} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setImgOk(false)} style={{ display: "block", width: "100%", maxHeight: 150, objectFit: "cover", background: "#0E1116" }} />}
+      <div style={{ padding: "7px 10px 8px" }}>
+        <div style={{ fontSize: 11.5, color: "#9BA7B4", marginBottom: 2 }}>{p.site}</div>
+        {p.title && <div style={{ fontWeight: 700, fontSize: 13.5, ...clamp(2) }}>{p.title}</div>}
+        {p.description && <div style={{ fontSize: 12.5, color: "#C5CDD8", marginTop: 2, ...clamp(3) }}>{p.description}</div>}
+      </div>
+    </a>
+  );
+}
+
+// ---- @mentions in groups: "@Name" in the text; the ids are stored on the message so the person is notified ----
+function mentionIdsIn(text, members, myId) {
+  if (typeof text !== "string" || text.indexOf("@") < 0) return [];
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (members || []).filter((u) => {
+    if (!u || u.id === myId || !u.name) return false;
+    try { return new RegExp("(^|\\s)@" + esc(u.name) + "(?![\\p{L}\\p{N}_])", "iu").test(text); } catch (e) { return false; }
+  }).map((u) => u.id).slice(0, 20);
+}
+function withMentions(node, list) {
+  if (!list || !list.length) return node;
+  if (Array.isArray(node)) return node.map((n, i) => (typeof n === "string" ? <React.Fragment key={"m" + i}>{withMentions(n, list)}</React.Fragment> : React.isValidElement(n) && n.props && n.props.children != null ? React.cloneElement(n, undefined, withMentions(n.props.children, list)) : n));
+  if (typeof node !== "string" || node.indexOf("@") < 0) return node;
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("(^|\\s)@(" + list.map((x) => esc(x.name)).sort((a, b) => b.length - a.length).join("|") + ")(?![\\p{L}\\p{N}_])", "giu");
+  const out = []; let last = 0, k = 0, m;
+  while ((m = re.exec(node))) {
+    const start = m.index + m[1].length;
+    if (start > last) out.push(node.slice(last, start));
+    const hit = list.find((x) => x.name.toLowerCase() === m[2].toLowerCase());
+    out.push(<span key={"mn" + k++} style={{ color: hit && hit.me ? "#FFD479" : "#7FE3D3", fontWeight: 700, background: hit && hit.me ? "rgba(242,184,75,.2)" : "transparent", borderRadius: 4, padding: "0 2px" }}>{"@" + m[2]}</span>);
+    last = re.lastIndex;
+  }
+  if (last < node.length) out.push(node.slice(last));
+  return out;
+}
+
+// ---- message effects: confetti / floating hearts, and big emoji-only messages ----
+function fxKindOf(t) {
+  if (typeof t !== "string" || t.length > 200) return null;
+  const s = t.toLowerCase();
+  if (/🎉|🥳|congrat|happy birthday|well done|\bhbd\b/.test(s)) return "confetti";
+  if (/^(\s*(❤️?|😍|💖|💕|💗|🥰)\s*)+$/.test(t) || /i love you|\bilu\b/.test(s)) return "hearts";
+  return null;
+}
+const EMOJI_ONLY_RE = /^(?:\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}])*\s*){1,3}$/u;
+const bigEmoji = (t) => typeof t === "string" && t.length <= 40 && EMOJI_ONLY_RE.test(t.trim());
+const reducedMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+function MsgFx({ kind, onDone }) {
+  useEffect(() => { const t = setTimeout(onDone, 3600); return () => clearTimeout(t); }, []);
+  const colors = ["#35D0BA", "#F2B84B", "#8B7CF6", "#FF6B5D", "#4FA8E0", "#FFFFFF"], hearts = ["❤️", "💖", "💕", "😍"];
+  const items = useRef(Array.from({ length: kind === "confetti" ? 36 : 14 }, (_, i) => ({ left: Math.random() * 100, dx: (Math.random() - 0.5) * 160, d: Math.random() * 0.5, t: 1.8 + Math.random() * 1.2, rot: 360 + Math.random() * 540, c: colors[i % colors.length], e: hearts[i % hearts.length] }))).current;
+  return (
+    <div className={"lc-fx " + (kind === "confetti" ? "lc-confetti" : "lc-hearts")} aria-hidden="true">
+      {items.map((x, i) => <i key={i} style={{ left: x.left + "%", "--dx": x.dx + "px", "--d": x.d + "s", "--t": x.t + "s", "--rot": x.rot + "deg", background: kind === "confetti" ? x.c : undefined }}>{kind === "hearts" ? x.e : null}</i>)}
+    </div>
+  );
+}
+
+// ---- message ticks (WhatsApp style): one grey tick = sent, two grey = delivered, two GREEN = read ----
+function Tick({ state, size = 15, onBubble }) {
+  const col = state === "read" ? (onBubble ? "#62E58C" : "#25D366") : (onBubble ? "#C3CBD3" : "#8E99A6");
+  const w = Math.round(size * 17.5 / 11 * 10) / 10;
+  return (
+    <svg key={state} className={state === "read" ? "lc-chip-pop" : undefined} width={w} height={size} viewBox="0 0 17.5 11" fill="none" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={state === "read" ? "Read" : state === "delivered" ? "Delivered" : "Sent"} style={{ flexShrink: 0, transition: "stroke .3s ease", verticalAlign: "-2px" }}>
+      <path d="M1.1 6.2 4.4 9.5 10.6 1.6" />
+      {state !== "sent" && <path d="M8.1 8.5 9 9.5 16 1.6" />}
+    </svg>
+  );
+}
+const tickState = (m) => (!m ? null : m.read || (m.readBy && m.readBy.length) ? "read" : m.delivered ? "delivered" : "sent");
+
+// ---- delete dialog (like the Android one): Delete for everyone / Delete for me / Cancel ----
+function DeleteDialog({ count, canEveryone, onEveryone, onMe, onClose }) {
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, []);
+  const btn = { background: "none", border: "none", cursor: "pointer", color: "#C6D03C", fontFamily: "Inter", fontWeight: 500, fontSize: 18, padding: "13px 4px", textAlign: "right", width: "100%" };
+  return (
+    <div className="lc-sheet" onClick={onClose} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 120, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 22px" }}>
+      <div role="alertdialog" aria-label="Delete message" className="lc-pop" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 400, background: "#111A22", borderRadius: 28, padding: "24px 26px 14px", boxShadow: "0 18px 50px rgba(0,0,0,.6)" }}>
+        <div style={{ fontFamily: "Inter", fontSize: 19, color: "#C5CDD8", marginBottom: 18 }}>{count > 1 ? "Delete " + count + " messages?" : "Delete message?"}</div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+          {canEveryone && <button onClick={onEveryone} style={btn}>Delete for everyone</button>}
+          <button onClick={onMe} style={btn}>Delete for me</button>
+          <button onClick={onClose} style={btn}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- starred messages (kept on this device, per chat) ----
+function StarredSheet({ stars, conversation, myId, onJump, onUnstar, onClose }) {
+  const list = Object.values(stars || {}).sort((a, b) => b.time - a.time);
+  const who = (id) => (id === myId ? "You" : ((conversation.members || []).find((u) => u.id === id) || (conversation.other && conversation.other.id === id ? conversation.other : null) || {}).name || "Former member");
+  return (
+    <SheetFrame title="Starred messages" onClose={onClose} tall>
+      {list.length === 0 && <div style={{ fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", padding: "18px 4px", lineHeight: 1.5 }}>Nothing starred yet. Long-press a message, tap the ⋮ menu and choose Star to keep it here.</div>}
+      {list.map((x) => (
+        <div key={x.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, counterIncrement: "lcgap-10", padding: "12px 4px", borderBottom: "1px solid #1B212B" }}>
+          <div onClick={() => onJump(x.id)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA", fontWeight: 600 }}>{who(x.senderId)} · {new Date(x.time).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", marginTop: 3, ...{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }}>{x.text}</div>
+          </div>
+          <button aria-label="Remove star" onClick={() => onUnstar(x.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 6, fontSize: 18 }}>⭐</button>
+        </div>
+      ))}
+    </SheetFrame>
+  );
+}
+
+function PinnedBar({ pins, idx, onOpen }) {
+  const pn = [...pins].reverse(), i = idx % pn.length, p = pn[i];
+  return React.createElement("div", { role: "button", tabIndex: 0, "aria-label": "Pinned message: " + p.text, onClick: onOpen, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }, style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", cursor: "pointer", flexShrink: 0 } },
+    React.createElement("span", { "aria-hidden": "true" }, "\uD83D\uDCCC"),
+    React.createElement("span", { style: { flex: 1, minWidth: 0 } },
+      React.createElement("span", { style: { display: "block", fontSize: 11, color: "#35D0BA", fontFamily: "Inter", fontWeight: 600 } }, "Pinned message" + (pn.length > 1 ? " " + (i + 1) + "/" + pn.length : "")),
+      React.createElement("span", { style: { display: "block", fontSize: 13.5, color: "#F5F7FA", fontFamily: "Inter", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, p.text)));
+}
+// ---- chat extras kept on this device: drafts, "marked as unread" flags and chat lock ----
+const LCX = {
+  _c: {}, _m: {}, rd(k) { try { const v = LCX.rd(k); if (v !== null) return v; } catch (e) { } return LCX._m[k] === undefined ? null : LCX._m[k]; }, wr(k, v) { LCX._m[k] = v; try { localStorage.setItem(k, v); } catch (e) { } },
+  get(k, d) {
+    try { const raw = localStorage.getItem(k); if (!raw) return d; const c = LCX._c[k]; if (c && c.raw === raw) return c.v; const v = JSON.parse(raw); LCX._c[k] = { raw, v }; return v; } catch (e) { return d; }
+  },
+  put(k, v) { try { LCX.wr(k, JSON.stringify(v)); } catch (e) { } },
+  fire() { try { window.dispatchEvent(new Event("lcx")); } catch (e) { } },
+  draft(id) { return (LCX.get("lcx:draft", {}))[id] || ""; },
+  setDraft(id, t) { const d = { ...LCX.get("lcx:draft", {}) }; const had = d[id] !== undefined; if (t && t.trim()) d[id] = String(t).slice(0, 4000); else delete d[id]; if (had || d[id] !== undefined) LCX.put("lcx:draft", d); },
+  mark(id) { return !!(LCX.get("lcx:unread", {}))[id]; },
+  setMark(id, on) { const d = { ...LCX.get("lcx:unread", {}) }; if (on) d[id] = 1; else delete d[id]; LCX.put("lcx:unread", d); LCX.fire(); },
+  locked(id) { return !!(LCX.get("lcx:locked", {}))[id]; },
+  setLocked(id, on) { const d = { ...LCX.get("lcx:locked", {}) }; if (on) d[id] = 1; else delete d[id]; LCX.put("lcx:locked", d); LCX.fire(); },
+  unlocked: new Set(),
+  hasPin() { try { return !!LCX.rd("lcx:pin"); } catch (e) { return false; } },
+  async hash(pin) {
+    const text = "letschat-lock:" + pin;
+    try { const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)); return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join(""); }
+    catch (e) { let h = 5381; for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0; return "x" + h; }
+  },
+  async setPin(pin) { try { LCX.wr("lcx:pin", await LCX.hash(pin)); } catch (e) { } },
+  async check(pin) { try { return LCX.rd("lcx:pin") === (await LCX.hash(pin)); } catch (e) { return false; } },
+  preview(c, base) {
+    if (LCX.locked(c.id)) return "\uD83D\uDD12 Locked chat";
+    if (loadJSON("chatpriv:" + c.id, {}).hidePreview) return "Message hidden";
+    const d = LCX.draft(c.id);
+    return d ? "Draft: " + d.replace(/\s+/g, " ").slice(0, 80) : base;
+  },
+};
+try { document.addEventListener("visibilitychange", () => { if (document.hidden) LCX.unlocked.clear(); }); } catch (e) { } // locked chats ask for the PIN again after the app was in the background
+function LockPrompt({ mode, onDone, onCancel }) {
+  const [pin, setPin] = useState("");
+  const [first, setFirst] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fails = useRef({ n: 0, until: 0 });
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") { e.stopPropagation(); onCancel(); } };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, []);
+  const submit = async () => {
+    if (busy) return;
+    if (!/^\d{4,6}$/.test(pin)) return setErr("Use 4 to 6 digits");
+    if (mode === "enter" && Date.now() < fails.current.until) return setErr("Too many tries. Wait a few seconds.");
+    setBusy(true);
+    try {
+      if (mode === "enter") {
+        if (await LCX.check(pin)) onDone();
+        else { fails.current.n++; if (fails.current.n >= 5) { fails.current.until = Date.now() + 30000; fails.current.n = 0; } setErr("Wrong PIN"); setPin(""); }
+      } else if (!first) { setFirst(pin); setPin(""); setErr(""); }
+      else if (first === pin) { await LCX.setPin(pin); onDone(); }
+      else { setErr("The PINs didn't match. Start again."); setFirst(""); setPin(""); }
+    } finally { setBusy(false); }
+  };
+  const title = mode === "enter" ? "Enter your PIN" : first ? "Enter the PIN again" : "Choose a PIN for locked chats";
+  const hint = mode === "enter" ? "This chat is locked." : first ? "Type the same PIN to confirm." : "4 to 6 digits. You'll need it to open locked chats.";
+  return React.createElement("div", { role: "dialog", "aria-modal": "true", "aria-label": title, style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 100, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 } },
+    React.createElement("div", { style: { width: "100%", maxWidth: 340, textAlign: "center", fontFamily: "Inter, sans-serif" } },
+      React.createElement("div", { "aria-hidden": "true", style: { fontSize: 34, marginBottom: 8 } }, "\uD83D\uDD12"),
+      React.createElement("div", { style: { fontFamily: "Sora, sans-serif", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginBottom: 6 } }, title),
+      React.createElement("div", { style: { fontSize: 13, color: "#9BA7B4", marginBottom: 16 } }, hint),
+      React.createElement("input", { type: "password", inputMode: "numeric", autoComplete: "off", autoFocus: true, maxLength: 6, value: pin, "aria-label": "PIN", onChange: (e) => { setPin(e.target.value.replace(/\D/g, "")); setErr(""); }, onKeyDown: (e) => { if (e.key === "Enter") submit(); }, style: { width: "100%", boxSizing: "border-box", textAlign: "center", letterSpacing: "0.5em", fontSize: 24, padding: "12px 10px", borderRadius: 12, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", outline: "none" } }),
+      err ? React.createElement("div", { role: "alert", style: { color: "#FF8A7D", fontSize: 13, marginTop: 10 } }, err) : null,
+      React.createElement("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", marginTop: 18 } },
+        React.createElement("button", { onClick: onCancel, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: "#1E2530", color: "#F5F7FA", fontWeight: 600, fontSize: 15, cursor: "pointer" } }, "Cancel"),
+        React.createElement("button", { onClick: submit, disabled: busy, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: "#35D0BA", color: "#05070A", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, mode === "enter" ? "Unlock" : first ? "Confirm" : "Next"))));
+}
+// ---- contact profile chat options: chat lock toggle, media visibility, notifications, advanced chat privacy, security (plain JS on purpose: the same block is used in app.jsx and the compiled app.js) ----
+const PcBriefcase = makeIcon([["r", 2, 7, 20, 14, 2], ["p", "M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"]]);
+const PcShield = makeIcon([["p", "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"]]);
+const PcEyeOff = makeIcon([["p", "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"], ["p", "M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"], ["p", "m1 1 22 22"]]);
+function pcRow(key, icon, title, sub, onClick, right) {
+  const h = React.createElement;
+  return h("div", { key: key, onClick: onClick, style: { display: "flex", alignItems: "center", gap: 22, counterIncrement: "lcgap-22", padding: "13px 22px", cursor: onClick ? "pointer" : "default" } },
+    h("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0 } }, icon),
+    h("div", { style: { flex: 1, minWidth: 0 } },
+      h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" } }, title),
+      sub ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2, overflowWrap: "anywhere" } }, sub) : null),
+    right || null);
+}
+function ProfileChatOptions({ chatId, token, muted, onNotifications, onLock, setSheet, mediaHidden, onNote }) {
+  const h = React.createElement;
+  const [, bump] = useState(0);
+  const [biz, setBiz] = useState(null); // AI business for this chat: null = loading
+  useEffect(() => { let live = true; if (token) api("/api/v1/me/ai/chat/" + chatId, { token }).then((d) => { if (live) setBiz(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBiz("na"); }); return () => { live = false; }; }, [chatId, token]);
+  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change AI business"); }); };
+  useEffect(() => { const f = () => bump((n) => n + 1); window.addEventListener("lcx", f); return () => window.removeEventListener("lcx", f); }, []);
+  const ico = (I) => h(I, { size: 22, color: "#8891A0" });
+  const lockOn = LCX.locked(chatId);
+  const priv = loadJSON("chatpriv:" + chatId, {});
+  const lockGo = () => { onLock(); setTimeout(() => bump((n) => n + 1), 50); };
+  const aiRows = [
+    token ? pcRow("pc-ai", h(AiBotAvatar, { size: 26 }), "Letschat AI", "Ask your AI assistant", () => setSheet("ai"), h(ChevronRight, { size: 18, color: "#8891A0" })) : null,
+    token && biz !== "na" ? pcRow("pc-biz", h(PcBriefcase, { size: 22, color: biz === true ? "#35D0BA" : "#8891A0" }), "AI business", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
+      h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: biz === true, disabled: biz === null, onChange: (v) => bizSet(v) }))) : null,
+  ];
+  return h(React.Fragment, null,
+    aiRows,
+    featOn("chatLock") ? pcRow("pc-lock", ico(Lock), "Chat lock", lockOn ? "This chat asks for your PIN to open" : "Ask for a PIN to open this chat", lockGo,
+      h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: lockOn, onChange: lockGo }))) : null,
+    pcRow("pc-media", ico(GalleryIcon), "Media visibility", mediaHidden ? "Hidden" : "Shown", () => setSheet("media"), h(ChevronRight, { size: 18, color: "#8891A0" })),
+    pcRow("pc-notif", ico(Bell), "Notifications", muted ? "Muted" : "On", onNotifications, h(ChevronRight, { size: 18, color: "#8891A0" })),
+    pcRow("pc-priv", ico(PcEyeOff), "Advanced chat privacy", priv.hidePreview ? "Message preview hidden" : "Off", () => setSheet("privacy"), h(ChevronRight, { size: 18, color: "#8891A0" })),
+    pcRow("pc-sec", ico(PcShield), "Security", LCX.hasPin() ? "PIN set on this device" : "No PIN set yet", () => setSheet("security"), h(ChevronRight, { size: 18, color: "#8891A0" })));
+}
+function ProfileChatSheets({ sheet, chatId, token, contact, addable = [], mediaVis, onMediaVis, onNote, onClose }) {
+  const h = React.createElement;
+  const [priv, setPriv] = useState(() => loadJSON("chatpriv:" + chatId, {}));
+  const [pinAsk, setPinAsk] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const setKey = (k, v) => { const n = { ...priv, [k]: v }; setPriv(n); saveJSON("chatpriv:" + chatId, n); LCX.fire(); };
+  const txt = { fontFamily: "Inter", fontSize: 13, color: "#8891A0", margin: "0 2px 10px" };
+  const opt = (val, label, hint) => h("div", { key: val, onClick: () => { onMediaVis(val); onClose(); onNote(val === "hide" ? "Media hidden for this chat" : "Media shown for this chat"); }, style: { display: "flex", alignItems: "center", padding: "14px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+    h("div", { style: { flex: 1 } }, h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, label), h("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, hint)),
+    (mediaVis === "hide" ? "hide" : "show") === val ? h(Check, { size: 20, color: "#35D0BA", strokeWidth: 3 }) : null);
+  if (pinAsk) return h(LockPrompt, { mode: "enter", onCancel: () => setPinAsk(false), onDone: () => { LCX.put("lcx:locked", {}); LCX.wr("lcx:pin", ""); LCX.unlocked.clear(); LCX.fire(); setPinAsk(false); onClose(); onNote("PIN removed. All chats are unlocked"); } });
+  if (sheet === "addgroup") return h(SheetFrame, { title: "Add " + contact.name + " to a group", onClose: onClose },
+    addable.length === 0 ? h("div", { style: txt }, "You can add people only to groups you manage, and " + contact.name + " is already in all of yours.") :
+    h("div", { style: { overflowY: "auto" } }, addable.map((g) => h("div", { key: g.id, onClick: () => { if (busy) return; setBusy(g.id); api("/api/v1/conversations/" + g.id + "/members", { method: "POST", token: token, body: { userIds: [contact.id] } }).then(() => { setBusy(null); onClose(); onNote(contact.name + " added to " + g.name); }).catch((e) => { setBusy(null); onNote((e && e.message) || "Could not add to the group"); }); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "12px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer", opacity: busy && busy !== g.id ? 0.5 : 1 } },
+      h(Ring, { size: 40, color: "#7B6CF6", initials: (g.name || "G").slice(0, 1).toUpperCase(), photo: g.avatar }),
+      h("div", { style: { flex: 1, minWidth: 0 } }, h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", overflowWrap: "anywhere" } }, g.name), h("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, (g.members || []).length + " members")),
+      busy === g.id ? h("span", { style: { fontSize: 13, color: "#8891A0" } }, "Adding...") : null))));
+  if (sheet === "ai") return h(AiBotScreen, { token: token, onClose: onClose });
+  if (sheet === "media") return h(SheetFrame, { title: "Media visibility", onClose: onClose },
+    h("div", { style: txt }, "Choose whether photos and videos from this chat show as previews in the contact info screen. Saved on this device only."),
+    opt("show", "Show media", "Previews appear under Media, links, and docs"), opt("hide", "Hide media", "No previews are shown on this screen"));
+  if (sheet === "privacy") return h(SheetFrame, { title: "Advanced chat privacy", onClose: onClose },
+    h("div", { style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 4px" } },
+      h("div", { style: { flex: 1 } }, h("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Hide message preview"), h("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Show \"Message hidden\" in your chat list instead of the latest message.")),
+      h(Toggle, { on: !!priv.hidePreview, onChange: (v) => setKey("hidePreview", v) })),
+    h("div", { style: Object.assign({}, txt, { marginTop: 8 }) }, "Saved on this device only."));
+  if (sheet === "security") {
+    const n = Object.keys(LCX.get("lcx:locked", {})).length, has = LCX.hasPin();
+    return h(SheetFrame, { title: "Security", onClose: onClose },
+      pcRow("s1", h(Lock, { size: 22, color: "#8891A0" }), "Chat lock PIN", has ? "Set. It is stored scrambled on this device and is not sent to Letschat." : "Not set yet. You choose one the first time you lock a chat."),
+      pcRow("s2", h(PcShield, { size: 22, color: "#8891A0" }), "Locked chats", n === 1 ? "1 chat on this device" : n + " chats on this device"),
+      h("div", { style: Object.assign({}, txt, { padding: "4px 22px" }) }, "Locked chats hide their preview and ask for your PIN each time you open them or come back to the app."),
+      has ? h("button", { onClick: () => setPinAsk(true), style: { width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: "none", background: "#1E2530", color: "#FF8A7D", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, "Remove PIN and unlock all chats") : null);
+  }
+  return null;
+}
+function pcDanger(l) { return l === "Clear chat" ? Trash2 : (l === "Block" || l === "Unblock") ? Ban : l === "Report" ? ThumbsDown : null; } // red menu items with icons
+function MuteSheet({ onPick, onClose }) {
+  const opts = [["8h", "8 hours"], ["1w", "1 week"], ["always", "Always"]];
+  return (
+    <SheetFrame title="Mute notifications" onClose={onClose}>
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 6 }}>You won't get sounds or pop-ups for new messages in this chat.</div>
+      {opts.map(([k, label]) => <div key={k} onClick={() => onPick(k)} style={{ padding: "15px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" }}>{label}</div>)}
+    </SheetFrame>
+  );
+}
+function MediaDocsSheet({ msgs, conversation, myId, onOpenImage, onClose }) {
+  const [tab, setTab] = useState("media");
+  const live = msgs.filter(m => !m.deleted);
+  const media = live.filter(m => m.file && m.file.data && /^data:image\//.test(m.file.data));
+  const docs = live.filter(m => m.file && !(m.file.data && /^data:image\//.test(m.file.data)));
+  const links = [];
+  live.forEach(m => { if (typeof m.text === "string") (m.text.match(/https?:\/\/[^\s]+/g) || []).forEach(u => links.push({ url: u, m })); });
+  const who = (m) => (m.senderId === myId ? "You" : conversation.isGroup ? ((conversation.members || []).find(u => u.id === m.senderId) || {}).name || "Former member" : conversation.other.name);
+  const tabs = [["media", "Media", media.length], ["docs", "Docs", docs.length], ["links", "Links", links.length]];
+  const empty = <div style={{ padding: "30px 10px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 }}>Nothing here yet</div>;
+  return (
+    <SheetFrame title="Media, links, and docs" onClose={onClose} tall>
+      <div style={{ display: "flex", gap: 6, counterIncrement: "lcgap-6", marginBottom: 12 }}>
+        {tabs.map(([k, label, n]) => <button key={k} onClick={() => setTab(k)} style={{ flex: 1, padding: "9px 4px", borderRadius: 999, border: "1px solid " + (tab === k ? "#35D0BA" : "#2B3544"), background: tab === k ? "rgba(53,208,186,0.14)" : "none", color: tab === k ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>{label}{n ? " (" + n + ")" : ""}</button>)}
+      </div>
+      {tab === "media" && (media.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, counterIncrement: "lcgap-4" }}>{media.map(m => <img loading="lazy" decoding="async" key={m.id} src={m.file.data} alt={m.file.name} onClick={() => { onClose(); onOpenImage(m.file.data); }} style={{ width: "100%", aspectRatio: "1", counterReset: "lcar-1-1", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />)}</div> : empty)}
+      {tab === "docs" && (docs.length ? docs.map(m => (
+        <a key={m.id} href={m.file.data || undefined} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none", color: "#F5F7FA" }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
+          <span style={{ minWidth: 0 }}><span style={{ display: "block", fontFamily: "Inter", fontWeight: 600, fontSize: 14, wordBreak: "break-all" }}>{m.file.name}</span><span style={{ display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0" }}>{fmtSize(m.file.size)} · {who(m)} · {fullTime(m.time)}</span></span>
+        </a>)) : empty)}
+      {tab === "links" && (links.length ? links.map((l, i) => (
+        <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" style={{ display: "block", padding: "11px 4px", borderBottom: "1px solid #1B212B", textDecoration: "none" }}>
+          <span style={{ display: "block", fontFamily: "Inter", fontSize: 14, color: "#7FE3D3", wordBreak: "break-all" }}>{l.url}</span>
+          <span style={{ display: "block", fontFamily: "Inter", fontSize: 12, color: "#8891A0", marginTop: 2 }}>{who(l.m)} · {fullTime(l.m.time)}</span>
+        </a>)) : empty)}
+      <div style={{ fontFamily: "Inter", fontSize: 11.5, color: "#8A96A5", textAlign: "center", marginTop: 12 }}>Shows what is loaded in this chat on this device.</div>
+    </SheetFrame>
+  );
+}
+
+// ---- message info (sent / read times + reactions) ----
+function fullTime(ts) { return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+function MessageInfoSheet({ m, conversation, myId, onClose }) {
+  const mine = m.senderId === myId;
+  const nameOf = (id) => id === myId ? "You" : id === (conversation.other && conversation.other.id) && !conversation.isGroup ? conversation.other.name : ((conversation.members || []).find(u => u.id === id) || {}).name || "Former member";
+  const preview = m.audio || m.hasAudio ? "🎤 Voice note" : m.file ? (m.file.mime && /^image\//.test(m.file.mime) ? "📷 Photo" : "📎 " + (m.file.name || "File")) : m.text;
+  const row = (label, value, key) => (
+    <div key={key || label} style={{ display: "flex", justifyContent: "space-between", gap: 12, counterIncrement: "lcgap-12", padding: "11px 0", borderBottom: "1px solid #1B212B", fontFamily: "Inter", fontSize: 14 }}>
+      <span style={{ color: "#9BA7B4" }}>{label}</span><span style={{ color: "#F5F7FA", textAlign: "right" }}>{value}</span>
+    </div>
+  );
+  const reactions = Object.entries(m.reactions || {});
+  const readers = conversation.isGroup ? (m.readBy || []).filter(id => id !== myId) : [];
+  return (
+    <div style={{ ...sheet, zIndex: 65 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA" }}>Message info</div>
+          <button aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}><X size={20} color="#8891A0" /></button>
+        </div>
+        <div style={{ overflowY: "auto" }}>
+          <div style={{ alignSelf: "flex-end", background: mine ? "#1E8677" : "#1E2530", borderRadius: 12, padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, marginBottom: 8, overflowWrap: "anywhere", maxHeight: 120, overflow: "hidden" }}>{preview}</div>
+          {mine ? row("Sent", fullTime(m.time)) : row("Received", fullTime(m.time))}
+          {mine && !conversation.isGroup && row("Read", m.readAt ? fullTime(m.readAt) : m.read ? "Yes" : "Not yet")}
+          {mine && conversation.isGroup && row("Read by", readers.length ? readers.length + " of " + Math.max(0, (conversation.members || []).length - 1) : "No one yet")}
+          {readers.map(id => row(nameOf(id), m.readTimes && m.readTimes[id] ? fullTime(m.readTimes[id]) : "Read", "r" + id))}
+          {m.edited && row("Edited", m.editedAt ? fullTime(m.editedAt) : "Yes")}
+          {m.forwarded && row("Forwarded", "Yes")}
+          {reactions.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontFamily: "Inter", fontWeight: 600, fontSize: 12.5, color: "#8891A0", marginBottom: 4 }}>REACTIONS</div>
+              {reactions.map(([id, e]) => row(nameOf(id), <span style={{ fontSize: 20 }}>{e}</span>, "e" + id))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- forward one or more messages to other chats ----
+function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
+  const h = React.createElement;
+  const [chosen, setChosen] = useState([]);       // chat ids
+  const [toStatus, setToStatus] = useState(false); // also post to my status
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const needle = q.trim().toLowerCase();
+  const all = conversations.filter(c => c && c.other);
+  const byRecent = all.slice().sort((a, b) => ((b.lastMessage && b.lastMessage.time) || 0) - ((a.lastMessage && a.lastMessage.time) || 0));
+  const match = (c) => !needle || String(c.other.name).toLowerCase().includes(needle);
+  const frequent = needle ? [] : byRecent.filter(c => !c.isGroup).slice(0, 3);
+  const recent = byRecent.filter(c => match(c) && !frequent.includes(c));
+  const total = chosen.length + (toStatus ? 1 : 0);
+  const toggle = (id) => setChosen(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+  const chosenNames = [...(toStatus ? ["My status"] : []), ...chosen.map(id => { const c = all.find(x => x.id === id); return c ? c.other.name : ""; })].filter(Boolean).join(", ");
+  const sub = (c) => (c.isGroup && c.members ? c.members.map(m => m.name).filter(Boolean).slice(0, 6).join(", ") : "");
+  const toJpeg = (dataUrl) => new Promise((ok) => { // statuses accept JPG/PNG up to ~1 MB: re-encode chat photos
+    const im = new Image();
+    im.onload = () => { const k = Math.min(1, 1280 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.8)); };
+    im.onerror = () => ok(null); im.src = dataUrl;
+  });
+  const postStatus = async (ordered) => {
+    let skipped = 0, cap = note.trim().slice(0, 300);
+    for (const m of ordered) {
+      if (m.file && m.file.data && /^data:image\//.test(m.file.data)) {
+        const photo = await toJpeg(m.file.data); if (!photo) { skipped++; continue; }
+        await api("/api/v1/status", { method: "POST", token, body: cap ? { photo, text: cap } : { photo } }); cap = "";
+      } else if (!m.audio && !m.file && !m.hasAudio && m.text) {
+        const chars = [...String(m.text)];
+        for (let i = 0; i < chars.length; i += 300) await api("/api/v1/status", { method: "POST", token, body: { text: chars.slice(i, i + 300).join("") } });
+      } else skipped++;
+    }
+    return skipped;
+  };
+  const go = async () => {
+    if (!total || busy) return;
+    if (chosen.length && !socket) return setErr("Not connected yet. Try again in a moment.");
+    setBusy(true); setErr("");
+    const ordered = [...msgs].sort((x, y) => x.time - y.time);
+    const isMedia = (m) => m.file && m.file.data && /^data:(image|video)\//.test(m.file.data);
+    let lastMedia = -1; ordered.forEach((m, i) => { if (isMedia(m)) lastMedia = i; });
+    const capNote = note.trim(), noteOnMedia = !!capNote && lastMedia >= 0; // the typed note becomes the caption of the last photo or video
+    let failed = "";
+    for (const cid of chosen) {
+      for (const m of ordered) {
+        const payload = { conversationId: cid, forwarded: true };
+        if (m.audio) { payload.audio = m.audio; payload.duration = m.duration; }
+        else if (m.file && m.file.data) payload.file = { name: m.file.name, mime: m.file.mime, size: m.file.size, data: m.file.data };
+        else if (m.viewOnce) { failed = "View once media can't be forwarded."; continue; }
+        else if (m.hasAudio || m.file) { failed = "Open the voice note or file once so it loads, then forward it."; continue; }
+        else payload.text = m.text;
+        if (noteOnMedia && payload.file && ordered.indexOf(m) === lastMedia) payload.text = capNote.slice(0, 1000);
+        await new Promise((resolve) => {
+          const t = setTimeout(resolve, 8000);
+          socket.emit("message:send", payload, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); });
+        });
+      }
+      if (note.trim() && !noteOnMedia) await new Promise((resolve) => { const t = setTimeout(resolve, 8000); socket.emit("message:send", { conversationId: cid, text: note.trim() }, (ack) => { clearTimeout(t); if (ack && ack.error) failed = ack.error; resolve(); }); });
+    }
+    if (toStatus) {
+      try { const skipped = await postStatus(ordered); if (skipped) failed = failed || (skipped + (skipped === 1 ? " message" : " messages") + " could not go to your status (only text and photos can).") ; }
+      catch (e) { failed = failed || (e && e.message) || "Could not post to your status"; }
+    }
+    setBusy(false);
+    if (failed) setErr(failed); else onClose(true);
+  };
+  const iconBtn = (label, child, fn) => h("button", { key: label, "aria-label": label, onClick: fn, style: { background: "none", border: "none", cursor: "pointer", padding: 8, display: "flex" } }, child);
+  const circle = (on) => h("span", { style: { width: 24, height: 24, borderRadius: 12, border: on ? "none" : "2px solid #5B6673", background: on ? "#21C063" : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, on && h(Check, { size: 15, color: "#06210F", strokeWidth: 3 }));
+  const label = (t) => h("div", { key: "l" + t, style: { padding: "14px 16px 6px", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, t);
+  const row = (key, avatar, name, subtitle, on, fn) => h("div", { key, onClick: fn, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "9px 16px", cursor: "pointer" } },
+    avatar,
+    h("div", { style: { flex: 1, minWidth: 0 } },
+      h("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, name),
+      subtitle ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, subtitle) : null),
+    circle(on));
+  const chatRow = (c, pre) => row(pre + c.id, h(Ring, { size: 46, color: c.other.color, initials: c.other.initials, photo: c.other.avatar }), c.other.name, sub(c), chosen.includes(c.id), () => toggle(c.id));
+  const showStatusRow = !needle || "my status".includes(needle);
+  return h("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 65, background: "#0B1014", display: "flex", flexDirection: "column" } },
+    h("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", padding: "10px 8px 10px 6px", flexShrink: 0 } },
+      iconBtn("Back", h(ArrowLeft, { size: 24, color: "#F5F7FA" }), () => (searching ? (setSearching(false), setQ("")) : onClose(false))),
+      searching
+        ? h("input", { autoFocus: true, value: q, onChange: e => setQ(e.target.value), placeholder: "Search…", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } })
+        : h("div", { style: { flex: 1, minWidth: 0 } },
+          h("div", { style: { fontFamily: "Sora", fontWeight: 500, fontSize: total ? 17 : 21, color: "#F5F7FA" } }, "Forward to…"),
+          total ? h("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, total + " selected") : null),
+      !searching && iconBtn("Search", h(Search, { size: 22, color: "#F5F7FA" }), () => setSearching(true))),
+    h("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+      showStatusRow && row("status", h("div", { style: { width: 46, height: 46, borderRadius: 23, background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Radio, { size: 22, color: "#06210F" })), "My status", "My contacts", toStatus, () => setToStatus(v => !v)),
+      frequent.length > 0 && label("Frequently contacted"), frequent.map(c => chatRow(c, "f")),
+      recent.length > 0 && label("Recent chats"), recent.map(c => chatRow(c, "r")),
+      !showStatusRow && !frequent.length && !recent.length && h("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 14 } }, "No chats found")),
+    err && h("div", { style: { color: "#FF6B5D", fontFamily: "Inter", fontSize: 13, padding: "6px 16px" } }, err),
+    total > 0 && h("div", { style: { flexShrink: 0, padding: "8px 12px 12px", background: "#0B1014", borderTop: "1px solid #1B212B" } },
+      h("input", { value: note, onChange: e => setNote(e.target.value), placeholder: "Add a caption or message…", style: { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "none", outline: "none", borderRadius: 999, padding: "13px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, marginBottom: 12 } }),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12" } },
+        h("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 14.5, color: "#E6EAF0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "#1B232C", borderRadius: 999, padding: "11px 16px" } }, chosenNames),
+        h("button", { "aria-label": "Send", onClick: go, disabled: busy, style: { width: 52, height: 52, borderRadius: 26, border: "none", background: "#21C063", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, busy ? h("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : h(Send, { size: 24, color: "#06210F" })))));
+}
+
+// ---- attachment tray: opens from the paperclip (location, contact, gallery, document, catalogue) ----
+const ContactCard = makeIcon([["r", 3, 4, 18, 16, 2], ["c", 9, 11, 2], ["p", "M15 9h3"], ["p", "M15 13h3"], ["p", "M6 17c.5-1.5 1.8-2 3-2s2.5.5 3 2"]]);
+const GalleryIcon = makeIcon([["r", 3, 3, 18, 18, 2], ["c", 9, 9, 2], ["p", "m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"]]);
+const DocIcon = makeIcon([["p", "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"]]);
+const LcPollIcon = makeIcon([["p", "M4 20V10"], ["p", "M10 20V4"], ["p", "M16 20v-7"], ["p", "M22 20H2"]]);
+const LcClockIcon = makeIcon([["p", "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z"], ["p", "M12 6v6l4 2"]]);
+function AttachSheet({ onClose, onPick }) {
+  const items = [
+    { id: "location", label: "Location", Icon: MapPin, color: "#35D0BA" },
+    { id: "contact", label: "Contact", Icon: ContactCard, color: "#F2B84B" },
+    { id: "gallery", label: "Gallery", Icon: GalleryIcon, color: "#7C9CFF" },
+    { id: "document", label: "Document", Icon: DocIcon, color: "#FF8A5D" },
+    { id: "catalogue", label: "Catalogue", Icon: ShoppingBag, color: "#B58CFF" },
+    ...(featOn("polls") ? [{ id: "poll", label: "Poll", Icon: LcPollIcon, color: "#4FD1C5" }] : []),
+    ...(featOn("scheduling") ? [{ id: "schedule", label: "Schedule", Icon: LcClockIcon, color: "#F687B3" }] : []),
+  ];
+  return React.createElement("div", { onClick: onClose, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 54, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" } },
+    React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", boxSizing: "border-box", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "20px 14px 24px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px 8px", animation: "lcPop .18s ease-out" } },
+      items.map((it) => React.createElement("button", { key: it.id, onClick: () => onPick(it.id), "aria-label": it.label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: 0 } },
+        React.createElement("span", { style: { width: 58, height: 58, borderRadius: "50%", background: it.color + "22", border: "1.5px solid " + it.color + "66", display: "flex", alignItems: "center", justifyContent: "center" } }, React.createElement(it.Icon, { size: 26, color: it.color })),
+        React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DB" } }, it.label)))));
+}
+
+// ---- generic pick list used by the attachment tray (one contact, or several catalogue items) ----
+function PickSheet({ title, items, multi, empty, onClose, onDone }) {
+  const [sel, setSel] = useState([]);
+  const toggle = (id) => setSel((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  return React.createElement("div", { onClick: onClose, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 54, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" } },
+    React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxHeight: "75%", boxSizing: "border-box", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "16px 14px 18px", display: "flex", flexDirection: "column" } },
+      React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", padding: "0 6px 10px" } }, title),
+      React.createElement("div", { style: { overflowY: "auto", flex: 1, minHeight: 60 } },
+        !items.length && React.createElement("div", { style: { padding: "18px 6px", fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, empty || "Nothing to show"),
+        items.map((it) => {
+          const on = sel.includes(it.id);
+          return React.createElement("div", { key: it.id, onClick: () => (multi ? toggle(it.id) : onDone([it.id])), style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "11px 6px", borderBottom: "1px solid #1B212B", cursor: "pointer" } },
+            React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+              React.createElement("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 15, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.title),
+              it.sub ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, it.sub) : null),
+            multi && React.createElement("div", { style: { width: 22, height: 22, borderRadius: 6, flexShrink: 0, border: "2px solid " + (on ? "#35D0BA" : "#3A4452"), background: on ? "#35D0BA" : "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#0E1116", fontWeight: 800, fontSize: 14 } }, on ? "\u2713" : ""));
+        })),
+      multi && React.createElement("button", { disabled: !sel.length, onClick: () => onDone(sel), style: { marginTop: 12, width: "100%", padding: "13px", borderRadius: 14, border: "none", background: sel.length ? "#35D0BA" : "#2B3544", color: sel.length ? "#0E1116" : "#6C7A89", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: sel.length ? "pointer" : "default" } }, sel.length ? "Share " + sel.length + (sel.length === 1 ? " item" : " items") : "Select items to share")));
+}
+
+// ---- preview + caption screen shown before any photo or video is sent in a chat ----
+function MediaCaptionSheet({ file, url, onSend, onCancel }) {
+  const [cap, setCap] = useState("");
+  const [once, setOnce] = useState(false);
+  const isVid = /^video\//.test(file.type || "");
+  const go = () => onSend(cap, once);
+  return React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 62, background: "#05070A", display: "flex", flexDirection: "column" } },
+    React.createElement("div", { style: { display: "flex", alignItems: "center", padding: "12px 10px", flexShrink: 0 } },
+      React.createElement("button", { onClick: onCancel, "aria-label": "Cancel", style: { background: "none", border: "none", padding: 8, cursor: "pointer", display: "flex" } }, React.createElement(X, { size: 26, color: "#F5F7FA" })),
+      React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA", marginLeft: 6 } }, isVid ? "Send video" : "Send photo")),
+    React.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 10px" } },
+      isVid ? React.createElement("video", { src: url, controls: true, playsInline: true, style: { maxWidth: "100%", maxHeight: "100%", borderRadius: 12, background: "#000" } })
+            : React.createElement("img", { src: url, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 12 } })),
+    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 12px 16px", flexShrink: 0 } },
+      React.createElement("input", { autoFocus: true, value: cap, maxLength: 1000, onChange: (e) => setCap(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") go(); }, placeholder: "Add a caption\u2026", style: { flex: 1, minWidth: 0, boxSizing: "border-box", background: "#1E2530", border: "none", outline: "none", borderRadius: 999, padding: "14px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }),
+      featOn("viewOnce") && React.createElement("button", { onClick: () => setOnce((v) => !v), "aria-pressed": once, "aria-label": "View once", title: "View once", style: { width: 44, height: 44, borderRadius: "50%", border: "2px " + (once ? "solid #35D0BA" : "dashed #8891A0"), background: once ? "rgba(53,208,186,.18)" : "transparent", color: once ? "#35D0BA" : "#B9C2CC", fontFamily: "Sora", fontWeight: 800, fontSize: 15, cursor: "pointer", flexShrink: 0 } }, "1"),
+      React.createElement("button", { onClick: go, "aria-label": "Send", style: { width: 50, height: 50, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, React.createElement(Send, { size: 21, color: "#0E1116" }))));
+}
+
+function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => {}, settings = DEFAULT_SETTINGS, onToggleFavorite = () => {}, onBlock = () => {}, onCall = () => {}, onMute = () => {}, onReport = () => {}, onNewGroup = () => {}, focus = null, pinned = [], onTogglePin = () => {} }) {
+  const [msgs, setMsgs] = useState([]);
+  const [draft, setDraft] = useState(() => LCX.draft(conversation.id));
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [peerAct, setPeerAct] = useState({});   // who is typing / recording / sending right now: { userId: kind }
+  const actTimers = useRef({});
+  const peerTyping = Object.keys(peerAct).length > 0;
+  const actLabel = (() => {
+    const ids = Object.keys(peerAct); if (!ids.length) return "";
+    const verb = { typing: "typing\u2026", recording: "recording a voice note\u2026", photo: "sending a photo\u2026", file: "sending a file\u2026" };
+    if (!conversation.isGroup) return verb[peerAct[ids[0]]] || verb.typing;
+    const nm = (id) => String(((conversation.members || []).find(u => u.id === id) || {}).name || "Someone").split(" ")[0];
+    if (ids.length === 1) return nm(ids[0]) + " is " + (verb[peerAct[ids[0]]] || verb.typing);
+    if (ids.length === 2) return nm(ids[0]) + " and " + nm(ids[1]) + " are typing\u2026";
+    return ids.length + " people are typing\u2026";
+  })();
+  useEffect(() => () => { Object.values(actTimers.current).forEach(clearTimeout); }, []);
+  const [atBottom, setAtBottom] = useState(true);   // is the list scrolled to the newest message?
+  const atBottomRef = useRef(true);
+  const [unseenN, setUnseenN] = useState(0);        // new messages that arrived while scrolled up
+  const prevLen = useRef(0);
+  const divEl = useRef(null);
+  const divDone = useRef(false);
+  const seenAt = useRef(null);                      // when this chat was last open (for the "unread messages" divider)
+  if (seenAt.current === null) seenAt.current = (LCX.get("lcx:seen", {}))[conversation.id] || 0;
+  const [unreadDiv, setUnreadDiv] = useState(null); // { id, count } of the first unread message
+  const [stars, setStars] = useState(() => LCX.get("lcx:stars:" + conversation.id, {}));
+  const [swipe, setSwipe] = useState(null);         // swipe-right-to-reply in progress: { id, dx }
+  const swRef = useRef(null);
+  const liveIds = useRef(new Set());                // messages that arrived while this chat was open (they get the entrance animation)
+  const [fx, setFx] = useState(null);               // { kind, n } full-screen confetti / hearts
+  const [burst, setBurst] = useState(null);         // message id showing the double-tap heart
+  const lastTap = useRef({ id: null, t: 0 });
+  const [delDlg, setDelDlg] = useState(null);       // messages the Delete dialog is open for
+  const [conn, setConn] = useState(() => (typeof navigator === "undefined" || navigator.onLine !== false) && (!socket || socket.connected !== false)); // false = waiting for the network
+  useEffect(() => {
+    const up = () => setConn(!socket || socket.connected !== false), down = () => setConn(false);
+    window.addEventListener("online", up); window.addEventListener("offline", down);
+    if (socket) { socket.on("connect", up); socket.on("disconnect", down); socket.on("connect_error", down); }
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); if (socket) { socket.off("connect", up); socket.off("disconnect", down); socket.off("connect_error", down); } };
+  }, [socket]);
+  const [zoomed, setZoomed] = useState(false);
+  const [info, setInfo] = useState(false);
+  const [peerInfo, setPeerInfo] = useState(false); // 1:1 contact profile sheet
+  const [replyTo, setReplyTo] = useState(null);     // message being replied to
+  const [msgInfo, setMsgInfo] = useState(null);     // message whose info sheet is open
+  const [fwd, setFwd] = useState(null);             // messages being forwarded
+  const [pickMenu, setPickMenu] = useState(false);  // the ⋮ menu in the selection bar
+  const [menuPage, setMenuPage] = useState("main"); // "main" | "more" (the ⋮ dropdown)
+  const [sheetName, setSheetName] = useState(null);  // "theme" | "media" | "mute"
+  const [note, setNote] = useState("");
+  const [themeId, setThemeId] = useState(() => loadJSON("chatTheme:" + conversation.id, "lcdark"));
+  const chatTheme = CHAT_THEMES.find(t => t.id === themeId) || CHAT_THEMES[0];
+  const chatBg = themeBg(chatTheme);
+  const chatBar = chatTheme.img ? chatTheme.bg : chatBg;
+  const flashNote = (t) => { setNote(t); setTimeout(() => setNote(""), 2600); };
+  useEffect(() => { const t = setInterval(() => { const now = Date.now(); setMsgs(prev => prev.some(x => x.expiresAt && x.expiresAt <= now) ? prev.filter(x => !(x.expiresAt && x.expiresAt <= now)) : prev); }, 10000); return () => clearInterval(t); }, []);
+  const [callMenu, setCallMenu] = useState(false);  // the call button's dropdown (voice / video / call link)
+  const [sugOpen, setSugOpen] = useState(false);    // quick-reply suggestions strip
+  const [pillBelow, setPillBelow] = useState(false);
+  const listEl = useRef(null);
+  const [rec, setRec] = useState(null);
+  const [recSec, setRecSec] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [viewer, setViewer] = useState(null);
+  const [sel, setSel] = useState(null);         // message whose Edit / Delete sheet is open
+  const [editing, setEditing] = useState(null); // message being edited (its text sits in the input)
+  const pressRef = useRef(null);
+  const focusId = focus && focus.conversationId === conversation.id ? focus.id : null;
+  const pendingFocus = useRef(focusId);
+  const focusEl = useRef(null);
+  const [hl, setHl] = useState(null); // search result being highlighted
+  const [pinIdx, setPinIdx] = useState(0);
+  const [needPin, setNeedPin] = useState(() => featOn("chatLock") && LCX.locked(conversation.id) && !LCX.unlocked.has(conversation.id));
+useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") && LCX.locked(conversation.id)) setNeedPin(true); }; document.addEventListener("visibilitychange", h); return () => document.removeEventListener("visibilitychange", h); }, [conversation.id]);
+  useEffect(() => { const t = setTimeout(() => { if (!editing) LCX.setDraft(conversation.id, draft); }, 150); return () => clearTimeout(t); }, [draft, conversation.id]);
+  useEffect(() => { if (LCX.mark(conversation.id)) LCX.setMark(conversation.id, false); return () => LCX.fire(); }, [conversation.id]);
+  const [fText, setFText] = useState(null); const [fIdx, setFIdx] = useState(0); const fEls = useRef({}); // in-chat search
+  const fQ = fText ? fText.trim().toLowerCase() : "";
+  const fMatches = fQ ? msgs.filter(m => !m.deleted && typeof m.text === "string" && m.text.toLowerCase().includes(fQ)).map(m => m.id) : [];
+  const fPos = fMatches.length ? Math.min(fIdx, fMatches.length - 1) : 0;
+  const fCur = fMatches.length ? fMatches[fMatches.length - 1 - fPos] : null;
+  useEffect(() => { if (fCur && fEls.current[fCur]) fEls.current[fCur].scrollIntoView({ block: "center", behavior: "smooth" }); }, [fCur, fQ]);
+  const openedAt = useRef(0);
+  const fileRef = useRef(null);
+  const camRef = useRef(null);
+  const galRef = useRef(null);
+  const docRef = useRef(null);
+  const inputRef = useRef(null);
+  const endRef = useRef(null);
+  const typingTimeout = useRef(null);
+  // Typo suggestions: the last finished word that looks misspelled, with tappable corrections above the input.
+  const [typoIgnored, setTypoIgnored] = useState(typoLoadIgnored);
+  const typoHit = typoCheck(draft, typoIgnored);
+  const myQuick = bizOfSettings(settings).quickReplies;
+  const qMatch = /^\/([\w-]*)$/.exec(draft);
+  const qHits = qMatch ? myQuick.filter(q => q.shortcut.startsWith(qMatch[1].toLowerCase())).slice(0, 8) : [];
+  const mMatch = conversation.isGroup && !editing ? /(^|\s)@([^\s@]{0,30})$/.exec(draft) : null;
+  const mHits = mMatch ? (conversation.members || []).filter(u => u.id !== myId && u.name && u.name.toLowerCase().includes(mMatch[2].toLowerCase())).slice(0, 8) : [];
+  const pickMention = (u) => { setDraft(d => d.replace(/@[^\s@]*$/, "@" + u.name + " ")); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+  const lpIds = new Set(); // the newest few messages with a web link get a preview card
+  if (featOn("linkPreviews")) for (let i = msgs.length - 1; i >= 0 && lpIds.size < 8; i--) { const x = msgs[i]; if (!x.deleted && !x.audio && !x.hasAudio && !x.poll && !x.viewOnce && !(x.file && x.file.data) && firstPreviewUrl(x.text)) lpIds.add(x.id); }
+  const starSnap = (m) => ({ id: m.id, senderId: m.senderId, time: m.time, text: m.audio || m.hasAudio ? "\uD83C\uDFA4 Voice note" : m.file ? (String(m.file.mime || "").startsWith("image/") || /^data:image\//.test(m.file.data || "") ? "\uD83D\uDCF7 Photo" : "\uD83D\uDCCE " + (m.file.name || "file")) : String(m.text || "").slice(0, 300) });
+  const toggleStars = (list) => {
+    const all = list.length > 0 && list.every(x => stars[x.id]); const next = { ...stars };
+    list.forEach(x => { if (all) delete next[x.id]; else next[x.id] = starSnap(x); });
+    setStars(next); LCX.put("lcx:stars:" + conversation.id, next); flashNote(all ? "Removed from starred" : "Starred \u2B50");
+  };
+  const unstarId = (id) => { const next = { ...stars }; delete next[id]; setStars(next); LCX.put("lcx:stars:" + conversation.id, next); };
+  const heartMsg = (m) => {
+    const had = (m.reactions || {})[myId] === "\u2764\uFE0F";
+    reactTo(m, "\u2764\uFE0F");
+    if (!had && featOn("msgEffects") && !reducedMotion()) { setBurst(m.id); setTimeout(() => setBurst(b => (b === m.id ? null : b)), 950); }
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) { }
+  };
+  const tapMsg = (e, m) => {
+    if (picking || m.deleted || m.pending || m.failed || (e.target.closest && e.target.closest("a,button,audio,video,input,textarea"))) return;
+    const now = Date.now();
+    if (lastTap.current.id === m.id && now - lastTap.current.t < 320) { lastTap.current = { id: null, t: 0 }; heartMsg(m); }
+    else lastTap.current = { id: m.id, t: now };
+  };
+  const swStart = (e, m) => { const t = e.touches && e.touches[0]; swRef.current = !t || picking || m.deleted || t.clientX < 24 ? null : { id: m.id, x: t.clientX, y: t.clientY, on: false }; };
+  const swMove = (e, m) => {
+    const s = swRef.current; if (!s || s.id !== m.id) return;
+    const t = e.touches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (!s.on) { if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { swRef.current = null; return; } if (dx > 14 && dx > Math.abs(dy) * 1.5) s.on = true; else return; }
+    setSwipe({ id: m.id, dx: Math.min(80, Math.max(0, dx)) });
+  };
+  const swEnd = (m) => {
+    const s = swRef.current, cur = swipe; swRef.current = null; setSwipe(null);
+    if (s && s.on && cur && cur.id === m.id && cur.dx >= 56) { setReplyTo(m); setEditing(null); try { if (navigator.vibrate) navigator.vibrate(10); } catch (e) { } setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }
+  };
+  const useQuick = (q) => { setDraft(q.text); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+  const applyTypo = (fix) => { if (!typoHit) return; setDraft(typoApply(draft, typoHit, fix)); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+  const ignoreTypo = () => { if (!typoHit) return; const next = typoIgnored.concat(typoHit.word.toLowerCase()); setTypoIgnored(next); typoSaveIgnored(next); };
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    pendingFocus.current = focusId;
+    api(`/api/v1/conversations/${conversation.id}/messages`, { token })
+      .then(async ({ messages }) => {
+        let list = messages;
+        if (focusId && !list.some(x => x.id === focusId)) { // the search result is older than the latest page: load from there
+          try { list = (await api(`/api/v1/conversations/${conversation.id}/messages?since=${Math.max(0, focus.time - 60000)}&limit=200`, { token })).messages; } catch (e) {}
+        }
+        if (focusId && !list.some(x => x.id === focusId)) pendingFocus.current = null; // result no longer exists: just open at the bottom
+        const clearedAt = loadJSON("chatCleared:" + conversation.id, 0);
+        if (clearedAt) list = list.filter(x => x.time > clearedAt);
+        const hid = LCX.get("lcx:hidden:" + conversation.id, []); if (hid.length) { const hs = new Set(hid); list = list.filter(x => !hs.has(x.id)); } // "delete for me" messages stay hidden
+        if (seenAt.current) { const nu = list.filter(x => x.senderId !== myId && !x.deleted && x.time > seenAt.current); if (!cancelled) setUnreadDiv(nu.length ? { id: nu[0].id, count: nu.length } : null); }
+        if (!cancelled) { setMsgs(list); if (focusId) { setHl(focusId); setTimeout(() => setHl(null), 2800); } }
+      })
+      .catch(e => setError(e.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [conversation.id]);
+
+  useEffect(() => { // remember when this chat was last open
+    const id = conversation.id;
+    const save = () => { const d = { ...LCX.get("lcx:seen", {}) }; d[id] = Date.now(); const ks = Object.keys(d); if (ks.length > 300) delete d[ks[0]]; LCX.put("lcx:seen", d); };
+    const onHide = () => { if (document.visibilityState === "hidden") save(); };
+    document.addEventListener("visibilitychange", onHide); window.addEventListener("pagehide", save);
+    return () => { document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", save); save(); };
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const clearAct = (uid) => { clearTimeout(actTimers.current[uid]); delete actTimers.current[uid]; setPeerAct(p => { if (!(uid in p)) return p; const n = { ...p }; delete n[uid]; return n; }); };
+    const onNew = (m) => {
+      if (m.conversationId !== conversation.id) return;
+      clearAct(m.senderId);
+      if (m.senderId !== myId && document.visibilityState === "visible") socket.emit("messages:read", { conversationId: conversation.id });
+      liveIds.current.add(m.id);
+      if (m.senderId === myId) setMsgs(prev => { const i = prev.findIndex(x => x.pending && x.text === m.text); return i < 0 ? prev : prev.filter((_, k) => k !== i); }); // the real copy arrived: drop the "sending" one
+      if (featOn("msgEffects") && !reducedMotion() && !m.deleted) { const k = fxKindOf(m.text); if (k) setFx({ kind: k, n: Date.now() }); }
+      setMsgs(prev => (prev.some(x => x.id === m.id) ? prev : [...prev, m]));
+    };
+    const onTyping = ({ conversationId, userId, typing, kind }) => {
+      if (conversationId !== conversation.id || userId === myId) return;
+      if (!typing) return clearAct(userId);
+      setPeerAct(p => (p[userId] === (kind || "typing") ? p : { ...p, [userId]: kind || "typing" }));
+      clearTimeout(actTimers.current[userId]);
+      actTimers.current[userId] = setTimeout(() => clearAct(userId), 8000); // in case the "stopped" message never arrives
+    };
+    const onExpired = ({ conversationId, messageId }) => { if (conversationId === conversation.id) setMsgs(prev => prev.filter(x => x.id !== messageId)); };
+    const onTimer = ({ conversationId, disappearAfter, by }) => { if (conversationId === conversation.id) flashNote(disappearAfter ? "Disappearing messages: " + disappearLabel(disappearAfter) + (by === myId ? " (set by you)" : "") : "Disappearing messages turned off"); };
+    const onUpdated = (m) => {
+      if (m.conversationId !== conversation.id) return;
+      setMsgs(prev => prev.map(x => {
+        if (x.id !== m.id) return x;
+        if (m.deleted) { const { audio, file, duration, hasAudio, edited, editedAt, ...rest } = x; return { ...rest, text: m.text, deleted: true }; }
+        if (m.poll) return { ...x, poll: m.poll };
+        if (m.viewOnce) return { ...x, viewedBy: m.viewedBy || [], file: m.file };
+        return { ...x, text: m.text, edited: true, editedAt: m.editedAt };
+      }));
+      if (m.deleted) { setEditing(e => (e && e.id === m.id ? null : e)); setSel(s => (s && s.id === m.id ? null : s)); }
+    };
+    const onRead = ({ conversationId, by, ids, at }) => {
+      if (conversationId !== conversation.id || by === myId || !Array.isArray(ids) || (settings.privacy || {}).readReceipts === false) return;
+      setMsgs(prev => prev.map(x => (!ids.includes(x.id) ? x : conversation.isGroup ? { ...x, readBy: Array.from(new Set([...(x.readBy || []), by])), readTimes: { ...(x.readTimes || {}), [by]: at } } : { ...x, read: true, readAt: at })));
+    };
+    socket.on("message:read", onRead);
+    const onDelivered = ({ conversationId, ids }) => { if (conversationId === conversation.id && Array.isArray(ids)) setMsgs(prev => prev.map(x => (ids.includes(x.id) && !x.delivered ? { ...x, delivered: true } : x))); };
+    socket.on("message:delivered", onDelivered);
+    socket.on("message:new", onNew);
+    socket.on("message:updated", onUpdated);
+    socket.on("typing", onTyping); socket.on("message:expired", onExpired); socket.on("conversation:disappearing", onTimer);
+    return () => { socket.off("message:read", onRead); socket.off("message:delivered", onDelivered); socket.off("message:new", onNew); socket.off("message:updated", onUpdated); socket.off("typing", onTyping); socket.off("message:expired", onExpired); socket.off("conversation:disappearing", onTimer); };
+  }, [socket, conversation.id, myId]);
+
+  useEffect(() => {
+    if (pendingFocus.current && focusEl.current) { focusEl.current.scrollIntoView({ block: "center" }); pendingFocus.current = null; return; }
+    const grew = msgs.length - prevLen.current; prevLen.current = msgs.length;
+    if (pendingFocus.current) return;
+    if (!divDone.current && msgs.length) { divDone.current = true; if (divEl.current) { divEl.current.scrollIntoView({ block: "start" }); return; } } // open at the first unread message
+    const last = msgs[msgs.length - 1];
+    if (!atBottomRef.current && !(last && last.senderId === myId)) { if (grew > 0) setUnseenN(n => n + grew); return; } // reading older messages: don't yank the list down
+    endRef.current?.scrollIntoView();
+  }, [msgs, peerTyping]);
+  useEffect(() => { onLocalUpdate(conversation.id, msgs); }, [msgs]);
+
+  const notifyTyping = (isTyping) => {
+    if (!socket || !featOn("typingStatus")) return;
+    socket.emit("typing", { conversationId: conversation.id, typing: isTyping, kind: "typing" });
+    clearTimeout(typingTimeout.current);
+    if (isTyping) typingTimeout.current = setTimeout(() => socket.emit("typing", { conversationId: conversation.id, typing: false, kind: "typing" }), 1500);
+  };
+  const notifyAct = (kind, on) => { if (socket && featOn("typingStatus")) socket.emit("typing", { conversationId: conversation.id, typing: !!on, kind }); }; // "recording" | "photo" | "file"
+
+  const EDIT_WINDOW_MS = 15 * 60 * 1000; // keep in step with the server
+  const canEdit = (m) => !!m && !m.deleted && !m.audio && !m.hasAudio && !m.file && Date.now() - m.time <= EDIT_WINDOW_MS;
+  const startEdit = (m) => {
+    setSel(null);
+    if (!canEdit(m)) return setError("Messages can only be edited for 15 minutes after sending");
+    setEditing(m); setDraft(m.text);
+    setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
+  };
+  const cancelEdit = () => { setEditing(null); setDraft(""); };
+  const removeMsg = (m) => { setSel(null); setDelDlg([m]); };
+  const reactTo = (m, emoji) => { setSel(null); setPicked([]); if (!socket) return setError("Not connected yet. Try again in a moment."); socket.emit("message:react", { messageId: m.id, emoji }, (ack) => { if (ack && ack.error) setError(ack.error); }); };
+  if (window.LCReactions) window.LCReactions.useLive(socket, conversation.id, setMsgs);
+  const openMenu = (m) => { if (m.senderId === myId && !m.deleted) { openedAt.current = Date.now(); setSel(m); } };
+  const pressStart = (m) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => { startPick(m); try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {} }, 250); };
+  const pressEnd = () => clearTimeout(pressRef.current);
+
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [pickSheet, setPickSheet] = useState(null);
+  const [pendingMedia, setPendingMedia] = useState(null);
+  const [emojiTab, setEmojiTab] = useState(0);
+  const insertEmoji = (em) => {
+    const el = inputRef.current;
+    const a = el && typeof el.selectionStart === "number" ? el.selectionStart : draft.length;
+    const b = el && typeof el.selectionEnd === "number" ? el.selectionEnd : draft.length;
+    setDraft((draft.slice(0, a) + em + draft.slice(b)).slice(0, MAX_MSG_CHARS));
+    notifyTyping(true);
+    setTimeout(() => { if (el) { const p = a + em.length; try { el.setSelectionRange(p, p); } catch (e) {} } }, 0);
+  };
+
+
+  // ---- multi-select: long-press a bubble to start, then tap more bubbles to add or remove them ----
+  const [picked, setPicked] = useState([]);
+  const pickAt = useRef(0);
+  const pickedMsgs = msgs.filter(x => !x.deleted && picked.includes(x.id));
+  const picking = pickedMsgs.length > 0;
+  const startPick = (m) => { if (!m || m.deleted || m.pending) return; pickAt.current = Date.now(); setSel(null); setPicked(p => (p.includes(m.id) ? p : [...p, m.id])); };
+  const togglePick = (m) => { if (Date.now() - pickAt.current < 500) return; setPicked(p => (p.includes(m.id) ? p.filter(id => id !== m.id) : [...p, m.id])); };
+  const muteUntil = conversation && isMutedChat(settings.muted, conversation.id);
+  const exportChat = () => {
+    const lines = msgs.filter(x => !x.deleted).map(x => {
+      const who = x.senderId === myId ? "You" : isGroup ? ((conversation.members.find(u => u.id === x.senderId) || {}).name || "Former member") : conversation.other.name;
+      const body = x.audio || x.hasAudio ? "<voice note>" : x.file ? "<attached: " + (x.file.name || "file") + ">" : x.text;
+      return "[" + new Date(x.time).toLocaleString() + "] " + who + ": " + body;
+    });
+    if (!lines.length) return flashNote("There are no messages to export");
+    try {
+      const blob = new Blob(["Chat with " + conversation.other.name + "\n\n" + lines.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob), el = document.createElement("a");
+      el.href = url; el.download = "Letschat chat with " + conversation.other.name.replace(/[\\/:*?"<>|]/g, "_") + ".txt";
+      document.body.appendChild(el); el.click(); document.body.removeChild(el);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      flashNote("Chat exported");
+    } catch (e) { flashNote("Could not export this chat"); }
+  };
+  const clearChat = () => {
+    if (!window.confirm("Clear all messages in this chat on this device? Other people keep their copy.")) return;
+    saveJSON("chatCleared:" + conversation.id, Date.now());
+    setMsgs([]); clearPick(); flashNote("Chat cleared");
+  };
+  const addShortcut = async () => {
+    const url = window.location.origin + window.location.pathname + "?open=" + conversation.id;
+    try { if (navigator.share) { await navigator.share({ title: conversation.other.name + " on Letschat Africa", url }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(url); flashNote("Shortcut link copied. Open it in your browser, then choose Add to Home screen."); }
+    catch (e) { window.prompt("Copy this shortcut link, open it in your browser, then choose Add to Home screen", url); }
+  };
+  const reportChat = () => {
+    const name = conversation.other.name;
+    if (!window.confirm("Report " + (isGroup ? "this group" : name) + "? Letschat Africa will review the report. They won't be told.")) return;
+    onReport(isGroup ? null : conversation.other.id, conversation.id);
+  };
+  const sendCallLink = () => {
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    const url = window.location.origin + window.location.pathname + "?call=" + conversation.id + "&v=0";
+    socket.emit("message:send", { conversationId: conversation.id, text: "📞 Call me on Letschat Africa: " + url }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
+  };
+  const pickSuggestion = (t) => {
+    setDraft(d => (d.trim() ? d.replace(/\s*$/, " ") + t : t));
+    setSugOpen(false); notifyTyping(true);
+    setTimeout(() => inputRef.current && inputRef.current.focus(), 0);
+  };
+  const clearPick = () => { setPicked([]); setPickMenu(false); };
+  const replyPicked = () => { const m = pickedMsgs[0]; if (!m) return; setReplyTo(m); setEditing(null); clearPick(); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
+  const infoPicked = () => { const m = pickedMsgs[0]; if (!m) return; setMsgInfo(m); clearPick(); };
+  const forwardPicked = () => { if (!pickedMsgs.length) return; setFwd(pickedMsgs); clearPick(); };
+  const pinMsg = (m) => { if (!socket || !m) return; const on = (conversation.pinnedMsgs || []).some(p => p.id === m.id); socket.emit("message:pin", { messageId: m.id, pin: !on }, (ack) => { if (ack && ack.error) setError(ack.error); else flashNote(on ? "Message unpinned" : "Message pinned"); }); };
+  const openPin = () => { const pn = [...(conversation.pinnedMsgs || [])].reverse(); if (!pn.length) return; const p = pn[pinIdx % pn.length]; setPinIdx(n => n + 1); if (fEls.current[p.id]) jumpTo(p.id); else flashNote("That message is older. Scroll up to load it."); };
+  const lockToggle = () => {
+    if (LCX.locked(conversation.id)) setSheetName("lockoff");
+    else if (!LCX.hasPin()) setSheetName("lockset");
+    else { LCX.setLocked(conversation.id, true); LCX.unlocked.add(conversation.id); flashNote("Chat locked. It asks for your PIN next time."); }
+  };
+  const jumpTo = (id) => { const el = fEls.current[id]; if (!el) return; el.scrollIntoView({ block: "center", behavior: "smooth" }); setHl(id); setTimeout(() => setHl(null), 1600); };
+  // keep the emoji pill on screen: if the selected message is near the top of the list, show it underneath instead
+  useEffect(() => {
+    if (!(picked.length === 1)) return;
+    const el = fEls.current[picked[0]], box = listEl.current;
+    if (el && box) setPillBelow(el.getBoundingClientRect().top - box.getBoundingClientRect().top < 70);
+  }, [picked.join(",")]);
+  const allMinePicked = picking && pickedMsgs.every(x => x.senderId === myId);
+  const copyPicked = async () => {
+    const text = pickedMsgs.map(x => {
+      const who = conversation.isGroup ? (x.senderId === myId ? "You" : ((conversation.members.find(u => u.id === x.senderId) || {}).name || "Former member")) + ": " : "";
+      return who + (x.audio || x.hasAudio ? "[Voice note]" : x.file ? "[File: " + (x.file.name || "file") + "]" : x.text);
+    }).join("\n");
+    try { await navigator.clipboard.writeText(text); } catch (e) { window.prompt("Copy these messages", text); }
+    clearPick();
+  };
+  const deletePicked = () => { if (pickedMsgs.length) setDelDlg(pickedMsgs); };
+  const deleteEveryone = (list) => {
+    setDelDlg(null); clearPick();
+    list.filter(x => x.senderId === myId).forEach(x => {
+      if (String(x.id).startsWith("tmp-")) { setMsgs(prev => prev.filter(y => y.id !== x.id)); return; } // never reached the server
+      if (!socket) return setError("Not connected yet. Try again in a moment.");
+      socket.emit("message:delete", { messageId: x.id }, (ack) => { if (ack && ack.error) setError(ack.error); });
+    });
+  };
+
+
+  // Auto-expand the message box as the user types (Enter adds a new line), up to 40% of the screen, then it scrolls.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, [draft]);
+
+  // Text goes onto the screen at once as "sending" and is sent in the background; if the network is down it
+  // waits and goes out by itself when the connection returns. If the server refuses it, it shows "Not sent" with a Retry.
+  const sendText = (text, rid, snap) => {
+    const tmpId = "tmp-" + Date.now() + Math.random().toString(36).slice(2, 6);
+    const mn = conversation.isGroup ? mentionIdsIn(text, conversation.members, myId) : [];
+    setMsgs(prev => [...prev, { id: tmpId, conversationId: conversation.id, senderId: myId, text, time: Date.now(), pending: true, ...(snap ? { replyTo: snap } : {}), ...(mn.length ? { mentions: mn } : {}) }]);
+    socket.emit("message:send", { conversationId: conversation.id, text, replyTo: rid, ...(mn.length ? { mentions: mn } : {}) }, (ack) => {
+      if (ack && ack.error) { setMsgs(prev => prev.map(x => (x.id === tmpId ? { ...x, pending: false, failed: true, error: ack.error, _rid: rid } : x))); return; }
+      setMsgs(prev => { const rest = prev.filter(x => x.id !== tmpId); return ack && ack.message && !rest.some(x => x.id === ack.message.id) ? [...rest, ack.message] : rest; });
+    });
+  };
+  const retrySend = (m) => { if (!socket) return; setMsgs(prev => prev.filter(x => x.id !== m.id)); sendText(m.text, m._rid, m.replyTo || null); };
+  const deleteForMe = (list) => {
+    setDelDlg(null);
+    if (!list.length) return;
+    const ids = list.map(x => x.id), real = ids.filter(id => !String(id).startsWith("tmp-"));
+    if (real.length) { const cur = LCX.get("lcx:hidden:" + conversation.id, []); LCX.put("lcx:hidden:" + conversation.id, [...new Set([...cur, ...real])].slice(-2000)); }
+    setMsgs(prev => prev.filter(x => !ids.includes(x.id))); clearPick(); flashNote("Deleted for you");
+  };
+  const send = () => {
+    if (!draft.trim() || !socket) return;
+    const text = draft.trim();
+    if (editing) {
+      if (text === editing.text) return cancelEdit();
+      const id = editing.id;
+      return socket.emit("message:edit", { messageId: id, text }, (ack) => {
+        if (ack && ack.error) return setError(ack.error);
+        setEditing(null); setDraft("");
+        if (ack && ack.message) setMsgs(prev => prev.map(x => (x.id === id ? { ...x, text: ack.message.text, edited: true, editedAt: ack.message.editedAt } : x)));
+      });
+    }
+    setDraft("");
+    notifyTyping(false);
+    playSound("send");
+    const rid = replyTo ? replyTo.id : undefined;
+    setReplyTo(null);
+    const snap = replyTo ? { id: replyTo.id, senderId: replyTo.senderId, name: replyTo.senderId === myId ? "You" : ((conversation.members || []).find(u => u.id === replyTo.senderId) || conversation.other || {}).name || "", text: String(replyTo.text || "").slice(0, 140) } : null;
+    sendText(text, rid, snap);
+  };
+
+  const sendFile = async (file, caption, viewOnce) => {
+    if (!file) return;
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    setSending(true);
+    const actKind = /^image\//.test(file.type || "") ? "photo" : "file"; notifyAct(actKind, true);
+    const done = setTimeout(() => { setSending(false); notifyAct(actKind, false); }, 20000);
+    try {
+      let data, mime = file.type || "application/octet-stream", name = file.name || "file";
+      if (/^image\/(jpeg|png|webp)$/.test(mime)) { data = await compressImage(file); mime = "image/jpeg"; name = name.replace(/\.\w+$/, "") + ".jpg"; }
+      else { if (file.size > MAX_FILE) throw new Error("File is too large (max 3 MB)"); data = await readAsDataURL(file); }
+      if (data.length > 4000000) throw new Error("File is too large (max 3 MB)");
+      const rid = replyTo ? replyTo.id : undefined; setReplyTo(null);
+      socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, ...(caption ? { text: caption } : {}), file: { name, mime, size: Math.round(data.length * 0.75), data }, ...(viewOnce && featOn("viewOnce") ? { viewOnce: true } : {}) }, (ack) => {
+        clearTimeout(done); setSending(false); notifyAct(actKind, false);
+        if (ack && ack.error) setError(ack.error); else playSound("send");
+      });
+    } catch (e) { clearTimeout(done); setSending(false); notifyAct(actKind, false); setError(e.message || "Could not send that file"); }
+  };
+  const pickFile = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; askMedia(f); };
+  const askMedia = (f) => {
+    if (!f) return;
+    if (/^(image|video)\//.test(f.type || "")) setPendingMedia({ file: f, url: URL.createObjectURL(f) });
+    else sendFile(f);
+  };
+  const sendPending = (caption, once) => {
+    const p = pendingMedia; setPendingMedia(null); if (!p) return;
+    try { URL.revokeObjectURL(p.url); } catch (e) { }
+    sendFile(p.file, String(caption || "").trim().slice(0, MAX_MSG_CHARS), !!once);
+  };
+  const cancelPending = () => { const p = pendingMedia; setPendingMedia(null); if (p) { try { URL.revokeObjectURL(p.url); } catch (e) { } } };
+  
+
+  // ---- paperclip tray actions ----
+  const sendPlain = (text) => {
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    const rid = replyTo ? replyTo.id : undefined; setReplyTo(null);
+    playSound("send");
+    socket.emit("message:send", { conversationId: conversation.id, text: String(text).slice(0, MAX_MSG_CHARS), replyTo: rid }, (ack) => { if (ack && ack.error) setError(ack.error); });
+  };
+const vcfText = (c) => {
+    const esc = (v) => String(v || "").replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/;/g, "\\;").replace(/,/g, "\\,");
+    const name = String(c.name || "Contact").trim() || "Contact";
+    const parts = name.split(/\s+/), last = parts.length > 1 ? parts.pop() : "", first = parts.join(" ");
+    const lines = ["BEGIN:VCARD", "VERSION:3.0", "N:" + esc(last) + ";" + esc(first) + ";;;", "FN:" + esc(name)];
+    if (c.tel) lines.push("TEL;TYPE=CELL:" + esc(c.tel));
+    if (c.email) lines.push("EMAIL;TYPE=INTERNET:" + esc(c.email));
+    if (c.username) lines.push("NICKNAME:" + esc(c.username));
+    lines.push("NOTE:Shared from Letschat Africa", "END:VCARD");
+    return lines.join("\r\n") + "\r\n";
+};
+// A shared contact goes out as a real .vcf file (opens straight in the phone's Contacts app). A contact needs a phone number or an email.
+const sendContactCard = (c) => {
+    if (!c || (!c.tel && !c.email)) return setError("That contact has no phone number or email to share");
+    const base = String(c.name || "contact").replace(/[\\/:*?"<>|\x00-\x1f]/g, "").trim().slice(0, 40) || "contact";
+    let file;
+    try { file = new File([vcfText(c)], base + ".vcf", { type: "text/vcard" }); }
+    catch (e) { return setError("Could not create the contact file on this device"); }
+    return sendFile(file, "\uD83D\uDC64 " + (c.name || "Contact"));
+};
+const shareLocation = async () => {
+    if (!navigator.geolocation) return setError("Location is not supported on this device");
+    if (window.isSecureContext === false) return setError("Location only works on a secure (https) connection");
+    const blockedMsg = "Location is blocked. Close any screen recorder or floating bubble on your phone, tap the lock icon next to the address bar, set Location to Allow, then try again.";
+    try {
+        if (navigator.permissions && navigator.permissions.query) {
+            const st = await navigator.permissions.query({ name: "geolocation" });
+            if (st && st.state === "denied") return setError(blockedMsg);
+        }
+    } catch (e) { }
+    setSending(true);
+    let finished = false;
+    const done = (pos) => {
+        if (finished) return; finished = true; setSending(false);
+        sendPlain("\uD83D\uDCCD My location\nhttps://www.google.com/maps?q=" + pos.coords.latitude.toFixed(6) + "," + pos.coords.longitude.toFixed(6));
+    };
+    const fail = (err) => {
+        if (finished) return; finished = true; setSending(false);
+        const code = err && err.code;
+        setError(code === 1 ? blockedMsg : code === 2 ? "Your phone could not find your location. Turn on Location (GPS) in your phone settings and try again." : "Finding your location took too long. Check that Location is on, then try again.");
+    };
+    setTimeout(() => fail({ code: 3 }), 45000);
+    // precise GPS fix first; if the phone cannot get one (indoors, weak GPS) fall back to a network-based fix instead of failing
+    navigator.geolocation.getCurrentPosition(done, (e1) => {
+        if (e1 && e1.code === 1) return fail(e1);
+        navigator.geolocation.getCurrentPosition(done, fail, { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 });
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+};
+const shareContact = async () => {
+    // one contact only: the phone's own picker when it has one, otherwise a list of the person's contacts
+    try {
+        if (navigator.contacts && navigator.contacts.select) {
+            const r = await navigator.contacts.select(["name", "tel", "email"], { multiple: false });
+            if (!r || !r.length) return;
+            const c = r[0];
+            return sendContactCard({ name: (c.name && c.name[0]) || "Contact", tel: (c.tel && c.tel[0]) || "", email: (c.email && c.email[0]) || "" });
+        }
+    } catch (e) { if (e && e.name === "AbortError") return; }
+    const list = (contacts || []).filter((u) => u && u.name);
+    if (!list.length) return setError("You have no contacts to share yet");
+    const fmt = (p) => (p ? (/^\d+$/.test(String(p)) ? "+" + p : String(p)) : "");
+    setPickSheet({ kind: "contact", title: "Share a contact", multi: false, empty: "You have no contacts yet", raw: list, items: list.map((u) => ({ id: u.id, title: u.name, sub: fmt(u.phone) || u.email || "" })) });
+};
+  const shareCatalogue = async () => {
+    setSending(true);
+    try {
+      const d = await api("/api/v1/catalog/me", { token });
+      const items = (d && d.items) || [];
+      setSending(false);
+      if (!items.length) return setError("Your catalogue is empty. Add items in Tools > Catalog first.");
+      setPickSheet({ kind: "catalogue", title: "Share from your catalogue", multi: true, empty: "Your catalogue is empty", raw: items, items: items.map((it) => ({ id: it.id, title: it.name, sub: it.price ? String(it.price) : "" })) });
+    } catch (e) { setSending(false); setError(e.message || "Could not load your catalogue"); }
+  };
+  const onPickDone = (ids) => {
+    const ps = pickSheet; setPickSheet(null);
+    if (!ps || !ids || !ids.length) return;
+    if (ps.kind === "contact") {
+      const u = ps.raw.find((x) => x.id === ids[0]); if (!u) return;
+      const tel = u.phone ? (/^\d+$/.test(String(u.phone)) ? "+" + u.phone : String(u.phone)) : "";
+      return sendContactCard({ name: u.name, tel, email: u.email || "", username: u.username || "" });
+    }
+    if (ps.kind === "catalogue") {
+      const chosen = ps.raw.filter((it) => ids.includes(it.id));
+      sendPlain(chosen.map((it) => "\u2022 " + it.name + (it.price ? " \u2014 " + it.price : "")).join("\n"));
+    }
+  };
+  const pickGallery = (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+    if (!/^(image|video)\//.test(f.type || "")) return setError("Gallery can only share photos and videos");
+    if (/^video\//.test(f.type) && f.size > MAX_FILE) return setError("Video is too large (max 3 MB)");
+    askMedia(f);
+  };
+  const pickDoc = (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+    const okExt = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf|odt)$/i.test(f.name || "");
+    const okMime = /^(application\/pdf|text\/plain|text\/csv|application\/msword|application\/rtf|application\/vnd\.(openxmlformats-officedocument|ms-|oasis\.opendocument))/.test(f.type || "");
+    if (!okExt && !okMime) return setError("Document can only share documents and PDF files");
+    sendFile(f);
+  };
+  const sendPoll = (poll) => {
+    if (!socket) return setError("Not connected yet. Try again in a moment.");
+    const rid = replyTo ? replyTo.id : undefined; setReplyTo(null); setSheetName(null);
+    socket.emit("message:send", { conversationId: conversation.id, poll, ...(rid ? { replyTo: rid } : {}) }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
+  };
+  const onPickAttach = (id) => {
+    setAttachOpen(false);
+    if (id === "location") shareLocation();
+    else if (id === "contact") shareContact();
+    else if (id === "gallery") galRef.current && galRef.current.click();
+    else if (id === "document") docRef.current && docRef.current.click();
+    else if (id === "catalogue") shareCatalogue();
+    else if (id === "poll") setSheetName("poll");
+    else if (id === "schedule") setSheetName("schedule");
+  };
+
+
+  const startRec = async () => {
+    if (!featOn("voiceNotes")) return setError("Voice notes are turned off. Turn them on in Tools > Sounds & features.");
+    if (!socket || !navigator.mediaDevices || !window.MediaRecorder) return setError("Voice notes are not supported on this device");
+    try {
+      const clear = featOn("clearVoice"); // clear voice = echo cancellation + noise suppression
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear } });
+      const mr = new MediaRecorder(stream, { audioBitsPerSecond: 24000 });
+      const r = { mr, chunks: [], t0: Date.now(), cancel: false };
+      mr.ondataavailable = (e) => { if (e.data.size) r.chunks.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (r.cancel) return;
+        const fr = new FileReader();
+        const rid = replyTo ? replyTo.id : undefined; setReplyTo(null);
+        fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
+        fr.readAsDataURL(new Blob(r.chunks, { type: mr.mimeType || "audio/webm" }));
+      };
+      mr.start();
+      setRecSec(0); setRec(r); notifyAct("recording", true);
+    } catch (e) { setError("Allow microphone access to record voice notes"); }
+  };
+  const stopRec = (cancel) => { if (!rec) return; rec.cancel = !!cancel; if (rec.mr.state !== "inactive") rec.mr.stop(); setRec(null); };
+  useEffect(() => { // keep telling the other side we are recording; say "stopped" when done
+    if (!rec) return;
+    const t = setInterval(() => notifyAct("recording", true), 3000);
+    return () => { clearInterval(t); notifyAct("recording", false); };
+  }, [rec]);
+  useEffect(() => {
+    if (!rec) return;
+    const t = setInterval(() => setRecSec(x => { if (x >= 59) stopRec(false); return x + 1; }), 1000);
+    return () => clearInterval(t);
+  }, [rec]);
+
+  const isGroup = !!conversation.isGroup;
+  const online = !!presence[conversation.other.id];
+  const isFav = settings.favorites.includes(conversation.id);
+  const isPinned = pinned.includes(conversation.id);
+  const iBlocked = !isGroup && settings.blocked.some(b => b.id === conversation.other.id);
+
+  return (
+    <div onDragOver={e => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) e.preventDefault(); }} onDrop={e => { const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f && !iBlocked) { e.preventDefault(); askMedia(f); } }} style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "12px 8px 12px 10px", background: "#080B0F", position: "relative", flexShrink: 0 }}>
+        {picking && (() => {
+          const one = pickedMsgs.length === 1 ? pickedMsgs[0] : null;
+          const ib = { background: "none", border: "none", cursor: "pointer", padding: 9, display: "flex", flexShrink: 0 };
+          return (
+            <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "#0E1116", display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0", padding: "0 4px 0 6px" }}>
+              <button aria-label="Cancel selection" onClick={clearPick} style={{ ...ib, padding: 10 }}><ArrowLeft size={22} color="#F5F7FA" /></button>
+              <div style={{ flex: 1, fontFamily: "Sora", fontWeight: 600, fontSize: 21, color: "#F5F7FA", paddingLeft: 10 }}>{pickedMsgs.length}</div>
+              {one && <button aria-label="Reply" onClick={replyPicked} style={ib}><ReplyIcon size={22} color="#F5F7FA" /></button>}
+              {one && <button aria-label="Message info" onClick={infoPicked} style={ib}><InfoIcon size={22} color="#F5F7FA" /></button>}
+              {picking && <button aria-label="Delete selected messages" onClick={deletePicked} style={ib}><Trash2 size={22} color="#F5F7FA" /></button>}
+              <button aria-label="Copy" onClick={copyPicked} style={ib}><CopyIcon size={22} color="#F5F7FA" /></button>
+              <button aria-label="Forward" onClick={forwardPicked} style={ib}><ForwardIcon size={22} color="#F5F7FA" /></button>
+              <button aria-label="More" onClick={() => setPickMenu(v => !v)} style={ib}><MoreVertical size={22} color="#F5F7FA" /></button>
+              {pickMenu && (
+                <>
+                  <div onClick={() => setPickMenu(false)} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 61 }} />
+                  <div style={{ position: "absolute", top: 54, right: 8, zIndex: 62, minWidth: 190, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: 6, boxShadow: "0 14px 36px rgba(0,0,0,0.5)" }}>
+                    {[
+                      ...(one && one.senderId === myId && canEdit(one) ? [{ label: "Edit", run: () => { startEdit(one); clearPick(); } }] : []),
+                      ...(one && !one.viewOnce && featOn("pinMessages") ? [{ label: (conversation.pinnedMsgs || []).some(p => p.id === one.id) ? "Unpin message" : "Pin message", run: () => { pinMsg(one); clearPick(); setPickMenu(false); } }] : []),
+                      { label: pickedMsgs.every(x => stars[x.id]) ? "Unstar" : "Star", run: () => { toggleStars(pickedMsgs); clearPick(); } },
+                      { label: "Select all", run: () => { setPicked(msgs.filter(x => !x.deleted).map(x => x.id)); setPickMenu(false); } },
+                    ].map(it => (
+                      <div key={it.label} onClick={it.run} style={{ padding: "11px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 14.5, color: "#F5F7FA" }}>{it.label}</div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
+        {menu && (() => {
+          const close = () => { setMenu(false); setMenuPage("main"); };
+          const first = (name) => String(name || "").split(" ")[0];
+          const main = [
+            { label: isGroup ? "Group info" : "View contact", run: () => { close(); if (isGroup) setInfo(true); else setPeerInfo(true); } },
+            { label: "Search", run: () => { close(); setFText(""); setFIdx(0); } },
+            { label: isPinned ? "Unpin chat" : "Pin chat", run: () => { close(); onTogglePin(conversation.id); } },
+            { label: "Report", run: () => { close(); reportChat(); } },
+            ...(isGroup ? [] : [{ label: iBlocked ? "Unblock" : "Block", run: () => { close(); if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you.")) onBlock(conversation.other.id, !iBlocked); } }]),
+            { label: muteUntil ? "Unmute notifications" : "Mute notifications", run: () => { close(); if (muteUntil) onMute(conversation.id, "off"); else setSheetName("mute"); } },
+            { divider: true },
+            { label: "New group", run: () => { close(); onNewGroup(); } },
+            { label: "More", more: true, run: () => setMenuPage("more") },
+          ];
+          const more = [
+            ...(featOn("disappearing") && (!conversation.isGroup || conversation.adminId === myId) ? [{ label: "Disappearing messages", run: () => { close(); setSheetName("timer"); } }] : []),
+            ...(featOn("chatLock") ? [{ label: LCX.locked(conversation.id) ? "Unlock chat" : "Lock chat", run: () => { close(); lockToggle(); } }] : []),
+            { label: "Chat theme", run: () => { close(); setSheetName("theme"); } },
+            { label: "Starred messages", run: () => { close(); setSheetName("starred"); } },
+            { label: "Media, links, and docs", run: () => { close(); setSheetName("media"); } },
+            { label: "Clear chat", run: () => { close(); clearChat(); } },
+            { label: "Export chat", run: () => { close(); exportChat(); } },
+            { label: "Add shortcut", run: () => { close(); addShortcut(); } },
+            { label: isFav ? "Remove from favourites" : "Add to favourites", run: () => { close(); onToggleFavorite(conversation.id); } },
+          ];
+          const items = menuPage === "more" ? more : main;
+          return (
+            <>
+              <div onClick={close} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 }} />
+              <div role="menu" style={{ position: "absolute", top: 62, right: 6, zIndex: 41, minWidth: menuPage === "more" ? 236 : 208, maxWidth: "calc(100% - 12px)", background: "#12161B", border: "1px solid #1E252E", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
+                {items.map((it, i) => it.divider
+                  ? <div key={"d" + i} style={{ height: 1, background: "#232B37", margin: "6px 0" }} />
+                  : <div key={it.label} role="menuitem" onClick={it.run} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: pcDanger(it.label) ? "#FF6B5D" : "#F5F7FA" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14" }}>{pcDanger(it.label) ? React.createElement(pcDanger(it.label), { size: 20, color: "#FF6B5D" }) : null}{it.label}</span>
+                      {it.more && <svg width="7" height="11" viewBox="0 0 6 10" style={{ marginLeft: 16 }}><path d="M0 0v10l6-5z" fill="#9BA7B4" /></svg>}
+                    </div>)}
+              </div>
+            </>
+          );
+        })()}
+        <button aria-label="Back" onClick={onBack} style={{ background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" }}><ArrowLeft size={24} /></button>
+        <Ring size={42} color={conversation.other.color} initials={conversation.other.initials} photo={conversation.other.avatar} online={undefined} onClick={conversation.other.avatar ? () => setZoomed(true) : undefined} />
+        <div onClick={isGroup ? () => setInfo(true) : () => setPeerInfo(true)} style={{ flex: 1, minWidth: 0, cursor: "pointer", paddingLeft: 2 }}>
+          <div style={{ fontFamily: "Inter", fontWeight: 500, fontSize: 19, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{conversation.other.name}{conversation.other.verified && <VerifiedBadge />}</div>
+          {conversation.disappearAfter ? <div style={{ fontFamily: "Inter", fontSize: 11.5, color: "#9BA7B4" }}>{"\u23F1 Disappearing: " + disappearLabel(conversation.disappearAfter)}</div> : null}
+          {peerTyping && <div style={{ fontFamily: "Inter", fontSize: 12, color: "#35D0BA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{actLabel}</div>}
+        </div>
+        {(featOn("voiceCalls") || featOn("videoCalls")) && (
+          <button aria-label="Call options" aria-haspopup="menu" aria-expanded={callMenu} onClick={() => { setMenu(false); setCallMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 6px", display: "flex", alignItems: "center", gap: 5, counterIncrement: "lcgap-5", flexShrink: 0 }}>
+            <Phone size={24} color="#9BA7B4" />
+            <svg width="11" height="7" viewBox="0 0 10 6" style={{ transform: callMenu ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M0 0h10L5 6z" fill="#9BA7B4" /></svg>
+          </button>
+        )}
+        <button aria-label="More options" onClick={() => { setCallMenu(false); setMenuPage("main"); setMenu(m => !m); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 4px", display: "flex", flexShrink: 0 }}><MoreVertical size={22} color="#F5F7FA" /></button>
+        {callMenu && (
+          <>
+            <div onClick={() => setCallMenu(false)} style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 }} />
+            <div role="menu" style={{ position: "absolute", top: 58, right: 40, zIndex: 41, minWidth: 220, background: "#171C24", border: "1px solid #232B37", borderRadius: 22, padding: "8px 0", boxShadow: "0 14px 36px rgba(0,0,0,0.6)" }}>
+              {featOn("voiceCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, false); }} style={{ display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Phone size={22} color="#9BA7B4" />Voice call</div>}
+              {featOn("videoCalls") && <div role="menuitem" onClick={() => { setCallMenu(false); onCall(conversation, true); }} style={{ display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><Video size={22} color="#9BA7B4" />Video call</div>}
+              <div style={{ height: 1, background: "#232B37", margin: "6px 0" }} />
+              <div role="menuitem" onClick={() => { setCallMenu(false); sendCallLink(); }} style={{ display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "15px 22px", cursor: "pointer", fontFamily: "Inter", fontSize: 17, color: "#F5F7FA" }}><LinkIcon size={22} color="#9BA7B4" />Send call link</div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {(conversation.pinnedMsgs || []).length > 0 && <PinnedBar pins={conversation.pinnedMsgs} idx={pinIdx} onOpen={openPin} />}
+      {fText !== null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", borderBottom: "1px solid #1B212B", background: "#10141B", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "#1E2530", borderRadius: 12, padding: "8px 11px" }}>
+            <Search size={16} color="#8891A0" style={{ flexShrink: 0 }} />
+            <input autoFocus value={fText} onChange={e => { setFText(e.target.value); setFIdx(0); }} placeholder="Search in this chat" maxLength={100} style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5 }} />
+            {fQ && <span style={{ fontFamily: "Inter", fontSize: 12, color: "#8891A0", whiteSpace: "nowrap" }}>{fMatches.length ? (fMatches.length - fPos) + " of " + fMatches.length : "No results"}</span>}
+          </div>
+          <button aria-label="Older match" disabled={!fMatches.length || fPos >= fMatches.length - 1} onClick={() => setFIdx(fPos + 1)} style={{ ...iconBtnStyle, opacity: !fMatches.length || fPos >= fMatches.length - 1 ? 0.35 : 1 }}><ChevronDown size={20} color="#9BA7B4" style={{ transform: "rotate(180deg)" }} /></button>
+          <button aria-label="Newer match" disabled={fPos <= 0} onClick={() => setFIdx(fPos - 1)} style={{ ...iconBtnStyle, opacity: fPos <= 0 ? 0.35 : 1 }}><ChevronDown size={20} color="#9BA7B4" /></button>
+          <button aria-label="Close search" onClick={() => { setFText(null); setFIdx(0); }} style={iconBtnStyle}><X size={20} color="#9BA7B4" /></button>
+        </div>
+      )}
+      {!conn && <div className="lc-strip" role="status" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "7px 14px", background: "#2A2110", borderBottom: "1px solid #3D3015", fontFamily: "Inter", fontSize: 12.5, color: "#F2B84B", flexShrink: 0 }}><span className="lc-dots"><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /><i style={{ background: "#F2B84B" }} /></span>{typeof navigator !== "undefined" && navigator.onLine === false ? "Waiting for network. Your messages will send when you are back online." : "Connecting to the server\u2026 your messages will send in a moment."}</div>}
+      <div ref={listEl} onScroll={(e) => { const el = e.currentTarget; const nb = el.scrollHeight - el.scrollTop - el.clientHeight < 140; atBottomRef.current = nb; setAtBottom(nb); if (nb) setUnseenN(0); }} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 12px", display: "flex", flexDirection: "column", gap: 8, counterIncrement: "lcgap-8", background: chatBg }}>
+        {loading && <div style={{ margin: "auto", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 }}>Loading conversation…</div>}
+        {error && <Banner text={error} onClose={() => setError("")} />}
+        {!loading && msgs.length === 0 && (
+          <div style={{ margin: "auto", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 }}>
+            No messages yet.<br />Say hello to {isGroup ? "the group" : conversation.other.name.split(" ")[0]} 👋
+          </div>
+        )}
+        {msgs.flatMap((m, mIdx) => { const sepEl = dayDivider(msgs, mIdx); const bubbleEl = (() => {
+          const mine = m.senderId === myId;
+          const sender = isGroup && !mine ? conversation.members.find(x => x.id === m.senderId) : null;
+          const prevM = mIdx > 0 ? msgs[mIdx - 1] : null;
+          const cont = !!prevM && !sepEl && !(unreadDiv && unreadDiv.id === m.id) && prevM.senderId === m.senderId && !prevM.deleted && !!m.time && m.time - prevM.time < 120000; // same sender within 2 minutes: tuck closer
+          const mnList = m.mentions && m.mentions.length ? m.mentions.map(id => { const u = (conversation.members || []).find(x => x.id === id); return u && u.name ? { name: u.name, me: id === myId } : null; }).filter(Boolean) : [];
+          return (
+            <div key={m.id} ref={(el) => { fEls.current[m.id] = el; if (m.id === focusId) focusEl.current = el; }}
+              onContextMenu={!m.deleted ? (e) => { e.preventDefault(); startPick(m); } : undefined}
+              onClickCapture={picking ? (e) => { if (e.target.closest && e.target.closest("[data-lcpill]")) return; e.preventDefault(); e.stopPropagation(); if (!m.deleted) togglePick(m); } : undefined}
+              onTouchStart={!m.deleted ? (e) => { pressStart(m); swStart(e, m); } : undefined} onTouchEnd={() => { pressEnd(); swEnd(m); }} onTouchMove={(e) => { pressEnd(); swMove(e, m); }} onTouchCancel={() => { pressEnd(); swRef.current = null; setSwipe(null); }}
+              style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignSelf: "stretch", position: "relative", padding: "4px 12px", margin: (cont ? "-9px" : "-4px") + " -12px -4px", zIndex: picking && picked.includes(m.id) ? 5 : undefined, background: picking && picked.includes(m.id) && !m.deleted ? "rgba(168,160,60,0.30)" : "transparent", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" }}>
+            {picking && pickedMsgs.length === 1 && picked[0] === m.id && window.LCReactions && window.LCReactions.pill(m, myId, reactTo, mine, pillBelow)}
+            {swipe && swipe.id === m.id && swipe.dx > 20 && <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", opacity: Math.min(1, swipe.dx / 56) }}><ReplyIcon size={20} color="#35D0BA" /></div>}
+            <div className={liveIds.current.has(m.id) ? (mine ? "lc-msg-mine" : "lc-msg-theirs") : undefined} onClick={(e) => tapMsg(e, m)} style={{
+              WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: swipe && swipe.id === m.id ? "none" : "box-shadow .4s, transform .18s", transform: swipe && swipe.id === m.id ? "translateX(" + swipe.dx + "px)" : undefined,
+              alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%", position: "relative",
+              marginBottom: !mine && window.LCReactions && window.LCReactions.has(m) ? 14 : 0,
+              background: mine ? "#1E8677" : "#1E2530", borderRadius: 14,
+              borderBottomRightRadius: mine ? 3 : 14, borderBottomLeftRadius: mine ? 14 : 3,
+              padding: "8px 11px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 14.5,
+            }}>
+              {burst === m.id && <span className="lc-heart-burst" aria-hidden="true">{"\u2764\uFE0F"}</span>}
+              {isGroup && !mine && !cont && <div style={{ fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 }}>{sender ? sender.name : "Former member"}</div>}
+              {m.forwarded && !m.deleted && <div style={{ display: "flex", alignItems: "center", gap: 9, counterIncrement: "lcgap-9", fontSize: 14.5, fontStyle: "italic", color: "rgba(225,232,232,0.72)", marginBottom: 5 }}><ForwardIcon size={16} strokeWidth={1.8} color="rgba(225,232,232,0.72)" />Forwarded</div>}
+              {m.replyTo && !m.deleted && (
+                <div onClick={() => jumpTo(m.replyTo.id)} style={{ background: mine ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.06)", borderLeft: "4px solid " + (m.replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), borderRadius: 8, padding: "5px 9px", marginBottom: 6, cursor: "pointer", minWidth: 120 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5, color: m.replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA", marginBottom: 1 }}>{m.replyTo.senderId === myId ? "You" : m.replyTo.name}</div>
+                  <div style={{ fontSize: 13, color: "#D5DBE2", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" }}>{m.replyTo.text}</div>
+                </div>
+              )}
+              {m.deleted ? <div style={{ fontStyle: "italic", color: "#B9C2CC" }}>{m.text}</div>
+                : m.viewOnce ? <ViewOnceBubble m={m} mine={mine} myId={myId} socket={socket} />
+                : m.poll ? <PollBubble m={m} myId={myId} socket={socket} />
+                : m.audio ? <audio controls preload="none" src={m.audio} style={{ height: 36, width: 210, maxWidth: "100%" }} />
+                : m.file && m.file.data && /^data:image\//.test(m.file.data) ? <img loading="lazy" decoding="async" src={m.file.data} alt={m.file.name} onClick={() => setViewer(m.file.data)} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, objectFit: "cover", borderRadius: 10, cursor: "zoom-in" }} />
+                : m.file && m.file.data && /^data:video\//.test(m.file.data) ? <video controls playsInline preload="metadata" src={m.file.data} style={{ display: "block", width: 230, maxWidth: "100%", maxHeight: 300, borderRadius: 10, background: "#000" }} />
+                : m.file && m.file.data ? (
+                  <a href={m.file.data} download={m.file.name} style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", textDecoration: "none", color: "#F5F7FA", minWidth: 150 }}>
+                    <span style={{ width: 36, height: 36, borderRadius: 10, background: "#0E1116", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Paperclip size={17} color="#35D0BA" /></span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontWeight: 600, fontSize: 13.5, wordBreak: "break-all" }}>{m.file.name}</span>
+                      <span style={{ display: "block", fontSize: 11.5, color: "#B9C2CC" }}>{fmtSize(m.file.size)} · tap to download</span>
+                    </span>
+                  </a>
+                ) : bigEmoji(m.text) ? <div className={"lc-bigemoji" + (liveIds.current.has(m.id) ? " live" : "")} style={{ fontSize: 44 }}>{m.text.trim()}</div>
+                : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{withLinks(withMentions(richText(m.text), mnList))}</div>}
+              {m.file && m.file.data && /^data:(image|video)\//.test(m.file.data) && m.text && !/^(\uD83D\uDCF7 Photo|\uD83D\uDCCE )/.test(m.text) && <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 6 }}>{withLinks(richText(m.text))}</div>}
+              {m.failed && <div onClick={() => retrySend(m)} role="button" style={{ marginTop: 4, fontSize: 12, color: "#FF9B91", fontWeight: 600, cursor: "pointer" }}>Not sent · Tap to retry</div>}
+              {!m.deleted && lpIds.has(m.id) && <LinkPreview url={firstPreviewUrl(m.text)} token={token} />}
+              {window.LCReactions && window.LCReactions.chips(m, myId, reactTo, mine)}
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, counterIncrement: "lcgap-4", marginTop: 2 }}>
+                {stars[m.id] && !m.deleted && <span aria-label="Starred" className="lc-chip-pop" style={{ fontSize: 10.5 }}>{"\u2B50"}</span>}
+                {m.edited && !m.deleted && <span style={{ fontSize: 10.5, color: "#B9C2CC", fontStyle: "italic" }}>edited</span>}
+                {m.expiresAt && !m.deleted && <ExpiryTag at={m.expiresAt} />}
+                <span style={{ fontSize: 10.5, color: "#B9C2CC" }}>{msgTime(m.time)}</span>
+                {mine && !m.deleted && <button aria-label="Message options" onClick={() => openMenu(m)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" }}><ChevronDown size={14} color="#B9C2CC" /></button>}
+                {mine && (m.pending ? <ClockIcon size={12} color="#B9C2CC" /> : m.failed ? <AlertCircle size={13} color="#FF6B5D" /> : <Tick state={tickState(m)} size={12} onBubble />)}
+              </div>
+            </div>
+            </div>
+          );
+        })(); const divElm = unreadDiv && unreadDiv.id === m.id ? (<div key={"new-" + m.id} ref={divEl} style={{ alignSelf: "stretch", textAlign: "center", background: "rgba(53,208,186,.14)", color: "#7FE3D3", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, padding: "5px 12px", borderRadius: 10, margin: "4px 0" }}>{unreadDiv.count === 1 ? "1 unread message" : unreadDiv.count + " unread messages"}</div>) : null; return [sepEl, divElm, bubbleEl].filter(Boolean); })}
+        {peerTyping && (
+          <div style={{ alignSelf: "flex-start", background: "#1E2530", borderRadius: 14, borderBottomLeftRadius: 3, padding: "9px 13px", color: "#8891A0", fontFamily: "Inter", fontSize: 13 }}>
+            <span className="lc-dots" style={{ marginRight: 8 }}><i /><i /><i /></span>{actLabel.replace(/\u2026$/, "")}
+          </div>
+        )}
+        {!atBottom && !loading && (
+          <div style={{ position: "sticky", bottom: 6, alignSelf: "flex-end", height: 0, zIndex: 4 }}>
+            <button className="lc-pop" aria-label="Scroll to latest message" onClick={() => { endRef.current && endRef.current.scrollIntoView({ behavior: "smooth" }); setUnseenN(0); }} style={{ position: "absolute", right: 0, bottom: 0, width: 42, height: 42, borderRadius: 21, background: "#1E2530", border: "1px solid #2B3544", boxShadow: "0 4px 14px rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+              <ChevronDown size={22} color="#F5F7FA" />
+              {unseenN > 0 && <span style={{ position: "absolute", top: -7, right: -4, minWidth: 20, height: 20, borderRadius: 10, padding: "0 5px", boxSizing: "border-box", background: "#35D0BA", color: "#0E1116", fontFamily: "Inter", fontWeight: 700, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{unseenN > 99 ? "99+" : unseenN}</span>}
+            </button>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      {(rec || sending) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", flexShrink: 0 }}>
+          <span className={rec ? "lc-rec-dot" : undefined} style={{ width: 10, height: 10, borderRadius: 5, background: rec ? "#FF6B5D" : "#35D0BA" }} />
+          <span style={{ flex: 1 }}>{rec ? "Recording " + Math.floor(recSec / 60) + ":" + String(recSec % 60).padStart(2, "0") + " · tap send to finish" : "Sending file…"}</span>
+          {rec && <button onClick={() => stopRec(true)} style={{ ...smallBtn, color: "#FF6B5D" }}>Cancel</button>}
+        </div>
+      )}
+      {replyTo && !editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 14px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, borderLeft: "4px solid " + (replyTo.senderId === myId ? "#8B7CF6" : "#35D0BA"), background: "#1E2530", borderRadius: 8, padding: "6px 10px" }}>
+            <div style={{ fontFamily: "Inter", fontWeight: 700, fontSize: 12.5, color: replyTo.senderId === myId ? "#B6ABFF" : "#35D0BA" }}>{replyTo.senderId === myId ? "You" : ((isGroup ? (conversation.members.find(u => u.id === replyTo.senderId) || {}).name : conversation.other.name) || "Former member")}</div>
+            <div style={{ fontFamily: "Inter", fontSize: 13, color: "#B9C2CC", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{replyTo.audio || replyTo.hasAudio ? "🎤 Voice note" : replyTo.text}</div>
+          </div>
+          <button aria-label="Cancel reply" onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}><X size={18} color="#8891A0" /></button>
+        </div>
+      )}
+      {editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 16px", background: "#161B22", borderTop: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#F5F7FA", flexShrink: 0 }}>
+          <Pencil size={15} color="#35D0BA" />
+          <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><b style={{ color: "#35D0BA" }}>Editing message</b> · {editing.text}</span>
+          <button aria-label="Cancel editing" onClick={cancelEdit} style={{ background: "none", border: "none", padding: 2, cursor: "pointer", display: "flex" }}><X size={18} color="#8891A0" /></button>
+        </div>
+      )}
+      {!iBlocked && !rec && !editing && mHits.length > 0 && (
+        <div className="lc-strip" role="group" aria-label="Mention a member" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
+          {mHits.map(u => (
+            <button key={u.id} onMouseDown={e => e.preventDefault()} onClick={() => pickMention(u)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "6px 14px", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", color: u.color || "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 14 }}>@{u.name}</button>
+          ))}
+        </div>
+      )}
+      {!iBlocked && !rec && !editing && qHits.length > 0 && (
+        <div className="lc-strip" role="group" aria-label="Your quick replies" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, overflowX: "auto" }}>
+          {qHits.map(q => (
+            <button key={q.id} onMouseDown={e => e.preventDefault()} onClick={() => useQuick(q)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "6px 12px", textAlign: "left", cursor: "pointer", flexShrink: 0, maxWidth: 240 }}>
+              <div style={{ color: "#35D0BA", fontFamily: "Sora", fontWeight: 600, fontSize: 13 }}>/{q.shortcut}</div>
+              <div style={{ color: "#C5CDD8", fontFamily: "Inter", fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{q.text}</div>
+            </button>
+          ))}
+        </div>
+      )}
+      {!iBlocked && !rec && typoHit && (
+        <div className="lc-strip" role="group" aria-label="Spelling suggestions" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "7px 12px", background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, overflowX: "auto" }}>
+          <span style={{ color: "#8891A0", flexShrink: 0, whiteSpace: "nowrap" }}><s style={{ color: "#FF6B5D" }}>{typoHit.word}</s> →</span>
+          {typoHit.options.map(o => (
+            <button key={o} onMouseDown={e => e.preventDefault()} onClick={() => applyTypo(o)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "5px 12px", color: "#35D0BA", fontFamily: "Inter", fontWeight: 600, fontSize: 13.5, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{o}</button>
+          ))}
+          <button aria-label="Ignore this word" onMouseDown={e => e.preventDefault()} onClick={ignoreTypo} style={{ marginLeft: "auto", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={16} color="#8891A0" /></button>
+        </div>
+      )}
+      {sugOpen && !iBlocked && !rec && !editing && (
+        <div className="lc-strip" role="group" aria-label="Quick replies" style={{ display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px", background: "#0B0E13", flexShrink: 0, overflowX: "auto" }}>
+          {quickReplies(msgs, myId).map(t => (
+            <button key={t} onMouseDown={e => e.preventDefault()} onClick={() => pickSuggestion(t)} style={{ background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "8px 15px", color: "#F5F7FA", fontFamily: "Inter", fontWeight: 500, fontSize: 14, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{t}</button>
+          ))}
+          <button aria-label="Close suggestions" onClick={() => setSugOpen(false)} style={{ background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex", flexShrink: 0 }}><X size={16} color="#8891A0" /></button>
+        </div>
+      )}
+      {emojiOpen && !iBlocked && !rec && (
+        <div style={{ background: "#161B22", borderTop: "1px solid #262E3A", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "6px 8px", borderBottom: "1px solid #1B212B", overflowX: "auto" }}>
+            {EMOJI_TABS.map((t, i) => <button key={t.name} aria-label={t.name} onClick={() => setEmojiTab(i)} style={{ background: emojiTab === i ? "#1E2530" : "none", border: "none", borderRadius: 10, padding: "4px 10px", fontSize: 20, cursor: "pointer", flexShrink: 0 }}>{t.icon}</button>)}
+          </div>
+          <div style={{ height: 200, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(42px, 1fr))", padding: "6px 8px", gap: 2, counterIncrement: "lcgap-2", alignContent: "start" }}>
+            {EMOJI_TABS[emojiTab].list.map(em => <button key={em} onMouseDown={ev => ev.preventDefault()} onClick={() => insertEmoji(em)} style={{ background: "none", border: "none", fontSize: 26, height: 40, lineHeight: "40px", cursor: "pointer", padding: 0 }}>{em}</button>)}
+          </div>
+        </div>
+      )}
+      {iBlocked ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "14px 16px", background: "#0E1116", borderTop: "1px solid #1B212B", flexShrink: 0, fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4" }}>
+          <span style={{ flex: 1 }}>You blocked this contact.</span>
+          <button onClick={() => onBlock(conversation.other.id, false)} style={smallBtn}>Unblock</button>
+        </div>
+      ) : (
+      <div style={{ padding: "6px 10px 10px", background: chatBar, flexShrink: 0 }}>
+        <input ref={fileRef} type="file" onChange={pickFile} style={{ display: "none" }} />
+        <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={pickFile} style={{ display: "none" }} />
+        <input ref={galRef} type="file" accept="image/*,video/*" onChange={pickGallery} style={{ display: "none" }} />
+        <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,application/pdf" onChange={pickDoc} style={{ display: "none" }} />
+        <div style={{ background: "#1E2530", borderRadius: 28, padding: "12px 10px 8px 18px", display: "flex", flexDirection: "column", gap: 4, counterIncrement: "lcgap-4" }}>
+          <textarea
+            ref={inputRef}
+            rows={1}
+            onFocus={() => setEmojiOpen(false)}
+            value={draft}
+            maxLength={MAX_MSG_CHARS}
+            className="lc-plain"
+            onChange={e => { typingChangeSound(e, draft); setDraft(e.target.value); notifyTyping(true); }}
+            onKeyDown={e => { typingKeySound(e); if (e.key === "Escape" && editing) cancelEdit(); }}
+            onPaste={e => { const it = Array.from((e.clipboardData && e.clipboardData.items) || []).find(i => i.kind === "file" && /^image\//.test(i.type)); const f = it && it.getAsFile(); if (f) { e.preventDefault(); askMedia(f); } }}
+            placeholder={editing ? "Edit message" : "Message"} style={{ width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", resize: "none", overflowY: "auto", maxHeight: "40vh", lineHeight: "26px", minHeight: 26, padding: "2px 8px 2px 0", margin: 0, display: "block", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 }} />
+          {(() => {
+            const hasText = draft.trim().length > 0;
+            const micMode = !editing && !hasText && !rec && featOn("voiceNotes");
+            const ib = { background: "none", border: "none", padding: 9, cursor: "pointer", display: "flex", flexShrink: 0 };
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0" }}>
+                {!editing && <button aria-label="Suggestions" aria-pressed={sugOpen} onClick={() => setSugOpen(v => !v)} style={{ background: sugOpen ? "rgba(53,208,186,0.12)" : "none", border: "1px solid " + (sugOpen ? "#35D0BA" : "#3A4452"), borderRadius: 999, padding: "8px 18px", color: sugOpen ? "#35D0BA" : "#9BA7B4", fontFamily: "Inter", fontWeight: 500, fontSize: 15.5, cursor: "pointer", flexShrink: 0 }}>Suggestions</button>}
+                <div style={{ flex: 1 }} />
+                <button aria-label={emojiOpen ? "Close emoji" : "Open emoji"} onClick={() => setEmojiOpen(o => !o)} style={ib}><Smile size={25} color={emojiOpen ? "#35D0BA" : "#9BA7B4"} /></button>
+                {!editing && <button aria-label="Attach file" onClick={() => setAttachOpen(true)} style={ib}><Paperclip size={24} color="#9BA7B4" /></button>}
+                {!editing && <button aria-label="Take photo" onClick={() => camRef.current && camRef.current.click()} style={ib}><Camera size={24} color="#9BA7B4" /></button>}
+                <button aria-label={rec ? "Stop and send voice note" : micMode ? "Record voice note" : "Send"}
+                  onClick={() => { if (rec) stopRec(false); else if (hasText) send(); else if (micMode) startRec(); else if (inputRef.current) inputRef.current.focus(); }}
+                  style={{ width: 50, height: 50, borderRadius: "50%", border: "none", background: rec ? "#FF6B5D" : "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginLeft: 6, boxShadow: "0 4px 14px #35D0BA33" }}>
+                  {micMode ? <Mic size={23} color="#0E1116" /> : <Send size={21} color="#0E1116" />}
+                </button>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+      )}
+      {delDlg && <DeleteDialog count={delDlg.length} canEveryone={delDlg.every(x => x.senderId === myId)} onEveryone={() => deleteEveryone(delDlg)} onMe={() => deleteForMe(delDlg)} onClose={() => setDelDlg(null)} />}
+      {fx && <MsgFx key={fx.n} kind={fx.kind} onDone={() => setFx(null)} />}
+      {attachOpen && <AttachSheet onClose={() => setAttachOpen(false)} onPick={onPickAttach} />}
+      {pickSheet && <PickSheet title={pickSheet.title} items={pickSheet.items} multi={pickSheet.multi} empty={pickSheet.empty} onClose={() => setPickSheet(null)} onDone={onPickDone} />}
+      {pendingMedia && <MediaCaptionSheet file={pendingMedia.file} url={pendingMedia.url} onSend={sendPending} onCancel={cancelPending} />}
+      {sel && (
+        <div onClick={() => { if (Date.now() - openedAt.current > 500) setSel(null); }} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 55, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "10px 12px 18px" }}>
+            <div style={{ padding: "6px 10px 10px", fontFamily: "Inter", fontSize: 13, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel.audio || sel.hasAudio ? "🎤 Voice note" : sel.text}</div>
+            {window.LCReactions && window.LCReactions.bar(sel, myId, reactTo)}
+            <div onClick={() => startPick(sel)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Check size={18} color="#35D0BA" />Select messages</div>
+            {canEdit(sel) && (
+              <div onClick={() => startEdit(sel)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#F5F7FA" }}><Pencil size={18} color="#35D0BA" />Edit message</div>
+            )}
+            <div onClick={() => removeMsg(sel)} style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#FF6B5D" }}><Trash2 size={18} color="#FF6B5D" />Delete</div>
+            <div onClick={() => setSel(null)} style={{ padding: "13px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "Inter", fontWeight: 500, fontSize: 15, color: "#9BA7B4", textAlign: "center" }}>Cancel</div>
+          </div>
+        </div>
+      )}
+      {viewer && (
+        <div onClick={() => setViewer(null)} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "rgba(0,0,0,0.94)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <img loading="lazy" decoding="async" src={viewer} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          <div style={{ position: "absolute", top: 14, right: 14, color: "#F5F7FA" }}><X size={26} /></div>
+        </div>
+      )}
+      {note && <div style={{ position: "absolute", left: 16, right: 16, bottom: 150, zIndex: 70, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 14, padding: "11px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>{note}</div>}
+      {sheetName === "theme" && <ChatThemeSheet current={themeId} onPick={(id) => { setThemeId(id); saveJSON("chatTheme:" + conversation.id, id); setSheetName(null); }} onClose={() => setSheetName(null)} />}
+      {sheetName === "starred" && <StarredSheet stars={stars} conversation={conversation} myId={myId} onUnstar={unstarId} onClose={() => setSheetName(null)} onJump={(id) => { setSheetName(null); if (fEls.current[id]) setTimeout(() => jumpTo(id), 60); else flashNote("That message is older. Scroll up to load it."); }} />}
+      {sheetName === "media" && <MediaDocsSheet msgs={msgs} conversation={conversation} myId={myId} onOpenImage={setViewer} onClose={() => setSheetName(null)} />}
+      {sheetName === "poll" && <PollSheet onSend={sendPoll} onClose={() => setSheetName(null)} />}
+      {sheetName === "schedule" && <ScheduleSheet conversationId={conversation.id} socket={socket} onClose={() => setSheetName(null)} />}
+      {needPin && <LockPrompt mode="enter" onCancel={onBack} onDone={() => { LCX.unlocked.add(conversation.id); setNeedPin(false); }} />}
+      {sheetName === "lockset" && <LockPrompt mode="set" onCancel={() => setSheetName(null)} onDone={() => { LCX.setLocked(conversation.id, true); LCX.unlocked.add(conversation.id); setSheetName(null); flashNote("Chat locked"); }} />}
+      {sheetName === "lockoff" && <LockPrompt mode="enter" onCancel={() => setSheetName(null)} onDone={() => { LCX.setLocked(conversation.id, false); setSheetName(null); flashNote("Chat unlocked"); }} />}
+      {sheetName === "mute" && <MuteSheet onPick={(d) => { setSheetName(null); onMute(conversation.id, d); }} onClose={() => setSheetName(null)} />}
+      {sheetName === "timer" && <DisappearSheet current={conversation.disappearAfter || 0} onPick={(s) => { setSheetName(null); if (socket) socket.emit("conversation:disappearing", { conversationId: conversation.id, seconds: s }, (ack) => { if (ack && ack.error) setError(ack.error); }); }} onClose={() => setSheetName(null)} />}
+      {msgInfo && <MessageInfoSheet m={msgInfo} conversation={conversation} myId={myId} onClose={() => setMsgInfo(null)} />}
+      {fwd && <ForwardSheet msgs={fwd} conversations={conversations} socket={socket} token={token} onClose={() => setFwd(null)} />}
+      {peerInfo && !isGroup && <ContactProfileSheet u={conversation.other} token={token} online={online} lastSeen={lastSeen[conversation.other.id]} conversation={conversation} conversations={conversations} msgs={msgs} myId={myId} isFav={isFav} iBlocked={iBlocked} muted={!!muteUntil} onVoice={featOn("voiceCalls") ? () => { setPeerInfo(false); onCall(conversation, false); } : null} onVideo={featOn("videoCalls") ? () => { setPeerInfo(false); onCall(conversation, true); } : null} onToggleFavorite={() => onToggleFavorite(conversation.id)} onNotifications={() => { if (muteUntil) onMute(conversation.id, "off"); else setSheetName("mute"); }} onBlock={() => { if (iBlocked || window.confirm("Block " + conversation.other.name + "? They won't be able to message you.")) onBlock(conversation.other.id, !iBlocked); }} onReport={reportChat} onOpenMedia={() => setSheetName("media")} onOpenImage={setViewer} onNewGroup={(id) => onNewGroup(id)} onNote={flashNote} onClear={clearChat} onLock={lockToggle} onClose={() => setPeerInfo(false)} />}
+      {info && isGroup && <GroupInfoScreen conversation={conversation} myId={myId} token={token} contacts={contacts} presence={presence} lastSeen={lastSeen} msgs={msgs} isFav={isFav} muted={!!muteUntil} onToggleFavorite={() => onToggleFavorite(conversation.id)} onNotifications={() => { if (muteUntil) onMute(conversation.id, "off"); else setSheetName("mute"); }} onOpenMedia={() => setSheetName("media")} onOpenImage={setViewer} onExport={exportChat} onReport={reportChat} onBack={() => setInfo(false)} onChanged={onGroupChanged} />}
+      {zoomed && (
+        <ImageZoomModal photo={conversation.other.avatar} initials={conversation.other.initials} color={conversation.other.color} onClose={() => setZoomed(false)} />
+      )}
+    </div>
+  );
+}
+
+// ---- shareable profile link: anyone who opens it can message you directly ----
+const profileLinkFor = (code) => window.location.origin + window.location.pathname + "?chat=" + code;
+function ProfileLinkRow({ token }) {
+  const [code, setCode] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { api("/api/v1/me/profile-link", { token }).then(d => setCode(d.code)).catch(e => setError(e.message)); }, [token]);
+  const link = code ? profileLinkFor(code) : "";
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch (e) { window.prompt("Copy your profile link", link); }
+  };
+  const share = () => (navigator.share ? navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }).catch(() => {}) : copy());
+  const reset = async () => {
+    if (!window.confirm("Reset your profile link? The old link will stop working.")) return;
+    try { const d = await api("/api/v1/me/profile-link/reset", { method: "POST", token }); setCode(d.code); setError(""); } catch (e) { setError(e.message); }
+  };
+  return (
+    <div style={{ padding: "14px 20px", borderBottom: "1px solid #1B212B" }}>
+      <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Profile link</div>
+      <div style={{ fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 10 }}>Anyone with this link can open a direct message with you.</div>
+      {error && <Banner text={error} onClose={() => setError("")} />}
+      <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8", flexWrap: "wrap" }}>
+        <button onClick={copy} disabled={!code} style={smallBtn}>{copied ? "Copied ✓" : "Copy link"}</button>
+        <button onClick={share} disabled={!code} style={smallBtn}>Share link</button>
+        <button onClick={reset} disabled={!code} style={{ ...smallBtn, color: "#FF6B5D" }}>Reset</button>
+      </div>
+    </div>
+  );
+}
+
+// Opened from someone's profile link: show who it is and start the DM
+function ChatLinkModal({ code, token, onClose, onStarted }) {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/api/v1/users/profile/" + encodeURIComponent(code), { token }).then(setInfo).catch(e => setError(e.message));
+  }, [code]);
+  const start = async () => {
+    setBusy(true); setError("");
+    try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { profileCode: code } }); onStarted(conversation); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <div style={sheet} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={card}>
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 18, color: "#F5F7FA", marginBottom: 12 }}>Start a chat</div>
+        {info && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", marginBottom: 16 }}>
+            <Ring size={52} color={info.user.color} initials={info.user.initials} photo={info.user.avatar} />
+            <div>
+              <div style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{info.user.name}</div>
+              {info.user.about && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0" }}>{info.user.about}</div>}
+            </div>
+          </div>
+        )}
+        {!info && !error && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8A96A5", marginBottom: 16 }}>Checking profile link…</div>}
+        {info && info.self && <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 16 }}>This is your own profile link. Share it so others can message you.</div>}
+        {error && <Banner text={error} />}
+        {info && !info.self && <button onClick={start} disabled={busy} style={primaryBtn(busy)}>{busy ? "Opening…" : "Message " + info.user.name.split(" ")[0]}</button>}
+        <button onClick={onClose} style={{ ...primaryBtn(false), background: "none", color: "#8891A0", marginTop: 6 }}>{info && !info.self ? "Not now" : "Close"}</button>
+      </div>
+    </div>
+  );
+}
+
+function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut }) {
+  const [zoomed, setZoomed] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [cropFile, setCropFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const galleryRef = useRef(null);
+  const cameraRef = useRef(null);
+  const rows = [
+    { label: "Name", value: profile.name },
+    { label: "About", value: profile.about },
+    { label: "Nickname", value: profile.username ? "@" + profile.username : "Not set (tap to add)" },
+    profile.phone ? { label: "Phone", value: "+" + profile.phone, ro: true } : { label: "Email", value: profile.email || "", ro: true },
+  ];
+
+  const onFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!isJpgOrPng(file)) { setError("Please choose a JPG or PNG image."); return; }
+    setError("");
+    setCropFile(file);
+  };
+  const savePhoto = async (avatar) => {
+    setBusy(true); setError("");
+    try {
+      const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { avatar } });
+      onUserUpdate(user);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      style={{ display: "flex", flexDirection: "column", height: "100%", userSelect: "none", WebkitUserSelect: "none" }}
+      onContextMenu={e => e.preventDefault()}
+    >
+      <TopBar title="Profile" onBack={onBack} />
+      {menu && <PhotoMenu hasPhoto={!!profile.avatar} onClose={() => setMenu(false)} onGallery={() => galleryRef.current && galleryRef.current.click()} onCamera={() => cameraRef.current && cameraRef.current.click()} onRemove={() => savePhoto(null)} />}
+      {cropFile && <CropModal file={cropFile} onCancel={() => setCropFile(null)} onDone={(d) => { setCropFile(null); savePhoto(d); }} />}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 0 26px" }}>
+          <div style={{ position: "relative" }}>
+            <Ring size={110} color="#35D0BA" initials={profile.initials} photo={profile.avatar} ring onClick={() => setZoomed(true)} />
+            <CameraBadge onClick={() => setMenu(true)} busy={busy} />
+            <input ref={galleryRef} type="file" accept={PHOTO_ACCEPT} onChange={onFileChange} style={{ display: "none" }} />
+            <input ref={cameraRef} type="file" accept={PHOTO_ACCEPT} capture="user" onChange={onFileChange} style={{ display: "none" }} />
+          </div>
+          {busy && <div style={{ marginTop: 12, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" }}>Saving photo…</div>}
+        </div>
+        {error && <Banner text={error} onClose={() => setError("")} />}
+        {rows.map(r => (
+          <div key={r.label} onClick={!r.ro ? onEdit : undefined} style={{ padding: "14px 20px", borderBottom: "1px solid #1B212B", cursor: !r.ro ? "pointer" : "default" }}>
+            <div style={{ fontFamily: "Inter", fontSize: 12, color: "#8A96A5", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{r.label}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" }}>{r.value}{r.label === "Name" && profile.verified && <VerifiedBadge size={16} />}</span>
+              {!r.ro && <Pencil size={15} color="#5B6673" />}
+            </div>
+          </div>
+        ))}
+        <ProfileLinkRow token={token} />
+        <div style={{ padding: "24px 20px" }}>
+          <button onClick={onLogOut} style={{ width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #FF6B5D55", background: "#FF6B5D15", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, counterIncrement: "lcgap-8", cursor: "pointer" }}>
+            <LogOut size={16} /> Log out
+          </button>
+        </div>
+      </div>
+      {zoomed && (
+        <ImageZoomModal photo={profile.avatar} initials={profile.initials} color="#35D0BA" onClose={() => setZoomed(false)} />
+      )}
+    </div>
+  );
+}
+
+// Move + zoom + crop a chosen photo to a square, then export 512x512 JPEG
+function CropModal({ file, onCancel, onDone }) {
+  const VIEW = Math.min(300, Math.max(220, (typeof window !== "undefined" ? window.innerWidth : 360) - 80));
+  const OUT = 512;
+  const [img, setImg] = useState(null);
+  const [zoom, setZoom] = useState(1);
+  const [off, setOff] = useState({ x: 0, y: 0 });
+  const [err, setErr] = useState("");
+  const drag = useRef(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => setImg(im);
+    im.onerror = () => setErr("Couldn't open that image. Try a different one.");
+    im.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const nw = img ? img.naturalWidth : 1;
+  const nh = img ? img.naturalHeight : 1;
+  const cover = VIEW / Math.min(nw, nh); // scale at which the image just covers the square
+  const scale = cover * zoom;
+  const clamp = (o, s) => {
+    const mx = Math.max(0, (nw * s - VIEW) / 2), my = Math.max(0, (nh * s - VIEW) / 2);
+    return { x: Math.min(mx, Math.max(-mx, o.x)), y: Math.min(my, Math.max(-my, o.y)) };
+  };
+  const changeZoom = (z) => { setZoom(z); setOff((o) => clamp(o, cover * z)); };
+
+  const confirm = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = OUT; canvas.height = OUT;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, OUT, OUT);
+    const sw = VIEW / scale;
+    const sx = (nw * scale / 2 - VIEW / 2 - off.x) / scale;
+    const sy = (nh * scale / 2 - VIEW / 2 - off.y) / scale;
+    ctx.drawImage(img, sx, sy, sw, sw, 0, 0, OUT, OUT);
+    onDone(canvas.toDataURL("image/jpeg", 0.85));
+  };
+
+  const pill = { padding: "13px 0", borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "Sora", fontWeight: 700, fontSize: 14, flex: 1 };
+  return (
+    <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 80, background: "#05070A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 17, color: "#F5F7FA", marginBottom: 6 }}>Move and zoom</div>
+      <div style={{ fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginBottom: 18 }}>Drag the photo to fit it inside the circle</div>
+      {err && <Banner text={err} />}
+      <div
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, o: off }; }}
+        onPointerMove={(e) => { if (drag.current) setOff(clamp({ x: drag.current.o.x + e.clientX - drag.current.x, y: drag.current.o.y + e.clientY - drag.current.y }, scale)); }}
+        onPointerUp={() => { drag.current = null; }}
+        onPointerCancel={() => { drag.current = null; }}
+        onWheel={(e) => changeZoom(Math.min(4, Math.max(1, zoom - e.deltaY * 0.002)))}
+        style={{ position: "relative", width: VIEW, height: VIEW, overflow: "hidden", background: "#161B22", touchAction: "none", cursor: "grab", borderRadius: 4 }}
+      >
+        {img && (
+          <img loading="lazy" decoding="async" src={img.src} alt="" draggable={false} style={{ position: "absolute", left: VIEW / 2 + off.x - nw * scale / 2, top: VIEW / 2 + off.y - nh * scale / 2, width: nw * scale, height: nh * scale, maxWidth: "none", userSelect: "none", pointerEvents: "none" }} />
+        )}
+        <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: "50%", boxShadow: "0 0 0 9999px rgba(5,7,10,0.62)", border: "2px solid #35D0BA", pointerEvents: "none" }} />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", width: VIEW, marginTop: 20 }}>
+        <span style={{ color: "#8891A0", fontSize: 12, fontFamily: "Inter" }}>-</span>
+        <input type="range" min="1" max="4" step="0.01" value={zoom} onChange={(e) => changeZoom(parseFloat(e.target.value))} style={{ flex: 1, accentColor: "#35D0BA" }} aria-label="Zoom" />
+        <span style={{ color: "#8891A0", fontSize: 12, fontFamily: "Inter" }}>+</span>
+      </div>
+      <div style={{ display: "flex", gap: 10, counterIncrement: "lcgap-10", width: VIEW, marginTop: 24 }}>
+        <button onClick={onCancel} style={{ ...pill, background: "#1E2530", color: "#F5F7FA" }}>Cancel</button>
+        <button onClick={confirm} disabled={!img} style={{ ...pill, background: img ? "#35D0BA" : "#1E2530", color: img ? "#0E1116" : "#5B6673" }}>Use photo</button>
+      </div>
+    </div>
+  );
+}
+
+// ---- Edit profile (business-style layout) ----
+// (Plain JS on purpose: the same block is used in app.jsx and the compiled index.html.)
+const EpShare = makeIcon([["c", 18, 5, 3], ["c", 6, 12, 3], ["c", 18, 19, 3], ["p", "m8.59 13.51 6.83 3.98"], ["p", "m15.41 6.51-6.82 3.98"]]);
+const EpUserCircle = makeIcon([["c", 12, 12, 10], ["c", 12, 10, 3], ["p", "M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"]]);
+const EpGlobe = makeIcon([["c", 12, 12, 10], ["p", "M2 12h20"], ["p", "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"]]);
+const EpInstagram = makeIcon([["r", 2, 2, 20, 20, 5], ["p", "M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"], ["p", "M17.5 6.5h.01"]]);
+const EpFacebook = makeIcon([["p", "M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"]]);
+const EpMail = makeIcon([["r", 2, 4, 20, 16, 2], ["p", "m22 7-10 5L2 7"]]);
+const EpDoc = makeIcon([["p", "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"]]);
+const EpShapes = makeIcon([["p", "M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1z"], ["r", 3, 14, 7, 7, 1], ["c", 17.5, 17.5, 3.5]]);
+const EP_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const EP_CATEGORIES = ["Shopping & retail", "Arts & entertainment", "Education", "Food & beverage", "Beauty & personal care", "Health & wellness", "Fashion & clothing", "Automotive", "Professional services", "Technology", "Real estate", "Travel & hospitality", "Finance", "Home & garden", "Agriculture", "Events & weddings", "Other"];
+const epDefaultDays = () => EP_DAYS.map(() => ({ mode: "24h" }));
+const epDayLabel = (d) => (d.mode === "24h" ? "Open 24 hours" : d.mode === "closed" ? "Closed" : d.from + " \u2013 " + d.to);
+
+// ---- Catalogue: products and services shown on a profile (separate from Market) ----
+function catResize(file, max) { // photo -> small JPEG data URL
+    return new Promise((ok, no) => {
+        const fr = new FileReader();
+        fr.onerror = () => no(new Error("Could not read that photo"));
+        fr.onload = () => {
+            const im = new Image();
+            im.onerror = () => no(new Error("That file is not a photo"));
+            im.onload = () => { const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.8)); };
+            im.src = fr.result;
+        };
+        fr.readAsDataURL(file);
+    });
+}
+function CatalogGrid({ items, onTap }) {
+    const ce = React.createElement;
+    return ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, counterIncrement: "lcgap-10", padding: "4px 14px 24px" } }, items.map((it) =>
+        ce("div", { key: it.id, onClick: () => onTap(it), style: { background: "#161B22", border: "1px solid #1F2733", borderRadius: 14, overflow: "hidden", cursor: "pointer" } },
+            it.photo ? ce("img", { src: photoSrc(it.photo), alt: it.name, style: { width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", objectFit: "cover", display: "block" } })
+                : ce("div", { style: { width: "100%", aspectRatio: "1 / 1", counterReset: "lcar-1-1", background: "#1E2530", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Grid3x3, { size: 30, color: "#8A96A5" })),
+            ce("div", { style: { padding: "8px 10px 10px" } },
+                ce("div", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, it.name),
+                it.price ? ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#35D0BA", marginTop: 2 } }, it.price) : null))));
+}
+// Owner: add, edit and delete catalogue items (opened from Edit profile or Tools)
+function CatalogScreen({ token, onBack }) {
+    const ce = React.createElement;
+    const [items, setItems] = useState([]);
+    const [views, setViews] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [form, setForm] = useState(null); // { id?, name, price, description, photo, newPhoto }
+    const [busy, setBusy] = useState(false);
+    const fileRef = useRef(null);
+    const load = () => api("/api/v1/catalog/me", { token }).then((d) => { setItems(d.items || []); setViews(d.views || 0); setError(""); }).catch((e) => setError(e.message)).finally(() => setLoading(false));
+    useEffect(() => { load(); }, []);
+    const pick = async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; try { const p = await catResize(f, 900); setForm((s) => ({ ...s, photo: p, newPhoto: p })); } catch (er) { setError(er.message); } };
+    const save = async () => {
+        if (!form.name.trim()) return setError("Give the item a name");
+        setBusy(true); setError("");
+        try {
+            const body = { name: form.name.trim(), price: form.price.trim(), description: form.description.trim() };
+            if (form.newPhoto) body.photo = form.newPhoto;
+            if (form.id) await api("/api/v1/catalog/" + form.id, { method: "PATCH", token, body });
+            else await api("/api/v1/catalog", { method: "POST", token, body });
+            setForm(null); await load();
+        } catch (e) { setError(e.message || "Could not save"); }
+        setBusy(false);
+    };
+    const del = async () => {
+        if (!window.confirm("Delete this item from your catalogue?")) return;
+        setBusy(true);
+        try { await api("/api/v1/catalog/" + form.id, { method: "DELETE", token }); setForm(null); await load(); } catch (e) { setError(e.message); }
+        setBusy(false);
+    };
+    const input = { width: "100%", boxSizing: "border-box", background: "#1B232C", border: "1px solid #262E3A", borderRadius: 12, padding: "12px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 12 };
+    if (form) return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: form.id ? "Edit item" : "New item", onBack: () => setForm(null) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 16px 24px" } },
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
+            ce("div", { onClick: () => fileRef.current && fileRef.current.click(), style: { width: "100%", aspectRatio: "16 / 10", counterReset: "lcar-16-10", borderRadius: 14, background: "#1B232C", border: "1px dashed #3A4452", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: "pointer", marginBottom: 14 } },
+                form.photo ? ce("img", { src: photoSrc(form.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } })
+                    : ce("div", { style: { textAlign: "center", color: "#8891A0", fontFamily: "Inter", fontSize: 13.5 } }, ce(ImagePlus, { size: 30, color: "#8891A0" }), ce("div", { style: { marginTop: 6 } }, "Add a photo"))),
+            ce("input", { value: form.name, maxLength: 60, onChange: (e) => setForm({ ...form, name: e.target.value }), placeholder: "Item name", style: input }),
+            ce("input", { value: form.price, maxLength: 30, onChange: (e) => setForm({ ...form, price: e.target.value }), placeholder: "Price (optional), e.g. ₦5,000", style: input }),
+            ce("textarea", { value: form.description, maxLength: 500, rows: 4, onChange: (e) => setForm({ ...form, description: e.target.value }), placeholder: "Description (optional)", style: { ...input, resize: "none" } }),
+            ce("button", { onClick: save, disabled: busy, style: { ...primaryBtn(busy) } }, busy ? "Saving…" : "Save"),
+            form.id && ce("button", { onClick: del, disabled: busy, style: { width: "100%", marginTop: 12, padding: 13, borderRadius: 12, border: "1px solid #3A2B2B", background: "none", color: "#FF6B5D", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, "Delete item")));
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
+        ce(TopBar, { title: "Catalog", onBack, right: ce("button", { onClick: () => setForm({ name: "", price: "", description: "", photo: null, newPhoto: null }), "aria-label": "Add item", style: { background: "#35D0BA", border: "none", borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Plus, { size: 20, color: "#0E1116" })) }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            ce("div", { style: { padding: "0 16px 10px", fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, "Shown on your profile so people can see what you offer. " + views + (views === 1 ? " person" : " people") + " viewed it in the last 7 days."),
+            loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+            !loading && !items.length && ce("div", { style: { padding: "40px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 14 } }, "Your catalogue is empty. Tap + to add your first product or service."),
+            ce(CatalogGrid, { items, onTap: (it) => setForm({ id: it.id, name: it.name, price: it.price || "", description: it.description || "", photo: it.photo, newPhoto: null }) })));
+}
+// Visitor: browse someone's catalogue (opened from their profile)
+function CatalogViewer({ uid, name, token, onClose }) {
+    const ce = React.createElement;
+    const [items, setItems] = useState(null);
+    const [open, setOpen] = useState(null);
+    useEffect(() => {
+        api("/api/v1/catalog/" + uid, { token }).then((d) => setItems(d.items || [])).catch(() => setItems([]));
+        api("/api/v1/catalog/" + uid + "/view", { method: "POST", token }).catch(() => { });
+    }, [uid]);
+    return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 66, background: "#0E1116", display: "flex", flexDirection: "column" } },
+        ce(TopBar, { title: (name ? name.split(" ")[0] + "’s catalog" : "Catalog"), onBack: open ? () => setOpen(null) : onClose }),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
+            items === null && ce("div", { style: { padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading…"),
+            items && !items.length && ce("div", { style: { padding: "40px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 14 } }, "Nothing here yet."),
+            items && !open && ce(CatalogGrid, { items, onTap: setOpen }),
+            open && ce("div", { style: { padding: "0 16px 24px" } },
+                open.photo && ce("img", { src: photoSrc(open.photo), alt: open.name, style: { width: "100%", borderRadius: 14, display: "block", marginBottom: 14 } }),
+                ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" } }, open.name),
+                open.price ? ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "#35D0BA", marginTop: 4 } }, open.price) : null,
+                open.description ? ce("div", { style: { fontFamily: "Inter", fontSize: 15, color: "#D5DBE2", marginTop: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.45 } }, open.description) : null)));
+}
+// A row for someone's profile: shows only when they have catalogue items
+function ProfileCatalogRow({ uid, name, token }) {
+    const ce = React.createElement;
+    const [count, setCount] = useState(0);
+    const [open, setOpen] = useState(false);
+    useEffect(() => { let live = true; api("/api/v1/catalog/" + uid, { token }).then((d) => { if (live) setCount((d.items || []).length); }).catch(() => { }); return () => { live = false; }; }, [uid]);
+    if (!count) return null;
+    return ce("div", null,
+        ce("div", { onClick: () => setOpen(true), style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "12px 22px", cursor: "pointer" } },
+            ce(Grid3x3, { size: 22, color: "#8891A0" }),
+            ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, count + (count === 1 ? " item" : " items"))),
+            ce(ChevronRight, { size: 18, color: "#8891A0" })),
+        open && ce(CatalogViewer, { uid, name, token, onClose: () => setOpen(false) }));
+}
+
+function EditProfileScreen({ onBack, profile, token, onSave, onCatalog = () => { } }) {
+    const ce = React.createElement;
+    const b0 = profile.business || {};
+    const init = {
+        name: profile.name || "", about: profile.about || "", username: profile.username || "",
+        cats: b0.category ? String(b0.category).split(",").map((s) => s.trim()).filter(Boolean) : [],
+        description: b0.description || "", address: b0.address || "", website: b0.website || "", instagram: b0.instagram || "", facebook: b0.facebook || "", email: b0.email || "",
+        days: Array.isArray(b0.days) && b0.days.length === 7 ? b0.days : epDefaultDays(),
+    };
+    const [f, setF] = useState(init);
+    const set = (patch) => setF((p) => ({ ...p, ...patch }));
+    const [avatar, setAvatar] = useState(profile.avatar || null);
+    const [avatarChanged, setAvatarChanged] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+    const [note, setNote] = useState("");
+    const [menu, setMenu] = useState(false);
+    const [cropFile, setCropFile] = useState(null);
+    const [sheet, setSheet] = useState(null); // "cats" | "hours" | "preview"
+    const [learn, setLearn] = useState(false);
+    const [nick, setNick] = useState({ state: "idle", message: "", tips: [] });
+    useEffect(() => {
+        const u = f.username.trim();
+        if (!u || u === (profile.username || "")) { setNick({ state: "idle", message: "", tips: [] }); return; }
+        let dead = false;
+        setNick({ state: "checking", message: "Checking\u2026", tips: [] });
+        const t = setTimeout(async () => {
+            try {
+                const d = await api("/api/v1/me/username-check?u=" + encodeURIComponent(u), { token });
+                if (!dead) setNick({ state: d.available ? "ok" : "bad", message: d.message || "", tips: d.suggestions || [] });
+            } catch (e) { if (!dead) setNick({ state: "idle", message: "", tips: [] }); }
+        }, 450);
+        return () => { dead = true; clearTimeout(t); };
+    }, [f.username]);
+        const galleryRef = useRef(null);
+    const cameraRef = useRef(null);
+    const dirty = avatarChanged || JSON.stringify(f) !== JSON.stringify(init);
+    const flashNote = (m) => { setNote(m); setTimeout(() => setNote(""), 2200); };
+    const back = () => { if (dirty && !window.confirm("Discard your changes?")) return; onBack(); };
+
+    const onFileChange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!file) return;
+        if (!isJpgOrPng(file)) { setError("Please choose a JPG or PNG image."); return; }
+        setError("");
+        setCropFile(file);
+    };
+    const shareLink = async () => {
+        try {
+            const d = await api("/api/v1/me/profile-link", { token });
+            const link = profileLinkFor(d.code);
+            if (navigator.share) { try { await navigator.share({ title: "Message me on Letschat Africa", text: "Message me on Letschat Africa", url: link }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+            try { await navigator.clipboard.writeText(link); flashNote("Profile link copied"); } catch (e) { window.prompt("Copy your profile link", link); }
+        } catch (e) { setError(e.message); }
+    };
+    const save = async () => {
+        const site = f.website.trim();
+        const business = {
+            category: f.cats.join(", "), description: f.description.trim(), address: f.address.trim(),
+            website: site && !/^https?:\/\//i.test(site) ? "https://" + site : site,
+            instagram: f.instagram.trim(), facebook: f.facebook.trim(), email: f.email.trim(), days: f.days,
+        };
+        setSaving(true); setError("");
+        try {
+            const { user } = await api("/api/v1/me", { method: "PATCH", token, body: { name: f.name, about: f.about, username: f.username.trim(), business, ...(avatarChanged ? { avatar } : {}) } });
+            onSave(user);
+        } catch (e) { setError(e.message);
+            if (/already been used/i.test(e.message || "")) { try { const d = await api("/api/v1/me/username-check?u=" + encodeURIComponent(f.username.trim()), { token }); setNick({ state: "bad", message: d.message || "", tips: d.suggestions || [] }); } catch (x) { } } }
+        finally { setSaving(false); }
+    };
+
+    const icon = (I) => ce(I, { size: 22, color: "#9BA7B4" });
+    const inputStyle = { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16, padding: 0 };
+    const rowBox = (key, ico, content, onClick) => ce("div", { key, onClick, style: { display: "flex", alignItems: "flex-start", gap: 22, counterIncrement: "lcgap-22", padding: "14px 18px", cursor: onClick ? "pointer" : "default" } },
+        ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 1 } }, ico), ce("div", { style: { flex: 1, minWidth: 0 } }, content));
+    const head = (t) => ce("div", { style: { padding: "16px 18px 6px", fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, t);
+    const rule = () => ce("div", { style: { height: 1, background: "#1B212B", margin: "6px 0" } });
+    const field = (key, ico, value, key2, placeholder, extra = {}) => rowBox(key, ico, ce("input", { value, placeholder, onChange: (e) => set({ [key2]: extra.clean ? extra.clean(e.target.value) : e.target.value }), maxLength: extra.max, type: extra.type || "text", inputMode: extra.mode, autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }));
+    const toggleCat = (c) => set({ cats: f.cats.includes(c) ? f.cats.filter((x) => x !== c) : f.cats.length >= 3 ? f.cats : [...f.cats, c] });
+    const setDay = (i, patch) => set({ days: f.days.map((d, k) => (k === i ? { ...d, ...patch } : d)) });
+    const sheetWrap = (title, children, onDone) => ce("div", { onClick: () => setSheet(null), style: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,.6)", zIndex: 70, display: "flex", alignItems: "flex-end", justifyContent: "center" } },
+        ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: "18px 18px 0 0", padding: "16px 16px 20px", maxHeight: "82%", display: "flex", flexDirection: "column" } },
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA", marginBottom: 10 } }, title),
+            ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, children),
+            ce("button", { onClick: onDone || (() => setSheet(null)), style: { marginTop: 14, width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 24, padding: "12px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, "Done")));
+    const pill = (c) => { const on = f.cats.includes(c); return ce("button", { key: c, onClick: () => toggleCat(c), style: { margin: "0 8px 8px 0", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontFamily: "Inter", fontSize: 14, border: "1px solid " + (on ? "#35D0BA" : "#2B3544"), background: on ? "rgba(53,208,186,.16)" : "#1E2530", color: on ? "#35D0BA" : "#F5F7FA" } }, c); };
+    const timeIn = (v, onChange) => ce("input", { type: "time", value: v, onChange: (e) => onChange(e.target.value), style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 8, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, padding: "6px 8px", colorScheme: "dark" } });
+    const hoursSheet = () => sheetWrap("Opening hours", [
+        ce("button", { key: "all", onClick: () => set({ days: f.days.map(() => ({ ...f.days[0] })) }), style: { ...smallBtn, marginBottom: 10 } }, "Copy Sunday to all days"),
+        ...f.days.map((d, i) => ce("div", { key: i, style: { padding: "10px 0", borderBottom: "1px solid #1B212B" } },
+            ce("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, counterIncrement: "lcgap-10" } },
+                ce("span", { style: { fontFamily: "Inter", fontSize: 15, color: "#F5F7FA" } }, EP_DAYS[i]),
+                ce("select", { value: d.mode, onChange: (e) => { const m = e.target.value; setDay(i, m === "custom" ? { mode: m, from: d.from || "09:00", to: d.to || "17:00" } : { mode: m }); }, style: { background: "#1E2530", border: "1px solid #2B3544", borderRadius: 8, color: "#F5F7FA", fontFamily: "Inter", fontSize: 14, padding: "7px 8px" } },
+                    ce("option", { value: "24h" }, "Open 24 hours"), ce("option", { value: "closed" }, "Closed"), ce("option", { value: "custom" }, "Set hours"))),
+            d.mode === "custom" && ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", marginTop: 8, justifyContent: "flex-end" } }, timeIn(d.from, (v) => setDay(i, { from: v })), ce("span", { style: { color: "#8891A0", fontFamily: "Inter" } }, "to"), timeIn(d.to, (v) => setDay(i, { to: v })))))]);
+    const catSheet = () => sheetWrap("Categories (up to 3)", ce("div", null, EP_CATEGORIES.map(pill)));
+    const prevLine = (I, t) => t ? ce("div", { key: t, style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", padding: "7px 0", fontFamily: "Inter", fontSize: 14, color: "#C5CDD8" } }, ce(I, { size: 18, color: "#8891A0" }), ce("span", { style: { overflowWrap: "anywhere" } }, t)) : null;
+    const hoursSummary = (() => { const d = f.days; return d.every((x) => x.mode === "24h") ? "Open 24 hours" : "Hours set"; })();
+    const previewSheet = () => sheetWrap("How customers see your profile", ce("div", null,
+        ce("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: "6px 0 12px" } },
+            ce(Ring, { size: 84, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true }),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 10 } }, f.name || "Your name"),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 2 } }, f.about)),
+        prevLine(ShoppingBag, f.cats.join(", ")), prevLine(ClockIcon, hoursSummary), prevLine(EpDoc, f.description), prevLine(MapPin, f.address),
+        prevLine(EpGlobe, f.website), prevLine(EpInstagram, f.instagram), prevLine(EpFacebook, f.facebook), prevLine(EpMail, f.email)));
+
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", padding: "14px 16px", flexShrink: 0, background: "#0E1116" } },
+            ce("button", { onClick: back, "aria-label": "Back", style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 0, display: "flex" } }, ce(ArrowLeft, { size: 22 })),
+            ce("div", { style: { flex: 1, fontFamily: "Inter", fontWeight: 500, fontSize: 20, color: "#F5F7FA" } }, "Edit profile"),
+            ce("button", { onClick: shareLink, "aria-label": "Advertise your profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(ToolMegaphone, { size: 22, color: "#F5F7FA" })),
+            ce("button", { onClick: shareLink, "aria-label": "Share profile link", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpShare, { size: 22, color: "#F5F7FA" })),
+            ce("button", { onClick: () => setSheet("preview"), "aria-label": "Preview your profile", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(EpUserCircle, { size: 24, color: "#F5F7FA" }))),
+        menu && ce(PhotoMenu, { hasPhoto: !!avatar, onClose: () => setMenu(false), onGallery: () => galleryRef.current && galleryRef.current.click(), onCamera: () => cameraRef.current && cameraRef.current.click(), onRemove: () => { setAvatar(null); setAvatarChanged(true); } }),
+        cropFile && ce(CropModal, { file: cropFile, onCancel: () => setCropFile(null), onDone: (d) => { setAvatar(d); setAvatarChanged(true); setCropFile(null); } }),
+        sheet === "cats" && catSheet(), sheet === "hours" && hoursSheet(), sheet === "preview" && previewSheet(),
+        note && ce("div", { style: { position: "absolute", left: 16, right: 16, bottom: 84, zIndex: 40, background: "#1B212B", border: "1px solid #262E3A", color: "#F5F7FA", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center" } }, note),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: dirty ? 84 : 24 } },
+            ce("div", { style: { position: "relative", height: 190, background: "linear-gradient(180deg,#1C2429 0%,#151B20 100%)" } },
+                avatar && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden" } }, ce("div", { style: { position: "absolute", top: -20, right: -20, bottom: -20, left: -20, backgroundImage: "url(" + avatar + ")", backgroundSize: "cover", backgroundPosition: "center", filter: "blur(22px) brightness(.45)" } })),
+                ce("button", { onClick: () => setMenu(true), "aria-label": "Change cover and photo", style: { position: "absolute", right: 14, top: 98, width: 32, height: 32, borderRadius: "50%", background: "#35D0BA", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" })),
+                ce("div", { style: { position: "absolute", left: "50%", bottom: -52, transform: "translateX(-50%)", zIndex: 2 } },
+                    ce("div", { style: { position: "relative" } },
+                        ce(Ring, { size: 136, color: "#35D0BA", initials: profile.initials, photo: avatar, ring: true, onClick: () => setMenu(true) }),
+                        ce("button", { onClick: () => setMenu(true), "aria-label": "Change profile photo", style: { position: "absolute", bottom: 4, right: 4, width: 36, height: 36, borderRadius: "50%", background: "#35D0BA", border: "3px solid #0E1116", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 } }, ce(Camera, { size: 16, color: "#0E1116" }))),
+                    ce("input", { ref: galleryRef, type: "file", accept: PHOTO_ACCEPT, onChange: onFileChange, style: { display: "none" } }),
+                    ce("input", { ref: cameraRef, type: "file", accept: PHOTO_ACCEPT, capture: "user", onChange: onFileChange, style: { display: "none" } }))),
+            ce("div", { style: { marginTop: 62, textAlign: "center", fontFamily: "Inter", fontSize: 26, color: "#F5F7FA", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, counterIncrement: "lcgap-6" } },
+                ce("span", { style: { overflowWrap: "anywhere" } }, f.name || "Your name"),
+                profile.verified ? ce(VerifiedBadge, { size: 20 }) : ce("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#8891A0", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", style: { flexShrink: 0 } }, ce("circle", { cx: 12, cy: 12, r: 10, strokeDasharray: "3 3" }), ce("path", { d: "m8.5 12.3 2.4 2.4 4.6-5" }))),
+            ce("div", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "10px 20px 18px" } }, "Your profile is public. ", ce("span", { onClick: () => setLearn(!learn), style: { color: "#35D0BA", fontWeight: 700, cursor: "pointer" } }, "Learn more")),
+            learn && ce("div", { style: { margin: "0 18px 14px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 13, color: "#9BA7B4", lineHeight: 1.45 } }, "People you chat with can see your name, photo, status and the business details you add here. Leave a field empty to keep it private."),
+            error && ce(Banner, { text: error, onClose: () => setError("") }),
+            rule(),
+            head("Business information"),
+            field("name", icon(User), f.name, "name", "Name", { max: 60 }),
+            rowBox("user", icon(AtSign), ce("div", null,
+                ce("div", { style: { display: "flex", alignItems: "center" } }, ce("input", { value: f.username, placeholder: "nickname", onChange: (e) => set({ username: e.target.value.replace(/^@/, "").replace(/[^\x21-\x3F\x41-\x7E]/g, "").toLowerCase().slice(0, 20) }), autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle })),
+                ce("div", { style: { fontFamily: "Inter", fontSize: 13, marginTop: 2, color: nick.state === "bad" ? "#FF8A80" : nick.state === "ok" ? "#35D0BA" : "#8891A0" } }, nick.state !== "idle" && nick.message ? nick.message : "Nickname \u00B7 3 to 20 letters, numbers or symbols. Must be unique."), nick.state === "bad" && nick.tips.length ? ce("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 } }, nick.tips.map((t) => ce("button", { key: t, onClick: () => set({ username: t }), style: { background: "rgba(53,208,186,.14)", color: "#35D0BA", border: "1px solid #35D0BA", borderRadius: 999, padding: "5px 12px", fontFamily: "Inter", fontSize: 13, cursor: "pointer" } }, "@" + t))) : null)),
+            rowBox("cat", icon(EpShapes), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: f.cats.length ? "#F5F7FA" : "#5B6673", lineHeight: 1.35 } }, f.cats.length ? f.cats.join(", ") : "Category"), () => setSheet("cats")),
+            ce("div", { key: "hours", style: { display: "flex", alignItems: "flex-start", gap: 22, counterIncrement: "lcgap-22", padding: "10px 18px", cursor: "pointer" }, onClick: () => setSheet("hours") },
+                ce("div", { style: { width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 5 } }, icon(ClockIcon)),
+                ce("div", { style: { flex: 1 } }, f.days.map((d, i) => ce("div", { key: i, style: { display: "flex", justifyContent: "space-between", padding: "5px 0", fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, ce("span", null, EP_DAYS[i]), ce("span", null, epDayLabel(d)))))),
+            rowBox("desc", icon(EpDoc), ce("textarea", { value: f.description, placeholder: "Description", rows: 1, maxLength: 256, onChange: (e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; set({ description: e.target.value }); }, style: { ...inputStyle, resize: "none", overflow: "hidden", lineHeight: 1.4 } })),
+            field("addr", icon(MapPin), f.address, "address", "Address", { max: 200 }),
+            rule(),
+            head("Products and services"),
+            rowBox("catalog", icon(Grid3x3), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "Catalog"), onCatalog),
+            rule(),
+            head("Links"),
+            field("web", icon(EpGlobe), f.website, "website", "Website", { max: 200, mode: "url" }),
+            field("ig", icon(EpInstagram), f.instagram, "instagram", "Instagram", { max: 200 }),
+            field("fb", icon(EpFacebook), f.facebook, "facebook", "Facebook", { max: 200 }),
+            rule(),
+            head("Contact information"),
+            field("mail", icon(EpMail), f.email, "email", "Business email", { max: 120, type: "email", mode: "email" }),
+            profile.phone && rowBox("phone", icon(Phone), ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#F5F7FA" } }, "+" + String(profile.phone).replace(/\D/g, ""))),
+            rowBox("about", icon(ToolInfo), ce("input", { value: f.about, placeholder: "Available", maxLength: 139, onChange: (e) => set({ about: e.target.value }), style: inputStyle }))),
+        dirty && ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 16px 14px", background: "linear-gradient(180deg,rgba(14,17,22,0),#0E1116 40%)", zIndex: 30 } },
+            ce("button", { onClick: save, disabled: saving, style: { width: "100%", background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 26, padding: "13px 0", fontFamily: "Sora", fontWeight: 700, fontSize: 15, cursor: saving ? "default" : "pointer" } }, saving ? "Saving\u2026" : "Save changes")));
+}
+
+// [ISO code, name, dial code]; the first four are shown first
+const COUNTRIES = [
+  ["NG","Nigeria","234"],["GH","Ghana","233"],["KE","Kenya","254"],["ZA","South Africa","27"],
+  ["DZ","Algeria","213"],["AO","Angola","244"],["BJ","Benin","229"],["BW","Botswana","267"],["BF","Burkina Faso","226"],
+  ["BI","Burundi","257"],["CM","Cameroon","237"],["CV","Cape Verde","238"],["CF","Central African Republic","236"],
+  ["TD","Chad","235"],["KM","Comoros","269"],["CG","Congo","242"],["CD","DR Congo","243"],["CI","Côte d'Ivoire","225"],
+  ["DJ","Djibouti","253"],["EG","Egypt","20"],["GQ","Equatorial Guinea","240"],["ER","Eritrea","291"],["SZ","Eswatini","268"],
+  ["ET","Ethiopia","251"],["GA","Gabon","241"],["GM","Gambia","220"],["GN","Guinea","224"],["GW","Guinea-Bissau","245"],
+  ["LS","Lesotho","266"],["LR","Liberia","231"],["LY","Libya","218"],["MG","Madagascar","261"],["MW","Malawi","265"],
+  ["ML","Mali","223"],["MR","Mauritania","222"],["MU","Mauritius","230"],["MA","Morocco","212"],["MZ","Mozambique","258"],
+  ["NA","Namibia","264"],["NE","Niger","227"],["RW","Rwanda","250"],["ST","São Tomé and Príncipe","239"],["SN","Senegal","221"],
+  ["SC","Seychelles","248"],["SL","Sierra Leone","232"],["SO","Somalia","252"],["SS","South Sudan","211"],["SD","Sudan","249"],
+  ["TZ","Tanzania","255"],["TG","Togo","228"],["TN","Tunisia","216"],["UG","Uganda","256"],["ZM","Zambia","260"],["ZW","Zimbabwe","263"],
+  ["GB","United Kingdom","44"],["US","United States","1"],["CA","Canada","1"],["AE","United Arab Emirates","971"],
+  ["FR","France","33"],["DE","Germany","49"],["IN","India","91"],
+];
+// 8135351804 -> "81 3535 1804" (2 digits, space, 4 digits, space, the rest)
+const formatNational = (d) => [d.slice(0, 2), d.slice(2, 6), d.slice(6)].filter(Boolean).join(" ");
+const flagOf = (iso) => String.fromCodePoint(...[...iso].map((c) => 127397 + c.charCodeAt(0)));
+
+function friendlyAuthError(e) {
+  const map = {
+    "auth/invalid-phone-number": "Enter the number with its country code, digits only (e.g. 234801234567).",
+    "auth/invalid-verification-code": "That code is wrong. Check it and try again.",
+    "auth/code-expired": "That code has expired. Go back and request a new one.",
+    "auth/too-many-requests": "Too many attempts. Please wait a while and try again.",
+    "auth/popup-closed-by-user": "Google sign-in was cancelled.",
+    "auth/popup-blocked": "Your browser blocked the Google pop-up. Allow pop-ups for this site and try again.",
+    "auth/unauthorized-domain": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
+    "auth/email-already-in-use": "That email is already registered. Log in instead, or use Google if you signed up with Google.",
+    "auth/invalid-email": "That email address doesn't look right.",
+    "auth/weak-password": "Choose a password with at least 6 characters.",
+    "auth/wrong-password": "Wrong email or password.",
+    "auth/invalid-credential": "Wrong email or password.",
+    "auth/user-not-found": "No account with that email. Tap Create account.",
+    "auth/user-disabled": "This account has been disabled.",
+    "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
+    "auth/network-request-failed": "Network problem. Check your connection and try again.",
+  };
+  if (e && /region/i.test(e.message || "")) return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
+  if (e && /already been rendered/i.test(e.message || "")) return "Please refresh the page and try again.";
+  return map[e && e.code] || (e && e.message) || "Something went wrong.";
+}
+
+// Flipping, glowing logo: front = logo, back = credit. Flips back after FLIP_BACK_MS; animation pauses after PAUSE_MS (tap the logo to flip / resume).
+const FLIP_FRONT_MS = 30000, FLIP_BACK_MS = 30000, PAUSE_MS = 20 * 60 * 1000;
+function LogoFlip() {
+  const [flipped, setFlipped] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [run, setRun] = useState(0); // bump to restart the 20 minute clock
+  useEffect(() => {
+    const stop = setTimeout(() => { setFlipped(false); setPaused(true); }, PAUSE_MS);
+    return () => clearTimeout(stop);
+  }, [run]);
+  useEffect(() => {
+    if (paused) return;
+    const t = setTimeout(() => setFlipped((f) => !f), flipped ? FLIP_BACK_MS : FLIP_FRONT_MS);
+    return () => clearTimeout(t);
+  }, [flipped, paused, run]);
+  const tap = () => { if (paused) { setPaused(false); setRun((r) => r + 1); } else setFlipped((f) => !f); };
+  return (
+    <div className={"lc-flip" + (flipped ? " flipped" : "") + (paused ? " paused" : "")} onClick={tap} role="button" aria-label="Letschat Africa logo">
+      <div className="lc-flip-inner">
+        <img className="lc-flip-face" src="icons/icon-192.png" alt="Letschat Africa" width={84} height={84} />
+        <div className="lc-flip-face lc-flip-back"><span>Created by</span><b>Smart Ayo</b><span>08135351804</span></div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ onContinue }) {
+  const [phone, setPhone] = useState(""); // national number only, without the country code
+  const [iso, setIso] = useState(() => { try { return localStorage.getItem("lc-country") || "NG"; } catch (e) { return "NG"; } });
+  const country = COUNTRIES.find((c) => c[0] === iso) || COUNTRIES[0];
+  const dial = country[2];
+  const cleanPhone = (v) => {
+    let d = String(v).replace(/\D/g, "");
+    if (d.startsWith(dial) && d.length >= dial.length + 8) d = d.slice(dial.length); // pasted with country code
+    return d.replace(/^0+/, ""); // drop the local leading 0 (0813... -> 813...)
+  };
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [confirmation, setConfirmation] = useState(null);
+  const [pendingToken, setPendingToken] = useState(null); // signed in with Firebase, still needs a name
+  const [emailStage, setEmailStage] = useState("form"); // null | "form" | "verify"; email + password is the default login
+  const [isNew, setIsNew] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [emailName, setEmailName] = useState("");
+  const [emailUser, setEmailUser] = useState(null);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
+
+  const run = async (fn) => {
+    setBusy(true); setError("");
+    try { await fn(); } catch (e) { setError(friendlyAuthError(e)); } finally { setBusy(false); }
+  };
+  const resetCaptcha = () => { try { window.__rv && window.__rv.clear(); } catch (e) {} window.__rv = null; };
+  const finish = async (idToken, nm) => {
+    try { await onContinue(idToken, nm); }
+    catch (e) { if (/Name required/.test(e.message)) setPendingToken(idToken); else throw e; }
+  };
+
+  // A fresh reCAPTCHA element for every attempt (re-using one causes "already been rendered")
+  const makeVerifier = () => {
+    resetCaptcha();
+    const wrap = document.getElementById("recaptcha-wrap");
+    wrap.innerHTML = "";
+    const el = document.createElement("div");
+    wrap.appendChild(el);
+    window.__rv = new firebase.auth.RecaptchaVerifier(el, { size: "invisible" });
+    return window.__rv;
+  };
+  const sendCode = () => run(async () => {
+    try {
+      setConfirmation(await firebase.auth().signInWithPhoneNumber("+" + dial + phone, makeVerifier()));
+    } catch (e) { resetCaptcha(); throw e; }
+  });
+  const verify = () => run(async () => {
+    const cred = await confirmation.confirm(code.trim());
+    await finish(await cred.user.getIdToken(), "");
+  });
+  const google = () => run(async () => {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" }); // always show Google's account chooser (never silently reuse the signed-in account)
+    const cred = await firebase.auth().signInWithPopup(provider);
+    await finish(await cred.user.getIdToken(), "");
+  });
+  const createAccount = () => run(() => finish(pendingToken, name.trim()));
+
+  // ---- email + password ----
+  const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
+  const emailReady = emailOk && password.length >= 6 && (!isNew || !!emailName.trim());
+  const submitEmail = () => run(async () => {
+    setNotice("");
+    const auth = firebase.auth();
+    if (isNew) {
+      const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
+      await cred.user.updateProfile({ displayName: emailName.trim() });
+      await cred.user.sendEmailVerification();
+      setEmailUser(cred.user); setEmailStage("verify");
+      setNotice("Verification email sent. Check your inbox and spam folder.");
+      return;
+    }
+    const cred = await auth.signInWithEmailAndPassword(email.trim(), password);
+    if (!cred.user.emailVerified) {
+      try { await cred.user.sendEmailVerification(); } catch (e) {}
+      setEmailUser(cred.user); setEmailStage("verify");
+      setNotice("Please verify your email first. We sent you a link.");
+      return;
+    }
+    await finish(await cred.user.getIdToken(), "");
+  });
+  const checkVerified = () => run(async () => {
+    await emailUser.reload();
+    const u = firebase.auth().currentUser;
+    if (!u || !u.emailVerified) throw new Error("Not verified yet. Open the link in the email, then tap the button again.");
+    await finish(await u.getIdToken(true), isNew ? emailName.trim() : "");
+  });
+  const resendVerification = () => run(async () => {
+    await firebase.auth().currentUser.sendEmailVerification();
+    setNotice("Verification email sent again.");
+  });
+  const forgotPassword = () => run(async () => {
+    if (!emailOk) throw new Error("Type your email address first.");
+    await firebase.auth().sendPasswordResetEmail(email.trim());
+    setNotice("Password reset link sent to " + email.trim() + ".");
+  });
+  const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
+
+  const box = { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
+  const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
+  const btn = (on) => ({ padding: "15px", borderRadius: 14, border: "none", cursor: busy ? "default" : "pointer", background: on ? "#35D0BA" : "#1E2530", color: on ? "#0E1116" : "#5B6673", fontFamily: "Sora", fontWeight: 700, fontSize: 15, width: "100%" });
+
+  const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" ? "email" : "phone";
+  const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
+  const subs = {
+    phone: "We'll text you a verification code. Or continue with Google.",
+    code: "We sent a code to +" + dial + " " + formatNational(phone) + ".",
+    name: "This is what people you chat with will see.",
+    email: "Use your email and a password (6 or more characters).",
+    verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
+  };
+
+  return (
+    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" }}>
+      <div style={{ textAlign: "center", marginBottom: 30 }}>
+        <LogoFlip />
+        <div style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 13, letterSpacing: 1, color: "#35D0BA", textTransform: "uppercase", marginBottom: 10 }}>Letschat Africa</div>
+        <h1 style={{ fontFamily: "Sora", fontWeight: 700, fontSize: 24, color: "#F5F7FA", margin: "0 0 8px" }}>{titles[stage]}</h1>
+        <p style={{ fontFamily: "Inter", fontSize: 14, color: "#8891A0", margin: 0, lineHeight: 1.5 }}>{subs[stage]}</p>
+      </div>
+
+      {error && <Banner text={error} onClose={() => setError("")} />}
+      {notice && <Banner text={notice} tone="info" onClose={() => setNotice("")} />}
+
+      {stage === "phone" && (
+        <>
+          <div style={box}>
+            <div style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", paddingRight: 10, borderRight: "1px solid #262E3A" }}>
+              <span style={{ fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap" }}>{flagOf(country[0])} +{dial} <span style={{ color: "#8891A0", fontSize: 11 }}>&#9662;</span></span>
+              <select value={iso} onChange={e => { setIso(e.target.value); setPhone(""); try { localStorage.setItem("lc-country", e.target.value); } catch (err) {} }} aria-label="Country code" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", fontSize: 16 }}>
+                {COUNTRIES.map((c) => <option key={c[0]} value={c[0]}>{flagOf(c[0])} {c[1]} (+{c[2]})</option>)}
+              </select>
+            </div>
+            <input value={formatNational(phone)} onChange={e => setPhone(cleanPhone(e.target.value))} onKeyDown={e => e.key === "Enter" && phone.length >= 6 && !busy && sendCode()} placeholder="" inputMode="numeric" autoComplete="tel-national" style={inputStyle} />
+          </div>
+          <button disabled={busy || phone.length < 6 || !FIREBASE_READY} onClick={sendCode} style={btn(phone.length >= 6 && FIREBASE_READY)}>{busy ? "Please wait…" : "Send code"}</button>
+          <div style={{ textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" }}>or</div>
+          <button disabled={busy || !FIREBASE_READY} onClick={google} style={{ ...btn(false), background: "#F5F7FA", color: "#0E1116" }}>Continue with Google</button>
+          <button onClick={() => { setEmailStage("form"); setError(""); setNotice(""); }} style={linkBtn}>Log in with email and password</button>
+        </>
+      )}
+
+      {stage === "email" && (
+        <>
+          <div style={{ display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 }}>
+            {[["Log in", false], ["Create account", true]].map(([label, v]) => (
+              <button key={label} onClick={() => { setIsNew(v); setError(""); setNotice(""); }} style={{ flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>{label}</button>
+            ))}
+          </div>
+          {isNew && (
+            <div style={box}><input value={emailName} onChange={e => setEmailName(e.target.value)} placeholder="Your name" autoComplete="name" style={inputStyle} /></div>
+          )}
+          <div style={box}><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" autoComplete="email" inputMode="email" style={inputStyle} /></div>
+          <div style={box}>
+            <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && emailReady && !busy && submitEmail()} placeholder="Password" autoComplete={isNew ? "new-password" : "current-password"} autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputStyle} />
+            <button type="button" onClick={() => setShowPassword(v => !v)} aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} style={{ background: "none", border: "none", padding: 0, margin: 0, cursor: "pointer", color: showPassword ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {showPassword ? (
+                  <>
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </>
+                )}
+              </svg>
+            </button>
+          </div>
+          <button disabled={busy || !emailReady} onClick={submitEmail} style={btn(emailReady)}>{busy ? "Please wait…" : isNew ? "Create account" : "Log in"}</button>
+          {!isNew && <button onClick={forgotPassword} style={linkBtn}>Forgot password?</button>}
+          <button onClick={() => { setEmailStage(null); setError(""); setNotice(""); }} style={linkBtn}>Use phone or Google instead</button>
+        </>
+      )}
+
+      {stage === "verify" && (
+        <>
+          <button disabled={busy} onClick={checkVerified} style={btn(true)}>{busy ? "Please wait…" : "I've verified my email"}</button>
+          <button onClick={resendVerification} style={linkBtn}>Resend email</button>
+          <button onClick={() => { setEmailStage("form"); setEmailUser(null); setNotice(""); try { firebase.auth().signOut(); } catch (e) {} }} style={linkBtn}>Use a different email</button>
+        </>
+      )}
+
+      {stage === "code" && (
+        <>
+          <div style={box}>
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && code.length >= 6 && !busy && verify()} placeholder="123456" inputMode="numeric" autoFocus style={{ ...inputStyle, letterSpacing: 6, textAlign: "center" }} />
+          </div>
+          <button disabled={busy || code.length < 6} onClick={verify} style={btn(code.length >= 6)}>{busy ? "Please wait…" : "Verify code"}</button>
+          <button onClick={() => { setConfirmation(null); setCode(""); resetCaptcha(); }} style={{ background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer" }}>Use a different number</button>
+        </>
+      )}
+
+      {stage === "name" && (
+        <>
+          <div style={box}>
+            <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && name.trim() && !busy && createAccount()} placeholder="Your name" autoFocus style={inputStyle} />
+          </div>
+          <button disabled={busy || !name.trim()} onClick={createAccount} style={btn(!!name.trim())}>{busy ? "Please wait…" : "Create account"}</button>
+        </>
+      )}
+
+      <div id="recaptcha-wrap" />
+      <p style={{ textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#8A96A5", marginTop: 22, lineHeight: 1.6 }}>
+        Your phone number or Google email is your Letschat Africa ID. You can also pick a username in Edit profile so friends can find you without sharing either.
+      </p>
+    </div>
+  );
+}
+
+function App() {
+  const [session, setSession] = useState(() => loadJSON("session", null)); // { token, user }
+  const [conversations, setConversations] = useState(() => { // show the last chat list instantly while the fresh one loads
+    const c = loadJSON("convCache", null), s = loadJSON("session", null);
+    return c && s && s.user && c.uid === s.user.id && Array.isArray(c.list) ? c.list : [];
+  });
+  const [convError, setConvError] = useState("");
+  const [convLoading, setConvLoading] = useState(false);
+  const [presence, setPresence] = useState({});
+  const [tab, setTab] = useState("chats");
+  const [activeConvo, setActiveConvo] = useState(null);
+  const [focusMsg, setFocusMsg] = useState(null); // search result to jump to when a chat opens
+  const [showProfile, setShowProfile] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showNewChat, setShowNewChat] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupWith, setNewGroupWith] = useState(null); // contact to pre-select when "Create group with…" is tapped on a profile
+  const [lastSeen, setLastSeen] = useState({});
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [pinned, setPinned] = useState(() => { const p = loadJSON("pinnedChats", []); return Array.isArray(p) ? p : []; }); // chats pinned to the top (kept on this device)
+  const [toolsView, setToolsView] = useState(null); const [showCatalog, setShowCatalog] = useState(false); // "favs" | "privacy" | "help"
+  const [toast, setToast] = useState("");
+  // group invite link: ?join=CODE is kept until the user is signed in and confirms
+  const [joinCode, setJoinCode] = useState(() => {
+    try {
+      const c = new URLSearchParams(window.location.search).get("join");
+      if (c) { saveJSON("pendingJoin", c); window.history.replaceState(null, "", window.location.pathname); }
+    } catch (e) {}
+    return loadJSON("pendingJoin", null);
+  });
+  // profile link: ?chat=CODE is kept until the user is signed in and confirms
+  const [chatCode, setChatCode] = useState(() => {
+    try {
+      const c = new URLSearchParams(window.location.search).get("chat");
+      if (c) { saveJSON("pendingChat", c); window.history.replaceState(null, "", window.location.pathname); }
+    } catch (e) {}
+    return loadJSON("pendingChat", null);
+  });
+  const closeChatLink = () => { clearJSON("pendingChat"); setChatCode(null); };
+  // call link: ?call=CONVERSATION_ID opens that chat and starts a call once you are signed in
+  const [callLink, setCallLink] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search), c = p.get("call"), o = p.get("open");
+      if (c) { saveJSON("pendingCall", { id: c, video: p.get("v") === "1" }); window.history.replaceState(null, "", window.location.pathname); }
+      else if (o) { saveJSON("pendingCall", { id: o, open: true }); window.history.replaceState(null, "", window.location.pathname); }
+    } catch (e) {}
+    return loadJSON("pendingCall", null);
+  });
+  const socketRef = useRef(null);
+  window.__lcSocket = () => socketRef.current;
+  const callApi = useRef(null);
+  const groupCallApi = useRef(null);
+    const startCall = (conversation, video) => { const api = conversation && conversation.isGroup ? groupCallApi : callApi; if (api.current) api.current.start(conversation, video); };
+  useEffect(() => {
+    if (!callLink || !session || !conversations.length) return;
+    const c = conversations.find(x => x.id === callLink.id);
+    clearJSON("pendingCall"); setCallLink(null);
+    if (c) { setActiveConvo(c); if (!callLink.open) setTimeout(() => startCall(c, callLink.video), 500); }
+    else { setToast("That link is not for one of your chats"); setTimeout(() => setToast(""), 2600); }
+  }, [callLink, session, conversations]);
+
+  useEffect(() => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet"; link.href = window.__lcLite ? "data:text/css," : FONT_LINK;
+    document.head.appendChild(link);
+    return () => document.head.removeChild(link);
+  }, []);
+
+  const applyPresence = useCallback(({ online, lastSeen: seen }) => {
+    setPresence(Object.fromEntries(online.map(id => [id, true])));
+    setLastSeen(prev => ({ ...prev, ...seen }));
+  }, []);
+
+  const fetchConversations = useCallback(async () => {
+    if (!session) return false;
+    try {
+      const { conversations } = await api("/api/v1/conversations", { token: session.token });
+      const list = conversations.map(c => normalizeConvo(c, session.user.id));
+      setConversations(list);
+      saveJSON("convCache", { uid: session.user.id, list });
+      if (socketRef.current) socketRef.current.emit("presence:get", applyPresence);
+      setConvError("");
+      return true;
+    } catch (e) {
+      setConvError(e.message);
+      return false;
+    }
+  }, [session]);
+  const refreshBusy = useRef(null), refreshAgain = useRef(false);
+  const refreshConversations = useCallback(async () => {
+    if (refreshBusy.current) { refreshAgain.current = true; return refreshBusy.current; }
+    refreshBusy.current = (async () => { let ok = false; do { refreshAgain.current = false; ok = await fetchConversations(); } while (refreshAgain.current); return ok; })();
+    try { return await refreshBusy.current; } finally { refreshBusy.current = null; }
+  }, [fetchConversations]);
+
+  // connect socket once logged in
+  useEffect(() => {
+    if (!session) return;
+    const socket = io(SOCKET_URL, { auth: { token: session.token }, transports: ["websocket", "polling"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 500, reconnectionDelayMax: 5000, timeout: 20000 });
+    socketRef.current = socket; if (window.LetschatPush) window.LetschatPush.watch(socket);
+    socket.on("connect", () => { socket.emit("presence:get", applyPresence); refreshConversations(); }); // who is online right now + fresh chat list (also after reconnects)
+    socket.on("presence:update", ({ userId, online, lastSeen: ts }) => {
+      if (online && userId !== session.user.id) alertOnline(userId, convosRef.current, mutedRef.current);
+      setPresence(prev => ({ ...prev, [userId]: online }));
+      if (ts) setLastSeen(prev => ({ ...prev, [userId]: ts }));
+    });
+    socket.on("message:new", (m) => { refreshConversations(); if (m && m.senderId !== session.user.id && !isMutedChat(mutedRef.current, m.conversationId)) alertIncoming(m, convosRef.current.find(c => c.id === m.conversationId), !!(activeRef.current && activeRef.current.id === m.conversationId)); });
+    socket.on("message:updated", () => refreshConversations()); // edited / deleted message: refresh the chat list preview
+    socket.on("conversation:added", () => refreshConversations());
+    socket.on("conversation:update", () => refreshConversations());
+    socket.on("tagged", (d) => { if (d) flash((d.by || "Someone") + " tagged " + (d.group ? "the group " + d.group : "you") + " in a " + (d.kind === "market" ? "market post" : d.kind === "comment" ? "market comment" : "status")); });
+    socket.on("user:update", (u) => {
+      // someone changed their photo or name: update chat list, open chat and (if it's me) my profile
+      setConversations(prev => prev.map(c => c.isGroup
+        ? { ...c, members: c.members.map(m => (m.id === u.id ? { ...m, name: u.name, initials: u.initials, avatar: u.avatar, about: u.about } : m)) }
+        : c.other.id === u.id ? { ...c, other: u } : c));
+      setActiveConvo(prev => (prev && prev.other.id === u.id ? { ...prev, other: u } : prev));
+    });
+    socket.on("connect_error", (err) => { if (/^(unauthorized|unknown user)$/i.test(err.message)) { clearJSON("session"); window.location.reload(); return; } setConvError("Can't reach the Letschat Africa server: " + err.message); });
+    return () => socket.disconnect();
+  }, [session, refreshConversations]);
+
+  // keep the live connection alive: when the phone wakes, the network returns or the tab comes back, reconnect at once
+useEffect(() => {
+  if (!session) return;
+  const wake = () => { if (document.hidden) return; const s = socketRef.current; if (s && !s.connected) s.connect(); };
+  document.addEventListener("visibilitychange", wake); window.addEventListener("online", wake); window.addEventListener("focus", wake); window.addEventListener("pageshow", wake);
+  return () => { document.removeEventListener("visibilitychange", wake); window.removeEventListener("online", wake); window.removeEventListener("focus", wake); window.removeEventListener("pageshow", wake); };
+}, [session && session.token]);
+  // fast refresh on start: retry quickly if the server is still waking up, and refresh whenever the app comes back into view
+  useEffect(() => {
+    if (!session) return;
+    let dead = false, tries = 0;
+    setConvLoading(!convosRef.current.length);
+    const go = async () => {
+      const ok = await refreshConversations();
+      if (dead) return;
+      if (!ok && tries < 6) { tries++; setTimeout(go, Math.min(400 * tries, 2500)); }
+      else setConvLoading(false);
+    };
+    go();
+    const again = () => { if (!document.hidden) refreshConversations(); };
+    document.addEventListener("visibilitychange", again); window.addEventListener("focus", again); window.addEventListener("online", again);
+    return () => { dead = true; document.removeEventListener("visibilitychange", again); window.removeEventListener("focus", again); window.removeEventListener("online", again); };
+  }, [session, refreshConversations]);
+
+  useEffect(() => {
+    if (!session) { setSettings(DEFAULT_SETTINGS); setToolsView(null); return; }
+    api("/api/v1/me/settings", { token: session.token }).then(setSettings).catch(() => {});
+        api("/api/v1/me", { token: session.token }).then(({ user }) => { if (user && (!!user.verified !== !!session.user.verified || !!user.creator !== !!session.user.creator)) { const next = { ...session, user: { ...session.user, verified: !!user.verified, creator: !!user.creator } }; setSession(next); saveJSON("session", next); } }).catch(() => { });
+  }, [session && session.token]);
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2600); };
+  const activeRef = useRef(null), convosRef = useRef([]);
+  activeRef.current = activeConvo;
+  const mutedRef = useRef({}); mutedRef.current = settings.muted || {};
+  convosRef.current = conversations;
+  const settingsCall = async (path, method, body, okMsg) => {
+    try { const s = await api("/api/v1/me/" + path, { method, token: session.token, body }); setSettings(s); if (okMsg) flash(okMsg); return true; }
+    catch (e) { flash(e.message); return false; }
+  };
+  const toggleFavorite = (id) => { const on = !settings.favorites.includes(id); return settingsCall("favorites", "POST", { conversationId: id, favorite: on }, on ? "Added to favourites" : "Removed from favourites"); };
+  const setPins = (ids, on, silent) => { const rest = pinned.filter((x) => !ids.includes(x)); const next = on ? [...ids, ...rest] : rest; setPinned(next); saveJSON("pinnedChats", next); if (!silent) flash(on ? (ids.length > 1 ? "Chats pinned" : "Chat pinned") : (ids.length > 1 ? "Chats unpinned" : "Chat unpinned")); };
+  const togglePin = (id) => { const on = !pinned.includes(id); const next = on ? [id, ...pinned] : pinned.filter((x) => x !== id); setPinned(next); saveJSON("pinnedChats", next); flash(on ? "Chat pinned" : "Chat unpinned"); };
+  const savePrivacy = (patch) => settingsCall("settings", "PATCH", { privacy: patch });
+  const saveBiz = (patch, msg) => settingsCall("settings", "PATCH", { biz: patch }, msg);
+  const setMuted = (id, duration) => settingsCall("muted", "POST", { conversationId: id, duration }, duration === "off" ? "Notifications on" : "Chat muted");
+  const reportChat = async (userId, conversationId) => {
+    try { await api("/api/v1/me/report", { method: "POST", token: session.token, body: { userId, conversationId } }); flash("Report sent. Thank you."); }
+    catch (e) { flash(e.message); }
+  };
+  const setBlocked = (userId, blocked) => settingsCall("blocked", "POST", { userId, blocked }, blocked ? "Contact blocked" : "Contact unblocked");
+
+  const handleLogin = async (idToken, name) => {
+    const { token, user } = await api("/api/v1/auth/firebase", { method: "POST", body: { idToken, name } });
+    saveJSON("session", { token, user });
+    setSession({ token, user });
+  };
+
+  const handleLogOut = () => {
+    socketRef.current?.disconnect();
+    try { firebase.auth().signOut(); } catch (e) {}
+    clearJSON("session"); clearJSON("convCache"); clearJSON("phonebookMatches");
+    setSession(null);
+    setConversations([]);
+    setActiveConvo(null);
+    setShowProfile(false);
+  };
+
+  const updateUser = (user) => {
+    const next = { ...session, user };
+    setSession(next);
+    saveJSON("session", next);
+  };
+
+  const handleNewChatStarted = (conversation) => {
+    setShowNewChat(false);
+    refreshConversations();
+    setActiveConvo({ id: conversation.id, other: conversation.other });
+  };
+
+  const contacts = conversations.filter(c => !c.isGroup).map(c => c.other);
+  const messageSeller = async (seller) => {
+    const { conversation } = await api("/api/v1/conversations", { method: "POST", token: session.token, body: { userId: seller.id } });
+    setTab("chats");
+    handleNewChatStarted(conversation);
+  };
+  const openGroup = (conversation) => {
+    const c = normalizeConvo(conversation, session.user.id);
+    setConversations(prev => [c, ...prev.filter(x => x.id !== c.id)]);
+    setActiveConvo(c);
+  };
+  const closeJoin = () => { clearJSON("pendingJoin"); setJoinCode(null); };
+
+  // The app fills the whole screen; a footer bar below it carries the host's badge so it never covers the composer.
+  const frame = {
+    position: "absolute", top: 0, bottom: 0, left: 0, right: 0, width: "100%", maxWidth: 640, margin: "0 auto",
+    background: "#0E1116", overflow: "hidden", display: "flex",
+    flexDirection: "column", fontFamily: "Inter, sans-serif",
+  };
+
+  // ---- Back / Escape button ----
+  // Press once: close the open chat or screen and land on the chat list. Press again on the chat list: the app minimizes.
+  // Each open layer keeps one history entry, so the system back button (Android / PWA) and Escape (desktop) close it
+  // instead of leaving the app. With nothing open there is no extra entry, so the next press exits normally.
+  const innerStack = useRef([]);
+const [innerN, setInnerN] = useState(0);
+const registerInner = useCallback((fn) => {
+  const entry = { fn };
+  innerStack.current.push(entry); setInnerN((n) => n + 1);
+  return () => { innerStack.current = innerStack.current.filter((x) => x !== entry); setInnerN((n) => n + 1); };
+}, []);
+innerBackReg = registerInner;
+const topLayer = !session ? null
+    : activeConvo ? "chat"
+    : (toolsView || showCatalog || showEdit || showProfile) ? "screen"
+    : (showNewGroup || showNewChat) ? "modal"
+    : innerStack.current.length ? "inner" + innerStack.current.length
+    : tab !== "chats" ? "tab"
+    : null;
+  const closeTopRef = useRef(null), topLayerRef = useRef(null);
+    topLayerRef.current = topLayer;
+  closeTopRef.current = () => {
+    if (activeConvo) { setActiveConvo(null); refreshConversations(); }
+    else if (toolsView === "catalog") setToolsView(null);
+    else if (showCatalog) setShowCatalog(false);
+    else if (toolsView) setToolsView(null);
+    else if (showEdit) setShowEdit(false);
+    else if (showProfile) setShowProfile(false);
+    else if (showNewGroup) { setShowNewGroup(false); setNewGroupWith(null); }
+    else if (showNewChat) setShowNewChat(false);
+    else if (innerStack.current.length) innerStack.current[innerStack.current.length - 1].fn();
+    else if (tab !== "chats") setTab("chats");
+  };
+  const backEntry = useRef(false), skipPop = useRef(false);
+  useEffect(() => {
+    if (topLayer && !backEntry.current) {
+      try { window.history.pushState({ lcBack: 1 }, ""); backEntry.current = true; } catch (e) {}
+    } else if (!topLayer && backEntry.current) {
+      backEntry.current = false; skipPop.current = true; // closed with the on-screen arrow: drop our entry quietly
+      try { window.history.back(); } catch (e) { skipPop.current = false; }
+    }
+  }, [topLayer]);
+  useEffect(() => {
+    const onPop = () => {
+      if (skipPop.current) { skipPop.current = false; return; }
+      if (!backEntry.current) return;
+      backEntry.current = false; // the browser just consumed our entry
+      closeTopRef.current && closeTopRef.current(); // topLayer changes -> the effect above adds a fresh entry if something is still open
+    };
+    const onKey = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented || !backEntry.current) return;
+      const t = e.target && e.target.tagName;
+      if (/^(input|textarea|select)$/i.test(t || "") && !/^inner/.test(topLayerRef.current || "")) return; // Escape inside a text box keeps its own meaning (e.g. cancel edit), unless an operation is open
+      window.history.back();
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("popstate", onPop); window.removeEventListener("keydown", onKey); };
+  }, []);
+
+  let body;
+  if (!session) {
+    body = <LoginScreen onContinue={handleLogin} />;
+  } else if (activeConvo) {
+    body = (
+      <ChatDetail key={activeConvo.id} conversations={conversations} pinned={pinned} onTogglePin={togglePin} onMute={setMuted} onReport={reportChat} onNewGroup={(withId) => { setActiveConvo(null); setNewGroupWith(typeof withId === "string" ? withId : null); setShowNewGroup(true); }}
+        conversation={conversations.find(c => c.id === activeConvo.id) || activeConvo}
+        focus={focusMsg}
+        myId={session.user.id}
+        lastSeen={lastSeen}
+        contacts={contacts}
+        onGroupChanged={(conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x)))}
+        socket={socketRef.current}
+        token={session.token}
+        presence={presence}
+        onBack={() => { setActiveConvo(null); refreshConversations(); }}
+        onLocalUpdate={() => {}}
+        settings={settings}
+        onToggleFavorite={toggleFavorite}
+        onBlock={setBlocked}
+        onCall={startCall}
+      />
+    );
+  } else if (toolsView === "catalog") {
+    body = <CatalogScreen token={session.token} onBack={() => setToolsView(null)} />;
+  } else if (showCatalog) {
+    body = <CatalogScreen token={session.token} onBack={() => setShowCatalog(false)} />;
+  } else if (toolsView === "favs") {
+    body = <FavouritesScreen conversations={conversations} settings={settings} presence={presence} onBack={() => setToolsView(null)} onOpenChat={setActiveConvo} onToggleFavorite={toggleFavorite} />;
+  } else if (toolsView === "privacy") {
+    body = <PrivacyScreen settings={settings} onBack={() => setToolsView(null)} onPrivacy={savePrivacy} onBlock={setBlocked} />;
+  } else if (toolsView === "communities") {
+    body = <CommunitiesScreen conversations={conversations} myId={session.user.id} presence={presence} onBack={() => setToolsView(null)} onOpenChat={setActiveConvo} onNewGroup={() => { setToolsView(null); setShowNewGroup(true); }} />;
+  } else if (toolsView === "features") {
+    body = <FeaturesScreen onBack={() => setToolsView(null)} />;
+  } else if (toolsView === "notifs") {
+    body = <NotificationsScreen onBack={() => setToolsView(null)} />;
+  } else if (toolsView === "greeting" || toolsView === "away") {
+    body = <AutoMessageScreen key={toolsView} kind={toolsView} settings={settings} onBack={() => setToolsView(null)} onSave={saveBiz} />;
+  } else if (toolsView === "quick") {
+    body = <QuickRepliesScreen settings={settings} onBack={() => setToolsView(null)} onSave={saveBiz} />;
+  } else if (toolsView === "about") {
+    body = <AboutDeveloperScreen onBack={() => setToolsView(null)} />;
+  } else if (toolsView === "creator" && session.user.creator) {
+    body = <CreatorScreen token={session.token} onBack={() => setToolsView(null)} />;
+  } else if (toolsView === "rules") {
+    body = React.createElement(RulesScreen, { token: session.token, onBack: () => setToolsView(null) });
+  } else if (toolsView === "help") {
+    body = <HelpScreen user={session.user} onBack={() => setToolsView(null)} />;
+  } else if (showEdit) {
+    body = <EditProfileScreen profile={session.user} token={session.token} onCatalog={() => setShowCatalog(true)} onBack={() => setShowEdit(false)} onSave={(user) => { const next = { ...session, user }; setSession(next); saveJSON("session", next); setShowEdit(false); }} />;
+  } else if (showProfile) {
+    body = <ProfileScreen profile={session.user} token={session.token} onUserUpdate={updateUser} onBack={() => setShowProfile(false)} onEdit={() => setShowEdit(true)} onLogOut={handleLogOut} />;
+  } else {
+    body = (
+      <>
+        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          {tab === "chats" && (
+            <ChatsScreen
+              token={session.token}
+              profile={session.user}
+              conversations={conversations}
+              loading={convLoading}
+              error={convError}
+              presence={presence}
+              onOpenChat={(c, hit) => { setFocusMsg(hit || null); setActiveConvo(c); }}
+              onProfile={() => setShowProfile(true)}
+              onNewChat={() => setShowNewChat(true)}
+              onNewGroup={() => setShowNewGroup(true)}
+              favorites={settings.favorites}
+              pinned={pinned}
+              onSetPinned={setPins}
+              muted={settings.muted}
+              onMute={setMuted}
+            />
+          )}
+          {tab === "calls" && <CallsScreen conversations={conversations} onCall={startCall} />}
+          {tab === "market" && <MarketScreen token={session.token} myId={session.user.id} onMessageSeller={messageSeller} />}
+          <GamesHub active={tab === "games"} myId={session.user.id} me={session.user} socketRef={socketRef} conversations={conversations} onCall={startCall} goGames={() => setTab("games")} />
+          {tab === "status" && <StatusScreen profile={session.user} token={session.token} contacts={contacts} onSettings={() => setTab("tools")} onChat={messageSeller} />}
+          {tab === "tools" && <ToolsScreen isCreator={!!session.user.creator} onProfile={() => setShowEdit(true)} onOpen={setToolsView} onTab={setTab} settings={settings} token={session.token} conversations={conversations} />}
+          {showNewGroup && <NewGroupModal token={session.token} contacts={contacts} presence={presence} lastSeen={lastSeen} initialPicked={newGroupWith ? [newGroupWith] : []} onClose={() => { setShowNewGroup(false); setNewGroupWith(null); }} onCreated={(conv) => { setShowNewGroup(false); setNewGroupWith(null); openGroup(conv); }} />}
+          {showNewChat && <NewChatModal token={session.token} onClose={() => setShowNewChat(false)} onStarted={handleNewChatStarted} />}
+        </div>
+        <TabBar active={tab} setActive={setTab} />
+      </>
+    );
+  }
+
+  return (
+    <div className="app-shell" style={{ background: "#05070A", display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+        <div style={frame}>
+          {body}
+          {toast && <div style={{ position: "absolute", left: 16, right: 16, bottom: 86, zIndex: 80, background: "#1E2530", border: "1px solid #2B3544", color: "#F5F7FA", borderRadius: 12, padding: "11px 14px", fontFamily: "Inter", fontSize: 13.5, textAlign: "center", boxShadow: "0 10px 28px rgba(0,0,0,.45)" }}>{toast}</div>}
+          {session && <CallLayer socket={socketRef.current} apiRef={callApi} notify={flash} />}
+          {session && <GroupCallLayer socket={socketRef.current} apiRef={groupCallApi} notify={flash} me={session.user} />}
+          {session && chatCode && <ChatLinkModal code={chatCode} token={session.token} onClose={closeChatLink} onStarted={(conv) => { closeChatLink(); handleNewChatStarted(conv); }} />}
+          {session && joinCode && <JoinGroupModal code={joinCode} token={session.token} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openGroup(conv); }} />}
+        </div>
+      </div>
+      <div className="app-footer" aria-hidden="true">
+        <span className="app-footer-dot" />
+        <span className="app-footer-text">Letschat Africa</span>
+      </div>
+    </div>
+  );
+}
+
+// ---- mount ----
+const rootEl = document.getElementById("root");
+ReactDOM.createRoot(rootEl).render(React.createElement(ErrorBoundary, null, React.createElement(App)));
