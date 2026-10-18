@@ -91,7 +91,177 @@
   // picture changes (camera, effects, screen share, people joining). Nothing is uploaded: the file goes to the phone's Downloads.
   var REC_OK = (function () { try { return CAN_PIPE && typeof window.MediaRecorder === "function"; } catch (e) { return false; } })();
   function recMime() { var l = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]; for (var i = 0; i < l.length; i++) { try { if (MediaRecorder.isTypeSupported(l[i])) return l[i]; } catch (e) {} } return ""; }
-  function startRecorder(isMeeting, onDone) {
+  // ---- Face effects: hat, crown, glasses, shades, beard, moustache, beer that follow your face ----
+  // Tracking: MediaPipe Face Landmarker (files in vendor/face/ work offline, otherwise it is fetched once and saved), else the phone's own FaceDetector.
+  // The items are drawn onto the picture before it is sent, so viewers and recordings see them.
+  var FACE_ITEMS = [["tophat", "Top hat", "\uD83C\uDFA9"], ["party", "Party hat", "\uD83E\uDD73"], ["crown", "Crown", "\uD83D\uDC51"], ["glasses", "Glasses", "\uD83D\uDC53"], ["shades", "Shades", "\uD83D\uDE0E"], ["beard", "Beard", "\uD83E\uDDD4"], ["stache", "Moustache", "\uD83D\uDC68"], ["beer", "Beer", "\uD83C\uDF7A"]];
+  var FACE_CFG = (window.LETSCHAT_CONFIG || {}).FACE || {};
+  var FACE_BASE = FACE_CFG.BASE || "vendor/face/";
+  var FACE_CDN = FACE_CFG.CDN || "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+  var FACE_MODEL_CDN = FACE_CFG.MODEL || "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+  var FACE_MP = (function () { try { new Function("return import('data:text/javascript,')"); return typeof WebAssembly === "object"; } catch (e) { return false; } })();
+  var FACE_NATIVE = typeof window.FaceDetector === "function";
+  var faceDet = null, faceLoading = null;
+  function isKeypad() { try { return /lc-keypad/.test(document.documentElement.className) || Math.min(window.innerWidth || 999, window.innerHeight || 999) <= 320; } catch (e) { return false; } }
+  function faceCapable() { return CAN_PIPE && (FACE_MP || FACE_NATIVE) && !isKeypad(); }
+  function absUrl(u) { try { return new URL(u, location.href).href; } catch (e) { return u; } }
+  function withTimeout(pr, ms) { return new Promise(function (res, rej) { var t = setTimeout(function () { rej(new Error("timeout")); }, ms); pr.then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); }); }); }
+  // a face as the rest of the code sees it: pixel position of the eye centre, eye distance u, tilt, and local heights (in eye-distances, y down)
+  function mpPose(pts, vw, vh) {
+    function P(i) { return { x: pts[i].x * vw, y: pts[i].y * vh }; }
+    function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+    var e1 = mid(P(33), P(133)), e2 = mid(P(263), P(362)); if (e1.x > e2.x) { var t = e1; e1 = e2; e2 = t; }
+    return build(mid(e1, e2), e1, e2, P(10), P(152), P(1), mid(P(13), P(14)), P(234), P(454));
+  }
+  function build(c, e1, e2, top, chin, nose, mouth, cl, cr) {
+    var dx = e2.x - e1.x, dy = e2.y - e1.y, u = Math.sqrt(dx * dx + dy * dy); if (!(u > 4)) return null;
+    var roll = Math.atan2(dy, dx), co = Math.cos(roll), si = Math.sin(roll);
+    function ly(q) { return (-(q.x - c.x) * si + (q.y - c.y) * co) / u; }
+    var fw = cl && cr ? Math.sqrt(Math.pow(cr.x - cl.x, 2) + Math.pow(cr.y - cl.y, 2)) / u : 2.2;
+    return { cx: c.x, cy: c.y, u: u, roll: roll, fw: Math.max(1.4, Math.min(3.2, fw)), ft: ly(top), ch: ly(chin), ny: ly(nose), my: ly(mouth) };
+  }
+  function nativePose(f) {
+    var bb = f.boundingBox, eyes = [], nose = null, mouth = null;
+    (f.landmarks || []).forEach(function (l) { var xs = 0, ys = 0, n = (l.locations || []).length; if (!n) return; l.locations.forEach(function (p) { xs += p.x; ys += p.y; }); var q = { x: xs / n, y: ys / n }; if (l.type === "eye") eyes.push(q); else if (l.type === "nose") nose = q; else if (l.type === "mouth") mouth = q; });
+    if (eyes.length < 2) return null; eyes.sort(function (a, b) { return a.x - b.x; });
+    var e1 = eyes[0], e2 = eyes[1], c = { x: (e1.x + e2.x) / 2, y: (e1.y + e2.y) / 2 }, u = Math.sqrt(Math.pow(e2.x - e1.x, 2) + Math.pow(e2.y - e1.y, 2)); if (!(u > 4)) return null;
+    var bx = bb.x, by = bb.y, bw = bb.width, bh = bb.height;
+    return build(c, e1, e2, { x: c.x, y: by + bh * 0.02 }, { x: c.x, y: by + bh }, nose || { x: c.x, y: c.y + u * 0.62 }, mouth || { x: c.x, y: c.y + u * 1.0 }, { x: bx, y: c.y }, { x: bx + bw, y: c.y });
+  }
+  function loadMP() {
+    var imp = new Function("u", "return import(u)");
+    function attempt(mjs, wasm, model) {
+      return imp(absUrl(mjs)).then(function (M) {
+        return M.FilesetResolver.forVisionTasks(absUrl(wasm)).then(function (fs) {
+          var mk = function (d) { return M.FaceLandmarker.createFromOptions(fs, { baseOptions: { modelAssetPath: absUrl(model), delegate: d }, runningMode: "VIDEO", numFaces: 1 }); };
+          return mk("GPU").catch(function () { return mk("CPU"); });
+        });
+      });
+    }
+    return withTimeout(attempt(FACE_BASE + "vision_bundle.mjs", FACE_BASE + "wasm", FACE_BASE + "face_landmarker.task").catch(function () { return attempt(FACE_CDN + "/vision_bundle.mjs", FACE_CDN + "/wasm", FACE_MODEL_CDN); }), 30000).then(function (lm) {
+      var lastTs = 0;
+      return { kind: "mp", detect: function (v) { var ts = Math.max(lastTs + 1, Math.round(performance.now())); lastTs = ts; var r = lm.detectForVideo(v, ts), q = r && r.faceLandmarks && r.faceLandmarks[0]; return q ? mpPose(q, v.videoWidth, v.videoHeight) : null; } };
+    });
+  }
+  function loadNative() {
+    return new Promise(function (res, rej) {
+      if (!FACE_NATIVE) return rej(new Error("none"));
+      try { var d = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 }); res({ kind: "native", detect: function (v) { return d.detect(v).then(function (a) { return a && a[0] ? nativePose(a[0]) : null; }); } }); } catch (e) { rej(e); }
+    });
+  }
+  function loadFace() {
+    if (faceDet) return Promise.resolve(faceDet);
+    if (faceLoading) return faceLoading;
+    faceLoading = (FACE_MP ? loadMP().catch(function () { return loadNative(); }) : loadNative()).then(function (d) { faceDet = d; faceLoading = null; return d; }, function (e) { faceLoading = null; throw e; });
+    return faceLoading;
+  }
+  // drawing: everything is in "eye-distance" units with the origin between the eyes, rotated with the head
+  function poly(cx, pts) { cx.beginPath(); cx.moveTo(pts[0][0], pts[0][1]); for (var i = 1; i < pts.length; i++) cx.lineTo(pts[i][0], pts[i][1]); cx.closePath(); }
+  function ell(cx, x, y, rx, ry) { cx.save(); cx.translate(x, y); cx.scale(rx, ry); cx.beginPath(); cx.arc(0, 0, 1, 0, Math.PI * 2); cx.restore(); }
+  function drawFaceFx(cx, f, items) {
+    var w = f.fw, by = f.ft + 0.1;
+    cx.save(); cx.translate(f.cx, f.cy); cx.rotate(f.roll); cx.scale(f.u, f.u); cx.lineJoin = "round"; cx.lineCap = "round";
+    if (items.indexOf("beard") >= 0) {
+      var o = [[-w * .48, f.my - .75], [-w * .5, f.ch - .2], [-w * .3, f.ch + .15], [0, f.ch + .3], [w * .3, f.ch + .15], [w * .5, f.ch - .2], [w * .48, f.my - .75], [w * .34, f.my - .35], [w * .18, f.my - .2], [0, f.my - .3], [-w * .18, f.my - .2], [-w * .34, f.my - .35]];
+      cx.beginPath(); o.forEach(function (q, i) { i ? cx.lineTo(q[0], q[1]) : cx.moveTo(q[0], q[1]); }); cx.closePath();
+      for (var a = 0; a < 16; a++) { var t = a / 16 * Math.PI * 2, qx = Math.cos(t) * .34, qy = f.my + .03 + Math.sin(t) * .12; a ? cx.lineTo(qx, qy) : cx.moveTo(qx, qy); } cx.closePath();
+      cx.fillStyle = "#3b2a20"; cx.globalAlpha = .96; try { cx.fill("evenodd"); } catch (e) { cx.fill(); } cx.globalAlpha = 1;
+    }
+    if (items.indexOf("stache") >= 0) {
+      var m = (f.ny + f.my) / 2 - .02; cx.fillStyle = "#2a1d16";
+      [1, -1].forEach(function (sg) { cx.beginPath(); cx.moveTo(0, m - .02); cx.quadraticCurveTo(sg * .22, m - .16, sg * .52, m); cx.quadraticCurveTo(sg * .46, m + .22, sg * .22, m + .14); cx.quadraticCurveTo(sg * .08, m + .12, 0, m + .1); cx.closePath(); cx.fill(); });
+    }
+    if (items.indexOf("glasses") >= 0) {
+      cx.lineWidth = .07; cx.strokeStyle = "#1c1c22"; cx.fillStyle = "rgba(190,225,255,.14)";
+      [-.5, .5].forEach(function (x) { ell(cx, x, 0, .46, .42); cx.fill(); cx.stroke(); });
+      cx.beginPath(); cx.moveTo(-.06, -.05); cx.quadraticCurveTo(0, -.14, .06, -.05); cx.stroke();
+      [-1, 1].forEach(function (sg) { cx.beginPath(); cx.moveTo(sg * .96, -.06); cx.lineTo(sg * w * .52, -.04); cx.stroke(); });
+    }
+    if (items.indexOf("shades") >= 0) {
+      cx.fillStyle = "rgba(10,10,14,.94)"; cx.strokeStyle = "#050507"; cx.lineWidth = .06;
+      [-.5, .5].forEach(function (x) { ell(cx, x, .02, .52, .4); cx.fill(); cx.stroke(); });
+      cx.fillRect(-.1, -.12, .2, .07);
+      cx.strokeStyle = "rgba(255,255,255,.35)"; cx.lineWidth = .05; [-.5, .5].forEach(function (x) { cx.beginPath(); cx.arc(x, .02, .3, Math.PI * 1.1, Math.PI * 1.4); cx.stroke(); });
+      cx.strokeStyle = "#050507"; cx.lineWidth = .07; [-1, 1].forEach(function (sg) { cx.beginPath(); cx.moveTo(sg * 1.02, -.08); cx.lineTo(sg * w * .52, -.04); cx.stroke(); });
+    }
+    if (items.indexOf("beer") >= 0) {
+      var bx = w * .62, bt = f.ch - .45, bw = .55, bh = .75;
+      cx.lineWidth = .08; cx.strokeStyle = "#d8dde3"; cx.beginPath(); cx.arc(bx + bw + .05, bt + bh * .5, .22, -Math.PI / 2, Math.PI / 2); cx.stroke();
+      var g = cx.createLinearGradient(0, bt, 0, bt + bh); g.addColorStop(0, "#ffc83d"); g.addColorStop(1, "#d98a0a"); cx.fillStyle = g; cx.fillRect(bx, bt, bw, bh);
+      cx.fillStyle = "rgba(255,255,255,.22)"; cx.fillRect(bx + .08, bt + .12, .07, bh - .24);
+      cx.fillStyle = "#fffdf5"; [[.1, 0, .17], [.28, -.04, .2], [.46, 0, .17]].forEach(function (c) { cx.beginPath(); cx.arc(bx + c[0] + .05, bt + c[1], c[2], 0, Math.PI * 2); cx.fill(); });
+    }
+    if (items.indexOf("tophat") >= 0) {
+      cx.fillStyle = "#17171c"; cx.fillRect(-w * .4, by - 1.05, w * .8, 1.05); ell(cx, 0, by - 1.05, w * .4, .12); cx.fill();
+      cx.fillStyle = "#c0392b"; cx.fillRect(-w * .4, by - .3, w * .8, .2);
+      cx.fillStyle = "#17171c"; ell(cx, 0, by, w * .74, .17); cx.fill();
+    } else if (items.indexOf("party") >= 0) {
+      cx.save(); poly(cx, [[0, by - 1.35], [-w * .4, by + .05], [w * .4, by + .05]]); cx.fillStyle = "#ff4d8d"; cx.fill(); cx.clip();
+      cx.fillStyle = "#ffd43b"; [[-.7, .16], [-.2, .16], [.3, .16]].forEach(function (b) { cx.fillRect(-w, by + b[0], w * 2, b[1]); }); cx.restore();
+      cx.fillStyle = "#ffd43b"; cx.beginPath(); cx.arc(0, by - 1.35, .13, 0, Math.PI * 2); cx.fill();
+    } else if (items.indexOf("crown") >= 0) {
+      var hw = w * .42, bb = by + .1; poly(cx, [[-hw, bb], [-hw, bb - .6], [-hw * .5, bb - .32], [0, bb - .7], [hw * .5, bb - .32], [hw, bb - .6], [hw, bb]]);
+      var gg = cx.createLinearGradient(0, bb - .7, 0, bb); gg.addColorStop(0, "#ffe27a"); gg.addColorStop(1, "#d9a300"); cx.fillStyle = gg; cx.fill(); cx.strokeStyle = "#a87b00"; cx.lineWidth = .04; cx.stroke();
+      [[-hw * .5, "#ff3b5c"], [0, "#35d0ba"], [hw * .5, "#7c5cff"]].forEach(function (j) { cx.fillStyle = j[1]; cx.beginPath(); cx.arc(j[0], bb - .14, .07, 0, Math.PI * 2); cx.fill(); });
+    }
+    cx.restore();
+  }
+  // The video effects people see on top of the picture (stickers, emojis, gift banners, bubbles, pinned message, comments) are separate layers,
+  // so they are painted onto the recording canvas too. They are drawn from their start time so they move the same way as on screen.
+  function rrect(cx, x, y, w, h2, r) { cx.beginPath(); cx.moveTo(x + r, y); cx.arcTo(x + w, y, x + w, y + h2, r); cx.arcTo(x + w, y + h2, x, y + h2, r); cx.arcTo(x, y + h2, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath(); }
+  function fitText(cx, t, max) { t = String(t || ""); while (t.length > 1 && cx.measureText(t).width > max) t = t.slice(0, -2) + "\u2026"; return t; }
+  function drawOverlay(cx, W, H, ov, isMeeting) {
+    if (!ov) return;
+    var now = Date.now(), k = Math.max(0.5, Math.min(W, H) / 540), i;
+    var emojiFont = "Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif";
+    cx.save(); cx.textAlign = "center"; cx.textBaseline = "middle";
+    if (!isMeeting && ov.bubbles) { // rising see-through bubbles on the right (Go Live only)
+      ov.bubbles.forEach(function (b, bi) {
+        var dur = 7000 + (bi % 5) * 1200, ph = ((now + bi * 900) % dur) / dur, r = (b.size || 24) * k / 2, rgb = (b.c || [124, 92, 255]).join(",");
+        var x = W - (b.right || 5) / 100 * W * 0.38 - r - W * 0.02, y = H * 0.85 - ph * H * 0.7;
+        var g = cx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r); g.addColorStop(0, "rgba(255,255,255,.55)"); g.addColorStop(0.45, "rgba(" + rgb + ",.28)"); g.addColorStop(1, "rgba(" + rgb + ",.12)");
+        cx.globalAlpha = Math.sin(ph * Math.PI) * 0.9; cx.fillStyle = g; cx.strokeStyle = "rgba(" + rgb + ",.55)"; cx.lineWidth = 1; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill(); cx.stroke();
+      });
+      cx.globalAlpha = 1;
+    }
+    (ov.floaters || []).forEach(function (f) { // stickers and emojis floating up
+      var age = (now - (f.t || now)) / 2700; if (age < 0 || age > 1) return;
+      var wide = f.g.length > 2 && f.g.indexOf("\uD83D") < 0 && f.g.indexOf("\uD83E") < 0 && f.g.indexOf("\uD83C") < 0;
+      var size = (f.big ? (wide ? 64 : 120) : 40) * k * 0.9, left = (f.big ? 20 + (f.x - 8) * 0.5 : 45 + f.x * 0.5) / 100;
+      var baseY = f.big ? H * 0.84 - H * 0.12 : H - 150 * k - 30 * k, rise = f.big ? 0 : age * 300 * k;
+      var pop = f.big ? 1 + 0.12 * Math.sin(age * Math.PI * 6) : 1;
+      cx.save(); cx.globalAlpha = age > 0.75 ? Math.max(0, (1 - age) / 0.25) : Math.min(1, age * 8);
+      cx.translate(left * W, baseY - rise); cx.scale(pop, pop); cx.font = "900 " + size + "px " + (wide ? "Sora, Arial, sans-serif" : emojiFont);
+      if (wide) { cx.fillStyle = "#FFD43B"; cx.shadowColor = "rgba(0,0,0,.65)"; cx.shadowBlur = 12 * k; }
+      cx.fillText(f.g, 0, 0); cx.restore();
+    });
+    (ov.gifts || []).forEach(function (g, gi) { // gift banner
+      var age = (now - (g.t || now)) / 3000; if (age < 0 || age > 1) return;
+      var label = ((g.user && g.user.name) || "Someone") + " sent a gift!", fs = 20 * k;
+      cx.save(); cx.globalAlpha = age > 0.8 ? (1 - age) / 0.2 : Math.min(1, age * 6); cx.font = "700 " + fs + "px Inter, Arial, sans-serif";
+      var tw = cx.measureText(label).width, bw = Math.min(W - 20, tw + 90 * k), bh = 56 * k, bx = (W - bw) / 2, by = H * 0.3 + gi * (bh + 8 * k);
+      cx.fillStyle = "rgba(124,92,255,.9)"; rrect(cx, bx, by, bw, bh, bh / 2); cx.fill();
+      cx.font = (34 * k) + "px " + emojiFont; cx.textAlign = "left"; cx.fillText(g.glyph, bx + 14 * k, by + bh / 2);
+      cx.font = "700 " + fs + "px Inter, Arial, sans-serif"; cx.fillStyle = "#fff"; cx.fillText(fitText(cx, label, bw - 76 * k), bx + 62 * k, by + bh / 2); cx.restore();
+    });
+    if (!isMeeting) { // pinned message, then the latest comments at the bottom
+      cx.textAlign = "left"; var y = H - 16 * k, fs2 = 15 * k, lh = fs2 * 1.9;
+      cx.font = "600 " + fs2 + "px Inter, Arial, sans-serif";
+      (ov.chat || []).slice(-4).reverse().forEach(function (m) {
+        var who = (m.user && m.user.name) || "", txt = m.gift ? "sent a gift" : (m.text || ""); if (!txt && !who) return;
+        var line = who + "  " + txt; line = fitText(cx, line, W * 0.7); var tw = cx.measureText(line).width + 20 * k;
+        cx.fillStyle = "rgba(0,0,0,.5)"; rrect(cx, 12 * k, y - lh + 4 * k, tw, lh - 6 * k, 12 * k); cx.fill();
+        cx.fillStyle = "#fff"; cx.fillText(line, 22 * k, y - lh / 2 + 1 * k); y -= lh;
+      });
+      if (ov.pinned) {
+        var pt = "\uD83D\uDCCC " + ((ov.pinned.user && ov.pinned.user.name) || "") + ": " + (ov.pinned.gift ? "gift" : (ov.pinned.text || "")); pt = fitText(cx, pt, W - 50 * k);
+        cx.fillStyle = "rgba(30,37,48,.92)"; rrect(cx, 12 * k, 64 * k, W - 24 * k, 34 * k, 12 * k); cx.fill(); cx.strokeStyle = "#FFD43B"; cx.lineWidth = 1; cx.stroke();
+        cx.fillStyle = "#fff"; cx.fillText(pt, 22 * k, 81 * k);
+      }
+    }
+    cx.restore();
+  }
+  function startRecorder(isMeeting, onDone, getOv) {
     var vids = function () { return [].slice.call(document.querySelectorAll("video[data-lcrec]")).filter(function (v) { return v.srcObject && v.videoWidth; }); };
     var cv = document.createElement("canvas"), cx = cv.getContext("2d"), first = vids()[0];
     var W = 960, H = 540;
@@ -109,12 +279,13 @@
     }
     function draw() {
       cx.fillStyle = "#000"; cx.fillRect(0, 0, W, H);
-      var list = vids(); if (!list.length) return;
+      var list = vids(); if (!list.length) { try { if (getOv) drawOverlay(cx, W, H, getOv(), isMeeting); } catch (e) {} return; }
       var n = isMeeting ? list.length : 1, cols = n <= 1 ? 1 : 2, rows = Math.ceil(n / cols), cw = W / cols, ch = H / rows;
       for (var i = 0; i < n; i++) {
         var v = list[i], x = (i % cols) * cw, y = Math.floor(i / cols) * ch, sc = Math.min(cw / v.videoWidth, ch / v.videoHeight), dw = v.videoWidth * sc, dh = v.videoHeight * sc;
         try { cx.drawImage(v, x + (cw - dw) / 2, y + (ch - dh) / 2, dw, dh); } catch (e) {}
       }
+      try { if (getOv) drawOverlay(cx, W, H, getOv(), isMeeting); } catch (e) {}
     }
     var out = cv.captureStream(15);
     if (dest) dest.stream.getAudioTracks().forEach(function (t) { out.addTrack(t); });
@@ -210,6 +381,7 @@
     var mc = useState({ mic: true, cam: true }), mediaState = mc[0], setMedia = mc[1];
     var fx = useState([]), floaters = fx[0], setFloaters = fx[1];
     var gb = useState([]), gifts = gb[0], setGifts = gb[1];
+    ovRef.current = { floaters: floaters, gifts: gifts, chat: (typeof S !== "undefined" && S && S.chat) || [], pinned: (typeof S !== "undefined" && S && S.pinned) || null, bubbles: bubbles.current }; // read by the recorder
     var tx = useState(""), text = tx[0], setText = tx[1];
     var rp = useState(null), replyTo = rp[0], setReplyTo = rp[1];
     var sl = useState(null), picked = sl[0], setPicked = sl[1];                   // comment selected for react/reply
@@ -226,6 +398,7 @@
     // ---- recording (host, and everyone in a meeting) ----
     var sxs = useState(0), sfxN = sxs[0], setSfxN = sxs[1]; // re-draws the speaker button
     var rcs = useState(null), recSec = rcs[0], setRecSec = rcs[1], recRef = useRef(null), recTick = useRef(null);
+    var ovRef = useRef(null);
     var stopRec = function () { if (recRef.current) { recRef.current.stop(); recRef.current = null; } clearInterval(recTick.current); if (alive.current) setRecSec(null); };
     var startRec = function () {
       if (recRef.current) return stopRec();
@@ -234,7 +407,7 @@
         var d = new Date(), pad = function (n) { return (n < 10 ? "0" : "") + n; };
         saveBlob(blob, "letschat-" + kind + "-" + code + "-" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes()) + "." + ext);
         if (alive.current) flash("Recording saved to your phone (" + Math.max(1, Math.round(blob.size / 1048576)) + " MB)");
-      });
+      }, function () { return ovRef.current; });
       if (!r) return flash("Recording is not supported on this phone or browser.");
       recRef.current = r; setRecSec(0);
       var t0 = Date.now(); recTick.current = setInterval(function () { if (alive.current) setRecSec(Math.floor((Date.now() - t0) / 1000)); }, 1000);
@@ -287,10 +460,35 @@
     var annRef = useRef({ strokes: [], cur: null, laser: [] });
     var camRef = useRef({ video: null, audio: null }), pipe = useRef(null), imgRef = useRef(null), fileRef = useRef(null), modeRef = useRef({ mode: "camera", fx: "none" });
 
+    var faceRef = useRef([]), fcs = useState([]), faceSet = fcs[0], setFaceSet = fcs[1], fms = useState(""), faceMsg = fms[0], setFaceMsg = fms[1];
+    function stopFaceLoop() { var P = pipe.current; if (P && P.ftimer) { clearInterval(P.ftimer); P.ftimer = null; } if (P) { P.face = null; P.faceT = 0; } }
+    function startFaceLoop() {
+      var P = ensurePipe(); if (P.ftimer) return;
+      P.ftimer = setInterval(function () {
+        if (P.fbusy || !faceDet || !alive.current || modeRef.current.mode !== "camera" || !faceRef.current.length || P.vid.readyState < 2 || !P.vid.videoWidth) return;
+        P.fbusy = true;
+        var r; try { r = faceDet.detect(P.vid); } catch (e) { r = null; }
+        Promise.resolve(r).then(function (pose) { P.fbusy = false; if (pose) { var c = P.face; if (c && Date.now() - P.faceT < 600) { ["cx", "cy", "u", "roll", "fw", "ft", "ch", "ny", "my"].forEach(function (k) { pose[k] = c[k] + (pose[k] - c[k]) * 0.6; }); } P.face = pose; P.faceT = Date.now(); } }, function () { P.fbusy = false; });
+      }, faceDet && faceDet.kind === "mp" ? 90 : 130);
+    }
+    function toggleFace(id) {
+      var cur = faceRef.current.slice(), i = cur.indexOf(id);
+      if (id === "none") cur = []; else if (i >= 0) cur.splice(i, 1); else cur.push(id);
+      var hats = ["tophat", "party", "crown"], eyesW = ["glasses", "shades"]; // one hat and one pair of eyewear at a time
+      [hats, eyesW].forEach(function (grp) { if (grp.indexOf(id) >= 0 && i < 0) cur = cur.filter(function (x) { return x === id || grp.indexOf(x) < 0; }); });
+      faceRef.current = cur; setFaceSet(cur);
+      if (!cur.length) { stopFaceLoop(); setFaceMsg(""); refreshOut(); return; }
+      if (modeRef.current.mode !== "camera") setLook("camera");
+      refreshOut();
+      if (faceDet) { setFaceMsg(""); startFaceLoop(); return; }
+      setFaceMsg("Loading face tracking\u2026 (needs internet the first time)");
+      loadFace().then(function () { if (!alive.current) return; setFaceMsg(""); if (faceRef.current.length) startFaceLoop(); }, function () { if (!alive.current) return; faceRef.current = []; setFaceSet([]); setFaceMsg("Face tracking could not load. Connect to the internet once, or add the face files (see FACE.md)."); refreshOut(); });
+    }
+    useEffect(function () { return function () { stopFaceLoop(); }; }, []); // eslint-disable-line
     function ensurePipe() {
       if (pipe.current) return pipe.current;
       var cv = document.createElement("canvas"); cv.width = 360; cv.height = 480;
-      var P = { cv: cv, cx: cv.getContext("2d"), vid: document.createElement("video"), timer: null, track: null, src: null, rate: 0 };
+      var P = { cv: cv, cx: cv.getContext("2d"), vid: document.createElement("video"), timer: null, track: null, src: null, rate: 0, face: null, faceT: 0, ftimer: null, fbusy: false };
       P.vid.muted = true; P.vid.setAttribute("playsinline", ""); P.vid.playsInline = true;
       var st = cv.captureStream(20); P.track = st.getVideoTracks()[0];
       pipe.current = P; return P;
@@ -344,6 +542,7 @@
         cx.filter = css || "none"; cover(imgRef.current, imgRef.current.naturalWidth || 1, imgRef.current.naturalHeight || 1); cx.filter = "none"; drew = true;
       }
       if (drew && fx && !FILTER_OK && m.mode !== "screen") { try { var im = cx.getImageData(0, 0, cv.width, cv.height); pixelFx(im.data, fx[0]); cx.putImageData(im, 0, 0); } catch (e) {} }
+      if (drew && m.mode === "camera" && P.face && faceRef.current.length && Date.now() - P.faceT < 700 && P.vid.videoWidth) { try { var fk = cv.width / P.vid.videoWidth, f0 = P.face; drawFaceFx(cx, { cx: f0.cx * fk, cy: f0.cy * fk, u: f0.u * fk, roll: f0.roll, fw: f0.fw, ft: f0.ft, ch: f0.ch, ny: f0.ny, my: f0.my }, faceRef.current); } catch (e) {} } // face items go on after the colour effect so they keep their own colours
       if (!drew) { // no camera and no picture: a clean card with your initials, so others still see who you are
         var W2 = cv.width, H2 = cv.height; cx.fillStyle = "#1B2330"; cx.fillRect(0, 0, W2, H2);
         var rad = Math.min(W2, H2) * 0.2; cx.fillStyle = me.color || "#35D0BA"; cx.beginPath(); cx.arc(W2 / 2, H2 / 2 - rad * 0.2, rad, 0, Math.PI * 2); cx.fill();
@@ -359,7 +558,7 @@
     }
     // pick what is actually sent (camera as it is, or the canvas carrying an effect / picture / card) and swap it into every call
     function refreshOut() {
-      var m = modeRef.current, cam = camRef.current, P = null, screenOn = m.mode === "screen" && !!cam.screen, srcT = screenOn ? cam.screen : cam.video, track = srcT, usePipe = CAN_PIPE && (screenOn || m.mode !== "camera" || m.fx !== "none" || !cam.video);
+      var m = modeRef.current, cam = camRef.current, P = null, screenOn = m.mode === "screen" && !!cam.screen, srcT = screenOn ? cam.screen : cam.video, track = srcT, usePipe = CAN_PIPE && (screenOn || m.mode !== "camera" || m.fx !== "none" || faceRef.current.length > 0 || !cam.video);
       if (usePipe) {
         P = ensurePipe();
         if (srcT && P.src !== srcT) { P.src = srcT; P.vid.srcObject = new MediaStream([srcT]); var pr = P.vid.play(); if (pr && pr.catch) pr.catch(function () {}); }
@@ -489,10 +688,10 @@
       var onMsgReact = function (m) { if (m.code !== code) return; setS(function (s) { return Object.assign({}, s, { chat: s.chat.map(function (c) { return c.id === m.msgId ? Object.assign({}, c, { reactions: m.reactions }) : c; }) }); }); };
       var onFx = function (m) {
         if (m.code !== code) return;
-        if (m.kind === "gift") { var gid = ++fxId.current; setGifts(function (g) { return g.concat([{ id: gid, glyph: glyph(GIFTS, m.value), user: m.user }]).slice(-3); }); setTimeout(function () { setGifts(function (g) { return g.filter(function (x) { return x.id !== gid; }); }); }, 3000); }
+        if (m.kind === "gift") { var gid = ++fxId.current; setGifts(function (g) { return g.concat([{ id: gid, glyph: glyph(GIFTS, m.value), user: m.user, t: Date.now() }]).slice(-3); }); setTimeout(function () { setGifts(function (g) { return g.filter(function (x) { return x.id !== gid; }); }); }, 3000); }
         var id = ++fxId.current, g = m.kind === "sticker" ? glyph(STICKERS, m.value) : m.kind === "gift" ? glyph(GIFTS, m.value) : m.value;
         var ak = animKey(m.kind, m.value); if (!(kind === "meeting" && m.kind === "emoji")) playSfx(m.kind === "gift" ? "gift" : ak); // no emoji sounds in meetings (they still animate)
-        setFloaters(function (f) { return f.concat([{ id: id, g: g, k: m.kind === "gift" ? "pop" : ak, x: 8 + Math.random() * 70, big: m.kind !== "emoji" }]).slice(-14); });
+        setFloaters(function (f) { return f.concat([{ id: id, t: Date.now(), g: g, k: m.kind === "gift" ? "pop" : ak, x: 8 + Math.random() * 70, big: m.kind !== "emoji" }]).slice(-14); });
         setTimeout(function () { setFloaters(function (f) { return f.filter(function (x) { return x.id !== id; }); }); }, 2700);
       };
       var onShare = function (m) { if (m.code !== code) return; if (m.on && m.userId !== me.id) playSfx("share"); setSharing(function (x) { var n = Object.assign({}, x); if (m.on) n[m.userId] = true; else delete n[m.userId]; return n; }); };
@@ -672,6 +871,13 @@
             return h("button", { key: e[0], disabled: vmode === "off", onClick: function () { setLook(null, e[0]); }, style: { flexShrink: 0, padding: "8px 14px", borderRadius: 999, border: "1px solid " + (on ? C.purple : "#2B3544"), background: on ? "rgba(124,92,255,.25)" : "#1E2530", color: C.text, fontWeight: on ? 700 : 500, fontSize: 13, cursor: "pointer" } }, e[1]);
           })))
           : h("div", { style: { color: C.dim, fontSize: 12.5 } }, "Effects and pictures are not supported on this phone or browser. You can still turn your video off.")),
+        faceCapable() && h("div", { style: { opacity: vmode === "off" || vmode === "screen" ? 0.4 : 1, marginTop: 8 } },
+          h("div", { style: { color: C.dim, fontSize: 12, marginBottom: 4 } }, "Face effects (follow your face)"),
+          h("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 } }, [["none", "None", "\u2715"]].concat(FACE_ITEMS).map(function (e) {
+            var on = e[0] === "none" ? !faceSet.length : faceSet.indexOf(e[0]) >= 0;
+            return h("button", { key: e[0], disabled: vmode === "off" || vmode === "screen", "aria-label": e[1], onClick: function () { toggleFace(e[0]); }, style: { flexShrink: 0, padding: "6px 10px", borderRadius: 14, border: "1px solid " + (on ? C.purple : "#2B3544"), background: on ? "rgba(124,92,255,.25)" : "#1E2530", color: C.text, fontWeight: on ? 700 : 500, fontSize: 11.5, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 58 } }, h("span", { style: { fontSize: 22, lineHeight: 1 } }, e[2]), e[1]);
+          })),
+          faceMsg && h("div", { style: { color: C.dim, fontSize: 12, paddingTop: 4 } }, faceMsg)),
       // call controls (host / meeting members)
       (isHost || kind === "meeting") && h("div", { style: { position: "relative", zIndex: 8, display: "flex", justifyContent: "center", gap: 12, padding: "8px 10px calc(12px + env(safe-area-inset-bottom,0px))", background: C.card } },
         h("button", { "aria-label": mediaState.mic ? "Mute" : "Unmute", onClick: toggleMic, style: round(mediaState.mic ? "#2B3544" : "#F5F7FA", 46) }, mediaState.mic ? "\uD83C\uDF99" : "\uD83D\uDD07"),

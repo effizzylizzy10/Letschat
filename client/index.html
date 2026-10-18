@@ -36,6 +36,8 @@
       }
       // wake(force): resolves true when the server answers, false after 100 s. Many callers share one polling loop.
       function wake(force) {
+        // no network at all: do not poll (it only drains the battery and shows a wrong "waking up" bar); the "online" event below starts it again
+        if (navigator.onLine === false) return Promise.resolve(false);
         if (!force && isUp()) return Promise.resolve(true);
         if (pending) return pending;
         if (force) upAt = 0;
@@ -250,6 +252,8 @@
   <script defer src="polyfills.js"></script>
   <script defer src="compat.js"></script>
   <script defer src="responsive.js"></script>
+  <!-- Offline layer: saved chats / messages, the outbox for messages written without a connection, and the "Offline" pill. Must load before app.js. -->
+  <script defer src="offline.js"></script>
 
   <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
   <script defer crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>

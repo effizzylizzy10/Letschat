@@ -471,7 +471,7 @@ function NicknamePrompt({ token, user, onSaved }) {
             React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, fontWeight: 700, color: "#35D0BA", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 } }, "New in this update"),
             React.createElement(NicknameEditor, { token, user, mandatory: true, onSaved, intro: "Every Letschat Africa account now has a nickname. Friends can search for you with it, so you don’t have to share your phone number or email. Use up to " + NICK_MAX + " letters, numbers or symbols (no emoji). Choose carefully: once saved, your nickname can never be changed." })));
 }
-async function api(path, { method = "GET", token, body, timeoutMs } = {}) {
+async function apiNet(path, { method = "GET", token, body, timeoutMs } = {}) {
     // Cold-start proof: when the free server is asleep the first requests fail ("Failed to fetch") or get a 502/503 from the host. Instead of
     // showing that error we wake the server (window.__lcWake polls /health until it is ready) and retry. timeoutMs (optional) still gives up
     // after that long so iPhone Safari does not drop the request with "Load failed".
@@ -512,6 +512,42 @@ async function api(path, { method = "GET", token, body, timeoutMs } = {}) {
     if (!res.ok || payload.success === false)
         throw new Error((payload.error && payload.error.message) || `Request failed (${res.status})`);
     return payload.data;
+}
+// ---- offline-first reads (v69) ----
+// Every successful GET is saved on the device (window.LCOffline, see offline.js). With no network, or when the line is so poor that the answer
+// takes longer than SLOW_MS, the saved copy is returned at once, so chats, messages, status and market still open. If the real answer arrives
+// later it refreshes the saved copy and announces itself with a "lc:fresh" event, so the open screen can update. Writes (POST/PATCH/DELETE)
+// are never faked: offline they fail at once with a clear message (message sending has its own queue, see LCOutbox).
+const SLOW_MS = 6000;
+const OFFLINE_MSG = "No internet connection. Try again when you are back online.";
+const apiNoCache = (p) => /^\/api\/(v1\/)?(health|ping|auth\/)|\/file(\?|$)|\/download(\?|$)/.test(p);
+const isNetErr = (e) => !!e && (e.name === "TypeError" || e.name === "AbortError" || /failed to fetch|load failed|networkerror|network request|timed? ?out/i.test(e.message || "") || /^Request failed \(5\d\d\)$/.test(e.message || "") || /server (is )?starting|unavailable/i.test(e.message || ""));
+function apiCacheKey(path) { const s = loadJSON("session", null); return (s && s.user && s.user.id ? s.user.id : "anon") + ":" + path; }
+async function api(path, opts = {}) {
+    const method = opts.method || "GET", off = window.LCOffline;
+    const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+    if (method !== "GET" || !off || !opts.token || apiNoCache(path)) {
+        if (method !== "GET" && isOffline) { const e = new Error(OFFLINE_MSG); e.offline = true; throw e; }
+        try { return await apiNet(path, opts); }
+        catch (e) { if (isNetErr(e) && (isOffline || /failed to fetch|load failed|networkerror/i.test(e.message || ""))) { const x = new Error(OFFLINE_MSG); x.offline = true; throw x; } throw e; }
+    }
+    const key = apiCacheKey(path);
+    const hit = await off.get(key).catch(() => null);
+    if (isOffline) { if (hit) return hit.v; const e = new Error(OFFLINE_MSG); e.offline = true; throw e; }
+    const net = apiNet(path, opts).then((data) => { off.set(key, data, path); return data; });
+    if (!hit) return net.catch((e) => { if (isNetErr(e) && /failed to fetch|load failed|networkerror/i.test(e.message || "")) { const x = new Error(OFFLINE_MSG); x.offline = true; throw x; } throw e; });
+    return new Promise((resolve, reject) => {
+        let done = false;
+        const t = setTimeout(() => { if (!done) { done = true; resolve(hit.v); } }, SLOW_MS);
+        net.then((data) => {
+            if (done) { try { window.dispatchEvent(new CustomEvent("lc:fresh", { detail: { path, data } })); } catch (e) { } return; }
+            done = true; clearTimeout(t); resolve(data);
+        }, (e) => {
+            if (done) return;
+            done = true; clearTimeout(t);
+            if (isNetErr(e)) resolve(hit.v); else reject(e);
+        });
+    });
 }
 // ---- chat day dividers + bubble time: every bubble always shows its clock time; each new day starts with Today / Yesterday / full date ----
 const dayKey = (ts) => { const d = new Date(ts); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); };
@@ -9518,11 +9554,50 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
         return; setDraft(typoApply(draft, typoHit, fix)); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); };
     const ignoreTypo = () => { if (!typoHit)
         return; const next = typoIgnored.concat(typoHit.word.toLowerCase()); setTypoIgnored(next); typoSaveIgnored(next); };
+    // messages written while offline are kept in the outbox (see offline.js): show them again as "sending" / "Not sent" bubbles
+    const withOutbox = (list) => {
+        const ob = window.LCOutbox;
+        if (!ob) return list;
+        const out = list.slice();
+        ob.forConversation(conversation.id).forEach((it) => {
+            if (list.some((x) => x.clientId === it.id)) { ob.remove(it.id); return; } // the server already has it (the acknowledgement was lost)
+            if (out.some((x) => x.id === it.id)) return;
+            out.push({ id: it.id, conversationId: it.conversationId, senderId: myId, text: it.preview, time: it.time, ...(it.failed ? { failed: true, error: it.error, _rid: it.rid } : { pending: true }), ...(it.snap ? { replyTo: it.snap } : {}), ...(it.payload && it.payload.mentions ? { mentions: it.payload.mentions } : {}) });
+        });
+        return out;
+    };
+    useEffect(() => {
+        const on = (ev) => {
+            const d = ev.detail;
+            if (!d || d.conversationId !== conversation.id) return;
+            if (d.kind === "sent")
+                setMsgs(prev => { const rest = prev.filter(x => x.id !== d.id); return d.message && !rest.some(x => x.id === d.message.id) ? [...rest, d.message] : rest; });
+            else if (d.kind === "failed") {
+                const it = (window.LCOutbox && window.LCOutbox.items.find(i => i.id === d.id)) || {};
+                setMsgs(prev => prev.map(x => (x.id === d.id ? { ...x, pending: false, failed: true, error: d.error, _rid: it.rid } : x)));
+            }
+        };
+        window.addEventListener("lc:outbox", on);
+        return () => window.removeEventListener("lc:outbox", on);
+    }, [conversation.id]);
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         pendingFocus.current = focusId;
-        api(`/api/v1/conversations/${conversation.id}/messages`, { token })
+        const msgPath = `/api/v1/conversations/${conversation.id}/messages`;
+        // a slow line answered from the saved copy first; when the real answer finally arrives, swap it in
+        const onFresh = (ev) => {
+            const dt = ev.detail;
+            if (cancelled || !dt || dt.path !== msgPath || !dt.data || !Array.isArray(dt.data.messages)) return;
+            let list = dt.data.messages;
+            const clearedAt = loadJSON("chatCleared:" + conversation.id, 0);
+            if (clearedAt) list = list.filter(x => x.time > clearedAt);
+            const hid = LCX.get("lcx:hidden:" + conversation.id, []);
+            if (hid.length) { const hs = new Set(hid); list = list.filter(x => !hs.has(x.id)); }
+            setMsgs(withOutbox(list));
+        };
+        window.addEventListener("lc:fresh", onFresh);
+        api(msgPath, { token })
             .then(async ({ messages }) => {
             let list = messages;
             if (focusId && !list.some(x => x.id === focusId)) { // the search result is older than the latest page: load from there
@@ -9547,16 +9622,16 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
                     setUnreadDiv(nu.length ? { id: nu[0].id, count: nu.length } : null);
             }
             if (!cancelled) {
-                setMsgs(list);
+                setMsgs(withOutbox(list));
                 if (focusId) {
                     setHl(focusId);
                     setTimeout(() => setHl(null), 2800);
                 }
             }
         })
-            .catch(e => setError(e.message))
+            .catch(e => { if (!cancelled) setMsgs(prev => (prev.length ? prev : withOutbox([]))); setError(e.message); })
             .finally(() => !cancelled && setLoading(false));
-        return () => { cancelled = true; };
+        return () => { cancelled = true; window.removeEventListener("lc:fresh", onFresh); };
     }, [conversation.id]);
     useEffect(() => {
         const id = conversation.id;
@@ -9581,7 +9656,7 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
                 socket.emit("messages:read", { conversationId: conversation.id });
             liveIds.current.add(m.id);
             if (m.senderId === myId)
-                setMsgs(prev => { const i = prev.findIndex(x => x.pending && x.text === m.text); return i < 0 ? prev : prev.filter((_, k) => k !== i); }); // the real copy arrived: drop the "sending" one
+                setMsgs(prev => { const i = m.clientId ? prev.findIndex(x => x.id === m.clientId) : prev.findIndex(x => x.pending && x.text === m.text); return i < 0 ? prev : prev.filter((_, k) => k !== i); }); // the real copy arrived: drop the "sending" one
             if (featOn("msgEffects") && !reducedMotion() && !m.deleted) {
                 const k = fxKindOf(m.text);
                 if (k)
@@ -9869,6 +9944,7 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
         clearPick();
         list.filter(x => x.senderId === myId).forEach(x => {
             if (String(x.id).startsWith("tmp-")) {
+                if (window.LCOutbox) window.LCOutbox.remove(x.id);
                 setMsgs(prev => prev.filter(y => y.id !== x.id));
                 return;
             } // never reached the server
@@ -9892,6 +9968,10 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
         const tmpId = "tmp-" + Date.now() + Math.random().toString(36).slice(2, 6);
         const mn = conversation.isGroup ? mentionIdsIn(text, conversation.members, myId) : [];
         setMsgs(prev => [...prev, { id: tmpId, conversationId: conversation.id, senderId: myId, text, time: Date.now(), pending: true, ...(snap ? { replyTo: snap } : {}), ...(mn.length ? { mentions: mn } : {}) }]);
+        if (window.LCOutbox) { // saved on the device first, sent as soon as the connection is up (survives a reload or a closed app)
+            window.LCOutbox.enqueue({ id: tmpId, conversationId: conversation.id, preview: text, rid, snap, kind: "text", payload: { conversationId: conversation.id, text, replyTo: rid, ...(mn.length ? { mentions: mn } : {}) } });
+            return;
+        }
         socket.emit("message:send", { conversationId: conversation.id, text, replyTo: rid, ...(mn.length ? { mentions: mn } : {}) }, (ack) => {
             if (ack && ack.error) {
                 setMsgs(prev => prev.map(x => (x.id === tmpId ? { ...x, pending: false, failed: true, error: ack.error, _rid: rid } : x)));
@@ -9909,13 +9989,17 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
             done(null); setGameOpen(false);
         });
     };
-    const retrySend = (m) => { if (!socket)
-        return; setMsgs(prev => prev.filter(x => x.id !== m.id)); sendText(m.text, m._rid, m.replyTo || null); };
+    const retrySend = (m) => {
+        const ob = window.LCOutbox;
+        if (ob && ob.items.some(i => i.id === m.id)) { ob.retry(m.id); setMsgs(prev => prev.map(x => (x.id === m.id ? { ...x, failed: false, pending: true, error: undefined } : x))); return; } // text, photo or voice note: sent again as it was
+        if (!socket)
+            return; setMsgs(prev => prev.filter(x => x.id !== m.id)); sendText(m.text, m._rid, m.replyTo || null); };
     const deleteForMe = (list) => {
         setDelDlg(null);
         if (!list.length)
             return;
         const ids = list.map(x => x.id), real = ids.filter(id => !String(id).startsWith("tmp-"));
+        if (window.LCOutbox) ids.forEach(id => { if (String(id).startsWith("tmp-")) window.LCOutbox.remove(id); });
         if (real.length) {
             const cur = LCX.get("lcx:hidden:" + conversation.id, []);
             LCX.put("lcx:hidden:" + conversation.id, [...new Set([...cur, ...real])].slice(-2000));
@@ -9974,7 +10058,15 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
                 throw new Error("File is too large (max 3 MB)");
             const rid = replyTo ? replyTo.id : undefined;
             setReplyTo(null);
-            socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, ...(caption ? { text: caption } : {}), file: { name, mime, size: Math.round(data.length * 0.75), data }, ...(viewOnce && featOn("viewOnce") ? { viewOnce: true } : {}) }, (ack) => {
+            const filePayload = { conversationId: conversation.id, replyTo: rid, ...(caption ? { text: caption } : {}), file: { name, mime, size: Math.round(data.length * 0.75), data }, ...(viewOnce && featOn("viewOnce") ? { viewOnce: true } : {}) };
+            if (window.LCOutbox) { // photo / file: kept on the device and sent when the connection allows (a slow line just takes longer)
+                const tmpId = "tmp-" + Date.now() + Math.random().toString(36).slice(2, 6), preview = caption || (/^image\//.test(mime) ? "\uD83D\uDCF7 Photo" : "\uD83D\uDCCE " + name);
+                setMsgs(prev => [...prev, { id: tmpId, conversationId: conversation.id, senderId: myId, text: preview, time: Date.now(), pending: true }]);
+                clearTimeout(done); setSending(false); notifyAct(actKind, false); playSound("send");
+                window.LCOutbox.enqueue({ id: tmpId, conversationId: conversation.id, preview, rid, kind: "file", payload: filePayload });
+                return;
+            }
+            socket.emit("message:send", filePayload, (ack) => {
                 clearTimeout(done);
                 setSending(false);
                 notifyAct(actKind, false);
@@ -10198,7 +10290,12 @@ const shareContact = async () => {
                 const fr = new FileReader();
                 const rid = replyTo ? replyTo.id : undefined;
                 setReplyTo(null);
-                fr.onload = () => socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error)
+                fr.onload = () => window.LCOutbox ? (() => {
+                    const tmpId = "tmp-" + Date.now() + Math.random().toString(36).slice(2, 6);
+                    setMsgs(prev => [...prev, { id: tmpId, conversationId: conversation.id, senderId: myId, text: "\uD83C\uDFA4 Voice note", time: Date.now(), pending: true }]);
+                    playSound("send");
+                    window.LCOutbox.enqueue({ id: tmpId, conversationId: conversation.id, preview: "\uD83C\uDFA4 Voice note", rid, kind: "voice", payload: { conversationId: conversation.id, replyTo: rid, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) } });
+                })() : socket.emit("message:send", { conversationId: conversation.id, replyTo: rid, audio: fr.result, duration: Math.round((Date.now() - r.t0) / 1000) }, (ack) => { if (ack && ack.error)
                     setError(ack.error);
                 else
                     playSound("send"); });
@@ -11651,6 +11748,7 @@ function App() {
             return;
         const socket = io(SOCKET_URL, { auth: { token: session.token }, transports: ["websocket", "polling"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 500, reconnectionDelayMax: 5000, timeout: 20000 });
         socketRef.current = socket;
+        if (window.LCOutbox) window.LCOutbox.bind(socket, session.user.id); // queued messages go out whenever this connection is up
         if (window.LetschatPush)
             window.LetschatPush.watch(socket);
         socket.on("connect", () => { socket.emit("presence:get", applyPresence); refreshConversations(); try { socket.emit("geo:set", { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "", lang: navigator.language || "" }); } catch (e) { } }); // who is online right now + fresh chat list (also after reconnects)
@@ -11787,6 +11885,7 @@ function App() {
         clearJSON("session");
         clearJSON("convCache");
         clearJSON("phonebookMatches");
+        try { if (window.LCOffline) window.LCOffline.clearAll(); } catch (e) { } // saved chats and queued messages belong to this account only
         setSession(null);
         setConversations([]);
         setActiveConvo(null);

@@ -1,4 +1,5 @@
-// Letschat Africa service worker (v68: instant start from the saved app, background refresh, early server wake-up, offline-safe)
+// Letschat Africa service worker (v69: instant start from the saved app, background refresh, early server wake-up, fully offline-safe:
+//   React / Firebase / Socket.IO are saved at install time, so the very first offline open boots; offline.js keeps chats and queued messages)
 // Built for: modern phones, iPhone Safari, Phoenix and other Chromium forks, old Android / KaiOS keypad phones.
 // - Page and app code: served from the device at once (no waiting for the network), then refreshed in the background. Every deploy
 //   changes this file (build.js stamps a hash into VERSION), which downloads the new copy and shows the "updated, tap to refresh" button.
@@ -11,7 +12,7 @@
 //   keeps fewer photos, so it uses little storage and little data.
 // - Never touches the API, sockets, Lite pages (/lite), sends, uploads or audio/video range requests.
 // - Syntax stays simple on purpose (no optional catch binding, no async/await): old browsers must still be able to parse it.
-var VERSION = "letschat-shell-v68"; // bump (v57, v58...) to make every device drop its old copy
+var VERSION = "letschat-shell-v71"; // bump (v57, v58...) to make every device drop its old copy
 var CACHE = VERSION;
 var IMGS = "letschat-images-v1";    // profile, status and market photos
 var LIBS = "letschat-libs-v1";      // pinned library versions never change, so this cache is kept across updates
@@ -22,9 +23,9 @@ var MAX_IMAGES = LITE ? 60 : 400;
 
 // SHELL = the files the app cannot start without (install fails if one is missing, so the old working version stays). EXTRAS = nice to have: a missing
 // icon, sound or picture never blocks an update.
-var SHELL = ["./", "./index.html", "./app.js", "./config.js", "./polyfills.js", "./compat.js", "./responsive.js", "./responsive.css", "./device.js", "./manifest.json"];
+var SHELL = ["./", "./index.html", "./app.js", "./config.js", "./polyfills.js", "./compat.js", "./responsive.js", "./responsive.css", "./device.js", "./offline.js", "./manifest.json"];
 if (!LITE) SHELL.push("./push.js", "./reactions.js", "./live.js");
-var EXTRAS = ["./icons/icon-192.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE ? [] : ["./icons/icon-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
+var EXTRAS = ["./app.legacy.js", "./icons/icon-192.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE ? [] : ["./icons/icon-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
 
 // Third-party files whose URL contains an exact version number: safe to keep forever.
 var PINNED = [
@@ -32,13 +33,24 @@ var PINNED = [
   /^https:\/\/www\.gstatic\.com\/firebasejs\/\d+\.\d+\.\d+\//,
   /^https:\/\/cdn\.socket\.io\/\d+\.\d+\.\d+\//,
   /^https:\/\/cdn\.jsdelivr\.net\/npm\/(react|react-dom|socket\.io-client|firebase)@\d+\.\d+\.\d+\//,
-  /^https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/(react|react-dom|socket\.io|firebase)\/\d+\.\d+\.\d+\//
+  /^https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/(react|react-dom|socket\.io|firebase)\/\d+\.\d+\.\d+\//,
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/@mediapipe\/tasks-vision@\d+\.\d+\.\d+\//,          // face tracking code (Live face effects), saved after first use
+  /^https:\/\/storage\.googleapis\.com\/mediapipe-models\/face_landmarker\//                      // face tracking model
+];
+// The exact library files index.html loads. They are saved when the worker installs (not only when first used), because the very first page
+// load happens BEFORE the worker controls the page: without this, going offline right after the first visit would leave the app without React.
+var LIB_URLS = [
+  "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
+  "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",
+  "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js",
+  "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js",
+  "https://cdn.socket.io/4.7.5/socket.io.min.js"
 ];
 var FONT_CSS = /^https:\/\/fonts\.googleapis\.com\//;
 var FONT_FILE = /^https:\/\/fonts\.gstatic\.com\//;
 
 // the app's own code and small config files: saved copy first (instant), refreshed in the background
-var FRESH = /\/(app|app\.legacy|config|push|reactions|responsive|compat|device|polyfills)\.(js|css)$|\/manifest\.json$/;
+var FRESH = /\/(app|app\.legacy|config|push|reactions|live|offline|responsive|compat|device|polyfills)\.(js|css)$|\/manifest\.json$/;
 
 // photos served by the API (versioned URLs)
 var IMAGE_API = /\/api\/(?:v1\/)?(?:users\/[^/]+\/(?:avatar|cover)|groups\/[^/]+\/avatar|status\/[^/]+\/photo|market\/[^/]+\/photo|catalog\/[^/]+\/[^/]+\/photo)/;
@@ -62,6 +74,16 @@ self.addEventListener("install", function (e) {
       // cache:"reload" skips the browser's own HTTP cache, so the saved shell is always the fresh deploy
       var fresh = function (u) { return new Request(u, { cache: "reload" }); };
       return c.addAll(SHELL.map(fresh)).then(function () { return Promise.all(EXTRAS.map(function (u) { return c.add(fresh(u)).catch(ignore); })); });
+    }).then(function () {
+      // libraries: a failure here never blocks the install (they are also saved the first time they are used)
+      return caches.open(LIBS).then(function (lc) {
+        return Promise.all(LIB_URLS.map(function (u) {
+          return lc.match(u).then(function (hit) {
+            if (hit) return null;
+            return fetch(new Request(u, { mode: "cors", credentials: "omit" })).then(function (res) { if (storable(res)) return put(lc, u, res); }).catch(ignore);
+          }).catch(ignore);
+        }));
+      }).catch(ignore);
     }).then(function () { return self.skipWaiting(); })
   );
 });
