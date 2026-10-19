@@ -6170,7 +6170,7 @@ function gcMedia(video) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection)
         return Promise.reject({ name: "Unsupported" });
     const clear = featOn("clearVoice");
-    return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 }, frameRate: { ideal: 20, max: 24 } } : false });
+    return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } : false });
 }
 function GCTile({ user, stream, local, video, media, state }) {
     const u = user || {}, sharing = !!(media && media.sharing), showVid = !!(video && stream && (sharing || !(media && media.camOff)));
