@@ -4,7 +4,7 @@
 // server's live:* events (server/client/live.js).
 (function () {
   if (!window.React) return;
-  window.LETSCHAT_LIVE_BUILD = "livefix6"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix6)
+  window.LETSCHAT_LIVE_BUILD = "livefix11"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix11)
   var h = React.createElement, useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, useCallback = React.useCallback;
   var ICE = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   var C = { bg: "#0B0F16", card: "#161B22", line: "#262E3A", text: "#F5F7FA", dim: "#9BA7B4", teal: "#35D0BA", red: "#FF3B5C", purple: "#7C5CFF" };
@@ -21,6 +21,19 @@
   var FILTER_OK = (function () { try { var c = document.createElement("canvas").getContext("2d"); c.filter = "grayscale(1)"; return c.filter === "grayscale(1)"; } catch (e) { return false; } })();
   var CAN_PIPE = (function () { try { return typeof document.createElement("canvas").captureStream === "function"; } catch (e) { return false; } })();
   var EFFECT_LIST = FILTER_OK ? EFFECTS : EFFECTS.filter(function (e) { return e[0] !== "soft"; });
+  // sharper video: sets the most data each sender may send (a clear picture needs this, not just a big camera size)
+  function tuneSender(pc, maxVideo) {
+    try {
+      pc.getSenders().forEach(function (s) {
+        if (!s.track || !s.getParameters) return;
+        var p = s.getParameters();
+        if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+        p.encodings[0].maxBitrate = s.track.kind === "video" ? maxVideo : 128000;
+        if (s.track.kind === "video") { p.degradationPreference = "balanced"; try { s.track.contentHint = "motion"; } catch (e) {} }
+        s.setParameters(p).catch(function () {});
+      });
+    } catch (e) {}
+  }
   var SCREEN_OK = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
   var clamp = function (v) { return v < 0 ? 0 : v > 255 ? 255 : v; };
   function pixelFx(d, name) {
@@ -105,6 +118,7 @@
       "@keyframes lcBigGift{0%{transform:translateY(60px) scale(.2);opacity:0}14%{transform:translateY(0) scale(1.15);opacity:1}28%{transform:scale(.97)}42%{transform:scale(1.07)}80%{transform:scale(1);opacity:1}100%{transform:translateY(-34px) scale(.9);opacity:0}}" +
       "@keyframes lcSpark{0%{transform:scale(0) rotate(0);opacity:0}30%{opacity:1}100%{transform:scale(1.5) rotate(160deg);opacity:0}}" +
       "@keyframes lcFlash{0%{opacity:0}15%{opacity:1}100%{opacity:0}}" +
+      "@keyframes lcSpin{to{transform:rotate(360deg)}}" +
       "@media (prefers-reduced-motion:reduce){.lc-toast,.lc-combo,.lc-big,.lc-spark{animation:none!important}}";
     document.head.appendChild(s2);
   })();
@@ -288,8 +302,8 @@
   function startRecorder(isMeeting, onDone, getOv) {
     var vids = function () { return [].slice.call(document.querySelectorAll("video[data-lcrec]")).filter(function (v) { return v.srcObject && v.videoWidth; }); };
     var cv = document.createElement("canvas"), cx = cv.getContext("2d"), first = vids()[0];
-    var W = 960, H = 540;
-    if (!isMeeting && first) { var k = Math.min(1, 960 / Math.max(first.videoWidth, first.videoHeight)); W = Math.max(2, Math.round(first.videoWidth * k / 2) * 2); H = Math.max(2, Math.round(first.videoHeight * k / 2) * 2); }
+    var W = 1280, H = 720;
+    if (!isMeeting && first) { var k = Math.min(1, 1280 / Math.max(first.videoWidth, first.videoHeight)); W = Math.max(2, Math.round(first.videoWidth * k / 2) * 2); H = Math.max(2, Math.round(first.videoHeight * k / 2) * 2); }
     cv.width = W; cv.height = H;
     var AC = window.AudioContext || window.webkitAudioContext, ac = null, dest = null, wired = {};
     try { if (AC) { ac = new AC(); dest = ac.createMediaStreamDestination(); if (ac.resume) ac.resume(); } } catch (e) { ac = null; dest = null; }
@@ -411,6 +425,12 @@
     var lks = useState(0), likes = lks[0], setLikes = lks[1];                      // hearts received while you are here
     var sgs = useState("rose"), selGift = sgs[0], setSelGift = sgs[1];            // gift picked in the tray
     var jns = useState(""), joinNote = jns[0], setJoinNote = jns[1];
+    var fcs = useState("user"), facing = fcs[0], setFacing = fcs[1];               // "user" = front, "environment" = back
+    var shs = useState(false), shareOpen = shs[0], setShareOpen = shs[1];          // share menu on the right (Send link / Save)
+    var cmx = useState(false), cmtOpen = cmx[0], setCmtOpen = cmx[1];              // message bar is hidden until the message icon is tapped (Go Live)
+    var lkx = useState(0), likeFx = lkx[0], setLikeFx = lkx[1];                    // colour the heart only right after a like
+    var gfx = useState(0), giftFx = gfx[0], setGiftFx = gfx[1];                    // colour the gift only right after a gift
+    var svx = useState(function () { try { return localStorage.getItem("lcSave:" + (info.host && info.host.id)) === "1"; } catch (e) { return false; } }), saved = svx[0], setSaved = svx[1];
     var lys = useState(function () { try { var v = parseInt(localStorage.getItem("lcLiveLayout"), 10); return v >= 0 && v < LAYOUTS.length ? v : 0; } catch (e) { return 0; } }), layoutIdx = lys[0], setLayoutIdx = lys[1];
     var fls = useState(function () { try { return localStorage.getItem("lcFollow:" + (info.host && info.host.id)) === "1"; } catch (e) { return false; } }), following = fls[0], setFollowing = fls[1];
     var lastGift = useRef(0), lastLike = useRef(0), tally = useRef(null);
@@ -464,6 +484,7 @@
       pc.ontrack = function (e) { var s = (e.streams && e.streams[0]) || null; if (!s) { s = new MediaStream(); s.addTrack(e.track); } addRemote(uid, s); };
       pc.onconnectionstatechange = function () { if (pc.connectionState === "failed") { try { pc.restartIce && pc.restartIce(); } catch (e) {} } };
       if (sendLocal && localRef.current) localRef.current.getTracks().forEach(function (t) { pc.addTrack(t, localRef.current); });
+      tuneSender(pc, 1500000);
       if (recvOnly || (sendLocal && !pc.getSenders().length)) { try { pc.addTransceiver("video", { direction: "recvonly" }); pc.addTransceiver("audio", { direction: "recvonly" }); } catch (e) {} }
       return pc;
     }
@@ -494,6 +515,7 @@
     var sh = useState(function () { var m = {}; (info.sharing || []).forEach(function (id) { m[id] = true; }); return m; }), sharing = sh[0], setSharing = sh[1];
     var prevLook = useRef({ mode: "camera", fx: "none" });
     var td = useState({ tool: "pen", color: "#FF3B5C", size: 5 }), teach = td[0], setTeach = td[1];
+    var tlo = useState(false), toolsOpen = tlo[0], setToolsOpen = tlo[1]; // drawing tools (pen, highlight, laser, torch...) live inside a Tools button
     var annRef = useRef({ strokes: [], cur: null, laser: [] });
     var camRef = useRef({ video: null, audio: null }), pipe = useRef(null), imgRef = useRef(null), fileRef = useRef(null), modeRef = useRef({ mode: "camera", fx: "none" });
 
@@ -556,6 +578,10 @@
         var age = (now - t.t) / 900, r = (i === A.laser.length - 1 ? 11 : 7 * (1 - age) + 2) * k * 1.4;
         cx.save(); cx.globalAlpha = Math.max(0.1, 1 - age); cx.fillStyle = "#FF2D55"; cx.shadowColor = "#FF2D55"; cx.shadowBlur = 18 * k; cx.beginPath(); cx.arc(t.x * cv.width, t.y * cv.height, r, 0, Math.PI * 2); cx.fill(); cx.restore();
       });
+      if (A.torch) { // torch: a small white dot at the exact pointer spot; nothing else on the screen is dimmed
+        var tx = A.torch.x * cv.width, ty = A.torch.y * cv.height, tr = Math.max(4, Math.round(Math.min(cv.width, cv.height) * 0.012));
+        cx.save(); cx.beginPath(); cx.arc(tx, ty, tr, 0, Math.PI * 2); cx.fillStyle = "#FFFFFF"; cx.shadowColor = "rgba(0,0,0,0.6)"; cx.shadowBlur = 4 * (cv.width / 1280); cx.fill(); cx.restore();
+      }
     }
     function drawFrame() {
       var P = pipe.current; if (!P) return;
@@ -619,7 +645,7 @@
       modeRef.current = { mode: nm, fx: nf }; setVmode(nm); setFxName(nf);
       var ensureCam = Promise.resolve();
       if (nm === "camera" && !camRef.current.video && navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
-        ensureCam = navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } }).then(function (st) { if (!alive.current) { st.getTracks().forEach(function (t) { t.stop(); }); return; } camRef.current.video = st.getVideoTracks()[0]; }).catch(function () { flash("Camera is blocked or busy."); });
+        ensureCam = navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } }).then(function (st) { if (!alive.current) { st.getTracks().forEach(function (t) { t.stop(); }); return; } camRef.current.video = st.getVideoTracks()[0]; }).catch(function () { flash("Camera is blocked or busy."); });
       if (nm !== "camera" && camRef.current.video && nm === "off") { camRef.current.video.stop(); camRef.current.video = null; } // really release the camera
       ensureCam.then(function () { if (alive.current) refreshOut(); });
     }
@@ -661,17 +687,19 @@
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch (x) {}
       if (t === "text") { var tx = window.prompt("Text to show on the screen"); if (tx && tx.trim()) A.strokes.push({ tool: "text", color: teach.color, size: teach.size, pts: [pt], text: tx.trim().slice(0, 80) }); return; }
       if (t === "laser") { A.laser.push({ x: pt[0], y: pt[1], t: Date.now() }); A.laserDown = true; return; }
+      if (t === "torch" && kind === "meeting") { A.torch = { x: pt[0], y: pt[1] }; A.torchDown = true; return; }
       if (t === "erase") { A.erasing = true; eraseAt(pt); return; }
       A.cur = { tool: t, color: teach.color, size: teach.size, pts: [pt] };
     }
     function annMove(e) {
       var A = annRef.current, pt = annPoint(e); if (!pt) return;
       if (A.laserDown) { A.laser.push({ x: pt[0], y: pt[1], t: Date.now() }); if (A.laser.length > 40) A.laser.shift(); return; }
+      if (A.torchDown) { A.torch = { x: pt[0], y: pt[1] }; return; }
       if (A.erasing) return eraseAt(pt);
       if (!A.cur) return;
       if (A.cur.tool === "arrow" || A.cur.tool === "box") A.cur.pts = [A.cur.pts[0], pt]; else A.cur.pts.push(pt);
     }
-    function annUp() { var A = annRef.current; A.laserDown = false; A.erasing = false; if (A.cur) { A.strokes.push(A.cur); if (A.strokes.length > 200) A.strokes.shift(); A.cur = null; } }
+    function annUp() { var A = annRef.current; A.laserDown = false; A.torchDown = false; A.erasing = false; if (A.cur) { A.strokes.push(A.cur); if (A.strokes.length > 200) A.strokes.shift(); A.cur = null; } }
     function pickImage(file) {
       if (!file) return;
       if (!/^image\//.test(file.type)) return flash("Choose a picture file.");
@@ -690,7 +718,7 @@
       function getMedia() {
         if (!wantMedia() || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve(null);
         var wantVideo = info.video !== false;
-        return navigator.mediaDevices.getUserMedia({ audio: true, video: wantVideo ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false })
+        return navigator.mediaDevices.getUserMedia({ audio: true, video: wantVideo ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } : false })
           .catch(function () { return navigator.mediaDevices.getUserMedia({ audio: true }).catch(function () { return null; }); });
       }
       getMedia().then(function (stream) {
@@ -772,9 +800,22 @@
       socket.emit("live:chat", { code: code, text: t, replyTo: replyTo ? { id: replyTo.id } : null, mentions: ids }, function (r) { if (r && r.error) flash(r.error); });
       setText(""); setReplyTo(null); setPicked(null);
     }
-    var sendGift = function () { var now = Date.now(); if (now - lastGift.current < 300) return; lastGift.current = now; fxSend("gift", selGift); };
-    var sendLike = function () { var now = Date.now(); if (now - lastLike.current < 220) return; lastLike.current = now; fxSend("emoji", "\u2764\uFE0F"); };
-    var toggleFollow = function () { var v = !following; setFollowing(v); try { localStorage.setItem("lcFollow:" + (S.host && S.host.id), v ? "1" : "0"); } catch (e) {} flash(v ? "You follow " + ((S.host && S.host.name) || "this host") + " on this phone" : "Unfollowed"); };
+    var sendGift = function () { var now = Date.now(); if (now - lastGift.current < 300) return; lastGift.current = now; setGiftFx(now); setTimeout(function () { setGiftFx(0); }, 1100); fxSend("gift", selGift); };
+    var sendLike = function () { var now = Date.now(); if (now - lastLike.current < 220) return; lastLike.current = now; setLikeFx(now); setTimeout(function () { setLikeFx(0); }, 1100); fxSend("emoji", "\u2764\uFE0F"); };
+    var toggleComments = function () { var v = !cmtOpen; setCmtOpen(v); if (v) setTimeout(function () { if (inputRef.current) inputRef.current.focus(); }, 60); };
+    var toggleSave = function () { var v = !saved; setSaved(v); try { localStorage.setItem("lcSave:" + (S.host && S.host.id), v ? "1" : "0"); } catch (e) {} flash(v ? "Saved on this phone" : "Removed from saved"); };
+    var toggleFollow = function () {
+      var before = following, v = !before; setFollowing(v);
+      try { localStorage.setItem("lcFollow:" + (S.host && S.host.id), v ? "1" : "0"); } catch (e) {}
+      var sess = null; try { sess = JSON.parse(localStorage.getItem("letschat-africa:session") || "null"); } catch (e) {}
+      var hid = S.host && S.host.id, hname = (S.host && S.host.name) || "this host";
+      if (!sess || !sess.token || !hid || hid === me.id) return flash(v ? "You follow " + hname : "Unfollowed");
+      var base = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.API_URL) || "";
+      fetch(base + "/api/me/follow/" + hid, { method: "POST", headers: { Authorization: "Bearer " + sess.token } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d && typeof d.following === "boolean") setFollowing(d.following); flash(d && d.following ? "You follow " + hname : "Unfollowed"); })
+        .catch(function () { setFollowing(before); flash("Couldn't update follow. Check your connection."); });
+    };
     var fxSend = function (kindName, value) { socket.emit("live:fx", { code: code, kind: kindName, value: value }, function (r) { if (r && r.error) flash(r.error); }); };
     var pinMsg = function (m) { socket.emit("live:pin", { code: code, msgId: m ? m.id : null }, function (r) { if (r && r.error) flash(r.error); }); setPicked(null); };
     var reactMsg = function (m, e) { socket.emit("live:msgreact", { code: code, msgId: m.id, emoji: e }); setPicked(null); };
@@ -782,6 +823,22 @@
     var toggleCam = function () { setLook(modeRef.current.mode === "off" ? "camera" : "off"); };
     var leave = function () { socket.emit(isHost && kind === "live" ? "live:end" : "live:leave", { code: code }); p.onClose(""); };
     var copy = function (t, msg) { try { navigator.clipboard.writeText(t).then(function () { flash(msg); }, function () { flash(t); }); } catch (e) { flash(t); } };
+    var flipCam = function () {
+      var next = facingRef_(facing) === "user" ? "environment" : "user";
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return flash("Camera switching is not available on this phone.");
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: next }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } }, audio: false }).then(function (st) {
+        var nt = st.getVideoTracks()[0];
+        if (!nt) return;
+        if (!alive.current) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
+        var old = camRef.current.video;
+        camRef.current.video = nt;
+        if (old && old !== nt) { try { old.stop(); } catch (e) {} }
+        setFacing(next);
+        if (typeof refreshOut === "function") refreshOut();
+      }).catch(function () { flash(next === "environment" ? "Back camera is not available on this phone." : "Front camera is not available on this phone."); });
+    };
+    var facingRef_ = function (f) { return f; };
+    var reshareLive = function () { var link = shareLink(code), msg = "Watch " + ((S.host && S.host.name) || "this live") + " live on Letschat. Code: " + code; if (navigator.share) navigator.share({ title: "Letschat Live", text: msg, url: link }).catch(function () {}); else copy(msg + " " + link, "Reshare link copied"); };
     var share = function () { var link = shareLink(code), msg = "Join my " + (kind === "meeting" ? "meeting" : "live") + " on Letschat. Code: " + code; if (navigator.share) navigator.share({ title: "Letschat Live", text: msg, url: link }).catch(function () {}); else copy(msg + " " + link, "Invite copied"); };
     var addAt = function () { setText(function (t) { return t + (t && !/\s$/.test(t) ? " @" : "@"); }); if (inputRef.current) inputRef.current.focus(); };
 
@@ -816,7 +873,7 @@
     };
 
     var teaching = isHost && vmode === "screen" && CAN_PIPE;
-    var drawLayer = teaching && teach.tool !== "none" ? h("div", { onPointerDown: annDown, onPointerMove: annMove, onPointerUp: annUp, onPointerCancel: annUp, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 4, touchAction: "none", cursor: teach.tool === "laser" ? "none" : "crosshair" } }) : null;
+    var drawLayer = teaching && toolsOpen && teach.tool !== "none" ? h("div", { onPointerDown: annDown, onPointerMove: annMove, onPointerUp: annUp, onPointerCancel: annUp, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 4, touchAction: "none", cursor: teach.tool === "laser" ? "none" : "crosshair" } }) : null;
     var hostStream = isHost ? local : remotes[S.hostId];
     var tiles = [];
     if (kind === "meeting") {
@@ -829,7 +886,7 @@
       var contain = isShareTile(t);
       return h("div", { key: t.id, style: Object.assign({ position: "relative", borderRadius: 14, overflow: "hidden", background: "#1B2330", minHeight: 0 }, extra || {}) },
         t.mine && drawLayer,
-        t.stream ? h(VideoEl, { stream: t.stream, muted: !!t.mine, mirror: !!t.mine && vmode === "camera", style: contain ? { objectFit: "contain" } : {} }) : h("div", { style: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Avatar, { user: t.user, size: 64 })),
+        t.stream ? h(VideoEl, { stream: t.stream, muted: !!t.mine, mirror: !!t.mine && vmode === "camera" && facing === "user", style: contain ? { objectFit: "contain" } : {} }) : h("div", { style: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Avatar, { user: t.user, size: 64 })),
         h("div", { style: { position: "absolute", left: 8, bottom: 6, background: "rgba(0,0,0,.55)", color: C.text, borderRadius: 8, padding: "2px 8px", fontFamily: "Inter, sans-serif", fontSize: 12.5 } }, t.mine ? "You" : (t.user.name || "Guest"), t.id === S.hostId ? " \uD83D\uDC51" : ""));
     };
     var sharer = null; tiles.forEach(function (t) { if (!sharer && isShareTile(t)) sharer = t; });
@@ -847,7 +904,7 @@
     var stage = kind === "live"
       ? h("div", { style: { position: "absolute", inset: 0, background: "#000" } },
           drawLayer,
-          hostStream ? h(VideoEl, { stream: hostStream, muted: isHost, mirror: isHost && vmode === "camera", style: (isHost ? vmode === "screen" : sharing[S.hostId]) ? { objectFit: "contain" } : {} }) : h("div", { style: { height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: C.dim, fontFamily: "Inter, sans-serif", textAlign: "center", padding: 24 } },
+          hostStream ? h(VideoEl, { stream: hostStream, muted: isHost, mirror: isHost && vmode === "camera" && facing === "user", style: (isHost ? vmode === "screen" : sharing[S.hostId]) ? { objectFit: "contain" } : {} }) : h("div", { style: { height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: C.dim, fontFamily: "Inter, sans-serif", textAlign: "center", padding: 24 } },
             h(Avatar, { user: S.host, size: 84 }),
             h("div", { style: { color: C.text, fontWeight: 700, fontSize: 17 } }, S.host && S.host.name),
             h("div", null, S.media === false ? "The video is full right now. You are in the chat and can still send gifts and stickers." : isHost ? "Starting your camera\u2026" : "Connecting to the live\u2026")))
@@ -862,7 +919,7 @@
     var topTK = h("div", { style: { position: "relative", zIndex: 5, display: "flex", alignItems: "center", gap: 8, padding: "calc(10px + env(safe-area-inset-top,0px)) 10px 6px", background: "linear-gradient(rgba(0,0,0,.6),rgba(0,0,0,0))" } },
       h("div", { style: { display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,.42)", borderRadius: 999, padding: "4px 6px 4px 4px", minWidth: 0, maxWidth: "58%" } },
         h(Avatar, { user: S.host, size: 36 }),
-        h("div", { style: { minWidth: 0, color: C.text } }, h("div", { style: { fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, h(Name, { user: S.host })), h("div", { style: { fontSize: 11.5, color: "#E6EAF0" } }, "\u2764\uFE0F " + fmt(likes))),
+        h("div", { style: { minWidth: 0, color: C.text } }, h("div", { style: { fontSize: 11.5, color: "#E6EAF0" } }, "\u2764\uFE0F " + fmt(likes))),
         !isHost && h("button", { onClick: toggleFollow, style: { background: following ? "rgba(255,255,255,.22)" : "#FE2C55", color: "#fff", border: "none", borderRadius: 999, padding: "7px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer", flexShrink: 0 } }, following ? "Following" : "+ Follow")),
       h("div", { style: { flex: 1 } }),
       viewerFaces.length > 0 && h("div", { style: { display: "flex" } }, viewerFaces.map(function (id, i) { return h("span", { key: id, style: { marginLeft: i ? -10 : 0, border: "2px solid rgba(0,0,0,.6)", borderRadius: "50%", display: "inline-flex" } }, h(Avatar, { user: people[id], size: 26 })); })),
@@ -888,13 +945,18 @@
         S.gifts > 0 && h("span", { style: { color: C.text, fontSize: 12.5, background: "rgba(0,0,0,.55)", borderRadius: 999, padding: "5px 10px" } }, "\uD83C\uDF81 " + S.gifts),
         layoutChip)
     );
-    var railBtn = function (icon, label, onClick, aria) { return h("button", { "aria-label": aria, onClick: onClick, style: { background: "none", border: "none", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer", padding: 0, fontSize: 12, fontWeight: 700, textShadow: "0 1px 4px rgba(0,0,0,.6)" } }, h("span", { style: { fontSize: 30, lineHeight: "34px", filter: "drop-shadow(0 2px 4px rgba(0,0,0,.5))" } }, icon), label != null && h("span", null, label)); };
-    var railEl = tk ? h("div", { style: { position: "absolute", right: 8, bottom: isHost ? 176 : 92, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 } },
+    var railBtn = function (icon, label, onClick, aria, on) { return h("button", { "aria-label": aria, onClick: onClick, style: { background: "none", border: "none", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer", padding: 0, fontSize: 12, fontWeight: 700, textShadow: "0 1px 4px rgba(0,0,0,.6)" } }, h("span", { style: { fontSize: 30, lineHeight: "34px", filter: on ? "drop-shadow(0 2px 6px rgba(255,60,100,.7))" : "grayscale(1) brightness(1.9) drop-shadow(0 2px 4px rgba(0,0,0,.5))" } }, icon), label != null && h("span", null, label)); };
+    var likeOn = Date.now() - likeFx < 1100, giftOn = Date.now() - giftFx < 1100;
+    var railEl = tk ? h("div", { style: { position: "absolute", right: 8, bottom: isHost ? 120 : 60, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 } },
       !isHost && h("div", { style: { position: "relative", marginBottom: 6 } }, h(Avatar, { user: S.host, size: 46 }), !following && h("button", { "aria-label": "Follow", onClick: toggleFollow, style: { position: "absolute", left: 11, bottom: -9, width: 24, height: 24, borderRadius: 24, background: "#FE2C55", color: "#fff", border: "2px solid #0B0F16", fontWeight: 800, fontSize: 15, lineHeight: "17px", padding: 0, cursor: "pointer" } }, "+")),
-      railBtn("\u2764\uFE0F", fmt(likes), sendLike, "Like"),
-      railBtn("\uD83D\uDCAC", fmt(S.chat.length), function () { if (inputRef.current) inputRef.current.focus(); }, "Comment"),
-      railBtn("\uD83C\uDF81", fmt(S.gifts), function () { setPanel(panel === "gifts" ? null : "gifts"); }, "Gifts"),
-      railBtn("\u2197\uFE0F", "Share", share, "Share")) : null;
+      railBtn(likeOn ? "\u2764\uFE0F" : "\uD83E\uDD0D", fmt(likes), sendLike, "Like", likeOn),
+      railBtn("\uD83D\uDCAC", fmt(S.chat.length), toggleComments, "Comments", cmtOpen),
+      shareOpen && h("div", { style: { display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" } },
+        h("button", { onClick: function () { setShareOpen(false); share(); }, style: { background: "rgba(0,0,0,.55)", color: "#fff", border: "none", borderRadius: 999, padding: "7px 12px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" } }, "Send link"),
+        h("button", { onClick: function () { toggleSave(); setShareOpen(false); }, style: { background: saved ? "#FFD43B" : "rgba(0,0,0,.55)", color: saved ? "#111" : "#fff", border: "none", borderRadius: 999, padding: "7px 12px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" } }, saved ? "Saved \u2713" : "Save")),
+      railBtn("\u2197\uFE0F", "Share", function () { setShareOpen(!shareOpen); }, "Share", shareOpen),
+      !isHost && railBtn("\uD83D\uDD01", "Reshare", reshareLive, "Reshare", false),
+      h("div", { style: { width: 44, height: 44, borderRadius: 44, border: "3px solid #1B2330", overflow: "hidden", animation: "lcSpin 6s linear infinite", marginTop: 4 } }, h(Avatar, { user: S.host, size: 38 }))) : null;
     var comboEl = h("div", { style: { position: "absolute", left: 10, top: "38%", zIndex: 7, pointerEvents: "none", display: "flex", flexDirection: "column", gap: 8 } },
       combos.map(function (c) { var gd = giftDef(c.id); return h("div", { key: c.key, className: "lc-toast", style: { display: "flex", alignItems: "center", gap: 8, background: "linear-gradient(90deg,rgba(0,0,0,.6),rgba(0,0,0,.25))", borderRadius: 999, padding: "4px 14px 4px 4px", animation: "lcToastIn .35s ease-out" } },
         h(Avatar, { user: c.user, size: 34 }),
@@ -941,7 +1003,7 @@
           S.pinned.gift ? h("span", null, "sent a gift ", glyph(GIFTS, S.pinned.gift)) : renderText(S.pinned.text)),
         canPin && h("button", { "aria-label": "Unpin message", onClick: function () { pinMsg(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 16, cursor: "pointer", flexShrink: 0 } }, "\u2715")),
       // comments
-      chatOpen && h("div", { ref: logRef, style: { position: "relative", zIndex: 5, maxHeight: kind === "meeting" ? "40%" : "34%", overflowY: "auto", padding: tk ? "0 76px 6px 10px" : "0 10px 6px", background: kind === "meeting" ? C.bg : "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.45))", WebkitOverflowScrolling: "touch", WebkitMaskImage: tk ? "linear-gradient(transparent, #000 24%)" : undefined, maskImage: tk ? "linear-gradient(transparent, #000 24%)" : undefined } },
+      chatOpen && h("div", { ref: logRef, style: { position: "relative", zIndex: 5, maxHeight: kind === "meeting" ? "40%" : (tk ? "24%" : "34%"), overflowY: "auto", padding: tk ? "0 76px 6px 10px" : "0 10px 6px", background: kind === "meeting" ? C.bg : "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.45))", WebkitOverflowScrolling: "touch", WebkitMaskImage: tk ? "linear-gradient(transparent, #000 24%)" : undefined, maskImage: tk ? "linear-gradient(transparent, #000 24%)" : undefined } },
         feed.length ? feed.map(comment) : h("div", { style: { color: C.dim, fontSize: 13, padding: "6px 4px" } }, "No comments yet. Say hi \uD83D\uDC4B")),
       // sticker / gift / emoji tray
       panel && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, padding: "8px 8px 6px" } },
@@ -951,18 +1013,18 @@
       sugg.length > 0 && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, display: "flex", gap: 6, padding: "6px 10px", overflowX: "auto" } }, sugg.map(function (u) { return h("button", { key: u.id, onClick: function () { pickMention(u); }, style: { display: "flex", alignItems: "center", gap: 6, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px 4px 4px", color: C.text, fontSize: 13, cursor: "pointer", flexShrink: 0 } }, h(Avatar, { user: u, size: 22 }), u.name); })),
       replyTo && h("div", { style: { position: "relative", zIndex: 8, background: C.card, borderTop: "1px solid " + C.line, padding: "6px 12px", display: "flex", alignItems: "center", gap: 8, color: C.dim, fontSize: 12.5 } }, h("span", { style: { flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, "Replying to ", h("b", { style: { color: C.text } }, replyTo.user.name), ": ", replyTo.text || "a gift"), h("button", { onClick: function () { setReplyTo(null); }, style: { background: "none", border: "none", color: C.dim, fontSize: 16, cursor: "pointer" } }, "\u2715")),
       // message bar
-      h("div", { style: { position: "relative", zIndex: 8, display: "flex", gap: 6, alignItems: "center", padding: "8px 10px", background: tk ? "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.55))" : C.card, borderTop: tk ? "none" : "1px solid " + C.line } },
+      (!tk || cmtOpen) && h("div", { style: { position: "relative", zIndex: 8, display: "flex", gap: 6, alignItems: "center", padding: "8px 10px", background: tk ? "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.55))" : C.card, borderTop: tk ? "none" : "1px solid " + C.line } },
         kind === "meeting" && h("button", { "aria-label": "Show or hide chat", onClick: function () { setChatOpen(!chatOpen); }, style: round(chatOpen ? C.teal : idle, 38) }, "\uD83D\uDCAC"),
         h("button", { "aria-label": "Mention someone", onClick: addAt, style: Object.assign(round(idle, 38), { fontWeight: 800, color: C.teal }) }, "@"),
         h("input", { ref: inputRef, value: text, maxLength: 300, placeholder: tk ? "Add comment\u2026" : "Type a message\u2026", onChange: function (e) { setText(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") send(); }, style: { flex: 1, minWidth: 0, background: tk ? "rgba(255,255,255,.16)" : "#0E1218", border: tk ? "none" : "1px solid #2B3544", borderRadius: 999, color: C.text, padding: "10px 14px", fontSize: 14.5, outline: "none" } }),
         text.trim() ? h("button", { "aria-label": "Send", onClick: send, style: round(C.teal, 38) }, "\u27A4") : null,
         h("button", { "aria-label": "Live emojis", onClick: function () { setPanel(panel === "emoji" ? null : "emoji"); }, style: round(panel === "emoji" ? C.teal : idle, 38) }, "\uD83D\uDE0A"),
         h("button", { "aria-label": "Live stickers", onClick: function () { setPanel(panel === "stickers" ? null : "stickers"); }, style: round(panel === "stickers" ? C.teal : idle, 38) }, "\uD83D\uDD25"),
-        h("button", { "aria-label": "Send a gift", onClick: function () { setPanel(panel === "gifts" ? null : "gifts"); }, style: tk ? round("linear-gradient(135deg,#FF4D8D,#FF8A3D)", 38) : round(panel === "gifts" ? C.purple : idle, 38) }, "\uD83C\uDF81")),
+        h("button", { "aria-label": "Send a gift", onClick: function () { setPanel(panel === "gifts" ? null : "gifts"); }, style: tk ? round(giftOn ? "linear-gradient(135deg,#FF4D8D,#FF8A3D)" : idle, 38) : round(panel === "gifts" ? C.purple : idle, 38) }, h("span", { style: { filter: tk && !giftOn ? "grayscale(1) brightness(1.8)" : "none" } }, "\uD83C\uDF81"))),
       // teaching tools: only the person who started the meeting (or the live), while their screen is shared
-      teaching && h("div", { style: { position: "relative", zIndex: 9, background: C.card, borderTop: "1px solid " + C.line, padding: "8px 10px 6px" } },
+      teaching && toolsOpen && h("div", { style: { position: "relative", zIndex: 9, background: C.card, borderTop: "1px solid " + C.line, padding: "8px 10px 6px" } },
         h("div", { style: { display: "flex", gap: 5, overflowX: "auto", paddingBottom: 6, alignItems: "center" } },
-          [["none", "\uD83D\uDC46", "Mouse"], ["pen", "\u270F\uFE0F", "Pen"], ["hl", "\uD83D\uDD8D\uFE0F", "Highlight"], ["arrow", "\u27A1\uFE0F", "Arrow"], ["box", "\u25AD", "Box"], ["text", "T", "Text"], ["laser", "\uD83D\uDD34", "Laser"], ["erase", "\uD83E\uDDFD", "Erase"]].map(function (t) {
+          [["none", "\uD83D\uDC46", "Mouse"], ["pen", "\u270F\uFE0F", "Pen"], ["hl", "\uD83D\uDD8D\uFE0F", "Highlight"], ["arrow", "\u27A1\uFE0F", "Arrow"], ["box", "\u25AD", "Box"], ["text", "T", "Text"], ["laser", "\uD83D\uDD34", "Laser"], ...(kind === "meeting" ? [["torch", "\uD83D\uDD26", "Torch"]] : []), ["erase", "\uD83E\uDDFD", "Erase"]].map(function (t) {
             var on = teach.tool === t[0];
             return h("button", { key: t[0], "aria-label": t[2], title: t[2], onClick: function () { setTeach(Object.assign({}, teach, { tool: t[0] })); }, style: { flexShrink: 0, minWidth: 54, padding: "5px 6px", borderRadius: 12, border: "1px solid " + (on ? C.teal : "#2B3544"), background: on ? "rgba(53,208,186,.18)" : "#1E2530", color: C.text, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 } }, h("span", { style: { fontSize: 18, fontWeight: 800, lineHeight: "20px" } }, t[1]), h("span", { style: { fontSize: 10.5, color: on ? C.teal : C.dim } }, t[2]));
           })),
@@ -970,7 +1032,7 @@
           ["#FF3B5C", "#FFD43B", "#35D0BA", "#4DA3FF", "#FFFFFF", "#111111"].map(function (c) { return h("button", { key: c, "aria-label": "Colour " + c, onClick: function () { setTeach(Object.assign({}, teach, { color: c })); }, style: { flexShrink: 0, width: 26, height: 26, borderRadius: 26, background: c, border: teach.color === c ? "3px solid " + C.teal : "2px solid #2B3544", cursor: "pointer", padding: 0 } }); }),
           [["S", 3], ["M", 5], ["L", 9]].map(function (z) { var on = teach.size === z[1]; return h("button", { key: z[0], onClick: function () { setTeach(Object.assign({}, teach, { size: z[1] })); }, style: { flexShrink: 0, width: 30, height: 30, borderRadius: 10, border: "1px solid " + (on ? C.teal : "#2B3544"), background: on ? "rgba(53,208,186,.18)" : "#1E2530", color: C.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer" } }, z[0]); }),
           h("button", { onClick: function () { var A = annRef.current; A.strokes.pop(); }, style: { flexShrink: 0, padding: "6px 12px", borderRadius: 10, border: "1px solid #2B3544", background: "#1E2530", color: C.text, fontWeight: 600, fontSize: 12.5, cursor: "pointer" } }, "\u21B6 Undo"),
-          h("button", { onClick: function () { annRef.current.strokes = []; annRef.current.cur = null; }, style: { flexShrink: 0, padding: "6px 12px", borderRadius: 10, border: "1px solid #5A2A36", background: "#2A1B20", color: "#FFB3C0", fontWeight: 600, fontSize: 12.5, cursor: "pointer" } }, "Clear"))),
+          h("button", { onClick: function () { annRef.current.strokes = []; annRef.current.cur = null; annRef.current.torch = null; }, style: { flexShrink: 0, padding: "6px 12px", borderRadius: 10, border: "1px solid #5A2A36", background: "#2A1B20", color: "#FFB3C0", fontWeight: 600, fontSize: 12.5, cursor: "pointer" } }, "Clear"))),
       // your video sheet: camera / picture / off, plus effects
       vpanel && (isHost || kind === "meeting") && h("div", { style: { position: "relative", zIndex: 9, background: C.card, borderTop: "1px solid " + C.line, padding: "10px 12px 8px" } },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } }, h("span", { style: { fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, fontSize: 14.5, color: C.text } }, "Your video"), h("button", { "aria-label": "Close", onClick: function () { setVpanel(false); }, style: { background: "none", border: "none", color: C.dim, fontSize: 18, cursor: "pointer" } }, "\u2715")),
@@ -988,7 +1050,7 @@
             return h("button", { key: e[0], disabled: vmode === "off", onClick: function () { setLook(null, e[0]); }, style: { flexShrink: 0, padding: "8px 14px", borderRadius: 999, border: "1px solid " + (on ? C.purple : "#2B3544"), background: on ? "rgba(124,92,255,.25)" : "#1E2530", color: C.text, fontWeight: on ? 700 : 500, fontSize: 13, cursor: "pointer" } }, e[1]);
           })))
           : h("div", { style: { color: C.dim, fontSize: 12.5 } }, "Effects and pictures are not supported on this phone or browser. You can still turn your video off.")),
-        faceCapable() && h("div", { style: { opacity: vmode === "off" || vmode === "screen" ? 0.4 : 1, marginTop: 8 } },
+        faceCapable() && kind !== "meeting" && h("div", { style: { opacity: vmode === "off" || vmode === "screen" ? 0.4 : 1, marginTop: 8 } },
           h("div", { style: { color: C.dim, fontSize: 12, marginBottom: 4 } }, "Face effects (follow your face)"),
           h("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 } }, [["none", "None", "\u2715"]].concat(FACE_ITEMS).map(function (e) {
             var on = e[0] === "none" ? !faceSet.length : faceSet.indexOf(e[0]) >= 0;
@@ -999,9 +1061,12 @@
       (isHost || kind === "meeting") && h("div", { style: { position: "relative", zIndex: 8, display: "flex", justifyContent: "center", gap: 12, padding: "8px 10px calc(12px + env(safe-area-inset-bottom,0px))", background: C.card } },
         h("button", { "aria-label": mediaState.mic ? "Mute" : "Unmute", onClick: toggleMic, style: round(mediaState.mic ? "#2B3544" : "#F5F7FA", 46) }, mediaState.mic ? "\uD83C\uDF99" : "\uD83D\uDD07"),
         info.video !== false && h("button", { "aria-label": vmode === "off" ? "Turn video on" : "Turn video off", onClick: toggleCam, style: round(vmode === "off" ? "#F5F7FA" : "#2B3544", 46) }, vmode === "off" ? "\uD83D\uDEAB" : "\uD83D\uDCF7"),
-        SCREEN_OK && info.video !== false && h("button", { "aria-label": vmode === "screen" ? "Stop sharing screen" : "Share screen", onClick: startScreen, style: round(vmode === "screen" ? C.teal : "#2B3544", 46) }, "\uD83D\uDDA5"),
+        info.video !== false && h("button", { "aria-label": vmode === "screen" ? "Stop sharing screen" : "Share screen", onClick: startScreen, style: round(vmode === "screen" ? C.teal : "#2B3544", 46) }, "\uD83D\uDDA5"),
+        info.video !== false && h("button", { "aria-label": facing === "user" ? "Switch to back camera" : "Switch to front camera", title: facing === "user" ? "Back camera" : "Front camera", onClick: flipCam, disabled: vmode === "off" || vmode === "screen", style: Object.assign(round(facing === "environment" ? C.teal : "#2B3544", 46), { opacity: vmode === "off" || vmode === "screen" ? 0.4 : 1 }) }, "\uD83D\uDD04"),
         REC_OK && info.video !== false && h("button", { "aria-label": recSec == null ? "Record video" : "Stop recording", title: recSec == null ? "Record" : "Stop and save", onClick: startRec, style: Object.assign(round(recSec == null ? "#2B3544" : C.red, 46), recSec == null ? { color: C.red } : { fontSize: 12, fontWeight: 800, lineHeight: "46px" }) }, recLabel),
+        kind === "live" && isHost && faceCapable() && h("button", { "aria-label": "Face tracker", title: "Face tracker", onClick: function () { setVpanel(!vpanel); setPanel(null); }, style: round(vpanel ? C.purple : "#2B3544", 46) }, "\uD83D\uDE03"),
         info.video !== false && h("button", { "aria-label": "Video effects and picture", onClick: function () { setVpanel(!vpanel); setPanel(null); }, style: round(vpanel || fxName !== "none" || vmode === "image" ? C.purple : "#2B3544", 46) }, "\u2728"),
+        teaching && h("button", { "aria-label": "Drawing tools", title: "Drawing tools", onClick: function () { setToolsOpen(!toolsOpen); }, style: round(toolsOpen ? C.purple : "#2B3544", 46) }, "\uD83E\uDDF0"),
         h("button", { "aria-label": "Leave", onClick: leave, style: round(C.red, 46) }, "\u260E")));
   }
 

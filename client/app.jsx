@@ -7752,6 +7752,10 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
   const [error, setError] = useState("");
   const galleryRef = useRef(null);
   const cameraRef = useRef(null);
+  useEffect(() => { // refresh the counts (followers, likes, lives) each time the profile opens
+    if (!token) return;
+    api("/api/me", { token }).then((d) => { if (d && d.user && onUserUpdate) onUserUpdate(d.user); }).catch(() => {});
+  }, [token]);
   const rows = [
     { label: "Name", value: profile.name },
     { label: "About", value: profile.about },
@@ -7796,6 +7800,14 @@ function ProfileScreen({ onBack, onEdit, profile, token, onUserUpdate, onLogOut 
             <input ref={cameraRef} type="file" accept={PHOTO_ACCEPT} capture="user" onChange={onFileChange} style={{ display: "none" }} />
           </div>
           {busy && <div style={{ marginTop: 12, fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA" }}>Saving photo…</div>}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center", padding: "0 12px 16px" }}>
+          {[["Followers", profile.followers], ["Following", profile.following], ["Likes", profile.likes], ["Live videos", profile.lives], ["Live minutes", profile.liveMinutes]].map(([label, value]) => (
+            <div key={label} style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: "Sora, Inter, sans-serif", fontWeight: 700, fontSize: 17, color: "#E6EAF0" }}>{value || 0}</div>
+              <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: "#8A94A6" }}>{label}</div>
+            </div>
+          ))}
         </div>
         {error && <Banner text={error} onClose={() => setError("")} />}
         {rows.map(r => (
