@@ -5098,9 +5098,24 @@ function aiLinkify(text) {
     return out;
 }
 // LetsChat AI page: a plain chat with the AI API (Gemini, OpenAI, Grok...). No learning, training, research or offline pack.
+// sharper video calls: sets the most data each sender may send (a clear picture needs this, not just a big camera size)
+function tuneSender(pc, maxVideo) {
+    try {
+        pc.getSenders().forEach((s) => {
+            if (!s.track || !s.getParameters) return;
+            const p = s.getParameters();
+            if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+            p.encodings[0].maxBitrate = s.track.kind === "video" ? maxVideo : 128000;
+            if (s.track.kind === "video") { p.degradationPreference = "balanced"; try { s.track.contentHint = "motion"; } catch (e) {} }
+            s.setParameters(p).catch(() => {});
+        });
+    } catch (e) {}
+}
 function AiBotScreen({ token, onClose }) {
     const WELCOME = { from: "ai", text: "Hi, I'm LetsChat AI \uD83D\uDC4B Ask me anything.", t: Date.now(), id: "welcome" };
     const [msgs, setMsgs] = useState([]);
+    const [hlId, setHlId] = useState(null); // the message bubble that is highlighted (long-press), not the text
+    const pressRef = useRef(null);
     const [draft, setDraft] = useState("");
     const [typing, setTyping] = useState(false);
     const [err, setErr] = useState("");
@@ -5142,15 +5157,15 @@ function AiBotScreen({ token, onClose }) {
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
                 React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : "online"))),
-        React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 8 } },
+        React.createElement("div", { ref: listRef, onClick: () => setHlId(null), style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 8 } },
             React.createElement("style", null, "@keyframes lcAiDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}@keyframes lcAiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes lcAiBob{50%{transform:translateY(-3px)}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
             !ready && React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13, padding: 20 } }, "Loading\u2026"),
             list.map((m, i) => {
                 const mine = m.from === "me";
                 return React.createElement("div", { key: m.id || i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8, animation: "lcAiIn .22s ease-out" } },
                     !mine && React.createElement(AiBotAvatar, { size: 28 }),
-                    React.createElement("div", { style: { maxWidth: "78%", background: mine ? "#1F8F7E" : "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, aiLinkify(m.text),
-                        React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))));
+                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: "78%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: "pre-wrap", wordBreak: "break-word", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, aiLinkify(m.text),
+                        React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))), hlId === (m.id || i) && React.createElement("button", { onClick: () => { try { navigator.clipboard.writeText(m.text); } catch (e) {} setHlId(null); }, style: { alignSelf: "flex-end", background: "#1B212B", color: "#35D0BA", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" } }, "Copy"));
             }),
             typing && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
                 React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
@@ -5873,12 +5888,13 @@ function CallLayer({ socket, apiRef, notify }) {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection)
             return Promise.reject({ name: "Unsupported" });
         const clear = featOn("clearVoice"); // "Clear voice": echo cancellation, noise suppression and automatic volume
-        return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false });
+        return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } : false });
     };
     const makePc = (c, stream) => {
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         pcRef.current = pc;
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        tuneSender(pc, 2500000);
         pc.onicecandidate = (e) => { if (e.candidate)
             socket.emit("call:signal", { callId: c.id, data: { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate } }); };
         pc.ontrack = (e) => setRemoteStream(e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]));
@@ -6154,7 +6170,7 @@ function gcMedia(video) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection)
         return Promise.reject({ name: "Unsupported" });
     const clear = featOn("clearVoice");
-    return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } } : false });
+    return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: clear, noiseSuppression: clear, autoGainControl: clear }, video: video ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } : false });
 }
 function GCTile({ user, stream, local, video, media, state }) {
     const u = user || {}, sharing = !!(media && media.sharing), showVid = !!(video && stream && (sharing || !(media && media.camOff)));
@@ -6222,6 +6238,7 @@ function GroupCallLayer({ socket, apiRef, notify, me }) {
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         pcs.current[uid] = pc;
         localRef.current.getTracks().forEach((t) => pc.addTrack(t, localRef.current));
+        tuneSender(pc, 2500000);
         if (shareRef.current) { const sn = videoSenderOf(pc); if (sn) sn.replaceTrack(shareRef.current.getVideoTracks()[0]).catch(() => { }); }
         pc.onicecandidate = (e) => { if (e.candidate)
             sendTo(uid, { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
