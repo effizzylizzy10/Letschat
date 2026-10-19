@@ -211,6 +211,7 @@ function publicUser(u) {
     color: u.color,
     avatar: avatarUrl(u),
     cover: coverUrl(u),
+    followers: (u.followers || []).length, following: (u.following || []).length, likes: u.likesReceived || 0, lives: u.livesHosted || 0, liveMinutes: Math.round((u.liveMs || 0) / 60000),
     business: u.business || undefined, // optional: { category, address, hours, open } for business accounts
   };
 }
@@ -733,6 +734,21 @@ app.get("/api/me/username-check", authMiddleware, (req, res) => {
   if (!USERNAME_RE.test(n)) return res.json({ valid: false, available: false, message: USERNAME_RULE, suggestions: [] });
   if (isUsernameTaken(db, n, req.user.id)) return res.json({ valid: true, available: false, message: "\"" + n + "\" has already been used", suggestions: suggestUsernames(db, n, req.user.id) });
   res.json({ valid: true, available: true, message: "\"" + n + "\" is available", suggestions: [] });
+});
+// follow or unfollow someone (toggle); the counts show on both profiles
+app.post(["/api/me/follow/:id", "/api/v1/me/follow/:id"], authMiddleware, (req, res) => {
+  const db = readDB();
+  const me = db.users.find((u) => u.id === req.user.id);
+  const target = db.users.find((u) => u.id === req.params.id);
+  if (!me || !target) return res.status(404).json({ error: "User not found" });
+  if (target.id === me.id) return res.status(400).json({ error: "You can't follow yourself" });
+  me.following = Array.isArray(me.following) ? me.following : [];
+  target.followers = Array.isArray(target.followers) ? target.followers : [];
+  const on = !me.following.includes(target.id);
+  me.following = on ? [...me.following, target.id] : me.following.filter((x) => x !== target.id);
+  target.followers = on ? [...target.followers, me.id] : target.followers.filter((x) => x !== me.id);
+  writeDB(db);
+  res.json({ following: on, followers: target.followers.length });
 });
 app.patch("/api/me", authMiddleware, (req, res) => {
   const db = readDB();
@@ -2526,7 +2542,7 @@ const io = new Server(server, {
 const userSockets = new Map();
 // Letschat Live (live video, meetings with a join code, comments, gifts, stickers): see live.js
 let live = { attach() {} };
-try { live = require("./live")({ io, readDB, memberView, nanoid, isCreator, userSockets, mutedOf, pushLive, userIsActive }); } catch (e) { console.error("Live module not loaded:", e.message); }
+try { live = require("./live")({ io, readDB, writeDB, memberView, nanoid, isCreator, userSockets, mutedOf, pushLive, userIsActive }); } catch (e) { console.error("Live module not loaded:", e.message); }
 // Greeting message (first message from someone new) and away message (you are offline; at most once per chat every 12 hours).
 const AWAY_GAP_MS = 12 * 60 * 60 * 1000;
 function autoReply(db, convo, incoming) {

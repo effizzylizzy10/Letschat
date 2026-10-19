@@ -12,7 +12,19 @@ const STICKERS = ["fire", "100", "heart", "laugh", "crown", "wow", "panda", "cla
 const EMOJIS = ["\u{1F44D}", "\u2764\uFE0F", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F621}", "\u{1F525}", "\u{1F4AF}", "\u{1F44F}", "\u{1F389}", "\u{1F60D}", "\u{1F64C}"];
 
 module.exports = function setupLive(ctx) {
-  const { io, readDB, memberView, nanoid, isCreator } = ctx;
+  const { io, readDB, writeDB, memberView, nanoid, isCreator } = ctx;
+  // saves a live's totals on the host's account when it ends: one live, its length, and the hearts it got
+  function recordLive(room) {
+    try {
+      if (room.kind !== "live" || typeof writeDB !== "function") return;
+      const db = readDB(), host = db.users.find((u) => u.id === room.host);
+      if (!host) return;
+      host.livesHosted = (host.livesHosted || 0) + 1;
+      host.liveMs = (host.liveMs || 0) + Math.max(0, Date.now() - (room.started || Date.now()));
+      host.likesReceived = (host.likesReceived || 0) + (room.likes || 0);
+      writeDB(db);
+    } catch (e) { console.error("Live stats not saved:", e.message); }
+  }
   const notifiedAt = new Map(); // hostId -> when their chats were last told (one alert per 10 minutes at most)
   const rooms = new Map();      // code -> room
   const userRoom = new Map();   // userId -> code
@@ -66,6 +78,8 @@ module.exports = function setupLive(ctx) {
   // a seat that points at a room that is gone, or at a room that no longer lists the user, is dead weight: clear it
   function staleSeat(userId) { const rc = userRoom.get(userId); if (!rc) return; const r = rooms.get(rc); if (!r || !r.members.has(userId)) userRoom.delete(userId); }
   function endRoom(room, reason) {
+    if (room.ended) return; room.ended = true;
+    recordLive(room);
     for (const id of room.members.keys()) { io.to("user:" + id).emit("live:ended", { code: room.code, reason: reason || "This live has ended" }); if (userRoom.get(id) === room.code) userRoom.delete(id); }
     rooms.delete(room.code);
   }
@@ -214,6 +228,7 @@ module.exports = function setupLive(ctx) {
           room.chat.push(msg); if (room.chat.length > LIMITS.chatKeep) room.chat.shift();
           emitRoom(room, "live:chat", { code: room.code, msg });
         }
+        if ((kind === "emoji" && value === "\u2764\uFE0F") || (kind === "sticker" && (value === "heart" || value === "love"))) room.likes = (room.likes || 0) + 1;
         emitRoom(room, "live:fx", { code: room.code, kind, value, user });
         if (kind === "gift") tellCount(room);
         ack(cb, { ok: true });
