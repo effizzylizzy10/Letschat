@@ -234,6 +234,14 @@ module.exports = function setupLive(ctx) {
         ack(cb, { ok: true });
       });
 
+      socket.on("live:followed", ({ code } = {}) => { // lets the host see "X just followed you!" (the follow itself is saved by /api/me/follow)
+        const room = rooms.get(clean(code, 8).toUpperCase());
+        if (!room || !room.members.has(userId) || room.host === userId) return;
+        if (!throttle(userId, "followed", 3000)) return;
+        const me = view(userId);
+        emitRoom(room, "live:followed", { code: room.code, user: { id: me.id, name: me.name, initials: me.initials, color: me.color, avatar: me.avatar } });
+      });
+
       socket.on("disconnect", () => {
         // only drop the seat when this was the user's last connection (a quick reconnect keeps the live)
         setTimeout(() => { try { if (!(ctx.userSockets && ctx.userSockets.has(userId))) dropFromRoom(userId); } catch (e) {} }, 8000);
