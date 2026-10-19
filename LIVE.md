@@ -66,3 +66,15 @@ Update: emoji no longer play a sound in Live Meetings (they still animate). Stic
 
 ## If Go Live / Live Meeting seems stuck
 - The app now stops waiting after 15 seconds and shows a message, and the server always answers start/join, even after an error. Redeploy the server (server/client/live.js) for the server side of this fix.
+
+## Go Live screen redesign (livefix12)
+The Go Live screen now follows the design mockup:
+- **Top:** red LIVE pill, viewer count, three dot menu. Under it the host's photo, name and Follow button.
+- **Left:** Screen record (saves a video to the phone) and Live video (host: camera on/off).
+- **Right:** Share, Like (with count), Message (with comment count), Gift, Profile.
+- **Cards:** "Liked! You got a like from ..." and, for the host, "New follower ... just followed you!". The follower card needs the server redeployed (`live:followed` in `server/client/live.js`); without it everything else still works.
+- **Comments:** plain rows with photo and name (no bubbles), plus "X joined the live" rows. Tap a comment to react, reply or pin, as before.
+- **Bottom of the screen:** "Add a comment..." box (smiley opens Emojis / Stickers), quick emoji row, and the bottom bar (Screen Record, Live Video, Share, Like, Followers, Message, Gift, Profile). Followers shows who is in the live.
+- **Three dot menu:** the host's old control row moved here (mute, camera, flip, share screen, effects, face tracker, drawing tools), plus Share invite link, Save, Reshare and Leave / End live.
+- The floating bubbles, the "Most sent" chip and the purple "joined" pill are not part of the new design and are hidden. Live Meetings keep their old layout.
+- Also fixed: the "Face effects" row was showing under the chat for everyone. It now only shows inside the "Your video" sheet.
