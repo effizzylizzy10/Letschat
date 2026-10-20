@@ -121,7 +121,8 @@ module.exports = function setupLive(ctx) {
         if (room.kind === "meeting") { if ([...room.members.values()].filter((m) => m.media).length >= LIMITS.meeting) return ack(cb, { error: "This meeting is full (" + LIMITS.meeting + " people at most)" }); }
         else { const watchers = [...room.members.entries()].filter(([id, m]) => id !== room.host && m.media).length; media = watchers < LIMITS.liveVideoViewers; }
         const me = view(userId); if (!me) return ack(cb, { error: "Sign in again" });
-        const peers = room.kind === "meeting" ? [...room.members.keys()].filter((id) => room.members.get(id).media).map(view).filter(Boolean) : [view(room.host)];
+        // meeting: everyone on video. live: the host plus everyone already in it (up to 40), so a person who joins late sees the invited users who are already there
+        const peers = room.kind === "meeting" ? [...room.members.keys()].filter((id) => room.members.get(id).media).map(view).filter(Boolean) : [...room.members.keys()].slice(0, 40).map(view).filter(Boolean);
         room.members.set(userId, { at: Date.now(), media });
         userRoom.set(userId, code);
         emitRoom(room, "live:joined", { code, user: me, media }, userId);
