@@ -523,6 +523,44 @@ const OFFLINE_MSG = "No internet connection. Try again when you are back online.
 const apiNoCache = (p) => /^\/api\/(v1\/)?(health|ping|auth\/)|\/file(\?|$)|\/download(\?|$)/.test(p);
 const isNetErr = (e) => !!e && (e.name === "TypeError" || e.name === "AbortError" || /failed to fetch|load failed|networkerror|network request|timed? ?out/i.test(e.message || "") || /^Request failed \(5\d\d\)$/.test(e.message || "") || /server (is )?starting|unavailable/i.test(e.message || ""));
 function apiCacheKey(path) { const s = loadJSON("session", null); return (s && s.user && s.user.id ? s.user.id : "anon") + ":" + path; }
+// Offline: quietly save the newest chats on the device so they open with no network. Uses ?peek=1 so nothing gets marked as read,
+// and only runs when the server says it understands peek (an older server would mark the messages read).
+const _lcPrefetchAt = {};
+async function prefetchChats(token, convs) {
+    const off = window.LCOffline;
+    if (!off || !token || navigator.onLine === false || (navigator.connection && navigator.connection.saveData))
+        return;
+    try {
+        const h = await apiNet("/api/v1/health", { timeoutMs: 6000 });
+        if (!h || !h.peek)
+            return;
+    }
+    catch (e) {
+        return;
+    }
+    const recent = (c) => (c && c.lastMessage && c.lastMessage.time) || c.updatedAt || 0;
+    const list = (convs || []).filter((c) => c && c.id).slice().sort((a, b) => recent(b) - recent(a)).slice(0, 15);
+    for (const c of list) {
+        if (navigator.onLine === false)
+            return;
+        if (Date.now() - (_lcPrefetchAt[c.id] || 0) < 120000)
+            continue;
+        _lcPrefetchAt[c.id] = Date.now();
+        const path = "/api/v1/conversations/" + c.id + "/messages";
+        try {
+            const data = await apiNet(path + "?peek=1&limit=100", { token, timeoutMs: 15000 });
+            if (!data || !Array.isArray(data.messages))
+                continue;
+            const key = apiCacheKey(path), hit = await off.get(key).catch(() => null);
+            const last = (d) => { const m = d && d.messages && d.messages[d.messages.length - 1]; return m ? m.id : ""; };
+            if (hit && hit.v && last(hit.v) === last(data))
+                continue; // already up to date
+            await off.set(key, data, path);
+        }
+        catch (e) { }
+        await new Promise((r) => setTimeout(r, 400)); // gentle: one chat at a time
+    }
+}
 async function api(path, opts = {}) {
     const method = opts.method || "GET", off = window.LCOffline;
     const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
@@ -11789,6 +11827,12 @@ function App() {
             refreshBusy.current = null;
         }
     }, [fetchConversations]);
+    useEffect(() => {
+        if (!session || !conversations.length)
+            return;
+        const t = setTimeout(() => { prefetchChats(session.token, conversations); }, 4000);
+        return () => clearTimeout(t);
+    }, [session && session.token, conversations.length]);
     const refreshTimer = useRef(null);
     const refreshSoon = useCallback(() => { clearTimeout(refreshTimer.current); refreshTimer.current = setTimeout(() => { refreshConversations(); }, 300); }, [refreshConversations]);
     // connect socket once logged in

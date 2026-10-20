@@ -106,7 +106,7 @@
   }
 
   // ---------------------------------------------------------------- read cache (last good answer of GET requests)
-  var MAX_ENTRIES = 160, MAX_BYTES = 6000000, writes = 0;
+  var MAX_ENTRIES = 300, MAX_BYTES = 6000000, writes = 0;
 
   // chat lists must never carry whole voice notes / big photos into the cache
   function slim(path, data) {
