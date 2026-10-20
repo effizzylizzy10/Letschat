@@ -1035,7 +1035,7 @@ function NewChatModal({ token, onClose, onStarted }) {
     const found = useNickSearch(phone, token);
     const startWith = async (u) => {
         setBusy(true); setError("");
-        try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: u.id } }); onStarted(conversation); }
+        try { const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: u.username ? { phone: "@" + u.username } : { userId: u.id } }); onStarted(conversation); }
         catch (e) { setError(e.message); }
         finally { setBusy(false); }
     };
@@ -1075,7 +1075,7 @@ function NewChatModal({ token, onClose, onStarted }) {
                 React.createElement("input", { value: phone, onChange: e => { const v = e.target.value.trim(); setPhone(v.includes("@") || /[^0-9+\-()\s]/.test(v) ? v : v.replace(/\D/g, "")); }, placeholder: "@nickname, email or phone", style: { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 15 } })),
             found.length > 0 && React.createElement("div", { style: { marginBottom: 12, maxHeight: 220, overflowY: "auto", border: "1px solid #262E3A", borderRadius: 12, background: "#10151C" } },
                 React.createElement("div", { style: { padding: "8px 12px 4px", fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: "#8891A0", textTransform: "uppercase", letterSpacing: 0.5 } }, "Registered users"),
-                found.map((u) => React.createElement("div", { key: u.id || u.username, onClick: () => !busy && u.id && startWith(u), style: { display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", cursor: "pointer", borderTop: "1px solid #1B212B" } },
+                found.map((u) => React.createElement("div", { key: u.id || u.username, onClick: () => !busy && (u.id || u.username) && startWith(u), style: { display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", cursor: "pointer", borderTop: "1px solid #1B212B" } },
                     React.createElement(Ring, { size: 36, color: "#35D0BA", initials: initialsOf(u.name || u.username), photo: u.avatar || null }),
                     React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                         React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14, color: "#F5F7FA", overflowWrap: "anywhere" } }, "@" + u.username),
@@ -1368,6 +1368,36 @@ function MemberProfileSheet({ m, c, myId, isAdmin, presence, lastSeen, call, onC
                 m.email && React.createElement("div", { onClick: () => openChatByEmail(m.email), role: "button", style: { color: "#7FE3D3", textDecoration: "underline", cursor: "pointer", wordBreak: "break-all" } }, m.email)),
             !mine && React.createElement("button", { onClick: async () => { if (await call(m.id, "dm-requests", { toId: m.id }))
                     setSent(true); }, disabled: !!done, style: { ...primaryBtn(!!done), marginTop: 6 } }, label),
+            zoom && React.createElement(ImageZoomModal, { photo: m.avatar, initials: m.initials, color: m.color, onClose: () => setZoom(false) }))));
+}
+// Chat Room: tap a member's head or name to see their profile and message them privately
+function RoomUserSheet({ m, roomId, myId, token, presence, lastSeen, onClose, onOpenChat }) {
+    const [zoom, setZoom] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const mine = m.id === myId;
+    const online = mine || !!(presence && presence[m.id]);
+    const message = async () => {
+        if (busy || mine) return;
+        setBusy(true); setError("");
+        try {
+            await api("/api/v1/conversations/" + roomId + "/dm-requests", { method: "POST", token, body: { toId: m.id } }); // Chat Room: no approval needed, makes the private chat (refuses if they blocked you)
+            const { conversation } = await api("/api/v1/conversations", { method: "POST", token, body: { userId: m.id } });
+            onOpenChat(conversation);
+        }
+        catch (e) { setError((e && e.message) || "Could not open the chat"); setBusy(false); }
+    };
+    return (React.createElement("div", { style: { ...sheet, zIndex: 30 }, onClick: onClose },
+        React.createElement("div", { onClick: e => e.stopPropagation(), style: { ...card, alignItems: "center", textAlign: "center" } },
+            React.createElement(Ring, { size: 110, color: m.color, initials: m.initials, photo: m.avatar, online: online, onClick: m.avatar ? () => setZoom(true) : undefined, flag: countryFlag(m.country), flagTitle: countryName(m.country) }),
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 19, color: "#F5F7FA", marginTop: 12 } }, m.name, m.verified && React.createElement(VerifiedBadge, null), mine ? " (you)" : ""),
+            m.username && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#35D0BA", marginTop: 2 } }, "@" + m.username),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: online ? "#35D0BA" : "#5B6673", marginBottom: 8, marginTop: 2 } }, mine ? "online" : statusText(online, lastSeen && lastSeen[m.id])),
+            m.country && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#F5F7FA", marginBottom: 8 } }, "Chatting from " + countryFlag(m.country) + " " + countryName(m.country)),
+            m.about && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginBottom: 10 } }, m.about),
+            error && React.createElement("div", { style: { width: "100%", marginBottom: 8 } }, React.createElement(Banner, { text: error, onClose: () => setError("") })),
+            !mine && React.createElement("button", { onClick: message, disabled: busy, style: { ...primaryBtn(busy), marginTop: 6 } }, busy ? "Opening chat\u2026" : "Message privately"),
+            React.createElement("button", { onClick: onClose, style: { ...smallBtn, width: "100%", marginTop: 10, padding: 12, color: "#F5F7FA" } }, "Close"),
             zoom && React.createElement(ImageZoomModal, { photo: m.avatar, initials: m.initials, color: m.color, onClose: () => setZoom(false) }))));
 }
 function JoinGroupModal({ code, token, onClose, onJoined }) {
@@ -9362,7 +9392,7 @@ function MediaCaptionSheet({ file, url, onSend, onCancel }) {
         : React.createElement("img", { src: url, alt: "", style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 12 } })), React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 12px 16px", flexShrink: 0 } }, React.createElement("input", { autoFocus: true, value: cap, maxLength: 1000, onChange: (e) => setCap(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
             go(); }, placeholder: "Add a caption\u2026", style: { flex: 1, minWidth: 0, boxSizing: "border-box", background: "#1E2530", border: "none", outline: "none", borderRadius: 999, padding: "14px 18px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }), featOn("viewOnce") && React.createElement("button", { onClick: () => setOnce((v) => !v), "aria-pressed": once, "aria-label": "View once", title: "View once", style: { width: 44, height: 44, borderRadius: "50%", border: "2px " + (once ? "solid #35D0BA" : "dashed #8891A0"), background: once ? "rgba(53,208,186,.18)" : "transparent", color: once ? "#35D0BA" : "#B9C2CC", fontFamily: "Sora", fontWeight: 800, fontSize: 15, cursor: "pointer", flexShrink: 0 } }, "1"), React.createElement("button", { onClick: go, "aria-label": "Send", style: { width: 50, height: 50, borderRadius: "50%", border: "none", background: "#35D0BA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, React.createElement(Send, { size: 21, color: "#0E1116" }))));
 }
-function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, onMute = () => { }, onReport = () => { }, onNewGroup = () => { }, focus = null, pinned = [], onTogglePin = () => { } }) {
+function ChatDetail({ conversations = [], conversation, myId, socket, token, onBack, onLocalUpdate, presence, lastSeen = {}, contacts = [], onGroupChanged = () => { }, settings = DEFAULT_SETTINGS, onToggleFavorite = () => { }, onBlock = () => { }, onCall = () => { }, onMute = () => { }, onReport = () => { }, onNewGroup = () => { }, focus = null, pinned = [], onTogglePin = () => { }, onOpenChat = () => { } }) {
     const [msgs, setMsgs] = useState([]);
     const [winSize, setWinSize] = useState(MSG_WINDOW); // how many of the newest messages are drawn
     const winAnchor = useRef(null);
@@ -10349,6 +10379,7 @@ const shareContact = async () => {
     const loadOlder = () => { const el = listEl.current; if (el) winAnchor.current = { h: el.scrollHeight, t: el.scrollTop }; setWinSize((n) => n + MSG_PAGE); };
     useLayoutEffect(() => { const a = winAnchor.current, el = listEl.current; if (a && el) { el.scrollTop = a.t + (el.scrollHeight - a.h); } winAnchor.current = null; }, [winSize]);
     const isGroup = !!conversation.isGroup;
+    const [roomUser, setRoomUser] = useState(null); // Chat Room: the member whose profile is open
     const isRoom = !!conversation.chatRoom; // the Chat Room: no AI, a flag on every head, only the creator can change it
     const online = !!presence[conversation.other.id];
     const isFav = settings.favorites.includes(conversation.id);
@@ -10504,7 +10535,7 @@ const shareContact = async () => {
                         picking && pickedMsgs.length === 1 && picked[0] === m.id && window.LCReactions && window.LCReactions.pill(m, myId, reactTo, mine, pillBelow),
                         swipe && swipe.id === m.id && swipe.dx > 20 && React.createElement("div", { style: { position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", opacity: Math.min(1, swipe.dx / 56) } },
                             React.createElement(ReplyIcon, { size: 20, color: "#35D0BA" })),
-                        isRoom && !mine && (cont ? React.createElement("div", { "aria-hidden": "true", style: { width: 38, flexShrink: 0 } }) : React.createElement("div", { style: { width: 38, flexShrink: 0, alignSelf: "flex-start", paddingTop: 2 } }, React.createElement(Ring, { size: 32, color: sender ? sender.color : "#5B6673", initials: sender ? sender.initials : "?", photo: sender ? sender.avatar : null, flag: sender ? countryFlag(sender.country) : "", flagTitle: sender ? countryName(sender.country) : "" }))),
+                        isRoom && !mine && (cont ? React.createElement("div", { "aria-hidden": "true", style: { width: 38, flexShrink: 0 } }) : React.createElement("div", { style: { width: 38, flexShrink: 0, alignSelf: "flex-start", paddingTop: 2 } }, React.createElement(Ring, { size: 32, color: sender ? sender.color : "#5B6673", initials: sender ? sender.initials : "?", photo: sender ? sender.avatar : null, onClick: sender ? () => setRoomUser(sender) : undefined, flag: sender ? countryFlag(sender.country) : "", flagTitle: sender ? countryName(sender.country) : "" }))),
                         React.createElement("div", { className: liveIds.current.has(m.id) ? (mine ? "lc-msg-mine" : "lc-msg-theirs") : undefined, onClick: (e) => tapMsg(e, m), style: {
                                 WebkitTouchCallout: "none", userSelect: picking ? "none" : "text", WebkitUserSelect: picking ? "none" : "text", boxShadow: hl === m.id || fCur === m.id ? "0 0 0 2px #F2B84B" : fMatches.includes(m.id) ? "0 0 0 1px rgba(242,184,75,.4)" : "none", transition: swipe && swipe.id === m.id ? "none" : "box-shadow .4s, transform .18s", transform: swipe && swipe.id === m.id ? "translateX(" + swipe.dx + "px)" : undefined,
                                 alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "76%", position: "relative",
@@ -10515,7 +10546,7 @@ const shareContact = async () => {
                             } },
                             !cont && React.createElement("span", { "aria-hidden": "true", style: { position: "absolute", top: 0, [mine ? "right" : "left"]: -8, width: 0, height: 0, borderBottom: "12px solid transparent", [mine ? "borderLeft" : "borderRight"]: "8px solid " + (mine ? "#005C4B" : "#202C33") } }),
                             burst === m.id && React.createElement("span", { className: "lc-heart-burst", "aria-hidden": "true" }, "\u2764\uFE0F"),
-                            isGroup && !mine && !cont && React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2 } }, sender ? sender.name : "Former member"),
+                            isGroup && !mine && !cont && React.createElement("div", { onClick: isRoom && sender ? (e) => { e.stopPropagation(); setRoomUser(sender); } : undefined, style: { fontSize: 12, fontWeight: 600, color: sender ? sender.color : "#8891A0", marginBottom: 2, cursor: isRoom && sender ? "pointer" : undefined } }, sender ? sender.name : "Former member"),
                             m.forwarded && !m.deleted && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 9, counterIncrement: "lcgap-9", fontSize: 14.5, fontStyle: "italic", color: "rgba(225,232,232,0.72)", marginBottom: 5 } },
                                 React.createElement(ForwardIcon, { size: 16, strokeWidth: 1.8, color: "rgba(225,232,232,0.72)" }),
                                 "Forwarded"),
@@ -10699,6 +10730,7 @@ const shareContact = async () => {
                     setError(ack.error); }); }, onClose: () => setSheetName(null) }),
         msgInfo && React.createElement(MessageInfoSheet, { m: msgInfo, conversation: conversation, myId: myId, onClose: () => setMsgInfo(null) }),
         fwd && React.createElement(ForwardSheet, { msgs: fwd, conversations: conversations, socket: socket, token: token, onClose: () => setFwd(null) }),
+        roomUser && isRoom && React.createElement(RoomUserSheet, { m: roomUser, roomId: conversation.id, myId: myId, token: token, presence: presence, lastSeen: lastSeen, onClose: () => setRoomUser(null), onOpenChat: (conv) => { setRoomUser(null); onOpenChat(conv); } }),
         peerInfo && !isGroup && React.createElement(ContactProfileSheet, { u: conversation.other, token: token, online: online, lastSeen: lastSeen[conversation.other.id], conversation: conversation, conversations: conversations, msgs: msgs, myId: myId, isFav: isFav, iBlocked: iBlocked, muted: !!muteUntil, onVoice: featOn("voiceCalls") ? () => { setPeerInfo(false); onCall(conversation, false); } : null, onVideo: featOn("videoCalls") ? () => { setPeerInfo(false); onCall(conversation, true); } : null, onToggleFavorite: () => onToggleFavorite(conversation.id), onNotifications: () => { if (muteUntil)
                 onMute(conversation.id, "off");
             else
@@ -12050,7 +12082,7 @@ function App() {
         body = React.createElement(LoginScreen, { onContinue: handleLogin });
     }
     else if (activeConvo) {
-        body = (React.createElement(ChatDetail, { key: activeConvo.id, conversations: conversations, pinned: pinned, onTogglePin: togglePin, onMute: setMuted, onReport: reportChat, onNewGroup: (withId) => { setActiveConvo(null); setNewGroupWith(typeof withId === "string" ? withId : null); setShowNewGroup(true); }, conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, focus: focusMsg, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked, onCall: startCall }));
+        body = (React.createElement(ChatDetail, { key: activeConvo.id, conversations: conversations, pinned: pinned, onTogglePin: togglePin, onMute: setMuted, onReport: reportChat, onNewGroup: (withId) => { setActiveConvo(null); setNewGroupWith(typeof withId === "string" ? withId : null); setShowNewGroup(true); }, conversation: conversations.find(c => c.id === activeConvo.id) || activeConvo, focus: focusMsg, myId: session.user.id, lastSeen: lastSeen, contacts: contacts, onGroupChanged: (conv) => setConversations(prev => prev.map(x => (x.id === conv.id ? { ...x, ...normalizeConvo(conv, session.user.id) } : x))), socket: socketRef.current, token: session.token, presence: presence, onBack: () => { setActiveConvo(null); refreshConversations(); }, onLocalUpdate: () => { }, settings: settings, onToggleFavorite: toggleFavorite, onBlock: setBlocked, onCall: startCall, onOpenChat: handleNewChatStarted }));
     }
     else if (toolsView === "catalog") {
         body = React.createElement(CatalogScreen, { token: session.token, onBack: () => setToolsView(null) });
