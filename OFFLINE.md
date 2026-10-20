@@ -23,3 +23,8 @@ As in the notes in `AI-ASSISTANT.md`, `client/app.jsx` is older than `app.js` an
 
 ## Storage
 Reads cache at most 160 entries (oldest dropped); inline photos over ~350 KB and voice notes are not kept in the saved message lists. The browser is asked for persistent storage so saved chats are not evicted.
+
+## Background chat saving (v70)
+- After the chat list loads, the app quietly saves the 15 most recent chats on the device (one at a time, skipped on Data Saver or when offline) so they open with no network even if never opened before.
+- It uses `GET /api/v1/conversations/:id/messages?peek=1`, which returns messages **without marking them read**. The app only does this when `/api/v1/health` reports `peek: true`, so an old server is never affected.
+- Redeploy the Render server (`server/client/server.js`) first, then the client. The read cache now keeps up to 300 entries.
