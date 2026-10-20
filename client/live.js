@@ -4,7 +4,7 @@
 // server's live:* events (server/client/live.js).
 (function () {
   if (!window.React) return;
-  window.LETSCHAT_LIVE_BUILD = "livefix12"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix11)
+  window.LETSCHAT_LIVE_BUILD = "livefix13"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix11)
   var h = React.createElement, useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, useCallback = React.useCallback;
   var ICE = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   var C = { bg: "#0B0F16", card: "#161B22", line: "#262E3A", text: "#F5F7FA", dim: "#9BA7B4", teal: "#35D0BA", red: "#FF3B5C", purple: "#7C5CFF" };
@@ -770,7 +770,7 @@
     useEffect(function () {
       var iHost = !!(info.host && info.host.id === me.id), loud = kind === "meeting" || iHost; // join / leave sounds: meetings, and the host of a live
       var onJoined = function (m) { if (m.code !== code) return; if (kind === "live" && m.user && m.user.id !== me.id) { var jn = m.user.name || "Someone"; setJoinNote(jn); setJoinLog(function (l) { return l.concat([{ id: "j" + Date.now() + "_" + m.user.id, sys: true, user: m.user, at: Date.now() }]).slice(-12); }); setTimeout(function () { setJoinNote(function (c) { return c === jn ? "" : c; }); }, 3500); } if (loud && m.user && m.user.id !== me.id) playSfx("join"); setPeople(function (x) { var n = Object.assign({}, x); n[m.user.id] = m.user; return n; }); if (kind === "live") setS(function (s) { return Object.assign({}, s); }); };
-      var onLeft = function (m) { if (m.code !== code) return; if (loud && m.userId !== me.id) playSfx("leave"); closePeer(m.userId); if (m.host) setS(function (s) { return Object.assign({}, s, { hostId: m.host }); }); };
+      var onLeft = function (m) { if (m.code !== code) return; if (loud && m.userId !== me.id) playSfx("leave"); closePeer(m.userId); setPeople(function (x) { if (!x[m.userId]) return x; var n = Object.assign({}, x); delete n[m.userId]; return n; }); if (m.host) setS(function (s) { return Object.assign({}, s, { hostId: m.host }); }); };
       var onCount = function (m) { if (m.code === code) setS(function (s) { return Object.assign({}, s, { viewers: m.viewers, gifts: m.gifts }); }); };
       var onChat = function (m) {
         if (m.code !== code) return;
@@ -1015,7 +1015,7 @@
     var tkNav = null, tkSheet = null, tkExtra = null, tkInput = null;
     var short = (window.innerHeight || 700) < 700;
     if (tk) {
-      var RED = "#FF2D55", DARK = "rgba(20,24,32,.82)", RING = "1px solid rgba(255,255,255,.12)", SAFE = "env(safe-area-inset-bottom,0px)", SAFE_T = "env(safe-area-inset-top,0px)", NAVH = 70;
+      var RED = "#FF2D55", DARK = "rgba(20,24,32,.82)", RING = "1px solid rgba(255,255,255,.12)", SAFE = "env(safe-area-inset-bottom,0px)", SAFE_T = "env(safe-area-inset-top,0px)", NAVH = 74;
       var RB = short ? 48 : 58, RG = short ? 10 : 12;
       var circ = function (inner, onClick, aria, size, bg, bd, extra) { return h("button", { "aria-label": aria, onClick: onClick, style: Object.assign({ position: "relative", width: size, height: size, borderRadius: size, background: bg, border: bd, padding: 0, color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }, extra || {}) }, inner); };
       var recTap = REC_OK ? startRec : function () { flash("Recording is not supported on this phone or browser."); };
@@ -1029,7 +1029,8 @@
       topBar = h("div", { style: { position: "relative", zIndex: 5, background: "linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,0))", paddingBottom: 6 } },
         h("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "calc(12px + " + SAFE_T + ") 12px 0" } },
           h("span", { style: { display: "inline-flex", alignItems: "center", gap: 7, background: RED, color: "#fff", borderRadius: 999, padding: "8px 16px", fontWeight: 800, fontSize: 15, letterSpacing: 0.3 } }, h("span", { className: "lc-pulse", style: { width: 9, height: 9, borderRadius: 9, background: "#fff", animation: "lcPulse 1.6s infinite" } }), "LIVE"),
-          h("span", { style: { display: "inline-flex", alignItems: "center", gap: 7, background: DARK, border: RING, color: "#fff", borderRadius: 999, padding: "7px 14px", fontWeight: 700, fontSize: 15 } }, Ico("eye", 18, "#fff"), fmt(S.viewers)),
+          h("button", { "aria-label": "People in this live", onClick: function () { setProfOpen("people"); }, style: { display: "inline-flex", alignItems: "center", gap: 7, background: DARK, border: RING, color: "#fff", borderRadius: 999, padding: "7px 14px", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, Ico("eye", 18, "#fff"), fmt(S.viewers)),
+          viewerFaces.length > 0 && h("button", { "aria-label": "People in this live", onClick: function () { setProfOpen("people"); }, style: { display: "inline-flex", background: "none", border: "none", padding: 0, cursor: "pointer" } }, viewerFaces.map(function (id, i) { return h("span", { key: id, style: { marginLeft: i ? -10 : 0, border: "2px solid rgba(0,0,0,.6)", borderRadius: "50%", display: "inline-flex" } }, h(Avatar, { user: people[id], size: 30 })); })),
           h("div", { style: { flex: 1 } }),
           h("button", { "aria-label": "More options", onClick: function () { setMenuOpen(true); }, style: { background: "none", border: "none", padding: 8, cursor: "pointer", display: "flex" } }, MoreIco(26, "#fff"))),
         h("div", { style: { display: "flex", alignItems: "center", gap: 12, padding: "14px 12px 0" } },
@@ -1042,7 +1043,7 @@
       chipRow = null;
 
       // right column: Share, Like (with count), Message (with badge), Gift, Profile
-      var railBottom = "calc(" + (NAVH + 138) + "px + " + SAFE + ")";
+      var railBottom = "calc(" + (NAVH + 10) + "px + " + SAFE + ")";
       railEl = h("div", { style: { position: "absolute", right: 12, bottom: railBottom, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: RG } },
         circ(Ico("share", RB * 0.48, RED), share, "Share", RB, DARK, RING),
         circ([h("span", { key: "i", style: { display: "flex", transform: likeOn ? "scale(1.25)" : "none", transition: "transform .15s" } }, Ico("heart", RB * 0.44, RED)), h("span", { key: "n", style: { fontSize: 11.5, fontWeight: 700, marginTop: 1, lineHeight: 1 } }, fmt(likes))], sendLike, "Like", RB, DARK, RING),
@@ -1052,44 +1053,30 @@
 
       // left column: screen record, live video; plus the follower and like cards
       var leftBtns = h("div", { style: { position: "absolute", left: 12, top: "calc(" + (short ? 160 : 196) + "px + " + SAFE_T + ")", zIndex: 6, display: "flex", flexDirection: "column", gap: short ? 8 : 12 } },
-        circ(recSec == null ? Ico("cam", 28, "#fff") : h("span", { style: { fontSize: 13, fontWeight: 800 } }, recLabel), recTap, recSec == null ? "Screen record" : "Stop recording", RB, recSec == null ? DARK : RED, RING),
-        circ([Ico("cam", 28, RED), vmode === "off" ? h("span", { key: "s", style: { position: "absolute", width: 36, height: 3, borderRadius: 2, background: RED, transform: "rotate(-45deg)", boxShadow: "0 0 0 2px #1B0A10" } }) : null], camTap, "Live video", RB, "rgba(255,45,85,.16)", "2px solid " + RED));
+        circ(recSec == null ? Ico("cam", 28, "#fff") : h("span", { style: { fontSize: 13, fontWeight: 800 } }, recLabel), recTap, recSec == null ? "Screen record" : "Stop recording", RB, recSec == null ? DARK : RED, RING));
       var followEl = followToast ? h("div", { key: "f" + followToast, className: "lc-toast", style: { position: "absolute", right: 12, top: "calc(84px + " + SAFE_T + ")", zIndex: 7, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,24,32,.92)", border: RING, borderRadius: 18, padding: "8px 12px 8px 10px", minWidth: 150, maxWidth: "calc(100% - 232px)", animation: "lcToastR .35s ease-out" } },
         Ico("person", 26, "#fff"),
         h("div", { style: { color: "#fff", minWidth: 0 } }, h("div", { style: { fontWeight: 700, fontSize: 14 } }, "New follower"), h("div", { style: { fontSize: 12, color: "#E6EAF0", lineHeight: 1.25, wordBreak: "break-word" } }, followToast + " just followed you!"))) : null;
-      var likeEl = likeToast ? h("div", { key: "l" + likeToast, className: "lc-toast", style: { position: "absolute", right: 12 + RB + 10, bottom: "calc(" + (NAVH + 138 + 3 * (RB + RG) + Math.round(RB / 2) - 28) + "px + " + SAFE + ")", zIndex: 7, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,24,32,.92)", border: RING, borderRadius: 18, padding: "9px 16px 9px 12px", maxWidth: "62%", animation: "lcToastUp .25s ease-out" } },
+      var likeEl = likeToast ? h("div", { key: "l" + likeToast, className: "lc-toast", style: { position: "absolute", right: 12 + RB + 10, bottom: "calc(" + (NAVH + 10 + 3 * (RB + RG) + Math.round(RB / 2) - 28) + "px + " + SAFE + ")", zIndex: 7, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,24,32,.92)", border: RING, borderRadius: 18, padding: "9px 16px 9px 12px", maxWidth: "62%", animation: "lcToastUp .25s ease-out" } },
         Ico("heart", 26, RED),
         h("div", { style: { color: "#fff", minWidth: 0 } }, h("div", { style: { fontWeight: 700, fontSize: 15 } }, "Liked!"), h("div", { style: { fontSize: 12.5, color: "#E6EAF0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, likeToast === "__me" ? "You liked this live" : isHost ? "You got a like from " + likeToast : likeToast + " liked this live"))) : null;
       tkExtra = h(React.Fragment, null, panel ? null : leftBtns, followEl, likeEl);
 
-      // comment box + quick emojis
-      tkInput = h("div", { style: { position: "relative", zIndex: 8, padding: "6px 84px 10px 12px" } },
-        h("div", { style: { display: "flex", alignItems: "center", background: DARK, border: RING, borderRadius: 999, height: 52, padding: "0 8px 0 18px" } },
+      // comment box (sits where the old bottom panel was)
+      tkInput = null;
+      // bottom bar
+      tkNav = h("div", { style: { position: "relative", zIndex: 9, minHeight: "calc(" + NAVH + "px + " + SAFE + ")", boxSizing: "border-box", display: "flex", alignItems: "flex-start", padding: "10px 12px 0", background: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.6))" } },
+        h("div", { style: { flex: 1, display: "flex", alignItems: "center", background: DARK, border: RING, borderRadius: 999, height: 52, padding: "0 8px 0 18px" } },
           h("input", { ref: inputRef, value: text, maxLength: 300, placeholder: "Add a comment\u2026", onChange: function (e) { setText(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") send(); }, style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#fff", fontSize: 16 } }),
           text.trim()
             ? h("button", { "aria-label": "Send", onClick: send, style: round(RED, 36) }, "\u27A4")
-            : h("button", { "aria-label": "Emojis and stickers", onClick: function () { setPanel(panel === "emoji" || panel === "stickers" ? null : "emoji"); }, style: { background: "none", border: "none", padding: 6, display: "flex", cursor: "pointer" } }, SmileIco(30, "#fff"))),
-        h("div", { style: { display: "inline-flex", alignItems: "center", gap: 16, marginTop: 8, background: DARK, border: RING, borderRadius: 999, padding: "8px 18px" } },
-          ["\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE0D", "\uD83D\uDC4D", "\uD83D\uDD25"].map(function (e) { return h("button", { key: e, "aria-label": "Send " + e, onClick: function () { fxSend("emoji", e); }, style: { background: "none", border: "none", padding: 0, fontSize: 28, lineHeight: 1, cursor: "pointer" } }, e); })));
-
-      // bottom bar
-      var navItem = function (icon, label, onClick, aria) { return h("button", { key: label, "aria-label": aria || label, onClick: onClick, style: { flex: 1, minWidth: 0, background: "none", border: "none", color: "#E6EAF0", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, cursor: "pointer", padding: 0, fontSize: 10.5, fontWeight: 500, lineHeight: 1.15, textAlign: "center" } }, h("span", { style: { height: 28, display: "flex", alignItems: "center" } }, icon), h("span", null, label)); };
-      tkNav = h("div", { style: { position: "relative", zIndex: 9, height: "calc(" + NAVH + "px + " + SAFE + ")", boxSizing: "border-box", display: "flex", alignItems: "flex-start", padding: "10px 2px 0", background: "#0D1117", borderTop: "1px solid rgba(255,255,255,.07)" } },
-        navItem(RecIco(26, recSec == null ? RED : "#B3102F"), "Screen Record", recTap, "Screen record"),
-        navItem(Ico("cam", 28, RED), "Live Video", camTap),
-        navItem(Ico("share", 26, "#fff"), "Share", share),
-        navItem(HeartOutline(26, RED), "Like", sendLike),
-        navItem(Ico("people", 28, "#2D8CFF"), "Followers", function () { setProfOpen("people"); }),
-        navItem(ChatIco(26, "#7C6BFF"), "Message", focusComment),
-        navItem(Ico("gift", 26, RED), "Gift", openGifts),
-        navItem(Ico("person", 26, "#fff"), "Profile", function () { setProfOpen("profile"); }));
+            : h("button", { "aria-label": "Emojis and stickers", onClick: function () { setPanel(panel === "emoji" || panel === "stickers" ? null : "emoji"); }, style: { background: "none", border: "none", padding: 6, display: "flex", cursor: "pointer" } }, SmileIco(30, "#fff"))));
 
       // three dot menu and the profile / viewers sheet
       var menuItems = [];
       if (isHost) {
         menuItems.push([mediaState.mic ? "\uD83C\uDF99  Mute microphone" : "\uD83D\uDD07  Unmute microphone", toggleMic]);
         if (info.video !== false) {
-          menuItems.push([vmode === "off" ? "\uD83D\uDCF7  Turn camera on" : "\uD83D\uDCF7  Turn camera off", toggleCam]);
           menuItems.push(["\uD83D\uDD04  Flip camera", flipCam, vmode === "off" || vmode === "screen"]);
           menuItems.push([vmode === "screen" ? "\uD83D\uDDA5  Stop sharing screen" : "\uD83D\uDDA5  Share screen", startScreen]);
           menuItems.push(["\u2728  Video effects and picture", function () { setVpanel(true); setPanel(null); }]);
@@ -1109,8 +1096,9 @@
           menuItems.map(function (it, i) { var dis = !!it[2], danger = !!it[3]; return h("button", { key: i, disabled: dis, onClick: function () { setMenuOpen(false); it[1](); }, style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: danger ? "1px solid #2B3544" : "none", color: danger ? "#FF6B84" : C.text, fontSize: 15, fontWeight: danger ? 700 : 500, padding: "12px 14px", cursor: "pointer", opacity: dis ? 0.4 : 1, whiteSpace: "nowrap" } }, it[0]); }))
         : h("div", { onClick: function (e) { e.stopPropagation(); }, style: { position: "absolute", left: 0, right: 0, bottom: "calc(" + NAVH + "px + " + SAFE + ")", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "18px 16px 18px", maxHeight: "62%", overflowY: "auto" } },
           profOpen === "people"
-            ? h("div", null, h("div", { style: { color: "#fff", fontWeight: 800, fontSize: 17, marginBottom: 12 } }, "In this live (" + fmt(S.viewers) + ")"),
-                peopleIds.map(function (id) { var u = people[id]; if (!u) return null; return h("div", { key: id, style: { display: "flex", alignItems: "center", gap: 12, padding: "7px 0" } }, h(Avatar, { user: u, size: 40 }), h("div", { style: { color: "#fff", fontSize: 15, flex: 1, minWidth: 0 } }, h(Name, { user: u }), id === me.id ? " (you)" : ""), id === S.hostId ? h("span", { style: { background: RED, color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 11.5, fontWeight: 800 } }, "HOST") : null); }))
+            ? h("div", null, h("div", { style: { color: "#fff", fontWeight: 800, fontSize: 17, marginBottom: 12 } }, "In this live (" + fmt(Math.max(S.viewers, peopleIds.length)) + ")"),
+                peopleIds.sort(function (x, y) { return x === S.hostId ? -1 : y === S.hostId ? 1 : 0; }).map(function (id) { var u = people[id]; if (!u) return null; return h("div", { key: id, style: { display: "flex", alignItems: "center", gap: 12, padding: "7px 0" } }, h(Avatar, { user: u, size: 40 }), h("div", { style: { color: "#fff", fontSize: 15, flex: 1, minWidth: 0 } }, h(Name, { user: u }), id === me.id ? " (you)" : ""), id === S.hostId ? h("span", { style: { background: RED, color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 11.5, fontWeight: 800 } }, "HOST") : null); }),
+                peopleIds.length <= 1 ? h("div", { style: { color: C.dim, fontSize: 13.5, textAlign: "center", padding: "14px 0 4px" } }, "Nobody else has joined yet.", h("div", null, h("button", { onClick: function () { closeSheets(); share(); }, style: { marginTop: 10, background: RED, color: "#fff", border: "none", borderRadius: 999, padding: "10px 22px", fontWeight: 800, fontSize: 14.5, cursor: "pointer" } }, "Invite people"))) : null)
             : h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 10 } },
                 h(Avatar, { user: S.host, size: 76 }),
                 h("div", { style: { color: "#fff", fontWeight: 800, fontSize: 19, display: "flex", alignItems: "center", gap: 6 } }, hostName, S.host && S.host.verified ? h("img", { src: "icons/verified.png", alt: "verified", style: { width: 18, height: 18 } }) : null),
