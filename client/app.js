@@ -407,7 +407,7 @@ function useNickSearch(value, token) {
     const [list, setList] = useState([]);
     useEffect(() => {
         const q = stripEmoji(String(value || "")).trim().replace(/^@+/, "");
-        if (!token || nickLen(q) < 2 || /[\s@]/.test(q) || (/^[0-9+()\-]+$/.test(q) && q.length > 5)) { setList([]); return; }
+        if (!token || nickLen(q) < 1 || /[\s@]/.test(q) || (/^[0-9+()\-]+$/.test(q) && q.length > 5)) { setList([]); return; }
         let dead = false;
         const t = setTimeout(async () => {
             try {

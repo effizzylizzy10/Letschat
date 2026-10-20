@@ -15,7 +15,7 @@ window.LETSCHAT_CONFIG = {
   // Help screen > Contact us. Fill in at least one so people can reach you (WhatsApp number with country code, digits only).
   // The "Click Here" button on the Update Available screen opens this link (it is never shown on screen).
   // Put your APK / Play Store / website link here. Before opening it the app clears its saved copy so the newest version loads.
-  UPDATE_URL: "https://letschatafrican.netlify.app/",
+  UPDATE_URL: "https://letschat-taupe.vercel.app/",
   SUPPORT_WHATSAPP: "",
   SUPPORT_EMAIL: "",
   // Video/voice calls and Letschat Live: ICE servers. STUN is free and always on. TURN helps people on strict mobile networks connect.
