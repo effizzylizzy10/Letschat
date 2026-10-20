@@ -735,6 +735,22 @@ app.get("/api/me/username-check", authMiddleware, (req, res) => {
   if (isUsernameTaken(db, n, req.user.id)) return res.json({ valid: true, available: false, message: "\"" + n + "\" has already been used", suggestions: suggestUsernames(db, n, req.user.id) });
   res.json({ valid: true, available: true, message: "\"" + n + "\" is available", suggestions: [] });
 });
+// Suggestions while typing a nickname: registered users whose nickname starts with (then contains) the letters typed.
+// Only public bits are returned (no phone or email). Used by the New chat screen.
+app.get(["/api/users/search-nickname", "/api/v1/users/search-nickname"], authMiddleware, (req, res) => {
+  const q = normalizeUsername(String(req.query.q || "").replace(/^@+/, ""));
+  if (!q) return res.json({ users: [] });
+  const starts = [], inside = [];
+  for (const u of readDB().users) {
+    if (!u.username || u.id === req.user.id) continue;
+    const i = u.username.indexOf(q);
+    if (i === 0) starts.push(u); else if (i > 0 && q.length >= 2) inside.push(u);
+    if (starts.length >= 8) break;
+  }
+  const users = starts.sort((a, b) => a.username.length - b.username.length || a.username.localeCompare(b.username)).concat(inside).slice(0, 8)
+    .map((u) => ({ id: u.id, name: isCreator(u) ? "letschatafrica" : u.name, username: u.username, avatar: avatarUrl(u), verified: isVerified(u) }));
+  res.json({ users });
+});
 // follow or unfollow someone (toggle); the counts show on both profiles
 app.post(["/api/me/follow/:id", "/api/v1/me/follow/:id"], authMiddleware, (req, res) => {
   const db = readDB();
