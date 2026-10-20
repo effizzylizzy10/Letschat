@@ -25,13 +25,13 @@ window.LETSCHAT_CONFIG = {
   //      TURN_API_URL: "https://YOUR-APP.metered.live/api/v1/turn/credentials?apiKey=YOUR-API-KEY"
   //  (B) or fill the three TURN fields from any TURN provider; leave them empty to use STUN only.
   TURN_API_URL: "",
-  TURN_URLS: [],       // example: ["turn:YOUR-HOST:80", "turn:YOUR-HOST:443", "turns:YOUR-HOST:443?transport=tcp"]
-  TURN_USERNAME: "",
-  TURN_CREDENTIAL: "",
+  TURN_URLS: ["turn:global.relay.metered.ca:80", "turn:global.relay.metered.ca:80?transport=tcp", "turn:global.relay.metered.ca:443", "turns:global.relay.metered.ca:443?transport=tcp"],       // example: ["turn:YOUR-HOST:80", "turn:YOUR-HOST:443", "turns:YOUR-HOST:443?transport=tcp"]
+  TURN_USERNAME: "8f215cb15677689cf70bd4cd",
+  TURN_CREDENTIAL: "yVfMcYXCv+P9+A7N",
 };
 // Builds ICE_SERVERS from the fields above (app.js and live.js read window.LETSCHAT_CONFIG.ICE_SERVERS).
 (function (c) {
-  var ice = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+  var ice = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }, { urls: "stun:stun.relay.metered.ca:80" }];
   if (c.TURN_URLS && c.TURN_URLS.length && c.TURN_USERNAME && c.TURN_CREDENTIAL) ice.push({ urls: c.TURN_URLS, username: c.TURN_USERNAME, credential: c.TURN_CREDENTIAL });
   if (!c.ICE_SERVERS) c.ICE_SERVERS = ice;
 })(window.LETSCHAT_CONFIG);
