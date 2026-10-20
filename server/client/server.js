@@ -426,7 +426,7 @@ function authMiddleware(req, res, next) {
   }
 }
 
-app.get("/api/health", (req, res) => { res.setHeader("Cache-Control", "no-store"); res.json({ ok: true, ready: dbReady, storage: USE_DB ? "supabase" : "file", version: API_VERSION, uptime: Math.round(process.uptime()) }); });
+app.get("/api/health", (req, res) => { res.setHeader("Cache-Control", "no-store"); res.json({ ok: true, peek: true, ready: dbReady, storage: USE_DB ? "supabase" : "file", version: API_VERSION, uptime: Math.round(process.uptime()) }); });
 app.get("/api/ping", (req, res) => { res.setHeader("Cache-Control", "no-store"); res.type("text/plain").send("ok"); });
 
 // Turns a verified Firebase login into a Letschat user + token (shared by /api/auth/firebase and the /lite sign-in page).
@@ -1173,7 +1173,8 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const all = db.messages.filter((m) => m.conversationId === req.params.id && !(convo.chatRoom && (m.bot || m.ai))); // Chat Room: old AI messages stay hidden
   let changed = swept > 0;
   const newlyRead = [];
-  for (const m of all) {
+  const peek = req.query.peek === "1"; // background save for offline use: read the messages without marking them as read
+  for (const m of peek ? [] : all) {
     if (m.senderId === req.user.id) continue;
     if (convo.isGroup) {
       if (!(m.readBy || (m.readBy = [])).includes(req.user.id)) { m.readBy.push(req.user.id); (m.readTimes || (m.readTimes = {}))[req.user.id] = Date.now(); changed = true; newlyRead.push(m.id); }
@@ -1188,7 +1189,7 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   const older = all.filter((m) => m.time < before);
   const page = since ? all.filter((m) => m.time >= since).slice(0, limit) : older.slice(-limit);
   const senderCache = new Map();
-  res.json({ messages: page.map((m) => roomSender(db, convo, stripViewOnce(receiptView(db, m, req.user, convo)), senderCache)), hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
+  res.json({ messages: page.map((m) => roomSender(db, convo, stripViewOnce(receiptView(db, m, req.user, convo)), senderCache)), peek: peek, hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
 });
 
 // ---- link previews: title, description and picture of a web page that was pasted into a chat ----
