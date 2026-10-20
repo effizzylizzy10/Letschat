@@ -4,7 +4,7 @@
 // server's live:* events (server/client/live.js).
 (function () {
   if (!window.React) return;
-  window.LETSCHAT_LIVE_BUILD = "livefix14"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix11)
+  window.LETSCHAT_LIVE_BUILD = "livefix15"; // lets you confirm which live.js a phone is running (open the site, then type LETSCHAT_LIVE_BUILD in the console, or search /live.js for livefix11)
   var h = React.createElement, useState = React.useState, useEffect = React.useEffect, useRef = React.useRef, useCallback = React.useCallback;
   var ICE = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.ICE_SERVERS) || [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   var C = { bg: "#0B0F16", card: "#161B22", line: "#262E3A", text: "#F5F7FA", dim: "#9BA7B4", teal: "#35D0BA", red: "#FF3B5C", purple: "#7C5CFF" };
@@ -435,6 +435,7 @@
     var rs = useState({}), remotes = rs[0], setRemotes = rs[1];                 // userId -> MediaStream
     var ps = useState(function () { var m = {}; (info.peers || []).forEach(function (u) { if (u) m[u.id] = u; }); if (info.host) m[info.host.id] = info.host; return m; }), people = ps[0], setPeople = ps[1];
     var ls = useState(null), local = ls[0], setLocal = ls[1];
+    var gcS = useState(false), guestCam = gcS[0], setGuestCam = gcS[1], guestRef = useRef(null); // a guest who turned their camera on to be seen by the host
     var mc = useState({ mic: true, cam: true }), mediaState = mc[0], setMedia = mc[1];
     var fx = useState([]), floaters = fx[0], setFloaters = fx[1];
     var gb = useState([]), gifts = gb[0], setGifts = gb[1];
@@ -806,7 +807,7 @@
           Object.keys(pcs.current).forEach(closePeer);
           setS(function (s) { return Object.assign({}, s, { viewers: r.viewers, gifts: r.gifts, hostId: r.hostId, chat: r.chat || s.chat, pinned: r.pinned || null }); });
           if (kind === "meeting") (r.peers || []).forEach(function (u) { if (u && u.id !== me.id) offerTo(u.id, true, false); });
-          else if (r.hostId !== me.id && r.media) offerTo(r.hostId, false, true);
+          else if (r.hostId !== me.id && (r.media || guestRef.current)) offerTo(r.hostId, !!guestRef.current, !guestRef.current);
         });
       };
       var onFollowed = function (m) { if (m.code !== code || !iHost || !m.user || m.user.id === me.id) return; showFollowToast(m.user.name || "Someone"); };
@@ -900,6 +901,27 @@
           canPin && h("button", { onClick: function () { pinMsg(S.pinned && S.pinned.id === m.id ? null : m); }, style: { background: "#FFD43B", color: "#0E1116", border: "none", borderRadius: 999, padding: "5px 10px", fontWeight: 700, fontSize: 12.5, marginLeft: 4, cursor: "pointer", flexShrink: 0 } }, S.pinned && S.pinned.id === m.id ? "Unpin" : "\uD83D\uDCCC Pin")));
     };
 
+    var toggleGuestCam = function () {
+      if (isHost || kind !== "live") return;
+      var hid = S.hostId || info.hostId;
+      if (guestCam) {
+        var gs = guestRef.current; guestRef.current = null;
+        if (gs) gs.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+        localRef.current = null; setLocal(null); setGuestCam(false);
+        if (hid) offerTo(hid, false, true); // back to watch only
+        return;
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return flash("The camera is not available on this phone or browser.");
+      var vc = { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 24 } };
+      navigator.mediaDevices.getUserMedia({ audio: true, video: vc })
+        .catch(function () { return navigator.mediaDevices.getUserMedia({ video: vc }); })
+        .then(function (st) {
+          if (!alive.current) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
+          guestRef.current = st; localRef.current = st; setLocal(st); setGuestCam(true);
+          if (hid) offerTo(hid, true, false); // send my camera to the host and keep receiving the host
+        })
+        .catch(function () { flash("The camera is blocked. Allow the camera for this site and try again."); });
+    };
     var teaching = isHost && vmode === "screen" && CAN_PIPE;
     var drawLayer = teaching && toolsOpen && teach.tool !== "none" ? h("div", { onPointerDown: annDown, onPointerMove: annMove, onPointerUp: annUp, onPointerCancel: annUp, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 4, touchAction: "none", cursor: teach.tool === "laser" ? "none" : "crosshair" } }) : null;
     var hostStream = isHost ? local : remotes[S.hostId];
@@ -929,7 +951,8 @@
         h("div", { style: { position: "absolute", top: 14, right: 14, width: "30%", display: "flex", flexDirection: "column", gap: 6, maxHeight: "calc(100% - 28px)", overflowY: "auto", zIndex: 3 } }, others.map(function (t) { return tileEl(t, { height: 104, flexShrink: 0, border: "1px solid rgba(255,255,255,.25)" }); })));
     }
     var layoutChip = kind === "meeting" ? h("button", { onClick: function () { var n = (layoutIdx + 1) % LAYOUTS.length; setLayoutIdx(n); try { localStorage.setItem("lcLiveLayout", String(n)); } catch (e) {} }, style: { background: "rgba(0,0,0,.55)", color: C.text, border: "none", borderRadius: 999, padding: "5px 12px", fontWeight: 700, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" } }, "\u25A6 " + (sharer ? "Spotlight" : LAYOUTS[layoutIdx][1]) + " " + Math.max(1, tiles.length) + "/6") : null;
-    var guestIds = kind === "live" ? Object.keys(people).filter(function (id) { return id !== S.hostId && people[id]; }) : [];
+    var guestIds = kind === "live" ? Object.keys(people).filter(function (id) { return id !== S.hostId && id !== me.id && people[id]; }) : [];
+    if (kind === "live" && !isHost && (guestCam || guestIds.length)) guestIds.unshift(me.id);
     var guestMode = kind === "live" && guestIds.length > 0;
     var guestShown = guestIds.slice(0, 6), guestMore = guestIds.length - guestShown.length;
     var guestStage = !guestMode ? null : h("div", { style: { position: "absolute", left: 0, right: 0, top: "calc(64px + env(safe-area-inset-top,0px))", bottom: "calc(" + ((window.innerHeight || 700) < 700 ? "26%" : "30%") + " + 74px + env(safe-area-inset-bottom,0px))", background: "#000", padding: "6px 10px 6px", display: "flex", flexDirection: "column", gap: 8, overflow: "hidden" } },
@@ -944,14 +967,14 @@
       // invited users who joined, in a grid like the design: number, picture or video, name, mic
       h("div", { style: { flex: "1 1 54%", minHeight: 0, marginRight: ((window.innerHeight || 700) < 700 ? 48 : 58) + 22, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gridAutoRows: "minmax(0,1fr)", gap: 8, overflow: "hidden" } },
         guestShown.map(function (id, i) {
-          var u = people[id], mine = id === me.id, st = mine ? local : remotes[id];
+          var mine = id === me.id, u = mine ? me : people[id], st = mine ? local : remotes[id];
           return h("div", { key: id, style: { position: "relative", borderRadius: 16, overflow: "hidden", background: "linear-gradient(160deg,#2A2F6B,#1B2330)", border: "1px solid rgba(255,255,255,.12)", minHeight: 0 } },
-            st ? h(VideoEl, { stream: st, muted: !!mine, mirror: !!mine && vmode === "camera" && facing === "user", style: {} }) : h("div", { style: { height: "100%", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Avatar, { user: u, size: 52 })),
+            st && st.getVideoTracks().length ? h(VideoEl, { stream: st, muted: !!mine, mirror: !!mine, style: {} }) : h("div", { style: { height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 } }, h(Avatar, { user: u, size: 52 }), mine ? h("button", { onClick: toggleGuestCam, style: { background: "#FF2D55", color: "#fff", border: "none", borderRadius: 999, padding: "5px 10px", fontWeight: 800, fontSize: 11.5, cursor: "pointer" } }, "Camera on") : null),
             h("span", { style: { position: "absolute", left: 6, top: 6, display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,.55)", borderRadius: 999, padding: "2px 9px", color: "#fff", fontWeight: 800, fontSize: 12.5 } }, Ico("person", 12, "#fff"), String(i + 2)),
             h("div", { style: { position: "absolute", left: 5, right: 5, bottom: 5, display: "flex", alignItems: "center", gap: 5 } },
               h(Avatar, { user: u, size: 22 }),
               h("span", { style: { flex: 1, minWidth: 0, color: "#fff", fontWeight: 700, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textShadow: "0 1px 4px rgba(0,0,0,.8)" } }, mine ? "You" : (u.name || "Guest")),
-              h("span", { style: { width: 22, height: 22, borderRadius: 22, background: "rgba(0,0,0,.55)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, flexShrink: 0 } }, "\uD83C\uDF99")));
+              mine && guestCam ? h("button", { "aria-label": "Turn camera off", onClick: toggleGuestCam, style: { width: 22, height: 22, borderRadius: 22, background: "#FF2D55", border: "none", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, flexShrink: 0, cursor: "pointer" } }, "\u2715") : h("span", { style: { width: 22, height: 22, borderRadius: 22, background: "rgba(0,0,0,.55)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, flexShrink: 0 } }, "\uD83C\uDF99")));
         }),
         guestMore > 0 ? h("button", { "aria-label": "See everyone", onClick: function () { setProfOpen("people"); }, style: { borderRadius: 16, border: "1px solid rgba(255,255,255,.12)", background: "#1B2330", color: "#fff", fontWeight: 800, fontSize: 18, cursor: "pointer" } }, "+" + guestMore) : null));
     var stage = guestMode ? guestStage : kind === "live"
@@ -1057,6 +1080,7 @@
           h("button", { "aria-label": "People in this live", onClick: function () { setProfOpen("people"); }, style: { display: "inline-flex", alignItems: "center", gap: 7, background: DARK, border: RING, color: "#fff", borderRadius: 999, padding: "7px 14px", fontWeight: 700, fontSize: 15, cursor: "pointer" } }, Ico("eye", 18, "#fff"), fmt(S.viewers)),
           viewerFaces.length > 0 && h("button", { "aria-label": "People in this live", onClick: function () { setProfOpen("people"); }, style: { display: "inline-flex", background: "none", border: "none", padding: 0, cursor: "pointer" } }, viewerFaces.map(function (id, i) { return h("span", { key: id, style: { marginLeft: i ? -10 : 0, border: "2px solid rgba(0,0,0,.6)", borderRadius: "50%", display: "inline-flex" } }, h(Avatar, { user: people[id], size: 30 })); })),
           h("div", { style: { flex: 1 } }),
+          guestMode && isHost ? circ(recSec == null ? Ico("cam", 22, "#fff") : h("span", { style: { fontSize: 11, fontWeight: 800 } }, recLabel), recTap, recSec == null ? "Screen record" : "Stop recording", 40, recSec == null ? DARK : RED, RING) : null,
           h("button", { "aria-label": "More options", onClick: function () { setMenuOpen(true); }, style: { background: "none", border: "none", padding: 8, cursor: "pointer", display: "flex" } }, MoreIco(26, "#fff"))),
         guestMode ? null : h("div", { style: { display: "flex", alignItems: "center", gap: 12, padding: "14px 12px 0" } },
           h("button", { "aria-label": "Host profile", onClick: function () { setProfOpen("profile"); }, style: { background: "none", border: "none", padding: 0, cursor: "pointer", borderRadius: "50%", boxShadow: "0 0 0 2px rgba(255,255,255,.85)", display: "flex" } }, h(Avatar, { user: S.host, size: 64 })),
@@ -1077,8 +1101,8 @@
         circ(Ico("person", RB * 0.5, "#fff"), function () { setProfOpen("profile"); }, "Profile", RB, DARK, RING));
 
       // left column: screen record, live video; plus the follower and like cards
-      var leftBtns = h("div", { style: { position: "absolute", left: 12, top: "calc(" + (short ? 160 : 196) + "px + " + SAFE_T + ")", zIndex: 6, display: "flex", flexDirection: "column", gap: short ? 8 : 12 } },
-        circ(recSec == null ? Ico("cam", 28, "#fff") : h("span", { style: { fontSize: 13, fontWeight: 800 } }, recLabel), recTap, recSec == null ? "Screen record" : "Stop recording", RB, recSec == null ? DARK : RED, RING));
+      var leftBtns = guestMode ? null : h("div", { style: { position: "absolute", left: 12, top: "calc(" + (short ? 160 : 196) + "px + " + SAFE_T + ")", zIndex: 6, display: "flex", flexDirection: "column", gap: short ? 8 : 12 } },
+        isHost ? circ(recSec == null ? Ico("cam", 28, "#fff") : h("span", { style: { fontSize: 13, fontWeight: 800 } }, recLabel), recTap, recSec == null ? "Screen record" : "Stop recording", RB, recSec == null ? DARK : RED, RING) : circ(Ico("cam", 28, guestCam ? RED : "#fff"), toggleGuestCam, guestCam ? "Turn camera off" : "Go on camera", RB, DARK, guestCam ? "2px solid " + RED : RING));
       var followEl = followToast ? h("div", { key: "f" + followToast, className: "lc-toast", style: { position: "absolute", right: 12, top: "calc(84px + " + SAFE_T + ")", zIndex: 7, display: "flex", alignItems: "center", gap: 10, background: "rgba(20,24,32,.92)", border: RING, borderRadius: 18, padding: "8px 12px 8px 10px", minWidth: 150, maxWidth: "calc(100% - 232px)", animation: "lcToastR .35s ease-out" } },
         Ico("person", 26, "#fff"),
         h("div", { style: { color: "#fff", minWidth: 0 } }, h("div", { style: { fontWeight: 700, fontSize: 14 } }, "New follower"), h("div", { style: { fontSize: 12, color: "#E6EAF0", lineHeight: 1.25, wordBreak: "break-word" } }, followToast + " just followed you!"))) : null;
