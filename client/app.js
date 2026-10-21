@@ -4900,7 +4900,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     useEffect(() => { const t = setInterval(() => { if (socketRef.current !== sk)
         setSk(socketRef.current); }, 700); return () => clearInterval(t); }, [sk]);
     useEffect(() => { if (!sk)
-        return; refresh(); const t = setInterval(() => activeRef.current && refresh(), 8000); return () => clearInterval(t); }, [sk]);
+        return; refresh(); const t = setInterval(() => activeRef.current && !document.hidden && navigator.onLine !== false && refresh(), 8000); return () => clearInterval(t); }, [sk]);
     useEffect(() => { if (active) {
         refresh();
         setUnread(0);
@@ -8722,7 +8722,7 @@ function timeLeft(at) {
 }
 function ExpiryTag({ at }) {
     const [, tick] = useState(0);
-    useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(t); }, []);
+    useEffect(() => { const t = setInterval(() => { if (!document.hidden) tick((n) => n + 1); }, 30000); return () => clearInterval(t); }, []);
     return React.createElement("span", { title: "Disappears automatically", style: { fontSize: 10.5, color: "#B9C2CC" } }, "\u23F1 " + timeLeft(at));
 }
 function DisappearSheet({ current, onPick, onClose }) {

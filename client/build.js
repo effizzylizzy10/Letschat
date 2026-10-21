@@ -25,6 +25,7 @@ try {
       const ip = path.join(out, "index.html"), sp = path.join(out, "sw.js");
       let html = fs.readFileSync(ip, "utf8"), sw = fs.readFileSync(sp, "utf8");
       for (const f of m.files) html = html.split(f.url).join("./vendor/" + f.name);
+      html = html.replace(/[ \t]*<link rel="preconnect" href="https:\/\/(unpkg\.com|www\.gstatic\.com|cdn\.socket\.io)" crossorigin \/>\n/g, ""); // same-origin now: nothing to pre-connect to
       const list = m.files.map((f) => '"./vendor/' + f.name + '"').join(", ");
       if (!/var SHELL = \[/.test(sw)) throw new Error("SHELL list not found in sw.js");
       sw = sw.replace(/var SHELL = \[/, "var SHELL = [" + list + ", ");
