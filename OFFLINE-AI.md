@@ -48,3 +48,15 @@ The strip now has **Install both (531 MB)** plus a button per model, and install
 - The app must be opened once online on each phone so the service worker can save it. Browsers without service-worker support (a few in-app browsers, Opera Mini, private/incognito modes) cannot open the app offline at all.
 - iPhone Safari may delete saved data after about 7 days of not opening the app. Opening it once a week, or using Share > Add to Home Screen, avoids that.
 - Calls, Live, games, first sign-in and posting to Status/Market always need a network.
+
+## Optimisation pass (v75)
+Measured changes only (I cannot run a phone or the live site from my workspace, so no speed timings are claimed):
+- **Images, about 413 KB less**: ai-bot.png 349 KB -> 47 KB, logo-full.png 207 KB -> 135 KB, update-banner.jpg 209 KB -> 169 KB, chat-room.jpg 30 KB -> 21 KB. Same file names and pixel sizes, so no code changes. Checked side by side: the robot has slightly softer shading, the logo looks identical. Icons, wallpapers and developer.jpg were left alone because they could not shrink more than 10% safely.
+- **Faster first screen**: `brain.js` (32 KB) no longer loads in the blocking script chain; `responsive.js` loads it right after the app starts. When libraries are self-hosted, the three unused preconnect tags are removed from index.html.
+- **Less background work**: the game lobby refresh (every 8 s) pauses while the app is in the background or offline, and "disappears in..." timers stop re-rendering while the app is hidden.
+- Already in place and kept: minify + ES5/modern split builds (needs `npm install` on the build host so terser/esbuild/typescript run; check the build log shows "Minified app.js"), service-worker caching, self-hosted libraries (v74).
+
+### Not changed on purpose (needs testing on real phones first)
+- `live.js` (167 KB, 44 KB gzipped) still loads for everyone. Loading it only when the Live tab opens would save the most, but the Live tab reads `window.LetschatLive` while rendering, so it needs a small change in app.js and a device test.
+- `app.js` is one 1.1 MB file (about 281 KB gzipped before minifying). Splitting it into screens (games, calls, market) is the biggest remaining win but is a large refactor of the compiled file.
+- `server/client/` is an older copy of the client inside the server folder; it is not touched.
