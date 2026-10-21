@@ -5190,32 +5190,105 @@ function AiBotScreen({ token, onClose }) {
     const [ready, setReady] = useState(false);
     const endRef = useRef(null), listRef = useRef(null), busy = useRef(false), alive = useRef(true);
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+    // v71: offline brain (window.LCBrain, brain.js) answers on the phone when there is no network
+    const brain = () => (typeof window !== "undefined" && window.LCBrain) || null;
+    const [offMode, setOffMode] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
+    const [lite, setLite] = useState(() => { const b = brain(); return b && b.lite ? b.lite.state() : null; });
+    useEffect(() => { const b = brain(); if (!b || !b.lite) return; setLite(b.lite.state()); return b.lite.subscribe((st) => { if (alive.current) setLite(st); }); }, []);
+    const installModel = (ms) => { // ms = one model, or a list to install one after the other
+        const b = brain(); if (!b || !b.lite) return;
+        const list = Array.isArray(ms) ? ms : [ms], mb = list.reduce((n, m) => n + m.mb, 0), names = list.map((m) => m.name).join(" + ");
+        const conn = typeof navigator !== "undefined" && (navigator.connection || navigator.mozConnection || navigator.webkitConnection);
+        const cell = conn && (conn.type === "cellular" || conn.saveData);
+        if (!window.confirm("Download the offline AI model" + (list.length > 1 ? "s" : "") + " \"" + names + "\" (about " + mb + " MB)?" + (cell ? "\n\nYou seem to be on mobile data. Use Wi-Fi if you can." : "\n\nWi-Fi is best. Keep this screen open until it finishes.") + "\nAfter that it works with no network.")) return;
+        (list.length > 1 ? b.lite.installAll() : b.lite.install(list[0].id)).catch(() => { });
+    };
     useEffect(() => {
-        api("/api/bot/chat", { token }).then((s) => { if (alive.current) { setMsgs(s.messages || []); setReady(true); } })
-            .catch(() => { if (alive.current) { setErr("Could not load your earlier AI chat."); setReady(true); } });
+        const on = () => setOffMode(false), off = () => setOffMode(true);
+        window.addEventListener("online", on); window.addEventListener("offline", off);
+        return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
     }, []);
+    useEffect(() => {
+        const localChat = () => { const b = brain(); return b ? b.loadChat() : []; };
+        api("/api/bot/chat", { token }).then((s) => {
+            if (!alive.current) return;
+            let list = s.messages || [];
+            const local = localChat(), lt = (x) => (x.length ? Number(x[x.length - 1].t) || 0 : 0);
+            if (local.length && lt(local) > lt(list)) list = local; // chats held while offline are newer than the saved server copy
+            setMsgs(list); setReady(true);
+        }).catch(() => {
+            if (!alive.current) return;
+            const local = localChat();
+            if (local.length) setMsgs(local); else if (!(typeof navigator !== "undefined" && navigator.onLine === false)) setErr("Could not load your earlier AI chat.");
+            setReady(true);
+        });
+    }, []);
+    useEffect(() => { const b = brain(); if (ready && msgs.length && b) b.saveChat(msgs); }, [msgs, ready]);
     useEffect(() => { const box = listRef.current, el = endRef.current; if (box) box.scrollTop = box.scrollHeight; else if (el && el.scrollIntoView) el.scrollIntoView(false); }, [msgs, typing, ready]);
+    const askOnline = async (text) => {
+        let out = null;
+        for (let attempt = 0; attempt < 2 && !out; attempt++) {
+            try { out = await api("/api/bot/chat", { method: "POST", token, body: { text }, timeoutMs: 95000 }); }
+            catch (e) { const m = String((e && e.message) || ""); const net = e instanceof TypeError || (e && e.name === "AbortError") || /failed to fetch|networkerror|load failed|network request failed|aborted|network connection was lost|no internet connection/i.test(m); if (attempt === 1 || !net || (e && e.name === "AbortError") || /no internet connection/i.test(m)) throw e; await new Promise((r) => setTimeout(r, 1200)); }
+        }
+        return out && out.parts && out.parts.length ? out.parts : ["Sorry, I had no answer for that."];
+    };
+    const isNetErr = (e) => { const m = String((e && e.message) || ""); return !(e && e.name === "AbortError") && (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|network connection was lost|no internet connection/i.test(m)); };
+    const addAi = (parts) => setMsgs((m) => [...m, ...parts.map((x, i) => ({ from: "ai", text: x, t: Date.now(), id: "a" + Date.now() + i }))]);
+    const answerOffline = async (text) => {
+        const b = brain(); if (!b) return false;
+        const hasModel = !!(b.lite && b.lite.ready());
+        const r = b.answer(text, { noQueue: hasModel });
+        let parts = r.parts;
+        if (!r.matched && hasModel) {
+            try {
+                const t = await b.lite.ask(text, msgs);
+                parts = [t + "\n(Offline model: short answers, can be wrong.)"];
+            } catch (e) { b.queue(text); parts = r.parts; }
+        } else await new Promise((res) => setTimeout(res, 450 + Math.random() * 550));
+        if (alive.current) { addAi(parts); setOffMode(true); }
+        return true;
+    };
     const send = async () => {
         const text = String(draft).trim();
         if (!text || busy.current) return;
-        if (typeof navigator !== "undefined" && navigator.onLine === false) { setErr("No internet connection. Please try again when you are online."); return; }
         busy.current = true; setErr(""); setDraft(""); setTyping(true);
         setMsgs((m) => [...m, { from: "me", text, t: Date.now(), id: "m" + Date.now() }]);
         try {
-            let out = null;
-            for (let attempt = 0; attempt < 2 && !out; attempt++) {
-                try { out = await api("/api/bot/chat", { method: "POST", token, body: { text }, timeoutMs: 95000 }); }
-                catch (e) { const m = String((e && e.message) || ""); const net = e instanceof TypeError || (e && e.name === "AbortError") || /failed to fetch|networkerror|load failed|network request failed|aborted|network connection was lost/i.test(m); if (attempt === 1 || !net || (e && e.name === "AbortError")) throw e; await new Promise((r) => setTimeout(r, 1200)); }
+            const b = brain();
+            if (typeof navigator !== "undefined" && navigator.onLine === false && b) await answerOffline(text);
+            else {
+                let parts = null;
+                try { parts = await askOnline(text); }
+                catch (e) { if (b && isNetErr(e)) await answerOffline(text); else throw e; }
+                if (parts && alive.current) { addAi(parts); setOffMode(false); if (b) b.remember(text, parts); }
             }
-            if (!alive.current) return;
-            const parts = out && out.parts && out.parts.length ? out.parts : ["Sorry, I had no answer for that."];
-            setMsgs((m) => [...m, ...parts.map((x, i) => ({ from: "ai", text: x, t: Date.now(), id: "a" + Date.now() + i }))]);
         } catch (e) {
             if (alive.current) setErr(e && e.name === "AbortError" ? "The AI is taking too long. Please try again in a moment." : (String((e && e.message) || "") || "The AI could not answer right now"));
         }
         if (alive.current) setTyping(false);
         busy.current = false;
     };
+    // questions the offline brain could not answer are sent to the real AI by themselves when the network is back
+    useEffect(() => {
+        const b = brain(); if (!b || offMode || !ready || busy.current) return;
+        const q = b.takePending(); if (!q.length) return;
+        let stop = false; busy.current = true; setTyping(true);
+        (async () => {
+            for (let i = 0; i < q.length; i++) {
+                if (stop) { q.slice(i).forEach((x) => b.queue(x)); break; }
+                try {
+                    const parts = await askOnline(q[i]);
+                    if (!alive.current) break;
+                    parts[0] = "Back online \u2014 here is the full answer to \"" + (q[i].length > 60 ? q[i].slice(0, 57) + "..." : q[i]) + "\":\n" + parts[0];
+                    addAi(parts); b.remember(q[i], parts);
+                } catch (e) { q.slice(i).forEach((x) => b.queue(x)); break; }
+            }
+            if (alive.current) setTyping(false);
+            busy.current = false;
+        })();
+        return () => { stop = true; };
+    }, [offMode, ready]);
     const list = msgs.length || !ready ? msgs : [WELCOME];
     const hhmm = (t) => { try { return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
     return React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "#0E1116", display: "flex", flexDirection: "column" } },
@@ -5224,7 +5297,27 @@ function AiBotScreen({ token, onClose }) {
             React.createElement(AiBotAvatar, { size: 42, big: true }),
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
-                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : "online"))),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : (offMode ? "offline mode" : "online")))),
+        lite && lite.phase !== undefined && (() => {
+            const sup = brain() && brain().lite.supported();
+            const have = lite.have || [], missing = (lite.models || []).filter((m) => have.indexOf(m.id) < 0);
+            const names = (lite.models || []).filter((m) => have.indexOf(m.id) >= 0).map((m) => m.name).join(" + ");
+            const box = { padding: "8px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", fontFamily: "Inter", fontSize: 12.5, color: "#C5CEDA", flexShrink: 0 };
+            const btn = { background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 14, padding: "5px 12px", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginRight: 6, marginBottom: 4 };
+            const link = { background: "none", border: "none", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 };
+            if (lite.phase === "installing") return React.createElement("div", { style: box }, "Downloading " + (lite.cur || "offline AI") + "\u2026 " + lite.pct + "%", React.createElement("div", { style: { height: 4, borderRadius: 2, background: "#1E252E", marginTop: 6 } }, React.createElement("div", { style: { height: 4, borderRadius: 2, background: "#35D0BA", width: lite.pct + "%", transition: "width .3s" } })));
+            const removeLink = React.createElement("button", { style: link, onClick: () => { if (window.confirm("Remove the offline AI models from this phone?")) brain().lite.remove(); } }, "Remove");
+            if (have.length && !missing.length) return React.createElement("div", { style: box }, "Offline AI installed (" + names + ") \u00b7 ", removeLink);
+            if (!have.length && lite.hidden && lite.phase !== "error") return null;
+            if (!sup || !sup.ok) return lite.phase === "error" ? React.createElement("div", { style: box }, lite.msg) : null;
+            const total = missing.reduce((n, m) => n + m.mb, 0);
+            return React.createElement("div", { style: box },
+                lite.phase === "error" || lite.msg ? React.createElement("div", { style: { color: "#FF6B5D", marginBottom: 6 } }, "Could not install: " + lite.msg) : null,
+                React.createElement("div", { style: { marginBottom: 6 } }, have.length ? "Installed: " + names + ". Add the rest so I can answer better with no network." : "Get small AI models on your phone so I can answer more with no network."),
+                missing.length > 1 && React.createElement("button", { style: btn, onClick: () => installModel(missing) }, "Install both (" + total + " MB)"),
+                missing.map((m) => React.createElement("button", { key: m.id, style: { ...btn, background: missing.length > 1 ? "#1E252E" : "#35D0BA", color: missing.length > 1 ? "#F5F7FA" : "#0E1116" }, onClick: () => installModel(m) }, m.name + " (" + m.mb + " MB)")),
+                have.length ? removeLink : React.createElement("button", { style: link, onClick: () => brain().lite.hide() }, "Not now"));
+        })(),
         React.createElement("div", { ref: listRef, onClick: () => setHlId(null), style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 8 } },
             React.createElement("style", null, "@keyframes lcAiDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}@keyframes lcAiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes lcAiBob{50%{transform:translateY(-3px)}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
             !ready && React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13, padding: 20 } }, "Loading\u2026"),

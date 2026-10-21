@@ -28,6 +28,8 @@
   Cache-Control: public, max-age=0, must-revalidate
 /offline.js
   Cache-Control: public, max-age=0, must-revalidate
+/brain.js
+  Cache-Control: public, max-age=0, must-revalidate
 
 # Logo files: always check for a newer copy, so a changed logo shows up straight away (the files are tiny)
 /icons/*

@@ -23,7 +23,7 @@ var MAX_IMAGES = LITE ? 60 : 400;
 
 // SHELL = the files the app cannot start without (install fails if one is missing, so the old working version stays). EXTRAS = nice to have: a missing
 // icon, sound or picture never blocks an update.
-var SHELL = ["./", "./index.html", "./app.js", "./config.js", "./polyfills.js", "./compat.js", "./responsive.js", "./responsive.css", "./device.js", "./offline.js", "./manifest.json"];
+var SHELL = ["./", "./index.html", "./app.js", "./config.js", "./polyfills.js", "./compat.js", "./responsive.js", "./responsive.css", "./device.js", "./offline.js", "./brain.js", "./manifest.json"];
 if (!LITE) SHELL.push("./push.js", "./reactions.js", "./live.js");
 var EXTRAS = ["./app.legacy.js", "./icons/icon-192.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE ? [] : ["./icons/icon-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
 
@@ -34,6 +34,7 @@ var PINNED = [
   /^https:\/\/cdn\.socket\.io\/\d+\.\d+\.\d+\//,
   /^https:\/\/cdn\.jsdelivr\.net\/npm\/(react|react-dom|socket\.io-client|firebase)@\d+\.\d+\.\d+\//,
   /^https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/(react|react-dom|socket\.io|firebase)\/\d+\.\d+\.\d+\//,
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/@wllama\/wllama@\d+\.\d+\.\d+\//,                       // offline AI model engine (optional install), saved after first use
   /^https:\/\/cdn\.jsdelivr\.net\/npm\/@mediapipe\/tasks-vision@\d+\.\d+\.\d+\//,          // face tracking code (Live face effects), saved after first use
   /^https:\/\/storage\.googleapis\.com\/mediapipe-models\/face_landmarker\//                      // face tracking model
 ];
@@ -50,7 +51,7 @@ var FONT_CSS = /^https:\/\/fonts\.googleapis\.com\//;
 var FONT_FILE = /^https:\/\/fonts\.gstatic\.com\//;
 
 // the app's own code and small config files: saved copy first (instant), refreshed in the background
-var FRESH = /\/(app|app\.legacy|config|push|reactions|live|offline|responsive|compat|device|polyfills)\.(js|css)$|\/manifest\.json$/;
+var FRESH = /\/(app|app\.legacy|config|push|reactions|live|offline|brain|responsive|compat|device|polyfills)\.(js|css)$|\/manifest\.json$/;
 
 // photos served by the API (versioned URLs)
 var IMAGE_API = /\/api\/(?:v1\/)?(?:users\/[^/]+\/(?:avatar|cover)|groups\/[^/]+\/avatar|status\/[^/]+\/photo|market\/[^/]+\/photo|catalog\/[^/]+\/[^/]+\/photo)/;
