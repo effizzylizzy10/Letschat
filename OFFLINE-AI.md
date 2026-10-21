@@ -38,3 +38,13 @@ A strip under the robot's header offers **Install Lite (145 MB)** or **Install B
 
 ## Both models (v73)
 The strip now has **Install both (531 MB)** plus a button per model, and installs them one after the other (Lite first). Both can stay on the phone; the biggest installed one (Better) answers. "Remove" deletes all installed models. Models are never bundled in the app files: they download on the phone when the person taps Install, so the zip stays small.
+
+## Works offline on every device (v74)
+- **Self-hosted libraries**: `client/vendor.js` runs before `build.js` (`npm run build`) and downloads React, ReactDOM, Firebase (app + auth) and Socket.IO into `client/vendor/`. `build.js` then points `index.html` at them and adds them to the saved app shell in `sw.js`. The whole app is now same-origin, so it opens offline even if a CDN is blocked, slow or down. If any download fails, nothing changes and the CDN links stay (a deploy never breaks). Look for "index.html and sw.js now use the self-hosted libraries" in the Netlify/Vercel build log. `vendor/` is git-ignored (made at build time).
+- **Offline model safety**: hidden on phones reporting under 1 GB memory or no WebAssembly/storage; install refuses when free space is under 1.3x the model size.
+- Old phones keep using the ES5 build (`app.legacy.js`), brain.js is transpiled the same way, and all storage calls are try/catch guarded.
+
+### Honest limits (no code can fix these)
+- The app must be opened once online on each phone so the service worker can save it. Browsers without service-worker support (a few in-app browsers, Opera Mini, private/incognito modes) cannot open the app offline at all.
+- iPhone Safari may delete saved data after about 7 days of not opening the app. Opening it once a week, or using Share > Add to Home Screen, avoids that.
+- Calls, Live, games, first sign-in and posting to Status/Market always need a network.
