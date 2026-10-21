@@ -278,6 +278,7 @@
   function supported() {
     if (typeof w.WebAssembly !== "object") return { ok: false, why: "This phone's browser cannot run it (no WebAssembly)." };
     try { new Function("return import('data:text/javascript,')"); } catch (e) { return { ok: false, why: "This phone's browser is too old for the offline model." }; }
+    if (w.navigator && w.navigator.deviceMemory && w.navigator.deviceMemory < 1) return { ok: false, why: "This phone has too little memory for the offline model." };
     if (!w.caches && !(w.navigator && w.navigator.storage && w.navigator.storage.getDirectory)) return { ok: false, why: "This browser cannot store the model." };
     return { ok: true, why: "" };
   }
@@ -310,7 +311,16 @@
     if (!sup.ok) { L.phase = "error"; L.msg = sup.why; emit(); return Promise.reject(new Error(sup.why)); }
     if (L.phase === "installing") return Promise.reject(new Error("Another download is running"));
     if (haveIds().indexOf(id) >= 0) return Promise.resolve();
-    L.phase = "installing"; L.cur = model.name; L.pct = 0; L.msg = ""; emit();
+    var est = w.navigator && w.navigator.storage && w.navigator.storage.estimate ? w.navigator.storage.estimate() : Promise.resolve(null);
+    return est.then(function (e) { return e; }, function () { return null; }).then(function (e) {
+      if (e && e.quota && e.quota - (e.usage || 0) < model.mb * 1.3 * 1048576) {
+        var m = "Not enough free space on this phone for the " + model.name + " model (needs about " + Math.round(model.mb * 1.3) + " MB). Free some space and try again.";
+        L.phase = haveIds().length ? "ready" : "error"; L.msg = m; emit(); throw new Error(m);
+      }
+      return doInstall(model, id);
+    });
+  }
+  function doInstall(model, id) {    L.phase = "installing"; L.cur = model.name; L.pct = 0; L.msg = ""; emit();
     try { if (w.navigator.storage && w.navigator.storage.persist) w.navigator.storage.persist(); } catch (e) { }
     freeEngine();
     return getEngine(model, function (pr) {

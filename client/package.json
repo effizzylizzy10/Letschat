@@ -4,7 +4,7 @@
   "private": true,
   "description": "Letschat Africa web client (static site, no bundler)",
   "scripts": {
-    "build": "node build.js"
+    "build": "node vendor.js && node build.js"
   },
   "dependencies": {
     "esbuild": "^0.21.5",

@@ -16,6 +16,24 @@ for (const name of fs.readdirSync(__dirname)) {
 if (!fs.existsSync(path.join(out, "index.html"))) { console.error("index.html missing from dist"); process.exit(1); }
 console.log("Copied " + n + " items to client/dist");
 
+// Self-hosted libraries (made by vendor.js): point index.html at them and add them to the saved app shell, so the whole app is same-origin
+try {
+  const mf = path.join(out, "vendor", "manifest.json");
+  if (fs.existsSync(mf)) {
+    const m = JSON.parse(fs.readFileSync(mf, "utf8"));
+    if (m.ok && m.files && m.files.length === 5 && m.files.every((f) => fs.existsSync(path.join(out, "vendor", f.name)))) {
+      const ip = path.join(out, "index.html"), sp = path.join(out, "sw.js");
+      let html = fs.readFileSync(ip, "utf8"), sw = fs.readFileSync(sp, "utf8");
+      for (const f of m.files) html = html.split(f.url).join("./vendor/" + f.name);
+      const list = m.files.map((f) => '"./vendor/' + f.name + '"').join(", ");
+      if (!/var SHELL = \[/.test(sw)) throw new Error("SHELL list not found in sw.js");
+      sw = sw.replace(/var SHELL = \[/, "var SHELL = [" + list + ", ");
+      fs.writeFileSync(ip, html); fs.writeFileSync(sp, sw);
+      console.log("index.html and sw.js now use the self-hosted libraries in vendor/");
+    }
+  }
+} catch (e) { console.log("Self-hosted libraries not used: " + e.message); }
+
 // Self-updating cache name: the service worker's cache version is stamped with a hash of the shipped files, so every deploy that changes
 // anything makes phones fetch the new copy (no more forgetting to bump the version number by hand).
 try {
