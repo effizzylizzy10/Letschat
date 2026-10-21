@@ -261,9 +261,10 @@
   // so it then works with no network. EDIT HERE: LITE_VER (check the latest at npmjs.com/package/@wllama/wllama) and the model list
   // (or set window.LC_LITE_MODELS in config.js). Hugging Face repo/file names must exist: open huggingface.co/<repo> to confirm.
   var LITE_VER = "2.3.5";
+  // rank: the highest-ranked installed model answers. noThink: Qwen3 reasons out loud by default; "/no_think" turns that off (saves time on a phone).
   var MODELS = w.LC_LITE_MODELS || [
-    { id: "smollm2-135m", name: "Lite", mb: 145, repo: "HuggingFaceTB/SmolLM2-135M-Instruct-GGUF", file: "smollm2-135m-instruct-q8_0.gguf" },
-    { id: "smollm2-360m", name: "Better", mb: 386, repo: "HuggingFaceTB/SmolLM2-360M-Instruct-GGUF", file: "smollm2-360m-instruct-q8_0.gguf" }
+    { id: "smollm2-135m", name: "Lite", mb: 145, rank: 1, repo: "HuggingFaceTB/SmolLM2-135M-Instruct-GGUF", file: "smollm2-135m-instruct-q8_0.gguf" },
+    { id: "qwen3-0.6b", name: "Qwen3", mb: 397, rank: 2, noThink: true, sampling: { temp: 0.7, top_k: 20, top_p: 0.8 }, repo: "unsloth/Qwen3-0.6B-GGUF", file: "Qwen3-0.6B-Q4_K_M.gguf" }
   ];
   var KEY_MODEL = "lcbrain.model.v1", KEY_HIDE = "lcbrain.hidemodel.v1";
   var SYS = "You are LetsChat AI, a friendly assistant inside the Letschat Africa app, running offline on the user's phone. Answer in at most 3 short sentences, in simple English. If you are not sure, say so. Never ask for passwords, PINs or OTPs.";
@@ -271,7 +272,7 @@
   function modelById(id) { for (var i = 0; i < MODELS.length; i++) if (MODELS[i].id === id) return MODELS[i]; return null; }
   // several models can be installed; the biggest installed one answers
   function haveIds() { var r = rd(KEY_MODEL, []); if (!Array.isArray(r)) r = r && r.id ? [r.id] : []; return r.filter(function (id) { return !!modelById(id); }); }
-  function installed() { var ids = haveIds(), best = null; for (var i = 0; i < ids.length; i++) { var m = modelById(ids[i]); if (!best || m.mb > best.mb) best = m; } return best; }
+  function installed() { var ids = haveIds(), best = null; for (var i = 0; i < ids.length; i++) { var m = modelById(ids[i]); if (!best || (m.rank || m.mb) > (best.rank || best.mb)) best = m; } return best; }
   if (installed()) L.phase = "ready";
   function snap() { return { phase: L.phase, pct: L.pct, msg: L.msg, cur: L.cur || null, have: haveIds(), model: installed(), models: MODELS, hidden: !!rd(KEY_HIDE, false) }; }
   function emit() { for (var i = 0; i < L.subs.length; i++) { try { L.subs[i](snap()); } catch (e) { } } }
@@ -284,7 +285,7 @@
   }
   function loadLib() {
     if (L.lib) return L.lib;
-    var base = "https://cdn.jsdelivr.net/npm/@wllama/wllama@" + LITE_VER + "/esm/";
+    var base = w.LC_WLLAMA_BASE || ("https://cdn.jsdelivr.net/npm/@wllama/wllama@" + LITE_VER + "/esm/"); // LC_WLLAMA_BASE: optional self-hosted copy of the engine
     L.lib = (new Function("u", "return import(u)"))(base + "index.js").then(function (m) {
       var W = m.Wllama || (m.default && m.default.Wllama); if (!W) throw new Error("Offline model library did not load");
       return { W: W, base: base };
@@ -298,12 +299,18 @@
     var p = loadLib().then(function (lib) {
       var cfg = { "single-thread/wllama.wasm": lib.base + "single-thread/wllama.wasm", "multi-thread/wllama.wasm": lib.base + "multi-thread/wllama.wasm" };
       var eng = new lib.W(cfg, { allowOffline: true });
-      return eng.loadModelFromHF(model.repo, model.file, { n_ctx: 1024, progressCallback: onProgress || function () { } }).then(function () { L.engine = eng; L.engineId = model.id; return eng; });
+      return eng.loadModelFromHF(model.repo, model.file, { n_ctx: 1536, progressCallback: onProgress || function () { } }).then(function () { L.engine = eng; L.engineId = model.id; return eng; });
     });
     L.loading = { id: model.id, p: p };
     var clear = function () { L.loading = null; }; p.then(clear, clear);
     return p;
   }
+  function cleanOut(out, model) {
+    var t = String(out || "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/i, "").replace(/<\|[^|]*\|>/g, "").trim();
+    return t;
+  }
+  function userTurn(text, model) { return cut(text, 600) + (model && model.noThink ? " /no_think" : ""); }
+  function withTimeout(p, ms, msg) { return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error(msg)); }, ms); })]); }
   function freeEngine() { var e = L.engine; L.engine = null; L.engineId = null; try { if (e && e.exit) e.exit(); } catch (x) { } }
   function install(id) {
     var model = modelById(id), sup = supported();
@@ -325,6 +332,11 @@
     freeEngine();
     return getEngine(model, function (pr) {
       if (pr && pr.total) { L.pct = Math.min(99, Math.round(pr.loaded / pr.total * 100)); emit(); }
+    }).then(function (eng) {
+      // prove it works before saying "installed": one tiny real answer
+      L.pct = 99; L.msg = "Testing the model..."; emit();
+      return withTimeout(eng.createChatCompletion([{ role: "user", content: userTurn("Reply with the single word OK.", model) }], { nPredict: model.noThink ? 24 : 12, sampling: { temp: 0.2 } }), 120000, "The model downloaded but did not answer a test question. Try again on a stronger phone or pick the Lite model.")
+        .then(function (out) { if (!cleanOut(out, model)) throw new Error("The model downloaded but gave an empty test answer. Try the Lite model."); });
     }).then(function () {
       var ids = haveIds(); if (ids.indexOf(id) < 0) ids.push(id); wr(KEY_MODEL, ids);
       freeEngine(); L.phase = "ready"; L.pct = 100; L.msg = ""; L.cur = null; emit();
@@ -352,16 +364,15 @@
   function ask(text, hist) {
     var model = installed(); if (!model) return Promise.reject(new Error("No offline model installed"));
     var msgs = [{ role: "system", content: SYS }], h = (hist || []).slice(-4);
-    for (var i = 0; i < h.length; i++) msgs.push({ role: h[i].from === "me" ? "user" : "assistant", content: cut(h[i].text, 400) });
-    msgs.push({ role: "user", content: cut(text, 600) });
+    for (var i = 0; i < h.length; i++) msgs.push({ role: h[i].from === "me" ? "user" : "assistant", content: cut(String(h[i].text || "").replace(/\n\(Offline model[^)]*\)$/, ""), 400) });
+    msgs.push({ role: "user", content: userTurn(text, model) });
     var run = getEngine(model).then(function (eng) {
-      return eng.createChatCompletion(msgs, { nPredict: 160, sampling: { temp: 0.4, top_k: 40, top_p: 0.9 } });
+      return eng.createChatCompletion(msgs, { nPredict: model.noThink ? 200 : 160, sampling: model.sampling || { temp: 0.4, top_k: 40, top_p: 0.9 } });
     }).then(function (out) {
-      var t = String(out || "").replace(/<\|[^|]*\|>/g, "").trim();
+      var t = cleanOut(out, model);
       if (!t) throw new Error("Empty answer"); return t;
     });
-    var limit = new Promise(function (_, rej) { setTimeout(function () { rej(new Error("The offline model took too long")); }, 120000); });
-    return Promise.race([run, limit]);
+    return withTimeout(run, 120000, "The offline model took too long");
   }
   var lite = {
     state: snap, supported: supported, install: install, installAll: installAll, remove: remove, ask: ask,
