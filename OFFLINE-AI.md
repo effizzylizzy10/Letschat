@@ -60,3 +60,11 @@ Measured changes only (I cannot run a phone or the live site from my workspace, 
 - `live.js` (167 KB, 44 KB gzipped) still loads for everyone. Loading it only when the Live tab opens would save the most, but the Live tab reads `window.LetschatLive` while rendering, so it needs a small change in app.js and a device test.
 - `app.js` is one 1.1 MB file (about 281 KB gzipped before minifying). Splitting it into screens (games, calls, market) is the biggest remaining win but is a large refactor of the compiled file.
 - `server/client/` is an older copy of the client inside the server folder; it is not touched.
+
+## Qwen3 (v76)
+The model list is now **Lite** (SmolLM2 135M, 145 MB) and **Qwen3** (Qwen3-0.6B, Q4_K_M, about 397 MB, from `unsloth/Qwen3-0.6B-GGUF`). Qwen3 replaces the old 360M "Better" model and is the one that answers when both are installed (`rank` field).
+- Qwen3 normally "thinks" out loud before answering. The app sends `/no_think`, strips any `<think>` text, and uses Qwen's recommended settings (temp 0.7, top-p 0.8, top-k 20), so the phone only generates the short answer.
+- **Install check**: after the download the app asks the model to say "OK". It is only marked installed if that works, so a model that downloads but cannot run (too little memory, unsupported file) shows an error instead of failing later in a chat. Install also refuses when free space is below 1.3x the size.
+- Tested here with a stand-in engine (install, progress, no-think handling, history cleaning, empty-answer and low-space failures). **Not tested with the real engine or model**: I have no internet in my workspace.
+- Before deploying, confirm on huggingface.co that `unsloth/Qwen3-0.6B-GGUF` has `Qwen3-0.6B-Q4_K_M.gguf`, and that `LITE_VER` is a real `@wllama/wllama` version. Bigger Qwen3 sizes (1.7B, about 1.1 GB at Q4) are one line in `window.LC_LITE_MODELS` but are too heavy for most phones with the single-thread engine. Qwen releases newer than Qwen3 may exist; they only work if the engine's llama.cpp supports their architecture, so test any change on a real phone first.
+- `window.LC_WLLAMA_BASE` (optional) points the engine at a copy hosted on your own site.
