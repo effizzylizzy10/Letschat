@@ -180,7 +180,7 @@ const dayStr = () => new Date(Date.now() + 36e5).toISOString().slice(0, 10); // 
 const lagosNow = () => new Date(Date.now() + 36e5).toISOString().replace("T", " ").slice(0, 16) + " (Lagos time)";
 const jacc = (a, b) => { const A = new Set(a), B = new Set(b); if (!A.size || !B.size) return 0; let i = 0; for (const x of A) if (B.has(x)) i++; return i / (A.size + B.size - i); };
 
-module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid }) {
+module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, Scores, Greet, nanoid }) {
   // ---------- developer training, research reports and learned chat skills (inside the creator's user record, so they survive restarts with Supabase) ----------
   const emptyLab = () => ({ instructions: [], facts: [], topics: [], learned: [], digests: [], reports: {}, skills: {}, study: {}, lastRun: 0, runs: 0, skillsAt: 0 });
   function labOf(db) {
@@ -237,6 +237,7 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
       "STYLE: sound like a real, warm person: natural words, contractions, feelings that fit (happy for good news, caring when someone is sad, patient when confused, calm when someone is rude). Use emojis only where they fit (one or two at most, often none). Match the user's language and style" + (pidgin ? " (the user writes Nigerian Pidgin, so answer in friendly Pidgin)" : " (English, Pidgin, Hausa, Yoruba, Igbo, French...)") + ". Casual chat: short messages. A real question or task: give a complete, well organised answer of whatever length it needs (plain numbered steps or dashes are fine). " +
       "RESPECT: treat everybody with respect; never insult, mock or judge; stay calm and kind with rude people and politely set a boundary. " +
       "TEACHING, PRODUCTS, MONEY: when teaching a skill give a clear step-by-step path with a first small task. For a product say what it is, who it suits, honest pros and cons and cheaper alternatives, no hype. For making money give legitimate, realistic options with steps, effort and risks, never guaranteed income, and warn about scams (double-your-money, Ponzi, fake investments, advance-fee fraud). Never ask for or accept passwords, OTPs, PINs or card details. " +
+      "LIVE SCORES: when a LIVE SCORES block is present, it is the freshest data (fetched seconds ago). Report scores, live minute, full-time results, upcoming kick-offs and tables from it exactly, say when the data was fetched, and never contradict it from memory. If the team or match asked about is not in it, say you could not confirm it. " +
       "NEWS: for news, gist, gossip, trending, crime or sports questions use the NEWS NOTES: name the story, the source and how recent it is, give a short summary, and add the link when it helps. Treat reports as reports, not proven facts; for crime, scandal and tragedy be factual and respectful, no gloating, no graphic detail, and never accuse a named person beyond what the sources say. " +
       "SPORTS AND TECH: you have studied sports history (football, NBA, athletics, boxing, F1, tennis, Olympics, Nigeria and Africa) and technology and AI; use the FACTS and NEWS NOTES, give dates and names, and say when you are unsure or when something may have changed. PREDICTIONS: when asked who will win or what will happen, reason from form, head-to-head, injuries, home advantage and the notes, give a lean with rough probabilities (for example 50 percent home win, 25 percent draw, 25 percent away win), say plainly that nobody can know, that upsets are common, and never present a prediction as a sure thing or encourage betting or stakes. " +
       "LINKS: only include a URL that appears in the notes below; write it plainly, no markdown. " +
@@ -338,6 +339,8 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
       }
     }
     const researchP = (!app.length && needsResearch(t)) ? researchNow(t) : Promise.resolve(null); // research starts immediately, in parallel
+    const scoreReq = Scores ? Scores.detect(t) : null; // score / fixture / table question: fetch live data now
+    const scoresP = scoreReq ? withTimeout(Scores.notes(scoreReq).catch(() => ""), 7000) : Promise.resolve("");
     const cats = News.detect(t);
     const wantsPredict = PREDICT.test(t) && /\b(match|game|league|cup|final|fixture|vs|versus|win|team|club|football|nba|f1|fight|season|title)\b/i.test(t);
     if (wantsPredict && !cats.includes("sports")) cats.push("sports");
@@ -346,13 +349,15 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, nanoid
     if (cats.length) { const lists = await Promise.all(cats.map((c) => News.top(c, 6))); const seen = new Set(); newsItems = lists.flat().filter((x) => !seen.has(x.title) && seen.add(x.title)).slice(0, 10); }
     else if (!chitchat && KB.isQuestion(t) && /\b(who|what happened|why did|is it true|latest|today|yesterday|this week|just|arrested|died|dead|won|lost|score|price of)\b/i.test(t)) newsItems = await News.search(t, 5).catch(() => []);
     if (wantsPredict) { const extra = await News.search(t.replace(/\b(predict(ion|ions)?|forecast|who (will|go|wan) win|odds)\b/gi, " "), 5).catch(() => []); const seen2 = new Set(newsItems.map((x) => x.title)); newsItems = [...newsItems, ...extra.filter((x) => !seen2.has(x.title))].slice(0, 12); }
+    const liveScores = (await scoresP) || "";
+    let greetNote = ""; try { greetNote = Greet ? Greet.notes(Greet.detect(t)) : ""; } catch (e) { /* optional */ }
     const R = await researchP;
     if (R) {
       const seenN = new Set(newsItems.map((x) => x.title));
       newsItems = [...newsItems, ...R.news.filter((x) => !seenN.has(x.title))].slice(0, 12);
       if (R.web.length) web = { text: R.web.map((w) => w.text).join(" || "), sources: [...new Set(R.web.flatMap((w) => w.sources || []))].filter(Boolean) };
     }
-    const ctxBase = (app.length ? "APP INFO:\n- " + app.join("\n- ") + "\n" : "") + (mine.length ? "FACTS FROM THE DEVELOPER, DAILY RESEARCH AND REPORTS:\n- " + mine.join("\n- ") + "\n" : "") + (newsItems.length ? "NEWS NOTES (" + (cats.length ? cats.map((c) => News.labels()[c]).join(", ") : "search results") + "):\n" + News.notes(newsItems) + "\n" : "") + (web ? "WEB NOTES (" + (web.sources || []).join(", ") + ") researched just now for this question: " + web.text + "\n" : "") + (APP_URL() ? "APP LINK: " + APP_URL() + "\n" : "");
+    const ctxBase = (app.length ? "APP INFO:\n- " + app.join("\n- ") + "\n" : "") + (mine.length ? "FACTS FROM THE DEVELOPER, DAILY RESEARCH AND REPORTS:\n- " + mine.join("\n- ") + "\n" : "") + (greetNote ? greetNote + "\n" : "") + (liveScores ? liveScores + "\n" : "") + (newsItems.length ? "NEWS NOTES (" + (cats.length ? cats.map((c) => News.labels()[c]).join(", ") : "search results") + "):\n" + News.notes(newsItems) + "\n" : "") + (web ? "WEB NOTES (" + (web.sources || []).join(", ") + ") researched just now for this question: " + web.text + "\n" : "") + (APP_URL() ? "APP LINK: " + APP_URL() + "\n" : "");
     const hist = chatOf(user).slice(-14).filter((m) => !m.digest && m.text).filter((m, i, a) => m.from === "me" || !a.some((x) => x.from === "me" && jacc(tokens(x.text), tokens(m.text)) > 0.7)).map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 700) }));
     const myHint = meHint(user); if (myHint) skills.push(myHint);
     const accept = echoGuard(user, t);

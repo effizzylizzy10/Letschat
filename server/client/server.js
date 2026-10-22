@@ -1852,7 +1852,10 @@ const KB = require("./knowledge"); // online sourcing + self-learning knowledge 
 KB.start();
 const NEWS = require("./news"); // Nigerian news, gist, gossip, trending, crime and sports feeds (see news.js)
 NEWS.start();
-const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, News: NEWS, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
+const SCORES = require("./scores"); // live football/NBA scores, fixtures and tables for the AI (see scores.js)
+const GREET = require("./greetings"); // love / friendship / prayer / consoling / birthday... messages written by the AI, with a built-in bank as backup (see greetings.js)
+const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, News: NEWS, Scores: SCORES, Greet: GREET, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
+GREET.setup(app, { authMiddleware, KB });
 // BOT.start() removed: no daily research or auto-learning for the LetsChat AI page
 const AI_STOP = new Set("a an the is are was were be been am i you he she it we they me my your our their to of in on at for with and or but so if this that these those do does did have has had will would can could should just please pls ok okay oh not".split(" "));
 function aiTokens(t) {
@@ -2419,7 +2422,13 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
     if (!u0) return res.status(404).json({ error: "Not found" });
     const past = (Array.isArray(u0.botChat) ? u0.botChat : []).filter((m) => m && m.text && !m.digest && !m.off).slice(-12)
       .map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 2000) }));
-    const out = await KB.chat([{ role: "system", content: AI_PAGE_SYSTEM }, ...past, { role: "user", content: text }], { max: 2000, temp: 0.7, timeout: 30000, budget: 80000 });
+    let greetNote = ""; // greeting request ("write a birthday message for Ada"): give the AI the style guide
+    try { greetNote = GREET.notes(GREET.detect(text)); } catch (e) { /* answer without it */ }
+    let liveScores = ""; // sports question: feed the AI the latest scores first, so it never answers scores from memory
+    try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 7000); } catch (e) { /* answer without it */ }
+    const sysMsg0 = greetNote ? AI_PAGE_SYSTEM + "\n\n" + greetNote : AI_PAGE_SYSTEM;
+    const sysMsg = liveScores ? sysMsg0 + " For scores, fixtures, results and tables use ONLY the LIVE SCORES notes below: give the score, the status (live minute or full time), and say the data time. If a match or team is not in the notes, say you could not confirm it instead of guessing.\n\n" + liveScores : sysMsg0;
+    const out = await KB.chat([{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }], { max: 2000, temp: 0.7, timeout: 30000, budget: 80000 });
     if (!out) {
       // every AI engine failed: still answer from the free online sources (weather, news, definitions, Wikipedia...) or a friendly fallback
       let fb = null;

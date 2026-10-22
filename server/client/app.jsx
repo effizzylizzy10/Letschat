@@ -6667,6 +6667,41 @@ const GalleryIcon = makeIcon([["r", 3, 3, 18, 18, 2], ["c", 9, 9, 2], ["p", "m21
 const DocIcon = makeIcon([["p", "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"]]);
 const LcPollIcon = makeIcon([["p", "M4 20V10"], ["p", "M10 20V4"], ["p", "M16 20v-7"], ["p", "M22 20H2"]]);
 const LcClockIcon = makeIcon([["p", "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z"], ["p", "M12 6v6l4 2"]]);
+// ---- greeting writer: pick a type (love, friendship, prayer, consoling...), the AI writes it, you edit and use it in the chat ----
+const LcHeartIcon = makeIcon([["p", "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21.2l7.7-7.7 1.1-1.1a5.5 5.5 0 0 0 0-7.8z"]]);
+const LC_GREETS = [["goodmorning", "Good morning", "🌅"], ["goodnight", "Good night", "🌙"], ["love", "Love", "❤️"], ["friendship", "Friendship", "🤝"], ["prayer", "Prayer", "🙏"], ["consoling", "Consoling", "🕊️"], ["encouragement", "Encouragement", "💪"], ["birthday", "Birthday", "🎂"], ["getwell", "Get well", "🌿"], ["congrats", "Congratulations", "🎉"], ["thanks", "Thank you", "🙌"], ["sorry", "Sorry", "🥺"], ["anniversary", "Anniversary", "💍"]];
+function GreetingSheet({ token, defaultName, onUse, onClose }) {
+  const [cat, setCat] = useState("");
+  const [name, setName] = useState(defaultName || "");
+  const [length, setLength] = useState("medium");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const write = async (c, again) => {
+    const category = c || cat; if (!category) return setErr("Pick a message type first");
+    setBusy(true); setErr("");
+    try {
+      const d = await api("/api/v1/greetings/generate", { method: "POST", token, body: { category, name: name.trim(), length, avoid: again ? text : "" } });
+      setText(d.text || "");
+    } catch (e) { setErr(e.message || "Could not write the message. Try again."); }
+    setBusy(false);
+  };
+  const field = { width: "100%", boxSizing: "border-box", background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "12px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 8 };
+  const chip = (on) => ({ padding: "8px 12px", borderRadius: 999, border: "1px solid " + (on ? "#35D0BA" : "#2B3544"), background: on ? "#35D0BA22" : "#1E2530", color: on ? "#35D0BA" : "#C9D1DB", fontFamily: "Inter", fontSize: 13.5, cursor: "pointer" });
+  return React.createElement(SheetFrame, { title: "Send a greeting", onClose, tall: true },
+    React.createElement("div", { style: { padding: "0 16px 18px" } },
+      React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 } },
+        LC_GREETS.map(([id, label, em]) => React.createElement("button", { key: id, onClick: () => { setCat(id); write(id); }, style: chip(cat === id) }, em + " " + label))),
+      React.createElement("input", { value: name, maxLength: 40, onChange: (e) => setName(e.target.value), placeholder: "Their name (optional)", "aria-label": "Their name", style: field }),
+      React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
+        [["short", "Short"], ["medium", "Medium"], ["long", "Long"]].map(([id, label]) => React.createElement("button", { key: id, onClick: () => setLength(id), style: chip(length === id) }, label))),
+      busy && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "6px 2px 12px" } }, "Writing…"),
+      err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#FF6B6B", padding: "0 2px 10px" } }, err),
+      text && React.createElement("textarea", { value: text, rows: 6, maxLength: 1200, onChange: (e) => setText(e.target.value), "aria-label": "Message", style: { ...field, resize: "vertical", lineHeight: 1.45 } }),
+      text && React.createElement("div", { style: { display: "flex", gap: 8 } },
+        React.createElement("button", { disabled: busy, onClick: () => write(cat, true), style: { flex: 1, padding: "13px 0", borderRadius: 12, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: "pointer" } }, "Another"),
+        React.createElement("button", { disabled: busy || !text.trim(), onClick: () => onUse(text.trim()), style: { flex: 1, padding: "13px 0", borderRadius: 12, border: "none", background: "#35D0BA", color: "#05070A", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: "pointer" } }, "Use message"))));
+}
 function AttachSheet({ onClose, onPick }) {
   const items = [
     { id: "location", label: "Location", Icon: MapPin, color: "#35D0BA" },
@@ -6675,6 +6710,7 @@ function AttachSheet({ onClose, onPick }) {
     { id: "document", label: "Document", Icon: DocIcon, color: "#FF8A5D" },
     { id: "catalogue", label: "Catalogue", Icon: ShoppingBag, color: "#B58CFF" },
     ...(featOn("polls") ? [{ id: "poll", label: "Poll", Icon: LcPollIcon, color: "#4FD1C5" }] : []),
+    { id: "greeting", label: "Greeting", Icon: LcHeartIcon, color: "#FF6B8A" },
     ...(featOn("scheduling") ? [{ id: "schedule", label: "Schedule", Icon: LcClockIcon, color: "#F687B3" }] : []),
   ];
   return React.createElement("div", { onClick: onClose, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 54, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" } },
@@ -7265,6 +7301,7 @@ const shareContact = async () => {
     const rid = replyTo ? replyTo.id : undefined; setReplyTo(null); setSheetName(null);
     socket.emit("message:send", { conversationId: conversation.id, poll, ...(rid ? { replyTo: rid } : {}) }, (ack) => { if (ack && ack.error) setError(ack.error); else playSound("send"); });
   };
+  const useGreeting = (t) => { setSheetName(null); setDraft((t || "").slice(0, MAX_MSG_CHARS)); setTimeout(() => inputRef.current && inputRef.current.focus(), 50); };
   const onPickAttach = (id) => {
     setAttachOpen(false);
     if (id === "location") shareLocation();
@@ -7274,6 +7311,7 @@ const shareContact = async () => {
     else if (id === "catalogue") shareCatalogue();
     else if (id === "poll") setSheetName("poll");
     else if (id === "schedule") setSheetName("schedule");
+    else if (id === "greeting") setSheetName("greeting");
   };
 
 
@@ -7660,6 +7698,7 @@ const shareContact = async () => {
       {sheetName === "starred" && <StarredSheet stars={stars} conversation={conversation} myId={myId} onUnstar={unstarId} onClose={() => setSheetName(null)} onJump={(id) => { setSheetName(null); if (fEls.current[id]) setTimeout(() => jumpTo(id), 60); else flashNote("That message is older. Scroll up to load it."); }} />}
       {sheetName === "media" && <MediaDocsSheet msgs={msgs} conversation={conversation} myId={myId} onOpenImage={setViewer} onClose={() => setSheetName(null)} />}
       {sheetName === "poll" && <PollSheet onSend={sendPoll} onClose={() => setSheetName(null)} />}
+      {sheetName === "greeting" && <GreetingSheet token={token} defaultName={conversation.other && !conversation.isGroup ? String(conversation.other.name || "").split(" ")[0] : ""} onUse={useGreeting} onClose={() => setSheetName(null)} />}
       {sheetName === "schedule" && <ScheduleSheet conversationId={conversation.id} socket={socket} onClose={() => setSheetName(null)} />}
       {needPin && <LockPrompt mode="enter" onCancel={onBack} onDone={() => { LCX.unlocked.add(conversation.id); setNeedPin(false); }} />}
       {sheetName === "lockset" && <LockPrompt mode="set" onCancel={() => setSheetName(null)} onDone={() => { LCX.setLocked(conversation.id, true); LCX.unlocked.add(conversation.id); setSheetName(null); flashNote("Chat locked"); }} />}
