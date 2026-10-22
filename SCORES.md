@@ -10,3 +10,9 @@ Files changed: `server/client/scores.js` (new), `server/client/bot.js`, `server/
 - To use a paid feed later (API-Football, Sportmonks), replace `league()` in scores.js; the rest stays the same.
 - Backup source: if ESPN returns nothing for a league, TheSportsDB (free test key) supplies results and fixtures for the week (not minute-by-minute live).
 - Health check: open `https://YOUR-SERVER/api/v1/scores/status` in a browser. It shows the Node version, whether ESPN answered (or the error), and sample matches. Fetch errors are also written to the server log as "scores: could not fetch ...".
+
+## Automatic web fallback (added)
+- Order: ESPN live feed > TheSportsDB (results/fixtures) > **web check** > Google News headlines. The web check uses your existing Gemini key with Google Search, which reads live-score sites (BBC Sport, ESPN, Flashscore, Sofascore, LiveScore), news and blogs. It runs only when the feeds do not have the team or match asked about. Cached 90 s.
+- Typos in team names are tolerated ("renes" finds Rennes, "mlmanchester united" finds Manchester United).
+- More leagues: Conference League, Eredivisie, Primeira Liga, Super Lig are checked by default.
+- If nothing is found anywhere, the AI is told to say so plainly and point to BBC Sport instead of guessing.
