@@ -1853,6 +1853,7 @@ KB.start();
 const NEWS = require("./news"); // Nigerian news, gist, gossip, trending, crime and sports feeds (see news.js)
 NEWS.start();
 const SCORES = require("./scores"); // live football/NBA scores, fixtures and tables for the AI (see scores.js)
+SCORES.attach({ KB, News: NEWS }); // lets live scores fall back to a Google-grounded web search and news headlines
 const GREET = require("./greetings"); // love / friendship / prayer / consoling / birthday... messages written by the AI, with a built-in bank as backup (see greetings.js)
 const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, News: NEWS, Scores: SCORES, Greet: GREET, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
 GREET.setup(app, { authMiddleware, KB });
@@ -2426,7 +2427,7 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
     let greetNote = ""; // greeting request ("write a birthday message for Ada"): give the AI the style guide
     try { greetNote = GREET.notes(GREET.detect(text)); } catch (e) { /* answer without it */ }
     let liveScores = ""; // sports question: feed the AI the latest scores first, so it never answers scores from memory
-    try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 7000); } catch (e) { /* answer without it */ }
+    try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 22000); } catch (e) { /* answer without it */ }
     const sysMsg0 = greetNote ? AI_PAGE_SYSTEM + "\n\n" + greetNote : AI_PAGE_SYSTEM;
     const sysMsg = liveScores ? sysMsg0 + " For scores, fixtures, results and tables use ONLY the LIVE SCORES notes below: give the score, the status (live minute or full time), and say the data time. If a match or team is not in the notes, say you could not confirm it instead of guessing.\n\n" + liveScores : sysMsg0;
     const out = await KB.chat([{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }], { max: 2000, temp: 0.7, timeout: 30000, budget: 80000 });

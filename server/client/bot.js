@@ -343,7 +343,7 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, Scores
     }
     const researchP = (!app.length && needsResearch(t)) ? researchNow(t) : Promise.resolve(null); // research starts immediately, in parallel
     const scoreReq = Scores ? Scores.detect(t) : null; // score / fixture / table question: fetch live data now
-    const scoresP = scoreReq ? withTimeout(Scores.notes(scoreReq).catch(() => ""), 7000) : Promise.resolve("");
+    const scoresP = scoreReq ? withTimeout(Scores.notes(scoreReq).catch(() => ""), 22000) : Promise.resolve("");
     const cats = News.detect(t);
     const wantsPredict = PREDICT.test(t) && /\b(match|game|league|cup|final|fixture|vs|versus|win|team|club|football|nba|f1|fight|season|title)\b/i.test(t);
     if (wantsPredict && !cats.includes("sports")) cats.push("sports");

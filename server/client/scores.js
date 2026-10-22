@@ -22,16 +22,23 @@ const LEAGUES = {
   wcq:   { path: "soccer/fifa.worldq.caf", label: "World Cup qualifiers (CAF)", re: /\b(world cup qualifier|wcq|qualifiers?|super eagles)\b/i },
   wc:    { path: "soccer/fifa.world", label: "World Cup", re: /\b(world cup)\b/i },
   mls:   { path: "soccer/usa.1", label: "MLS", re: /\b(mls)\b/i },
+  uecl:  { path: "soccer/uefa.europa.conf", label: "Conference League", re: /\b(conference league|uecl)\b/i },
+  ned:   { path: "soccer/ned.1", label: "Eredivisie", re: /\b(eredivisie|dutch league)\b/i, table: true },
+  por:   { path: "soccer/por.1", label: "Primeira Liga", re: /\b(primeira liga|portuguese league|liga portugal)\b/i, table: true },
+  tur:   { path: "soccer/tur.1", label: "Super Lig", re: /\b(super lig|turkish league)\b/i, table: true },
   nba:   { path: "basketball/nba", label: "NBA", re: /\b(nba|basketball)\b/i },
 };
 // when the question names no league, these are checked (and searched for the team named)
-const DEFAULT = ["epl", "ucl", "laliga", "seriea", "bund", "ligue1", "uel"];
+const DEFAULT = ["epl", "ucl", "uel", "uecl", "laliga", "seriea", "bund", "ligue1", "ned", "por", "tur"];
 
 // STRONG words are about sport on their own; WEAK words ("results", "score", "won") only count when a league or a team from today's data is named,
 // so "my exam results" or "what is the score of my loan" are left alone.
 const STRONG = /\b(live ?scores?|who won|kick ?off|full ?time|half ?time|league table|standings?|fixtures?|playing (today|tonight|now)|(matches|games) (today|tonight))\b/i;
-const WEAK = /\b(scores?|results?|table|log|points|win|won|lost|lose|draw|drew|beat|match|matches|game|games|playing|played|today|tonight|yesterday|now|live|next|latest)\b/i;
+const WEAK = /\b(scores?|vs|versus|results?|table|log|points|win|won|lost|lose|draw|drew|beat|match|matches|game|games|playing|played|today|tonight|yesterday|now|live|next|latest)\b/i;
 const TABLEY = /\b(table|standings?|log|top of the league|points|who is leading|who'?s leading|position)\b/i;
+
+let HELP = { KB: null, News: null };
+function attach(h) { HELP = Object.assign(HELP, h || {}); }
 
 const cache = new Map(); // url -> { t, ttl, data }
 const errs = new Map(); // url -> last error text (shown by status(), and logged once a minute)
@@ -132,7 +139,14 @@ function detect(text) {
   const leagues = Object.keys(LEAGUES).filter((k) => LEAGUES[k].re.test(t) && !(k === "wc" && /qualif/i.test(t)) && !(k === "wcq" && !/qualif|super eagles/i.test(t)));
   const strong = STRONG.test(t);
   if (!strong && !WEAK.test(t)) return null;
-  return { leagues: leagues.length ? leagues : DEFAULT, named: leagues.length > 0, strong, table: TABLEY.test(t), text: normName(t) };
+  return { leagues: leagues.length ? leagues : DEFAULT, named: leagues.length > 0, strong, table: TABLEY.test(t), text: normName(t), raw: t.slice(0, 200) };
+}
+
+function lev(a, b) { // edit distance, for typos
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
 }
 
 function teamHits(events, text) {
@@ -144,7 +158,8 @@ function teamHits(events, text) {
   const exact = events.filter((e) => full(e.home) || full(e.away));
   if (exact.length) return exact;
   // 2) otherwise a distinctive word of the club name (not "united", "city", "fc"...)
-  const word = (name) => normName(name).split(" ").some((w) => w.length > 4 && !NOISE.has(w) && t.includes(w));
+  const toks = t.split(" ").filter((x) => x.length > 3);
+  const word = (name) => normName(name).split(" ").some((w) => w.length > 4 && !NOISE.has(w) && (t.includes(w) || toks.some((x) => Math.abs(x.length - w.length) <= 1 && lev(x, w) <= (w.length >= 7 ? 2 : 1))));
   return events.filter((e) => word(e.home) || word(e.away));
 }
 
@@ -170,24 +185,53 @@ async function table(key) {
   return L.label + " TABLE (top " + rows.length + "):\n" + rows.map((x) => x.r + ". " + x.n + " " + x.p + " pts, P" + x.gp + ", GD " + x.gd).join("\n");
 }
 
-// main entry: returns plain-text notes for the AI prompt, or "" when nothing could be fetched
+const SPORT_WORDS = /\b(score|scores|match|matches|game|games|won|lost|beat|played|playing|result|results|fixture|league|cup|vs|versus|v)\b/g;
+const NOT_SPORT = /\b(exam|test|school|loan|credit|grade|class|quiz)\b/;
+
+// When the live feeds do not have the match (small league, cup tie, wrong spelling), read the web: Google-grounded search over live-score sites,
+// news and blogs, then Google News headlines as the last resort. Cached 90 s so a busy match does not cost one search per user.
+const webCache = new Map();
+async function web(question) {
+  const key = normName(question).slice(0, 120), hit = webCache.get(key);
+  if (hit && Date.now() - hit.t < 90e3) return hit.v;
+  let out = "";
+  const when = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  try {
+    if (HELP.KB && HELP.KB.geminiSearch) {
+      const g = await HELP.KB.geminiSearch([
+        { role: "system", content: "You check sports scores from live-score sites (BBC Sport, ESPN, Flashscore, Sofascore, LiveScore, official league and club sites), news and blogs. Today is " + when + ". Answer in at most 3 short lines: the two teams, the score, the status (live minute, full time, or kick-off time in UTC if not started), the competition and the date, then the site names you used. Fix obvious spelling mistakes in team names. Use only what the search shows. If you cannot find that match, reply exactly NOT FOUND." },
+        { role: "user", content: question },
+      ], { max: 400, temp: 0.1, timeout: 14000, accept: (x) => x.length > 8 && !/^\s*NOT FOUND/i.test(x) });
+      if (g && g.text) out = "WEB CHECK (Google search of live-score sites, news and blogs, " + when + "):\n" + g.text.replace(/\n{2,}/g, "\n") + (g.links && g.links.length ? "\nSources: " + g.links.slice(0, 3).map((l) => l.title || l.uri).join("; ") : "");
+    }
+  } catch (e) { /* try headlines */ }
+  if (!out && HELP.News && HELP.News.search) {
+    try {
+      const items = await HELP.News.search(question + " score", 5);
+      if (items && items.length) out = "LATEST HEADLINES about this match (Google News, may include the score; read them for it):\n" + HELP.News.notes(items);
+    } catch (e) { /* nothing */ }
+  }
+  webCache.set(key, { t: Date.now(), v: out });
+  if (webCache.size > 60) webCache.delete(webCache.keys().next().value);
+  return out;
+}
+
+// main entry: returns plain-text notes for the AI prompt, or "" when this is not a sports question
 async function notes(req) {
   if (!req) return "";
   try {
     const lists = await Promise.all(req.leagues.map((k) => league(k).catch(() => [])));
-    let events = lists.flat();
+    const events = lists.flat();
     const sections = [];
     const mine = req.named ? [] : teamHits(events, req.text);
     let asked;
     if (req.named) asked = events;
     else if (mine.length) asked = mine;
     else if (req.strong) { const lv = events.filter((e) => e.state === "in"); asked = lv.length ? lv : events.filter((e) => e.key === (events[0] || {}).key); }
-    else {
-      // a weak word with no league or team named: only a clear sports question ("score" + "match") gets a "not found" note; anything else is ignored
-      const sporty = (req.text.match(/\b(score|scores|match|matches|game|games|won|lost|beat|played|playing|result|results|fixture|league|cup)\b/g) || []).length;
-      if (sporty < 2 || /\b(exam|test|school|loan|credit|grade|class|quiz)\b/.test(req.text)) return "";
-      return "LIVE SCORES (checked " + hm(Date.now()) + " " + TZ_NOTE + "): no match for the team or league in this question was found in the last 5 days or the next 3 days (" + req.leagues.map((k) => LEAGUES[k].label).join(", ") + "). Say this plainly, do not guess a score from memory, ask them to check the spelling or name the league, and mention " + BBC + ".";
-    }
+    else asked = [];
+    const sporty = (req.text.match(SPORT_WORDS) || []).length;
+    const clearlySport = req.strong || req.named || mine.length > 0 || (sporty >= 2 && !NOT_SPORT.test(req.text));
+    if (!clearlySport) return "";
     // priority: live now, then the closest-in-time results/fixtures
     const live = asked.filter((e) => e.state === "in");
     const done = asked.filter((e) => e.state === "post").slice(-8);
@@ -200,9 +244,14 @@ async function notes(req) {
       const tabs = (await Promise.all(keys.slice(0, 2).map((k) => table(k).catch(() => "")))).filter(Boolean);
       if (tabs.length) sections.push(tabs.join("\n"));
     }
-    if (!sections.length) return "";
+    // the feeds did not have the team or match asked about: search the web
+    const teamAsked = !req.named && !mine.length;
+    let webText = "";
+    if (teamAsked || !sections.length) webText = await web(req.raw || req.text);
+    if (webText) sections.push(webText);
+    if (!sections.length) return "LIVE SCORES (checked " + hm(Date.now()) + " " + TZ_NOTE + "): the live feeds and a web search found nothing for this match. Say so plainly, do not guess a score from memory, suggest checking the spelling or naming the league, and mention " + BBC + ".";
     return "LIVE SCORES (data fetched " + hm(Date.now()) + " " + TZ_NOTE + "; times are " + TZ_NOTE + "; also check " + BBC + "):\n" + sections.join("\n\n");
   } catch (e) { return ""; }
 }
 
-module.exports = { detect, notes, status, league, parseEvents, teamHits, LEAGUES };
+module.exports = { attach, detect, notes, status, league, parseEvents, teamHits, LEAGUES };
