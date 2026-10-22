@@ -1856,6 +1856,7 @@ const SCORES = require("./scores"); // live football/NBA scores, fixtures and ta
 const GREET = require("./greetings"); // love / friendship / prayer / consoling / birthday... messages written by the AI, with a built-in bank as backup (see greetings.js)
 const BOT = require("./bot")({ readDB, writeDB, isCreator, KB, News: NEWS, Scores: SCORES, Greet: GREET, nanoid }); // the LetsChat AI robot you chat with from the Chats tab (see bot.js)
 GREET.setup(app, { authMiddleware, KB });
+app.get(["/api/scores/status", "/api/v1/scores/status"], async (req, res) => { try { res.json(await SCORES.status()); } catch (e) { res.status(500).json({ error: e.message }); } }); // health check for live scores
 // BOT.start() removed: no daily research or auto-learning for the LetsChat AI page
 const AI_STOP = new Set("a an the is are was were be been am i you he she it we they me my your our their to of in on at for with and or but so if this that these those do does did have has had will would can could should just please pls ok okay oh not".split(" "));
 function aiTokens(t) {

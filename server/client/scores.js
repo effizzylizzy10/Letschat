@@ -9,13 +9,13 @@ const BBC = "https://www.bbc.com/sport/football/scores-fixtures";
 
 // key -> ESPN path, label, words people use for it
 const LEAGUES = {
-  epl:   { path: "soccer/eng.1", label: "Premier League", re: /\b(premier league|epl|english premier)\b/i, table: true },
-  ucl:   { path: "soccer/uefa.champions", label: "Champions League", re: /\b(champions league|ucl)\b/i },
-  uel:   { path: "soccer/uefa.europa", label: "Europa League", re: /\b(europa league|uel)\b/i },
-  laliga:{ path: "soccer/esp.1", label: "La Liga", re: /\b(la ?liga|spanish league)\b/i, table: true },
-  seriea:{ path: "soccer/ita.1", label: "Serie A", re: /\b(serie a|italian league)\b/i, table: true },
-  bund:  { path: "soccer/ger.1", label: "Bundesliga", re: /\b(bundesliga|german league)\b/i, table: true },
-  ligue1:{ path: "soccer/fra.1", label: "Ligue 1", re: /\b(ligue 1|french league)\b/i, table: true },
+  epl:   { path: "soccer/eng.1", label: "Premier League", sdb: "4328", re: /\b(premier league|epl|english premier)\b/i, table: true },
+  ucl:   { path: "soccer/uefa.champions", label: "Champions League", sdb: "4480", re: /\b(champions league|ucl)\b/i },
+  uel:   { path: "soccer/uefa.europa", label: "Europa League", sdb: "4481", re: /\b(europa league|uel)\b/i },
+  laliga:{ path: "soccer/esp.1", label: "La Liga", sdb: "4335", re: /\b(la ?liga|spanish league)\b/i, table: true },
+  seriea:{ path: "soccer/ita.1", label: "Serie A", sdb: "4332", re: /\b(serie a|italian league)\b/i, table: true },
+  bund:  { path: "soccer/ger.1", label: "Bundesliga", sdb: "4331", re: /\b(bundesliga|german league)\b/i, table: true },
+  ligue1:{ path: "soccer/fra.1", label: "Ligue 1", sdb: "4334", re: /\b(ligue 1|french league)\b/i, table: true },
   facup: { path: "soccer/eng.fa", label: "FA Cup", re: /\b(fa cup)\b/i },
   carabao:{ path: "soccer/eng.league_cup", label: "Carabao Cup", re: /\b(carabao|league cup|efl cup)\b/i },
   afcon: { path: "soccer/caf.nations", label: "Africa Cup of Nations", re: /\b(afcon|africa cup of nations|africa cup)\b/i },
@@ -34,6 +34,8 @@ const WEAK = /\b(scores?|results?|table|log|points|win|won|lost|lose|draw|drew|b
 const TABLEY = /\b(table|standings?|log|top of the league|points|who is leading|who'?s leading|position)\b/i;
 
 const cache = new Map(); // url -> { t, ttl, data }
+const errs = new Map(); // url -> last error text (shown by status(), and logged once a minute)
+let lastLog = 0;
 async function getJSON(url, ms) {
   const hit = cache.get(url);
   if (hit && Date.now() - hit.t < hit.ttl) return hit.data;
@@ -45,8 +47,12 @@ async function getJSON(url, ms) {
     const live = JSON.stringify(data).includes('"state":"in"');
     cache.set(url, { t: Date.now(), ttl: live ? 45e3 : 5 * 60e3, data });
     if (cache.size > 80) cache.delete(cache.keys().next().value);
+    errs.delete(url);
     return data;
   } catch (e) {
+    const why = (e && e.name === "AbortError") ? "timed out" : (e && e.message) || String(e);
+    errs.set(url, why);
+    if (Date.now() - lastLog > 60000) { lastLog = Date.now(); console.error("scores: could not fetch " + url + " (" + why + ")" + (typeof fetch !== "function" ? ". This Node version has no fetch: use Node 18 or newer" : "")); }
     return hit ? hit.data : null; // an older copy is better than nothing
   } finally { clearTimeout(timer); }
 }
@@ -82,11 +88,38 @@ function parseEvents(json) {
   return out.sort((a, b) => a.time - b.time);
 }
 
+// second source when ESPN gives nothing: TheSportsDB free test key (finished results and next fixtures, not minute-by-minute live)
+async function sportsDb(key) {
+  const L = LEAGUES[key]; if (!L || !L.sdb) return [];
+  const [past, next] = await Promise.all(["eventspastleague", "eventsnextleague"].map((p) => getJSON("https://www.thesportsdb.com/api/v1/json/3/" + p + ".php?id=" + L.sdb)));
+  const out = [];
+  for (const ev of [...((past || {}).events || []), ...((next || {}).events || [])]) {
+    const time = Date.parse((ev.dateEvent || "") + "T" + ((ev.strTime || "00:00:00").slice(0, 8)) + "Z") || Date.parse(ev.dateEvent) || 0;
+    const done = ev.intHomeScore != null && ev.intHomeScore !== "" && ev.intAwayScore != null && ev.intAwayScore !== "";
+    if (!ev.strHomeTeam || !ev.strAwayTeam) continue;
+    if (time && Math.abs(time - Date.now()) > 3 * 864e5) continue; // only about this week
+    out.push({ id: ev.idEvent, time, state: done ? "post" : "pre", detail: ev.strStatus || "", clock: "", home: ev.strHomeTeam, away: ev.strAwayTeam, hs: done ? String(ev.intHomeScore) : "", as: done ? String(ev.intAwayScore) : "", completed: done, league: L.label, key });
+  }
+  return out.sort((a, b) => a.time - b.time);
+}
+
 async function league(key) {
   const L = LEAGUES[key]; if (!L) return [];
   const json = await getJSON(BASE + L.path + "/scoreboard" + range());
-  return parseEvents(json).map((e) => ({ ...e, league: L.label, key }));
+  const ev = parseEvents(json).map((e) => ({ ...e, league: L.label, key }));
+  if (ev.length) return ev;
+  try { return await sportsDb(key); } catch (e) { return []; }
 }
+
+// quick health check for the owner: open /api/v1/scores/status in a browser
+async function status() {
+  const url = BASE + "soccer/eng.1/scoreboard" + range();
+  cache.delete(url);
+  const json = await getJSON(url, 9000);
+  const ev = parseEvents(json);
+  return { node: process.version, hasFetch: typeof fetch === "function", espnOk: !!json, espnError: errs.get(url) || null, premierLeagueMatchesInWindow: ev.length, live: ev.filter((e) => e.state === "in").length, sample: ev.slice(-3).map(line0), time: new Date().toISOString() };
+}
+const line0 = (e) => e.home + " " + e.hs + "-" + e.as + " " + e.away + " (" + e.state + ")";
 
 // ---- which leagues / which team is this message about? ----
 const normName = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
@@ -162,8 +195,8 @@ async function notes(req) {
       if (tabs.length) sections.push(tabs.join("\n"));
     }
     if (!sections.length) return "";
-    return "LIVE SCORES (ESPN data fetched " + hm(Date.now()) + " " + TZ_NOTE + "; times are " + TZ_NOTE + "; also check " + BBC + "):\n" + sections.join("\n\n");
+    return "LIVE SCORES (data fetched " + hm(Date.now()) + " " + TZ_NOTE + "; times are " + TZ_NOTE + "; also check " + BBC + "):\n" + sections.join("\n\n");
   } catch (e) { return ""; }
 }
 
-module.exports = { detect, notes, league, parseEvents, teamHits, LEAGUES };
+module.exports = { detect, notes, status, league, parseEvents, teamHits, LEAGUES };
