@@ -58,7 +58,7 @@ async function getJSON(url, ms) {
 }
 
 const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
-function range() { // 2 days back to 2 days ahead, so "yesterday's result" and "tomorrow's fixture" both work
+function range() { // 5 days back to 3 days ahead, so "yesterday's result", "last weekend" and "tomorrow's fixture" all work
   const now = Date.now(), a = new Date(now - 2 * 864e5), b = new Date(now + 2 * 864e5);
   return "?dates=" + ymd(a) + "-" + ymd(b) + "&limit=100";
 }
@@ -97,7 +97,7 @@ async function sportsDb(key) {
     const time = Date.parse((ev.dateEvent || "") + "T" + ((ev.strTime || "00:00:00").slice(0, 8)) + "Z") || Date.parse(ev.dateEvent) || 0;
     const done = ev.intHomeScore != null && ev.intHomeScore !== "" && ev.intAwayScore != null && ev.intAwayScore !== "";
     if (!ev.strHomeTeam || !ev.strAwayTeam) continue;
-    if (time && Math.abs(time - Date.now()) > 3 * 864e5) continue; // only about this week
+    if (time && Math.abs(time - Date.now()) > 5 * 864e5) continue; // only about this week
     out.push({ id: ev.idEvent, time, state: done ? "post" : "pre", detail: ev.strStatus || "", clock: "", home: ev.strHomeTeam, away: ev.strAwayTeam, hs: done ? String(ev.intHomeScore) : "", as: done ? String(ev.intAwayScore) : "", completed: done, league: L.label, key });
   }
   return out.sort((a, b) => a.time - b.time);
@@ -137,14 +137,15 @@ function detect(text) {
 
 function teamHits(events, text) {
   let t = " " + text + " ";
-  for (const [a, b] of Object.entries(ALIAS)) if (t.includes(" " + a + " ")) t += b + " ";
-  const hit = (name) => {
-    const n = normName(name); if (!n) return false;
-    if (t.includes(" " + n + " ")) return true;
-    const words = n.split(" ").filter((w) => w.length > 3 && !NOISE.has(w));
-    return words.length > 0 && words.some((w) => t.includes(" " + w + " "));
-  };
-  return events.filter((e) => hit(e.home) || hit(e.away));
+  for (const [a, b] of Object.entries(ALIAS)) if (t.includes(a)) t += " " + b + " ";
+  const flat = t.replace(/ /g, "");
+  // 1) the whole club name appears anywhere in the message (a typo glued to it, like "mlmanchester united", still counts)
+  const full = (name) => { const n = normName(name); return n.length > 3 && (t.includes(n) || flat.includes(n.replace(/ /g, ""))); };
+  const exact = events.filter((e) => full(e.home) || full(e.away));
+  if (exact.length) return exact;
+  // 2) otherwise a distinctive word of the club name (not "united", "city", "fc"...)
+  const word = (name) => normName(name).split(" ").some((w) => w.length > 4 && !NOISE.has(w) && t.includes(w));
+  return events.filter((e) => word(e.home) || word(e.away));
 }
 
 const TZ_NOTE = "UTC";
@@ -181,7 +182,12 @@ async function notes(req) {
     if (req.named) asked = events;
     else if (mine.length) asked = mine;
     else if (req.strong) { const lv = events.filter((e) => e.state === "in"); asked = lv.length ? lv : events.filter((e) => e.key === (events[0] || {}).key); }
-    else return ""; // a weak word with no league or team named is not a sports question
+    else {
+      // a weak word with no league or team named: only a clear sports question ("score" + "match") gets a "not found" note; anything else is ignored
+      const sporty = (req.text.match(/\b(score|scores|match|matches|game|games|won|lost|beat|played|playing|result|results|fixture|league|cup)\b/g) || []).length;
+      if (sporty < 2 || /\b(exam|test|school|loan|credit|grade|class|quiz)\b/.test(req.text)) return "";
+      return "LIVE SCORES (checked " + hm(Date.now()) + " " + TZ_NOTE + "): no match for the team or league in this question was found in the last 5 days or the next 3 days (" + req.leagues.map((k) => LEAGUES[k].label).join(", ") + "). Say this plainly, do not guess a score from memory, ask them to check the spelling or name the league, and mention " + BBC + ".";
+    }
     // priority: live now, then the closest-in-time results/fixtures
     const live = asked.filter((e) => e.state === "in");
     const done = asked.filter((e) => e.state === "post").slice(-8);
