@@ -261,8 +261,11 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, Scores
   }
   const clipLong = (s, n) => { s = String(s || ""); return s.length > n ? s.slice(0, n) : s; };
 
-  function offline(text, emotion, app, mine, web, newsItems) {
+  function offline(text, emotion, app, mine, web, newsItems, liveScores) {
     const t = text.trim(), pid = PIDGIN.test(t);
+    // no AI engine answered: live scores and greeting requests still work from the data and the built-in message bank
+    if (liveScores) return ["Here are the latest scores I found:", liveScores.replace(/^LIVE SCORES \([^)]*\):\n?/, "")];
+    try { const g = Greet && Greet.detect(t); if (g) return [Greet.fromBank(g.category, g.name)]; } catch (e) { /* carry on */ }
     if (/^(hi+|hello+|hey+|yo|sup|wassup|what'?s up|good (morning|afternoon|evening))\b/i.test(t) && t.length < 40)
       return [pid ? pick(["Hey! How far? 👋", "Oga/Madam, good to see you! Wetin I fit do for you today?"]) : pick(["Hey! 👋 Good to see you. How can I help today?", "Hello there! 😊 What's on your mind?", "Hi! Nice to hear from you. What can I help you with?"])];
     if (pid && t.length < 40 && /\b(how far|how you dey|wetin dey|wetin dey happen|oga|abeg)\b/i.test(t) && !/\?.{12,}/.test(t)) return [pick(["I dey fine o! 😄 You nko? Wetin I fit do for you?", "No wahala, I dey here! Wetin dey sup? 👋"])];
@@ -389,7 +392,7 @@ module.exports = function makeBot({ readDB, writeDB, isCreator, KB, News, Scores
     if (!parts && cachedHit && !web && !newsItems.length) { parts = [cachedHit.a]; fromCache = true; }
     if (!parts) {
       if (!web && !chitchat && !app.length && !newsItems.length && wantsWeb(t)) { try { web = await Promise.race([KB.lookup(t), new Promise((r) => setTimeout(() => r(null), 8000))]); } catch (e) { web = null; } }
-      parts = offline(t, emotion, app, mine, web, newsItems);
+      parts = offline(t, emotion, app, mine, web, newsItems, liveScores);
       if (web && web.sources && web.sources.length) parts[parts.length - 1] += "\n(Source: " + web.sources.join(", ") + ")";
     }
     return { parts: parts.map((p) => clipLong(p, 6000)), react: react || "", by, ...(fromCache ? { cached: true } : {}) };
