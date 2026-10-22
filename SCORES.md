@@ -8,3 +8,5 @@ Files changed: `server/client/scores.js` (new), `server/client/bot.js`, `server/
 - Both the main LetsChat AI robot (bot.js) and the plain AI page (/api/bot/chat) receive the notes when a message is about scores, fixtures, results or a table. The AI is told to use only those notes and to say "could not confirm" if the team is not in them.
 - Nothing to configure. If ESPN is down the AI answers from news headlines as before.
 - To use a paid feed later (API-Football, Sportmonks), replace `league()` in scores.js; the rest stays the same.
+- Backup source: if ESPN returns nothing for a league, TheSportsDB (free test key) supplies results and fixtures for the week (not minute-by-minute live).
+- Health check: open `https://YOUR-SERVER/api/v1/scores/status` in a browser. It shows the Node version, whether ESPN answered (or the error), and sample matches. Fetch errors are also written to the server log as "scores: could not fetch ...".
