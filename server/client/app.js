@@ -5179,70 +5179,151 @@ function tuneSender(pc, maxVideo) {
         });
     } catch (e) {}
 }
+// Markdown for AI answers (bold, code, lists, headings, links). Builds React elements only, never raw HTML.
+function aiMd(text) {
+    const out = [], lines = String(text || "").split("\n");
+    let i = 0, k = 0;
+    const inline = (s) => {
+        const parts = [], re = /\*\*([^*]+)\*\*|`([^`]+)`/g;
+        let last = 0, m;
+        while ((m = re.exec(s))) {
+            if (m.index > last) parts.push(...aiLinkify(s.slice(last, m.index)));
+            if (m[1] !== undefined) parts.push(React.createElement("strong", { key: "b" + k++, style: { fontWeight: 700 } }, aiLinkify(m[1])));
+            else parts.push(React.createElement("code", { key: "c" + k++, style: { background: "rgba(0,0,0,.35)", padding: "1px 5px", borderRadius: 5, fontFamily: "monospace", fontSize: "0.92em" } }, m[2]));
+            last = m.index + m[0].length;
+        }
+        if (last < s.length) parts.push(...aiLinkify(s.slice(last)));
+        return parts;
+    };
+    const isBullet = (l) => /^\s*[-*\u2022]\s+/.test(l), isNum = (l) => /^\s*\d+[.)]\s+/.test(l);
+    while (i < lines.length) {
+        const ln = lines[i];
+        if (/^\s*```/.test(ln)) {
+            const code = []; i++;
+            while (i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i++]);
+            i++;
+            out.push(React.createElement("pre", { key: "p" + k++, style: { background: "#0B0E13", border: "1px solid #252D38", borderRadius: 10, padding: "10px 12px", overflowX: "auto", fontFamily: "monospace", fontSize: 13, lineHeight: 1.45, margin: "6px 0", whiteSpace: "pre" } }, code.join("\n")));
+            continue;
+        }
+        if (isBullet(ln) || isNum(ln)) {
+            const ordered = isNum(ln), items = [];
+            while (i < lines.length && (ordered ? isNum(lines[i]) : isBullet(lines[i]))) items.push(lines[i++].replace(/^\s*([-*\u2022]|\d+[.)])\s+/, ""));
+            out.push(React.createElement(ordered ? "ol" : "ul", { key: "l" + k++, style: { margin: "4px 0", paddingLeft: 22 } }, items.map((x, j) => React.createElement("li", { key: j, style: { margin: "3px 0" } }, inline(x)))));
+            continue;
+        }
+        if (/^#{1,4}\s+/.test(ln)) { out.push(React.createElement("div", { key: "h" + k++, style: { fontFamily: "Sora", fontWeight: 700, margin: "8px 0 3px" } }, inline(ln.replace(/^#{1,4}\s+/, "")))); i++; continue; }
+        if (!ln.trim()) { out.push(React.createElement("div", { key: "s" + k++, style: { height: 8 } })); i++; continue; }
+        out.push(React.createElement("div", { key: "t" + k++ }, inline(ln)));
+        i++;
+    }
+    return out;
+}
+// LetsChat AI page: answers stream in word by word (server: /api/bot/chat/stream, stream.js), like Gemini or ChatGPT.
+// Stop ends the answer early and keeps what was written. Each answer can be copied. Markdown is shown properly.
 function AiBotScreen({ token, onClose }) {
     const WELCOME = { from: "ai", text: "Hi, I'm LetsChat AI \uD83D\uDC4B Ask me anything.", t: Date.now(), id: "welcome" };
     const [msgs, setMsgs] = useState([]);
-    const [hlId, setHlId] = useState(null); // the message bubble that is highlighted (long-press), not the text
-    const pressRef = useRef(null);
     const [draft, setDraft] = useState("");
-    const [typing, setTyping] = useState(false);
+    const [busyNow, setBusyNow] = useState(false);
     const [err, setErr] = useState("");
     const [ready, setReady] = useState(false);
-    const endRef = useRef(null), listRef = useRef(null), busy = useRef(false), alive = useRef(true);
-    useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+    const [copiedId, setCopiedId] = useState(null);
+    const endRef = useRef(null), listRef = useRef(null), busy = useRef(false), alive = useRef(true), stopRef = useRef(null);
+    useEffect(() => { alive.current = true; return () => { alive.current = false; if (stopRef.current) stopRef.current.abort(); }; }, []);
     useEffect(() => {
         api("/api/bot/chat", { token }).then((s) => { if (alive.current) { setMsgs(s.messages || []); setReady(true); } })
             .catch(() => { if (alive.current) { setErr("Could not load your earlier AI chat."); setReady(true); } });
     }, []);
-    useEffect(() => { const box = listRef.current, el = endRef.current; if (box) box.scrollTop = box.scrollHeight; else if (el && el.scrollIntoView) el.scrollIntoView(false); }, [msgs, typing, ready]);
+    useEffect(() => { const box = listRef.current, el = endRef.current; if (box) box.scrollTop = box.scrollHeight; else if (el && el.scrollIntoView) el.scrollIntoView(false); }, [msgs, ready]);
+    const patchAi = (aiId, fn) => { if (alive.current) setMsgs((m) => m.map((x) => (x.id === aiId ? fn(x) : x))); };
+    const stop = () => { if (stopRef.current) stopRef.current.abort(); };
     const send = async () => {
         const text = String(draft).trim();
         if (!text || busy.current) return;
         if (typeof navigator !== "undefined" && navigator.onLine === false) { setErr("No internet connection. Please try again when you are online."); return; }
-        busy.current = true; setErr(""); setDraft(""); setTyping(true);
-        setMsgs((m) => [...m, { from: "me", text, t: Date.now(), id: "m" + Date.now() }]);
+        const aiId = "a" + Date.now();
+        busy.current = true; setBusyNow(true); setErr(""); setDraft("");
+        setMsgs((m) => [...m, { from: "me", text, t: Date.now(), id: "m" + Date.now() }, { from: "ai", text: "", t: Date.now(), id: aiId, streaming: true }]);
+        const ctl = new AbortController(); stopRef.current = ctl;
+        let gotText = false;
         try {
-            let out = null;
-            for (let attempt = 0; attempt < 2 && !out; attempt++) {
-                try { out = await api("/api/bot/chat", { method: "POST", token, body: { text }, timeoutMs: 95000 }); }
-                catch (e) { const m = String((e && e.message) || ""); const net = e instanceof TypeError || (e && e.name === "AbortError") || /failed to fetch|networkerror|load failed|network request failed|aborted|network connection was lost/i.test(m); if (attempt === 1 || !net || (e && e.name === "AbortError")) throw e; await new Promise((r) => setTimeout(r, 1200)); }
+            if (window.__lcWake) { try { await window.__lcWake(false); } catch (e) { /* wake is best effort */ } }
+            const res = await fetch(`${API_URL}/api/bot/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ text }), signal: ctl.signal });
+            if (!res.ok || !res.body) {
+                let msg = "The AI could not answer right now";
+                try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) { /* keep default */ }
+                throw new Error(msg);
             }
-            if (!alive.current) return;
-            const parts = out && out.parts && out.parts.length ? out.parts : ["Sorry, I had no answer for that."];
-            setMsgs((m) => [...m, ...parts.map((x, i) => ({ from: "ai", text: x, t: Date.now(), id: "a" + Date.now() + i }))]);
+            const reader = res.body.getReader(), dec = new TextDecoder();
+            let buf = "";
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                let i;
+                while ((i = buf.indexOf("\n\n")) >= 0) {
+                    const block = buf.slice(0, i); buf = buf.slice(i + 2);
+                    const line = block.split("\n").find((l) => l.startsWith("data: "));
+                    if (!line) continue;
+                    let ev = null;
+                    try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+                    if (ev.type === "delta") { gotText = true; patchAi(aiId, (x) => ({ ...x, text: x.text + ev.text })); }
+                    else if (ev.type === "error") throw new Error(ev.error);
+                    else if (ev.type === "done") patchAi(aiId, (x) => ({ ...x, streaming: false, id: ev.id || x.id }));
+                }
+            }
         } catch (e) {
-            if (alive.current) setErr(e && e.name === "AbortError" ? "The AI is taking too long. Please try again in a moment." : (String((e && e.message) || "") || "The AI could not answer right now"));
+            if (!ctl.signal.aborted && alive.current) setErr((e && e.message) || "The AI could not answer right now");
         }
-        if (alive.current) setTyping(false);
-        busy.current = false;
+        patchAi(aiId, (x) => ({ ...x, streaming: false }));
+        if (!gotText && alive.current) setMsgs((m) => m.filter((x) => x.id !== aiId)); // no answer at all: drop the empty bubble
+        stopRef.current = null; busy.current = false;
+        if (alive.current) setBusyNow(false);
+    };
+    const copy = (m) => {
+        try { navigator.clipboard.writeText(m.text); } catch (e) { /* clipboard not allowed */ }
+        setCopiedId(m.id); setTimeout(() => { if (alive.current) setCopiedId((c) => (c === m.id ? null : c)); }, 1500);
     };
     const list = msgs.length || !ready ? msgs : [WELCOME];
     const hhmm = (t) => { try { return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
+    const cursor = React.createElement("span", { style: { display: "inline-block", width: 8, height: 15, marginLeft: 2, verticalAlign: "-2px", background: "#35D0BA", animation: "lcAiCaret 0.9s steps(2) infinite" } });
+    const actionBtn = (label, onClick) => React.createElement("button", { onClick, style: { background: "none", border: "1px solid #252D38", color: "#8FA0B3", borderRadius: 999, padding: "3px 10px", fontFamily: "Inter", fontSize: 11.5, cursor: "pointer" } }, label);
     return React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "#0E1116", display: "flex", flexDirection: "column" } },
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "12px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", flexShrink: 0 } },
             React.createElement("button", { "aria-label": "Back", onClick: onClose, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } }, React.createElement(ArrowLeft, { size: 22, color: "#F5F7FA" })),
             React.createElement(AiBotAvatar, { size: 42, big: true }),
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
-                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : "online"))),
-        React.createElement("div", { ref: listRef, onClick: () => setHlId(null), style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 8 } },
-            React.createElement("style", null, "@keyframes lcAiDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}@keyframes lcAiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes lcAiBob{50%{transform:translateY(-3px)}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
+                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, busyNow ? "typing\u2026" : "online"))),
+        React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 10 } },
+            React.createElement("style", null, "@keyframes lcAiDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}@keyframes lcAiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes lcAiBob{50%{transform:translateY(-3px)}}@keyframes lcAiCaret{50%{opacity:0}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
             !ready && React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13, padding: 20 } }, "Loading\u2026"),
             list.map((m, i) => {
-                const mine = m.from === "me";
-                return React.createElement("div", { key: m.id || i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8, animation: "lcAiIn .22s ease-out" } },
-                    !mine && React.createElement(AiBotAvatar, { size: 28 }),
-                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: "78%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: "pre-wrap", wordBreak: "break-word", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, aiLinkify(m.text),
-                        React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))), hlId === (m.id || i) && React.createElement("button", { onClick: () => { try { navigator.clipboard.writeText(m.text); } catch (e) {} setHlId(null); }, style: { alignSelf: "flex-end", background: "#1B212B", color: "#35D0BA", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" } }, "Copy"));
+                const mine = m.from === "me", key = m.id || i;
+                if (!mine && m.streaming && !m.text) {
+                    return React.createElement("div", { key, style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
+                        React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
+                        React.createElement("div", { style: { background: "#1B212B", borderRadius: "16px 16px 16px 4px" } }, React.createElement(AiTypingDots, null)));
+                }
+                const body = mine
+                    ? aiLinkify(m.text)
+                    : [...aiMd(m.text), m.streaming ? cursor : null];
+                return React.createElement("div", { key, style: { display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start", animation: "lcAiIn .22s ease-out" } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, maxWidth: "100%" } },
+                        !mine && React.createElement(AiBotAvatar, { size: 28 }),
+                        React.createElement("div", { style: { maxWidth: mine ? "78%" : "calc(100% - 36px)", background: mine ? "#1F8F7E" : "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.5, padding: "9px 13px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: mine ? "pre-wrap" : "normal", wordBreak: "break-word" } }, body)),
+                    !mine && !m.streaming && m.text && React.createElement("div", { style: { display: "flex", gap: 6, marginLeft: 36, marginTop: 4 } }, actionBtn(copiedId === m.id ? "Copied" : "Copy", () => copy(m))),
+                    React.createElement("div", { style: { fontSize: 10.5, color: "#6B7786", marginTop: 2, marginLeft: mine ? 0 : 36 } }, hhmm(m.t)));
             }),
-            typing && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
-                React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
-                React.createElement("div", { style: { background: "#1B212B", borderRadius: "16px 16px 16px 4px" } }, React.createElement(AiTypingDots, null))),
             err && React.createElement("div", { style: { textAlign: "center", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12.5 } }, err),
             React.createElement("div", { ref: endRef })),
         React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: 8, background: "#12161B", borderTop: "1px solid #1E252E", flexShrink: 0 } },
-            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 4000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
-            React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => send(), disabled: !draft.trim() || typing, style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !draft.trim() || typing ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, React.createElement(Send, { size: 20, color: "#0E1116" }))));
+            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !busyNow) send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 4000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
+            busyNow
+                ? React.createElement("button", { "aria-label": "Stop", onClick: stop, style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } },
+                    React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 24 24" }, React.createElement("rect", { x: 5, y: 5, width: 14, height: 14, rx: 2, fill: "#0E1116" })))
+                : React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => send(), disabled: !draft.trim(), style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !draft.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } },
+                    React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#0E1116", strokeWidth: 2.2, strokeLinejoin: "round" }, React.createElement("path", { d: "M3 11l18-8-8 18-2-8-8-2z" })))));
 }
 function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, onLive, presence, favorites = [], pinned = [], onSetPinned = () => { }, muted = {}, onMute = () => Promise.resolve(true) }) {
     const [aiOpen, setAiOpen] = useState(false);
