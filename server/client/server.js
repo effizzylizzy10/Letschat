@@ -2472,7 +2472,7 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
     let greetNote = ""; // greeting request ("write a birthday message for Ada"): give the AI the style guide
     try { greetNote = GREET.notes(GREET.detect(text)); } catch (e) { /* answer without it */ }
     let liveScores = ""; // sports question: feed the AI the latest scores first, so it never answers scores from memory
-    try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 22000); } catch (e) { /* answer without it */ }
+    try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 12000); } catch (e) { /* answer without it */ }
     const sysMsg0 = greetNote ? aiPageSystem() + "\n\n" + greetNote : aiPageSystem();
     const sysMsg = liveScores ? sysMsg0 + " For scores, fixtures, results and tables use ONLY the LIVE SCORES notes below: give the score, the status (live minute or full time), and say the data time. If a match or team is not in the notes, say you could not confirm it instead of guessing.\n\n" + liveScores : sysMsg0;
     const out = await KB.chat([{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }], { max: 8192, temp: 0.7, timeout: 90000, budget: 120000 });
@@ -2487,7 +2487,7 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
         if (!Array.isArray(uf.botChat)) uf.botChat = [];
         const tf = Date.now();
         uf.botChat.push({ id: nanoid(8), from: "me", text, t: tf }, { id: nanoid(8), from: "ai", text: reply, t: tf + 1 });
-        if (uf.botChat.length > 80) uf.botChat = uf.botChat.slice(-400);
+        if (uf.botChat.length > 400) uf.botChat = uf.botChat.slice(-400);
         writeDB(dbf);
         return res.json({ parts: [reply], by: "fallback" });
       }
@@ -2497,7 +2497,7 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
     if (!Array.isArray(u.botChat)) u.botChat = [];
     const t0 = Date.now();
     u.botChat.push({ id: nanoid(8), from: "me", text, t: t0 }, { id: nanoid(8), from: "ai", text: out.text, t: t0 + 1 });
-    if (u.botChat.length > 80) u.botChat = u.botChat.slice(-400);
+    if (u.botChat.length > 400) u.botChat = u.botChat.slice(-400);
     writeDB(db);
     res.json({ parts: [out.text], by: out.by });
   } catch (e) { console.error("bot chat failed", e.message); res.status(500).json({ error: "The AI could not answer right now" }); }
@@ -2515,28 +2515,35 @@ app.post("/api/bot/chat/stream", authMiddleware, async (req, res) => {
   if (!u0) return res.status(404).json({ error: "Not found" });
   const past = (Array.isArray(u0.botChat) ? u0.botChat : []).filter((m) => m && m.text && !m.digest && !m.off).slice(-40)
     .map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 12000) }));
-  let greetNote = "";
-  try { greetNote = GREET.notes(GREET.detect(text)); } catch (e) { /* answer without it */ }
-  let liveScores = "";
-  try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 22000); } catch (e) { /* answer without it */ }
-  let sysMsg = greetNote ? aiPageSystem() + "\n\n" + greetNote : aiPageSystem();
-  if (liveScores) sysMsg += " For scores, fixtures, results and tables use ONLY the LIVE SCORES notes below: give the score, the status (live minute or full time), and say the data time. If a match or team is not in the notes, say you could not confirm it instead of guessing.\n\n" + liveScores;
-  const messages = [{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }];
-
   res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   res.flushHeaders && res.flushHeaders();
   const send = (obj) => { if (!res.writableEnded) res.write("data: " + JSON.stringify(obj) + "\n\n"); };
   const stop = new AbortController();
   res.on("close", () => { if (!res.writableEnded) stop.abort(); }); // the user pressed Stop or left the screen
+  const beat = setInterval(() => { if (!res.writableEnded) res.write(": ping\n\n"); }, 8000); // keeps the connection open while it researches
+  res.on("close", () => clearInterval(beat));
+  let started = false; // never show leading blank space: the first piece with real text starts the answer
+  const emit = (d) => { if (!started) { d = String(d || "").replace(/^\s+/, ""); if (!d) return; started = true; } send({ type: "delta", text: d }); };
+  let greetNote = "";
+  try { greetNote = GREET.notes(GREET.detect(text)); } catch (e) { /* answer without it */ }
+  let liveScores = "";
+  try { const sq = SCORES.detect(text); if (sq) { send({ type: "status", text: "Checking live scores\u2026" }); liveScores = await aiTimeout(SCORES.notes(sq), 12000); } } catch (e) { /* answer without it */ }
+  let sysMsg = greetNote ? aiPageSystem() + "\n\n" + greetNote : aiPageSystem();
+  if (liveScores) sysMsg += " For scores, fixtures, results and tables use ONLY the LIVE SCORES notes below: give the score, the status (live minute or full time), and say the data time. If a match or team is not in the notes, say you could not confirm it instead of guessing.\n\n" + liveScores;
+  const messages = [{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }];
+
   let out = null;
+  send({ type: "status", text: "Thinking\u2026" });
   try {
-    try { out = await STREAM.streamSearch(messages, { signal: stop.signal, onToken: (d) => send({ type: "delta", text: d }), temp: 0.7, max: 8192, timeout: 120000 }); } catch (e) { out = null; } // real Gemini with Google Search: answers current-events and off-app questions accurately
-    if (!out && !stop.signal.aborted) out = await STREAM.streamChat(messages, { signal: stop.signal, onToken: (d) => send({ type: "delta", text: d }), temp: 0.7, max: 8192, timeout: 120000 });
+    try { out = await STREAM.streamSearch(messages, { signal: stop.signal, onToken: emit, temp: 0.7, max: 8192, timeout: 120000 }); } catch (e) { out = null; } // real Gemini with Google Search: answers current-events and off-app questions accurately
+    if (!out && !stop.signal.aborted) out = await STREAM.streamChat(messages, { signal: stop.signal, onToken: emit, temp: 0.7, max: 8192, timeout: 120000 });
     if (!out && !stop.signal.aborted) { // no streaming provider answered: use the normal AI path and send the whole answer at once
       const r = await KB.chat(messages, { max: 8192, temp: 0.7, timeout: 90000, budget: 120000 });
-      if (r && r.text) { out = { text: r.text, by: r.by }; send({ type: "delta", text: r.text }); }
+      if (r && r.text) { out = { text: r.text, by: r.by }; emit(r.text); }
     }
   } catch (e) { out = null; }
+  clearInterval(beat);
+  if (out && !String(out.text || "").trim()) out = null;
   if (!out) {
     send({ type: "error", error: "I'm having trouble reaching my AI brain right now. Please try again in a minute." });
     return res.end();
@@ -2545,7 +2552,7 @@ app.post("/api/bot/chat/stream", authMiddleware, async (req, res) => {
   if (!Array.isArray(u.botChat)) u.botChat = [];
   const t0 = Date.now(), aiId = nanoid(8);
   u.botChat.push({ id: nanoid(8), from: "me", text, t: t0 }, { id: aiId, from: "ai", text: out.text, t: t0 + 1 });
-  if (u.botChat.length > 80) u.botChat = u.botChat.slice(-400);
+  if (u.botChat.length > 400) u.botChat = u.botChat.slice(-400);
   writeDB(db);
   send({ type: "done", id: aiId, by: out.by });
   res.end();
