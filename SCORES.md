@@ -16,3 +16,9 @@ Files changed: `server/client/scores.js` (new), `server/client/bot.js`, `server/
 - Typos in team names are tolerated ("renes" finds Rennes, "mlmanchester united" finds Manchester United).
 - More leagues: Conference League, Eredivisie, Primeira Liga, Super Lig are checked by default.
 - If nothing is found anywhere, the AI is told to say so plainly and point to BBC Sport instead of guessing.
+
+## Day-aware fix (latest)
+- General questions ("today's live score", "yesterday's results", "tomorrow's fixtures") now check every league in the list, not only the first one. Before, a question with no team or league named could come back empty and the AI said it could not confirm.
+- Days and times are shown in Africa/Lagos time (WAT). Each answer lists LIVE NOW, then the day's RESULTS and FIXTURES, or RECENT RESULTS and UPCOMING when that day has none.
+- The web check runs only when the feeds cannot answer, so general questions no longer trigger a search each time.
+- Duplicate matches from two feeds are shown once.
