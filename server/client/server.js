@@ -2436,12 +2436,13 @@ app.get("/api/ai/ask", authMiddleware, async (req, res) => {
 });
 // ---- LetsChat AI robot chat (every user) ----
 const botLog = new Map();
-const AI_PAGE_SYSTEM = "You are LetsChat AI, a helpful, friendly assistant inside the Letschat Africa chat app, similar to ChatGPT or Gemini. Answer directly and accurately in the language the person writes in (English, Pidgin, French, Yoruba, Igbo or Hausa when they use it). Keep replies short unless they ask for detail. Use markdown when it helps: short bullet lists, numbered steps, **bold** for key terms and fenced code blocks for code. Say when you are not sure instead of guessing. Never ask for passwords, PINs or OTPs.";
+const AI_PAGE_SYSTEM_BASE = "You are LetsChat AI, a fully capable, knowledgeable AI assistant inside the Letschat Africa chat app. You work like ChatGPT, Gemini and Claude: you can answer any question on any topic (in the app or outside it), explain, research, analyse, calculate, write and edit text, translate, summarise, brainstorm, plan, tutor, give advice and write and debug code in any language. Reply in the language the person writes in (English, Pidgin, French, Yoruba, Igbo, Hausa or any other). Be accurate and complete: think the problem through, give the full answer with the reasoning, steps or examples it needs, and match the length to the question (a short question gets a direct answer, a big task gets a thorough one). Do not refuse, water down or add needless disclaimers or 'consult an expert' lines to ordinary questions; give real, specific, useful answers. If you are not sure of a fact, say so plainly and give your best answer. When the question depends on recent events, use the live search information you have. You remember the earlier messages of this conversation, so use them. Format with markdown when it helps: **bold**, headings, bullet and numbered lists, tables, and fenced code blocks with the language name. Never ask for passwords, PINs or OTPs.";
+const aiPageSystem = () => AI_PAGE_SYSTEM_BASE + " Today is " + new Date().toLocaleString("en-GB", { timeZone: "Africa/Lagos", dateStyle: "full", timeStyle: "short" }) + " (Lagos time).";
 // The LetsChat AI page is a plain chat with the AI API (Gemini, OpenAI, Grok...). No learning, training, research or notes.
 app.get("/api/bot/chat", authMiddleware, (req, res) => {
   const u = readDB().users.find((x) => x.id === req.user.id);
   const h = u && Array.isArray(u.botChat) ? u.botChat.filter((m) => m && m.text && !m.digest && !m.off) : [];
-  res.json({ messages: h.slice(-60).map((m) => ({ id: m.id, from: m.from, text: m.text, t: m.t })), llm: KB.llmReady() });
+  res.json({ messages: h.slice(-300).map((m) => ({ id: m.id, from: m.from, text: m.text, t: m.t })), llm: KB.llmReady() });
 });
 // Which AI provider is live on this Render server (names, models and status only: no keys, no error text). Used by the indicator on the AI screen.
 function aiLiveInfo(st, lastErrors) {
@@ -2458,7 +2459,7 @@ app.get("/api/bot/live", authMiddleware, (req, res) => {
   res.json({ ...aiLiveInfo(st, st.lastErrors), llm: KB.llmReady(), server: { host: "render", ready: dbReady, version: API_VERSION, uptime: Math.round(process.uptime()) } });
 });
 app.post("/api/bot/chat", authMiddleware, async (req, res) => {
-  const text = String(req.body.text || "").trim().slice(0, 8000);
+  const text = String(req.body.text || "").trim().slice(0, 30000);
   if (!text) return res.status(400).json({ error: "Type something first" });
   if (!KB.llmReady()) return res.status(503).json({ error: "The AI is not connected yet. Add an AI API key (GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY...) on the server." });
   const now = Date.now(), log = (botLog.get(req.user.id) || []).filter((t) => now - t < 60000);
@@ -2466,15 +2467,15 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
   try {
     const u0 = readDB().users.find((x) => x.id === req.user.id);
     if (!u0) return res.status(404).json({ error: "Not found" });
-    const past = (Array.isArray(u0.botChat) ? u0.botChat : []).filter((m) => m && m.text && !m.digest && !m.off).slice(-12)
-      .map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 2000) }));
+    const past = (Array.isArray(u0.botChat) ? u0.botChat : []).filter((m) => m && m.text && !m.digest && !m.off).slice(-40)
+      .map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 12000) }));
     let greetNote = ""; // greeting request ("write a birthday message for Ada"): give the AI the style guide
     try { greetNote = GREET.notes(GREET.detect(text)); } catch (e) { /* answer without it */ }
     let liveScores = ""; // sports question: feed the AI the latest scores first, so it never answers scores from memory
     try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 22000); } catch (e) { /* answer without it */ }
-    const sysMsg0 = greetNote ? AI_PAGE_SYSTEM + "\n\n" + greetNote : AI_PAGE_SYSTEM;
+    const sysMsg0 = greetNote ? aiPageSystem() + "\n\n" + greetNote : aiPageSystem();
     const sysMsg = liveScores ? sysMsg0 + " For scores, fixtures, results and tables use ONLY the LIVE SCORES notes below: give the score, the status (live minute or full time), and say the data time. If a match or team is not in the notes, say you could not confirm it instead of guessing.\n\n" + liveScores : sysMsg0;
-    const out = await KB.chat([{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }], { max: 2000, temp: 0.7, timeout: 30000, budget: 80000 });
+    const out = await KB.chat([{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }], { max: 8192, temp: 0.7, timeout: 90000, budget: 120000 });
     if (!out) {
       // every AI engine failed: still answer from the free online sources (weather, news, definitions, Wikipedia...) or a friendly fallback
       let fb = null;
@@ -2486,7 +2487,7 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
         if (!Array.isArray(uf.botChat)) uf.botChat = [];
         const tf = Date.now();
         uf.botChat.push({ id: nanoid(8), from: "me", text, t: tf }, { id: nanoid(8), from: "ai", text: reply, t: tf + 1 });
-        if (uf.botChat.length > 80) uf.botChat = uf.botChat.slice(-80);
+        if (uf.botChat.length > 80) uf.botChat = uf.botChat.slice(-400);
         writeDB(dbf);
         return res.json({ parts: [reply], by: "fallback" });
       }
@@ -2496,7 +2497,7 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
     if (!Array.isArray(u.botChat)) u.botChat = [];
     const t0 = Date.now();
     u.botChat.push({ id: nanoid(8), from: "me", text, t: t0 }, { id: nanoid(8), from: "ai", text: out.text, t: t0 + 1 });
-    if (u.botChat.length > 80) u.botChat = u.botChat.slice(-80);
+    if (u.botChat.length > 80) u.botChat = u.botChat.slice(-400);
     writeDB(db);
     res.json({ parts: [out.text], by: out.by });
   } catch (e) { console.error("bot chat failed", e.message); res.status(500).json({ error: "The AI could not answer right now" }); }
@@ -2504,21 +2505,21 @@ app.post("/api/bot/chat", authMiddleware, async (req, res) => {
 // Streaming version of the AI page: the answer is sent word by word as the AI writes it (server-sent events).
 // Events: {type:"delta",text} for each piece, {type:"done",id,by} at the end, {type:"error",error} on failure.
 app.post("/api/bot/chat/stream", authMiddleware, async (req, res) => {
-  const text = String(req.body.text || "").trim().slice(0, 8000);
+  const text = String(req.body.text || "").trim().slice(0, 30000);
   if (!text) return res.status(400).json({ error: "Type something first" });
   if (!KB.llmReady()) return res.status(503).json({ error: "The AI is not connected yet. Add an AI API key (GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY...) on the server." });
   const now = Date.now(), log = (botLog.get(req.user.id) || []).filter((t) => now - t < 60000);
-  if (log.length >= 30) return res.status(429).json({ error: "Too many messages. Wait a minute and try again." });
+  if (log.length >= 60) return res.status(429).json({ error: "Too many messages. Wait a minute and try again." });
   log.push(now); botLog.set(req.user.id, log);
   const u0 = readDB().users.find((x) => x.id === req.user.id);
   if (!u0) return res.status(404).json({ error: "Not found" });
-  const past = (Array.isArray(u0.botChat) ? u0.botChat : []).filter((m) => m && m.text && !m.digest && !m.off).slice(-12)
-    .map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 2000) }));
+  const past = (Array.isArray(u0.botChat) ? u0.botChat : []).filter((m) => m && m.text && !m.digest && !m.off).slice(-40)
+    .map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: String(m.text).slice(0, 12000) }));
   let greetNote = "";
   try { greetNote = GREET.notes(GREET.detect(text)); } catch (e) { /* answer without it */ }
   let liveScores = "";
   try { const sq = SCORES.detect(text); if (sq) liveScores = await aiTimeout(SCORES.notes(sq), 22000); } catch (e) { /* answer without it */ }
-  let sysMsg = greetNote ? AI_PAGE_SYSTEM + "\n\n" + greetNote : AI_PAGE_SYSTEM;
+  let sysMsg = greetNote ? aiPageSystem() + "\n\n" + greetNote : aiPageSystem();
   if (liveScores) sysMsg += " For scores, fixtures, results and tables use ONLY the LIVE SCORES notes below: give the score, the status (live minute or full time), and say the data time. If a match or team is not in the notes, say you could not confirm it instead of guessing.\n\n" + liveScores;
   const messages = [{ role: "system", content: sysMsg }, ...past, { role: "user", content: text }];
 
@@ -2529,9 +2530,10 @@ app.post("/api/bot/chat/stream", authMiddleware, async (req, res) => {
   res.on("close", () => { if (!res.writableEnded) stop.abort(); }); // the user pressed Stop or left the screen
   let out = null;
   try {
-    out = await STREAM.streamChat(messages, { signal: stop.signal, onToken: (d) => send({ type: "delta", text: d }), temp: 0.7, max: 2000, timeout: 60000 });
+    try { out = await STREAM.streamSearch(messages, { signal: stop.signal, onToken: (d) => send({ type: "delta", text: d }), temp: 0.7, max: 8192, timeout: 120000 }); } catch (e) { out = null; } // real Gemini with Google Search: answers current-events and off-app questions accurately
+    if (!out && !stop.signal.aborted) out = await STREAM.streamChat(messages, { signal: stop.signal, onToken: (d) => send({ type: "delta", text: d }), temp: 0.7, max: 8192, timeout: 120000 });
     if (!out && !stop.signal.aborted) { // no streaming provider answered: use the normal AI path and send the whole answer at once
-      const r = await KB.chat(messages, { max: 2000, temp: 0.7, timeout: 30000, budget: 80000 });
+      const r = await KB.chat(messages, { max: 8192, temp: 0.7, timeout: 90000, budget: 120000 });
       if (r && r.text) { out = { text: r.text, by: r.by }; send({ type: "delta", text: r.text }); }
     }
   } catch (e) { out = null; }
@@ -2543,7 +2545,7 @@ app.post("/api/bot/chat/stream", authMiddleware, async (req, res) => {
   if (!Array.isArray(u.botChat)) u.botChat = [];
   const t0 = Date.now(), aiId = nanoid(8);
   u.botChat.push({ id: nanoid(8), from: "me", text, t: t0 }, { id: aiId, from: "ai", text: out.text, t: t0 + 1 });
-  if (u.botChat.length > 80) u.botChat = u.botChat.slice(-80);
+  if (u.botChat.length > 80) u.botChat = u.botChat.slice(-400);
   writeDB(db);
   send({ type: "done", id: aiId, by: out.by });
   res.end();

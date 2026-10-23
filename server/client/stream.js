@@ -115,4 +115,36 @@ async function streamChat(messages, opts = {}) {
   }
 }
 
-module.exports = { streamChat, PROVIDERS };
+
+// Real Gemini with Google Search grounding, streamed. It searches the web by itself when a question needs fresh or outside facts.
+// Returns { text, by } or null when it could not start (no key, error before any text): the caller then uses the normal providers.
+// If it fails AFTER text was shown, the partial text is returned so the answer is never repeated by another AI.
+const searchCool = { until: 0 };
+async function streamSearch(messages, opts = {}) {
+  if (!process.env.GEMINI_API_KEY || searchCool.until > Date.now()) return null;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), opts.timeout || 120000);
+  if (opts.signal) { if (opts.signal.aborted) ctl.abort(); else opts.signal.addEventListener("abort", () => ctl.abort(), { once: true }); }
+  let got = "";
+  const onToken = typeof opts.onToken === "function" ? opts.onToken : () => {};
+  try {
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+    const contents = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+    const body = { contents, tools: [{ google_search: {} }], generationConfig: { temperature: typeof opts.temp === "number" ? opts.temp : 0.7, maxOutputTokens: opts.max || 8192 } };
+    if (system) body.systemInstruction = { parts: [{ text: system }] };
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":streamGenerateContent?alt=sse&key=" + encodeURIComponent(process.env.GEMINI_API_KEY);
+    const res = await post(url, body, { signal: ctl.signal }, {});
+    await readSSE(res, (ev) => {
+      const parts = (ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts) || [];
+      return parts.map((p) => p.text || "").join("");
+    }, { signal: ctl.signal, onToken: (d) => { got += d; onToken(d); } });
+    return got.trim() ? { text: got.trim(), by: "gemini+search" } : null;
+  } catch (e) {
+    if (got.trim()) return { text: got.trim(), by: "gemini+search" };
+    if (!(opts.signal && opts.signal.aborted)) { const m = String((e && e.message) || ""); searchCool.until = Date.now() + (/HTTP 429/.test(m) ? 5 : /HTTP 40[13]/.test(m) ? 30 : 1) * 60000; console.error("ai stream search failed (" + m.slice(0, 120) + ")"); }
+    return null;
+  } finally { clearTimeout(timer); }
+}
+
+module.exports = { streamChat, streamSearch, PROVIDERS };
