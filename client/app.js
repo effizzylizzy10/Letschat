@@ -5231,6 +5231,7 @@ function aiMd(text) {
     }
     return ce("div", { style: { display: "flex", flexDirection: "column", gap: 8, minWidth: 0 } }, out);
 }
+function aiMdSafe(text) { try { return aiMd(text); } catch (e) { return aiLinkify(String(text || "")); } }
 // LetsChat AI page: a plain chat with the AI API (Gemini, OpenAI, Grok...). No learning, training, research or offline pack.
 // sharper video calls: sets the most data each sender may send (a clear picture needs this, not just a big camera size)
 function tuneSender(pc, maxVideo) {
@@ -5308,17 +5309,18 @@ function AiBotScreen({ token, onClose }) {
         return out && out.parts && out.parts.length ? out.parts : ["Sorry, I had no answer for that."];
     };
     const isNetErr = (e) => { const m = String((e && e.message) || ""); return !(e && e.name === "AbortError") && (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|network connection was lost|no internet connection/i.test(m)); };
-    const [liveId, setLiveId] = useState(null), abortRef = useRef(null);
+    const [liveId, setLiveId] = useState(null), [status, setStatus] = useState(""), abortRef = useRef(null);
     // streaming answer: the text appears word by word as the AI writes it (like ChatGPT / Gemini / Claude); Stop keeps what was written
     const askStream = async (text) => {
         const ctl = new AbortController(); abortRef.current = ctl;
-        const aid = "a" + Date.now(); let acc = "", raf = 0, shown = false;
+        const aid = "a" + Date.now(); let acc = "", raf = 0, shown = false, lastByte = Date.now(), stalled = false;
+        const wd = setInterval(() => { if (Date.now() - lastByte > 60000) { stalled = true; try { ctl.abort(); } catch (e) { } } }, 5000); // nothing for a minute: give up on the stream and ask the normal way
         const flush = () => { raf = 0; const t = acc; setMsgs((m) => { const k = m.findIndex((x) => x.id === aid); if (k < 0) return [...m, { from: "ai", text: t, t: Date.now(), id: aid }]; const c = m.slice(); c[k] = { ...c[k], text: t }; return c; }); };
         const queue = () => { if (!raf) raf = requestAnimationFrame(flush); };
         try {
             let res;
             try { res = await fetch(`${API_URL}/api/bot/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ text }), signal: ctl.signal }); }
-            catch (e) { if (ctl.signal.aborted) return null; throw e; }
+            catch (e) { if (ctl.signal.aborted) return stalled ? await askOnline(text) : null; throw e; }
             if (!res.ok || !res.body) {
                 const j = await res.json().catch(() => ({})); const msg = typeof j.error === "string" ? j.error : j.error && j.error.message;
                 if (res.status === 429 || res.status === 503 || (res.status === 502 && msg)) throw new Error(msg || "The AI could not answer right now");
@@ -5328,21 +5330,25 @@ function AiBotScreen({ token, onClose }) {
             try {
                 for (;;) {
                     const { value, done } = await reader.read(); if (done) break;
+                    lastByte = Date.now();
                     buf += dec.decode(value, { stream: true }); let n;
                     while ((n = buf.indexOf("\n")) >= 0) {
                         const line = buf.slice(0, n).trim(); buf = buf.slice(n + 1);
                         if (!line.startsWith("data:")) continue;
                         let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
-                        if (ev.type === "delta" && ev.text) { acc += ev.text; if (!shown) { shown = true; if (alive.current) setLiveId(aid); } if (alive.current) queue(); }
+                        if (ev.type === "delta" && ev.text) { acc += ev.text; if (acc.trim()) { if (!shown) { shown = true; if (alive.current) { setLiveId(aid); setStatus(""); } } if (alive.current) queue(); } }
+                        else if (ev.type === "status") { if (!shown && alive.current) setStatus(ev.text || ""); }
                         else if (ev.type === "error") fail = ev.error || "The AI could not answer right now";
                     }
                 }
             } catch (e) { if (!ctl.signal.aborted && !acc) throw e; }
             if (raf) { cancelAnimationFrame(raf); raf = 0; }
-            if (acc && alive.current) flush();
-            if (!acc && fail) throw new Error(fail);
-            return acc ? [acc] : (ctl.signal.aborted ? null : ["Sorry, I had no answer for that."]);
-        } finally { if (alive.current) setLiveId(null); abortRef.current = null; }
+            if (acc.trim() && alive.current) flush();
+            if (!acc.trim() && fail) throw new Error(fail);
+            if (acc.trim()) return [acc];
+            if (ctl.signal.aborted && !stalled) return null;
+            return await askOnline(text); // nothing came through the stream: ask the normal way instead of showing a blank answer
+        } finally { clearInterval(wd); if (alive.current) { setLiveId(null); setStatus(""); } abortRef.current = null; }
     };
     const stopAnswer = () => { try { abortRef.current && abortRef.current.abort(); } catch (e) { } };
     const newChat = () => {
@@ -5439,7 +5445,7 @@ function AiBotScreen({ token, onClose }) {
             React.createElement(AiBotAvatar, { size: 42, big: true }),
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
-                (typing || offMode ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : "offline mode") : liveChip)),
+                (typing || offMode ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? (status || "typing\u2026") : "offline mode") : liveChip)),
             React.createElement("button", { "aria-label": "New chat", onClick: newChat, disabled: typing, style: { background: "none", border: "1px solid #2B3544", borderRadius: 999, padding: "6px 12px", color: "#35D0BA", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: typing ? 0.5 : 1, flexShrink: 0 } }, "New chat")),
         liveOpen && !offMode && livePanel,
         lite && lite.phase !== undefined && (() => {
@@ -5469,7 +5475,7 @@ function AiBotScreen({ token, onClose }) {
                 const mine = m.from === "me";
                 return React.createElement("div", { key: m.id || i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8, animation: "lcAiIn .22s ease-out" } },
                     !mine && React.createElement(AiBotAvatar, { size: 28 }),
-                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: mine ? "78%" : "88%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: mine ? "pre-wrap" : "normal", wordBreak: "break-word", overflowWrap: "anywhere", minWidth: 0, userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, mine ? aiLinkify(m.text) : aiMd(m.text),
+                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: mine ? "78%" : "88%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: mine ? "pre-wrap" : "normal", wordBreak: "break-word", overflowWrap: "anywhere", minWidth: 0, userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, mine ? aiLinkify(m.text) : aiMdSafe(m.text),
                         React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))), hlId === (m.id || i) && React.createElement("button", { onClick: () => { try { navigator.clipboard.writeText(m.text); } catch (e) {} setHlId(null); }, style: { alignSelf: "flex-end", background: "#1B212B", color: "#35D0BA", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" } }, "Copy"));
             }),
             typing && !liveId && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
