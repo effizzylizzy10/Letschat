@@ -835,14 +835,14 @@ function TabBar({ active, setActive, onRoom }) {
         { id: "games", icon: Gamepad2, label: "Games" },
         { id: "tools", icon: Grid3x3, label: "Tools" },
     ];
-    return (React.createElement("div", { style: { display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 } }, tabs.map(t => {
+    return (React.createElement("div", { style: { display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 } }, React.createElement("style", null, ".lc-tab-ic{position:relative;display:flex;align-items:center;justify-content:center;width:56px;height:30px;border-radius:16px}.lc-tab-ic::before{content:\"\";position:absolute;inset:0;border-radius:16px;background:rgba(53,208,186,.16);transform:scaleX(.25);opacity:0;transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .2s ease}.lc-tab-ic>*{position:relative;z-index:1}.lc-tab.on .lc-tab-ic::before{transform:scaleX(1);opacity:1}.lc-tab.on .lc-tab-ic>svg{animation:lcTabPop .32s cubic-bezier(.2,.8,.2,1)}.lc-tab:active .lc-tab-ic::before{opacity:1;transform:scaleX(.9)}@keyframes lcTabPop{0%{transform:scale(.8)}55%{transform:scale(1.15)}100%{transform:scale(1)}}@media (prefers-reduced-motion:reduce){.lc-tab-ic::before{transition:none}.lc-tab.on .lc-tab-ic>svg{animation:none}}"), tabs.map(t => {
         const Icon = t.icon;
         const isActive = active === t.id;
         return (React.createElement("button", { key: t.id, className: isActive ? "lc-tab on" : "lc-tab", onClick: () => (t.id === "room" && onRoom ? onRoom() : setActive(t.id)), style: {
                 flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
                 alignItems: "center", gap: 4, counterIncrement: "lcgap-4", cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
             } },
-            React.createElement(Icon, { size: 22, strokeWidth: isActive ? 2.4 : 1.8 }),
+            React.createElement("span", { className: "lc-tab-ic" }, React.createElement(Icon, { size: 22, strokeWidth: isActive ? 2.4 : 1.8 })),
             React.createElement("span", { style: { fontSize: 11, fontFamily: "Inter", fontWeight: isActive ? 600 : 500 } }, t.label)));
     })));
 }
