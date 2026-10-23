@@ -4596,9 +4596,92 @@ async function encodeClip(buf, start, len) { // trimmed clip -> small mono WAV d
 }
 
 // ---- status editor (full screen): top icons = close, music, rotate, sticker, text, draw; caption bar with @; audience + send ----
+// ---- status photo filters (None, Pop, B&W, Cool, Chrome, Film): done on the pixels so the preview, the thumbnails and the posted photo always match ----
+const STATUS_FILTERS = [
+    { id: "none", name: "None" },
+    { id: "pop", name: "Pop", sat: 1.45, con: 1.12, bri: 1.02 },
+    { id: "bw", name: "B&W", gray: 1, con: 1.1 },
+    { id: "cool", name: "Cool", gain: [0.9, 1, 1.13], sat: 1.05 },
+    { id: "chrome", name: "Chrome", con: 1.25, sat: 1.2, bri: 0.98 },
+    { id: "film", name: "Film", sep: 0.28, con: 1.05, sat: 0.9, gain: [1.04, 1, 0.93], fade: 14 },
+];
+function statusFilterPixels(d, f) {
+    const gain = f.gain || [1, 1, 1], sat = f.sat == null ? 1 : f.sat, gray = f.gray || 0, sep = f.sep || 0, bri = f.bri == null ? 1 : f.bri, con = f.con == null ? 1 : f.con, fade = f.fade || 0;
+    for (let i = 0; i < d.length; i += 4) {
+        let r = d[i] * gain[0], g = d[i + 1] * gain[1], b = d[i + 2] * gain[2];
+        if (sat !== 1) { const l = 0.299 * r + 0.587 * g + 0.114 * b; r = l + (r - l) * sat; g = l + (g - l) * sat; b = l + (b - l) * sat; }
+        if (gray) { const l = 0.299 * r + 0.587 * g + 0.114 * b; r += (l - r) * gray; g += (l - g) * gray; b += (l - b) * gray; }
+        if (sep) { const tr = 0.393 * r + 0.769 * g + 0.189 * b, tg = 0.349 * r + 0.686 * g + 0.168 * b, tb = 0.272 * r + 0.534 * g + 0.131 * b; r += (tr - r) * sep; g += (tg - g) * sep; b += (tb - b) * sep; }
+        r = (r * bri - 128) * con + 128; g = (g * bri - 128) * con + 128; b = (b * bri - 128) * con + 128;
+        if (fade) { const k = 1 - fade / 255; r = r * k + fade; g = g * k + fade; b = b * k + fade; }
+        d[i] = r < 0 ? 0 : r > 255 ? 255 : r; d[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g; d[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+    }
+}
+// src (a data URL) with the chosen filter applied; maxW makes a small copy for the thumbnails
+async function statusFiltered(src, id, maxW) {
+    const f = STATUS_FILTERS.find((x) => x.id === id);
+    if (!f || (id === "none" && !maxW)) return src;
+    const img = await loadImg(src), k = maxW ? Math.min(1, maxW / img.width) : 1, c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+    const g = c.getContext("2d");
+    g.drawImage(img, 0, 0, c.width, c.height);
+    if (id !== "none") { const im = g.getImageData(0, 0, c.width, c.height); statusFilterPixels(im.data, f); g.putImageData(im, 0, 0); }
+    return c.toDataURL("image/jpeg", maxW ? 0.7 : 0.92);
+}
+// ---- "Add mentions": full-screen picker for people and groups (up to 5), opened by the @ button in the status editor ----
+const MENTION_LIMIT = 5;
+function MentionPicker({ token, initial, onClose, onDone }) {
+    const targets = useTagTargets(token);
+    const [sel, setSel] = useState(() => (initial || []).slice(0, MENTION_LIMIT));
+    const [q, setQ] = useState(""), [searching, setSearching] = useState(false);
+    const [dlg, setDlg] = useState(null); // "limit" | "help"
+    const members = {};
+    try { for (const c of ((window.__lcConvos && window.__lcConvos()) || [])) if (c && c.isGroup && c.members) members[c.id] = c.members.map((m) => m && m.name).filter(Boolean).slice(0, 6).join(", "); } catch (e) { }
+    const needle = q.trim().toLowerCase();
+    const list = targets.filter((t) => t.name && (!needle || t.name.toLowerCase().includes(needle))).slice().sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" }));
+    const same = (a, b) => a.type === b.type && a.id === b.id;
+    const isSel = (t) => sel.some((x) => same(x, t));
+    const full = (t) => targets.find((x) => same(x, t)) || t;
+    const toggle = (t) => {
+        if (isSel(t)) return setSel(sel.filter((x) => !same(x, t)));
+        if (sel.length >= MENTION_LIMIT) return setDlg("limit");
+        setSel([...sel, { type: t.type, id: t.id, name: t.name }]);
+    };
+    const badge = (child, bg, pos) => ce("div", { style: { position: "absolute", width: 22, height: 22, borderRadius: 11, background: bg, border: "2px solid #0B1014", boxSizing: "content-box", display: "flex", alignItems: "center", justifyContent: "center", ...pos } }, child);
+    const row = (t) => ce("div", { key: t.type + t.id, onClick: () => toggle(t), style: { display: "flex", alignItems: "center", gap: 16, counterIncrement: "lcgap-16", padding: "9px 16px", cursor: "pointer", background: isSel(t) ? "#1B212B" : "transparent" } },
+        ce("div", { style: { position: "relative", flexShrink: 0 } }, ce(Ring, { size: 52, color: t.color || "#5B6673", initials: t.initials || "?", photo: t.avatar, ring: false }), isSel(t) && badge(ce(Check, { size: 14, color: "#06210F", strokeWidth: 3 }), "#21C063", { right: -4, bottom: -4 })),
+        ce("div", { style: { flex: 1, minWidth: 0 } },
+            ce("div", { style: { fontFamily: "Inter", fontSize: 16.5, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.name),
+            t.type === "group" && members[t.id] ? ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, members[t.id]) : null),
+        ce("span", { style: { fontFamily: "Inter", fontSize: 12, letterSpacing: 0.6, color: t.type === "group" ? "#A78BFA" : "#8891A0", flexShrink: 0 } }, t.type === "group" ? "GROUP" : "CONTACT"));
+    const iconBtn = (label, child, fn) => ce("button", { key: label, "aria-label": label, onClick: fn, style: { background: "none", border: "none", cursor: "pointer", padding: 8, display: "flex" } }, child);
+    const dialog = (text, extra) => ce("div", { onClick: () => setDlg(null), style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 3, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 } },
+        ce("div", { onClick: (e) => e.stopPropagation(), role: "dialog", style: { width: "100%", maxWidth: 420, background: "#161B22", borderRadius: 24, padding: "24px 24px 18px", boxShadow: "0 12px 40px rgba(0,0,0,.6)" } },
+            ce("div", { style: { fontFamily: "Inter", fontSize: 17, lineHeight: 1.4, color: "#E6EAF0" } }, text),
+            ce("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 26 } }, ce("button", { onClick: () => setDlg(null), style: { background: "none", border: "none", cursor: "pointer", padding: "6px 10px", fontFamily: "Inter", fontWeight: 700, fontSize: 17, color: "#21C063" } }, "OK"))));
+    return ce("div", { role: "dialog", "aria-label": "Add mentions", style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, background: "#0B1014", display: "flex", flexDirection: "column" } },
+        ce("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", padding: "10px 8px 10px 6px", flexShrink: 0, borderBottom: "1px solid #1B212B" } },
+            iconBtn("Back", ce(ArrowLeft, { size: 24, color: "#F5F7FA" }), () => (searching ? (setSearching(false), setQ("")) : onClose())),
+            searching
+                ? ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search…", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17 } })
+                : ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 500, fontSize: 21, color: "#F5F7FA" } }, "Add mentions"), ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4" } }, sel.length + (sel.length === 1 ? " contact" : " contacts"))),
+            !searching && iconBtn("Search", ce(Search, { size: 22, color: "#F5F7FA" }), () => setSearching(true))),
+        sel.length > 0 ? ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", overflowX: "auto", padding: "14px 16px 10px", flexShrink: 0, borderBottom: "1px solid #1B212B", scrollbarWidth: "none" } }, sel.map((s) => { const t = full(s); return ce("div", { key: s.type + s.id, onClick: () => toggle(s), style: { width: 66, flexShrink: 0, textAlign: "center", cursor: "pointer" } },
+            ce("div", { style: { position: "relative", width: 60, margin: "0 auto" } }, ce(Ring, { size: 60, color: t.color || "#5B6673", initials: t.initials || "?", photo: t.avatar, ring: false }), badge(ce(X, { size: 13, color: "#0B1014", strokeWidth: 3 }), "#8A96A5", { right: -6, bottom: -4 })),
+            ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DB", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, s.name)); }))
+            : !searching && ce("div", { style: { padding: "22px 24px 14px", textAlign: "center", flexShrink: 0, borderBottom: "1px solid #1B212B" } }, ce("div", { style: { fontFamily: "Inter", fontSize: 16, color: "#9BA7B4" } }, "Mention people or groups to notify them."), ce("button", { onClick: () => setDlg("help"), style: { background: "none", border: "none", cursor: "pointer", marginTop: 8, fontFamily: "Inter", fontWeight: 700, fontSize: 17, color: "#21C063" } }, "Learn how mentions work")),
+        ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 100 } }, list.map(row), !list.length && ce("div", { style: { padding: 30, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 14 } }, needle ? "No chats found" : "Your contacts and groups will show up here once you have chats.")),
+        ce("button", { onClick: () => onDone(sel), "aria-label": "Done", style: { position: "absolute", right: 18, bottom: 24, width: 58, height: 58, borderRadius: 18, border: "none", background: "#21C063", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 18px rgba(0,0,0,.45)", zIndex: 2 } }, ce(Check, { size: 28, color: "#06210F", strokeWidth: 3 })),
+        dlg === "limit" && dialog(MENTION_LIMIT + " mentions is the limit"),
+        dlg === "help" && dialog("Pick up to " + MENTION_LIMIT + " people or groups. Their names are added to your status and they are told they were mentioned."));
+}
 function StatusComposer({ token, onClose, onPosted, mode }) {
     const [photo, setPhoto] = useState(null);
     const [nat, setNat] = useState({ w: 720, h: 1280 });
+    const [filterId, setFilterId] = useState("none");
+    const [fv, setFv] = useState(null);
+    const [thumbs, setThumbs] = useState(null);
+    const [mentionOpen, setMentionOpen] = useState(false);
     const [bg, setBg] = useState(STATUS_COLORS[0]);
     const [items, setItems] = useState([]);
     const [strokes, setStrokes] = useState([]);
@@ -4633,6 +4716,24 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
             playRef.current = { ctx, src }; setPlaying(true);
         } catch (e) { setError("Could not play that audio"); }
     };
+        // photo filters: thumbnails for the strip (rebuilt when the photo changes) and the filtered copy shown on the stage
+    useEffect(() => {
+        let dead = false;
+        setThumbs(null);
+        if (!photo) return;
+        Promise.all(STATUS_FILTERS.map((f) => statusFiltered(photo, f.id, 96).catch(() => null))).then((t) => { if (!dead) setThumbs(t); });
+        return () => { dead = true; };
+    }, [photo]);
+    useEffect(() => {
+        let dead = false;
+        if (!photo || filterId === "none") return;
+        statusFiltered(photo, filterId).then((url) => { if (!dead) setFv({ src: photo, id: filterId, url }); }).catch(() => { });
+        return () => { dead = true; };
+    }, [photo, filterId]);
+    const shown = filterId !== "none" && fv && fv.src === photo && fv.id === filterId ? fv.url : photo;
+    const filterStrip = photo && !draw && ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", overflowX: "auto", padding: "0 12px 10px", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } }, STATUS_FILTERS.map((f, k) => ce("button", { key: f.id, onClick: () => setFilterId(f.id), "aria-label": "Filter " + f.name, "aria-pressed": filterId === f.id, style: { flexShrink: 0, width: 62, background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, counterIncrement: "lcgap-4" } },
+        ce("div", { style: { width: 58, height: 66, borderRadius: 10, overflow: "hidden", boxSizing: "border-box", border: filterId === f.id ? "2.5px solid #fff" : "2.5px solid transparent", background: "#1B212B" } }, thumbs && thumbs[k] && ce("img", { src: thumbs[k], alt: "", draggable: false, style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } })),
+        ce("span", { style: { fontFamily: "Inter", fontSize: 11.5, fontWeight: filterId === f.id ? 700 : 500, color: filterId === f.id ? "#fff" : "rgba(255,255,255,.7)", textShadow: "0 1px 3px rgba(0,0,0,.8)" } }, f.name))));
     const aspect = nat.w / nat.h, pad = 8;
     const availW = Math.max(0, box.w - pad * 2), availH = Math.max(0, box.h - pad * 2);
     let sw = availW, sh = sw / aspect; if (sh > availH) { sh = availH; sw = sh * aspect; }
@@ -4643,7 +4744,8 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
         const f = e.target.files && e.target.files[0]; e.target.value = "";
         if (!f) return;
         if (!/^image\//.test(f.type)) return setError("Please choose a photo (videos are not supported yet)");
-        try { const url = await compressImage(f, 1080); const img = await loadImg(url); setPhoto(url); setNat({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height }); setError(""); }
+        try { const url = await compressImage(f, 1080); const img = await loadImg(url); setPhoto(url); setNat({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
+            setFilterId("none"); setError(""); }
         catch (err) { setError(err.message || "Could not open that photo"); }
     };
     const rotate = async () => {
@@ -4722,6 +4824,16 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
     };
     const resize = (k) => selItem && upd(selItem.id, { s: Math.min(1, Math.max(0.03, selItem.s * k)) });
     const insertAt = () => { setCaption((c) => (c && !/\s$/.test(c) ? c + " " : c) + "@"); setTimeout(() => capRef.current && capRef.current.focus(), 0); };
+    // the picker hands back the chosen people and groups: their @names are put in the caption (and taken out again when unchosen)
+    const applyMentions = (chosen) => {
+        let cap = caption;
+        const keep = chosen.map((t) => t.type + t.id);
+        for (const t of liveTags(cap, tags)) if (!keep.includes(t.type + t.id)) cap = cap.replace(new RegExp("\\s?@" + String(t.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|$)", "i"), "");
+        for (const t of chosen) if (!cap.toLowerCase().includes("@" + String(t.name).toLowerCase())) cap = (cap && !/\s$/.test(cap) ? cap + " " : cap) + "@" + t.name + " ";
+        setCaption(cap.slice(0, 300));
+        setTags(chosen.map((t) => ({ type: t.type, id: t.id, name: t.name })));
+        setMentionOpen(false);
+    };
     const pickAudio = async (e) => {
         const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
         if (f.size > 40 * 1024 * 1024) return setError("That audio file is too big (max 40 MB)");
@@ -4738,7 +4850,7 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
         setBusy(true); setError(""); stopPlay();
         try {
             const body = { text: caption.trim(), bg, tags: liveTags(caption, tags).map((t) => ({ type: t.type, id: t.id })) };
-            if (hasArt) body.photo = await bakeStatus(photo, nat, bg, items, strokes);
+            if (hasArt) body.photo = await bakeStatus(filterId !== "none" ? await statusFiltered(photo, filterId) : photo, nat, bg, items, strokes);
             if (music) { const data = await encodeClip(music.buf, music.start, music.len); body.music = { data, name: music.name, dur: music.len }; }
             await api("/api/v1/status", { method: "POST", token, body });
             onPosted();
@@ -4755,7 +4867,7 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
         tool("Add text", false, () => { setDraw(false); openText(null); }, ce("span", { style: { fontFamily: "Inter", fontWeight: 600, fontSize: 18 } }, "Aa")),
         tool("Draw", draw, () => { setSel(null); setDraw((d) => !d); }, ce(Pencil, { size: 22, color: draw ? "#0E1116" : "#fff" })));
     const stage = ce("div", { onPointerDown: () => setSel(null), style: { position: "relative", width: sw, height: sh, background: photo ? "#000" : bg, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(255,255,255,.08)", touchAction: "none", animation: "lcFade .3s ease-out" } },
-        photo && ce("img", { src: photo, alt: "", draggable: false, style: { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "fill", userSelect: "none", pointerEvents: "none" } }),
+        photo && ce("img", { src: shown, alt: "", draggable: false, style: { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "fill", userSelect: "none", pointerEvents: "none" } }),
         !photo && !items.length && !strokes.length && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 17, color: "rgba(255,255,255,.75)", pointerEvents: "none" } }, "Tap Aa to write, or add a photo"),
         ce("svg", { width: sw, height: sh, viewBox: "0 0 " + sw + " " + sh, onPointerDown: draw ? dDown : undefined, onPointerMove: draw ? dMove : undefined, onPointerUp: draw ? dUp : undefined, onPointerCancel: draw ? dUp : undefined, style: { position: "absolute", left: 0, top: 0, touchAction: "none", pointerEvents: draw ? "auto" : "none", cursor: draw ? "crosshair" : "default" } },
             strokes.map((s, i) => ce("polyline", { key: i, fill: "none", stroke: s.c, strokeWidth: s.w * sw, strokeLinecap: "round", strokeLinejoin: "round", points: s.p.map((q) => (q[0] * sw).toFixed(1) + "," + (q[1] * sh).toFixed(1)).join(" ") }))),
@@ -4770,12 +4882,12 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
             ce("button", { onClick: () => setStrokes((a) => a.slice(0, -1)), disabled: !strokes.length, style: { ...smallBtn, opacity: strokes.length ? 1 : 0.4 } }, "Undo"),
             ce("button", { onClick: () => setDraw(false), style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done"))
         : ce("div", { style: { flexShrink: 0 } },
-            !photo && ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))),
+            !photo && ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))), filterStrip,
             ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } },
                 ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }),
                 ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })),
                 ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }),
-                ce("button", { onClick: insertAt, "aria-label": "Tag a contact or group", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))),
+                ce("button", { onClick: () => setMentionOpen(true), "aria-label": "Add mentions", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))),
             ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } },
                 ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"),
                 ce("div", { style: { flex: 1 } }),
@@ -4812,11 +4924,11 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
         top,
         error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })),
         ce("div", { ref: areaRef, style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, stage, selBar, musicChip),
-        bottom, musicPanel, stickerPanel, textPanel);
+        bottom, musicPanel, stickerPanel, textPanel, mentionOpen && ce(MentionPicker, { token, initial: liveTags(caption, tags), onClose: () => setMentionOpen(false), onDone: applyMentions }));
 }
 // ---- status v2: story rail, search, starred, archive, privacy/mute, reactions + replies ----
 const STATUS_QUICK = ["😍", "😂", "😮", "😢", "🙏", "👍"];
-const statusPrefs = () => ({ receipts: true, archive: true, muted: [], ...(loadJSON("statusPrefs", {}) || {}) });
+const statusPrefs = () => ({ receipts: true, archive: true, muted: [], notify: [], hidden: [], ...(loadJSON("statusPrefs", {}) || {}) });
 async function statusThumb(src, w) { // small JPEG data URL so starred/archived updates survive the 24h clear
     try {
         const blob = await (await fetch(photoSrc(src))).blob();
@@ -4829,6 +4941,122 @@ async function statusThumb(src, w) { // small JPEG data URL so starred/archived 
     } catch (e) { return null; }
 }
 const statusSnap = async (item, name) => ({ id: item.id, name, text: item.text || "", bg: item.bg, time: item.time, photo: item.photo ? await statusThumb(item.photo) : null });
+// ---- status viewer ⋮ menu: Forward to…, Message, Voice call, Video call, View contact, Get notifications, Hide, Report ----
+const STATUS_REPORT_REASONS = ["Spam or scam", "Nudity or sexual content", "Violence or harmful content", "Harassment or bullying", "False or misleading", "Something else"];
+// updates the person chose to Hide are left out of the feed (the whole person is dropped when nothing is left)
+const statusUnhidden = (gr, prefs) => {
+    const hide = (prefs && prefs.hidden) || [];
+    if (!hide.length) return gr;
+    const items = gr.items.filter((it) => !hide.includes(it.id));
+    if (!items.length) return null;
+    return items.length === gr.items.length ? gr : { ...gr, items, allSeen: items.every((x) => x.seen) };
+};
+// the real work behind the menu rows; also used by the View contact sheet
+function statusActions(c) {
+    const { group, token, onChat, onClose, flash, setMenu } = c, user = group.user;
+    const convoFor = async () => {
+        const r = await api("/api/v1/conversations", { method: "POST", token, body: { userId: user.id } });
+        const cv = r.conversation;
+        return cv.other ? cv : { ...cv, other: user };
+    };
+    const message = async () => {
+        setMenu(false);
+        try { await onChat(user); } catch (e) { flash((e && e.message) || "Could not open the chat"); }
+    };
+    const call = async (video) => {
+        setMenu(false);
+        try {
+            const cv = await convoFor();
+            if (!window.__lcStartCall) throw new Error("Calling is not ready yet. Try again in a moment.");
+            onClose();
+            window.__lcStartCall(cv, video);
+        } catch (e) { flash((e && e.message) || "Could not start the call"); }
+    };
+    return { message, call };
+}
+function statusMenuItems(c) {
+    const { group, item, token, onChanged, flash, mi, setMenu, setSheet, dropItem } = c;
+    if (group.mine) return [];
+    const user = group.user, p = statusPrefs(), notifyOn = p.notify.includes(user.id), act = statusActions(c);
+    const notify = async () => {
+        setMenu(false);
+        const on = !notifyOn, before = p.notify, list = on ? [...before, user.id] : before.filter((x) => x !== user.id);
+        if (on && window.LetschatPush && window.LetschatPush.enable) { try { Promise.resolve(window.LetschatPush.enable()).catch(() => { }); } catch (e) { } } // asks for permission while the tap is still fresh
+        saveJSON("statusPrefs", { ...statusPrefs(), notify: list });
+        try { await api("/api/v1/me/status-notify", { method: "POST", token, body: { userId: user.id, on } }); }
+        catch (e) { saveJSON("statusPrefs", { ...statusPrefs(), notify: before }); return flash((e && e.message) || "Could not change notifications"); }
+        flash(on ? "You will be notified when " + user.name + " posts a status" : "Notifications off for " + user.name);
+    };
+    const hide = () => {
+        setMenu(false);
+        const cur = statusPrefs();
+        saveJSON("statusPrefs", { ...cur, hidden: [...cur.hidden, item.id].slice(-300) });
+        flash("Update hidden"); onChanged(); dropItem();
+    };
+    return [
+        mi("Forward to…", () => { setMenu(false); setSheet("forward"); }),
+        mi("Message", act.message),
+        mi("Voice call", () => act.call(false)),
+        mi("Video call", () => act.call(true)),
+        mi("View contact", () => { setMenu(false); setSheet("contact"); }),
+        mi(notifyOn ? "Turn off notifications" : "Get notifications", notify),
+        mi("Hide", hide),
+        mi("Report", () => { setMenu(false); setSheet("report"); }),
+        ce("div", { key: "st-sep", style: { height: 1, background: "#2B3544", margin: "4px 0" } }),
+    ];
+}
+// Forward to…: turns the update into a normal message (photo with caption, or text) and uses the same picker as chat forwarding
+function StatusForward({ item, token, flash, onDone }) {
+    const [msgs, setMsgs] = useState(null);
+    useEffect(() => {
+        let dead = false;
+        (async () => {
+            try {
+                if (item.photo) {
+                    const r = await fetch(photoSrc(item.photo)), b = await r.blob();
+                    const data = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = no; fr.readAsDataURL(b); });
+                    if (!dead) setMsgs([{ id: "st-" + item.id, time: item.time, file: { name: "status.jpg", mime: b.type || "image/jpeg", size: b.size, data } }]);
+                } else if (!dead) setMsgs([{ id: "st-" + item.id, time: item.time, text: item.text }]);
+            } catch (e) { if (!dead) { onDone(false); flash("Could not load this update to forward"); } }
+        })();
+        return () => { dead = true; };
+    }, [item.id]);
+    if (!msgs) return ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 65, background: "#0B1014", display: "flex", alignItems: "center", justifyContent: "center", color: "#8891A0", fontFamily: "Inter", fontSize: 14 } }, "Loading…");
+    return ce(ForwardSheet, { msgs, conversations: (window.__lcConvos && window.__lcConvos()) || [], socket: window.__lcSocket && window.__lcSocket(), token, initialNote: item.photo ? (item.text || "") : "", onClose: (sent) => onDone(!!sent) });
+}
+// the sheets that open from the menu: Forward to…, View contact, Report
+function StatusSheets(c) {
+    const { sheet, setSheet, group, item, token, flash } = c, user = group.user, close = () => setSheet(null);
+    const [busy, setBusy] = useState(false);
+    if (sheet === "forward") return ce(StatusForward, { item, token, flash, onDone: (sent) => { close(); if (sent) flash("Forwarded"); } });
+    const act = statusActions({ ...c, setMenu: () => { } });
+    const wrap = (title, body) => ce("div", { onClick: close, style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 8, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "flex-end" } },
+        ce("div", { onClick: (e) => e.stopPropagation(), role: "dialog", "aria-label": title, style: { width: "100%", maxHeight: "82%", overflowY: "auto", background: "#161B22", borderRadius: "20px 20px 0 0", boxShadow: "0 -8px 28px rgba(0,0,0,.5)", paddingBottom: 18 } },
+            ce("div", { style: { display: "flex", alignItems: "center", padding: "16px 18px 8px" } },
+                ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, title),
+                ce("button", { onClick: close, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(X, { size: 20, color: "#8891A0" }))),
+            body));
+    if (sheet === "contact") {
+        const pill = (label, fn) => ce("button", { key: label, onClick: fn, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "1px solid #2B3544", background: "#1E2530", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, label);
+        return wrap("Contact info", ce("div", { style: { padding: "6px 18px 4px", textAlign: "center" } },
+            ce("div", { style: { display: "flex", justifyContent: "center", padding: "6px 0 10px" } }, ce(Ring, { size: 92, color: user.color, initials: user.initials, photo: user.avatar, ring: false })),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 20, color: "#F5F7FA" } }, user.name),
+            user.username && ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#8891A0", marginTop: 2 } }, "@" + user.username),
+            user.about && ce("div", { style: { fontFamily: "Inter", fontSize: 14.5, color: "#C9D1DB", marginTop: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, user.about),
+            ce("div", { style: { display: "flex", gap: 8, marginTop: 18 } }, pill("Message", () => { close(); act.message(); }), pill("Voice call", () => { close(); act.call(false); }), pill("Video call", () => { close(); act.call(true); }))));
+    }
+    if (sheet === "report") {
+        const send = async (reason) => {
+            if (busy) return; setBusy(true);
+            try { await api("/api/v1/me/report", { method: "POST", token, body: { userId: user.id, reason: "Status update " + item.id + ": " + reason } }); close(); flash("Report sent. Thank you."); }
+            catch (e) { setBusy(false); flash((e && e.message) || "Could not send the report"); }
+        };
+        return wrap("Report " + user.name, ce("div", null,
+            ce("div", { style: { padding: "0 18px 8px", fontFamily: "Inter", fontSize: 13.5, color: "#8891A0" } }, "Why are you reporting this status update?"),
+            STATUS_REPORT_REASONS.map((r) => ce("button", { key: r, disabled: busy, onClick: () => send(r), style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "13px 18px", fontFamily: "Inter", fontSize: 15, color: "#E6EAF0", cursor: "pointer", opacity: busy ? 0.6 : 1 } }, r))));
+    }
+    return null;
+}
 function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
     const [g, setG] = useState(start);
     const [i, setI] = useState(0);
@@ -4836,6 +5064,7 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
     const [menu, setMenu] = useState(false);
     const [more, setMore] = useState(false);
     const [seenOpen, setSeenOpen] = useState(false);
+    const [sheet, setSheet] = useState(null);
     const [reply, setReply] = useState("");
     const [toast, setToast] = useState("");
     const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
@@ -4857,10 +5086,10 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
     useEffect(() => { // run / pause the auto-advance timer (hold, menu, typing a reply or expanded caption pause it)
         const t = timer.current;
         if (!item) return;
-        if (paused || menu || more || seenOpen) { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } return; }
+        if (paused || menu || more || seenOpen || sheet) { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } return; }
         t.at = Date.now(); t.t = setTimeout(() => nextRef.current(), t.left);
         return () => { if (t.t) { clearTimeout(t.t); t.t = null; t.left = Math.max(300, t.left - (Date.now() - t.at)); } };
-    }, [g, i, paused, menu, more, seenOpen]);
+    }, [g, i, paused, menu, more, seenOpen, sheet]);
     useEffect(() => { // play the trimmed music while this update is on screen
         if (!item || !item.music) return;
         let audio = null, url = null, dead = false;
@@ -4910,14 +5139,14 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
     return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
         ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}@keyframes lcStIn{from{opacity:0;transform:translateX(var(--d,28px))}to{opacity:1;transform:none}}"),
         ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } },
-            ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more || seenOpen ? "paused" : "running" } })))),
+            ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more || seenOpen || sheet ? "paused" : "running" } })))),
         ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", position: "relative", zIndex: 3 } },
             ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })),
             ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }),
             ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (group.items.length > 1 ? " · " + (i + 1) + "/" + group.items.length : "") + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))),
             ce("button", { onClick: () => setMenu(!menu), "aria-label": "More", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(MoreVertical, { size: 22, color: "#fff" })),
-            menu && ce("div", { style: { position: "absolute", top: 54, right: 12, background: "#1B212B", borderRadius: 12, minWidth: 190, boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden" } },
-                mi(isStar ? "Remove star" : "Star", toggleStar), !group.mine && mi("Mute " + group.user.name, muteUser), group.mine && mi("Delete", () => { setMenu(false); remove(); }, "#FF6B5D"))),
+            menu && ce("div", { style: { position: "absolute", top: 54, right: 12, background: "#1B212B", borderRadius: 12, minWidth: 230, maxHeight: "calc(100% - 70px)", overflowY: "auto", boxShadow: "0 8px 28px rgba(0,0,0,.5)" } },
+                ...statusMenuItems({ group, item, token, onChat, onClose, onChanged, flash, mi, setMenu, setSheet, dropItem: () => { if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } } }), mi(isStar ? "Remove star" : "Star", toggleStar), !group.mine && mi("Mute " + group.user.name, muteUser), group.mine && mi("Delete", () => { setMenu(false); remove(); }, "#FF6B5D"))),
         ce("div", Object.assign({ style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", transform: dx ? "translateX(" + dx + "px)" : "none", opacity: dx ? Math.max(0.5, 1 - Math.abs(dx) / 400) : 1, transition: dx ? "none" : "transform .2s ease, opacity .2s ease" } }, hold),
             item.photo && ce("img", { key: item.id, src: photoSrc(item.photo), alt: "", draggable: false, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out" } }),
             !item.photo && ce("div", { key: item.id, style: { "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out", padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(item.text)),
@@ -4947,7 +5176,7 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
                             ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, v.name),
                             ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, v.at ? "Viewed " + ago(v.at) : "Viewed")),
                         ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#21C063", flexShrink: 0 } }, "Chat")))))),
-        toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
+        sheet && !group.mine && ce(StatusSheets, { sheet, setSheet, group, item, token, flash, onChat, onClose }), toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
 }
 // A tiny grid of saved updates (used by Starred and Archive)
 function StatusSaved({ title, list, empty, onBack, onRemove, top }) {
@@ -5069,7 +5298,7 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
     const [archive, setArchive] = useState(() => loadJSON("statusArchive", []));
     const F = getFeatures();
     const setPref = (patch) => { const n = { ...prefs, ...patch }; setPrefs(n); saveJSON("statusPrefs", n); };
-    const load = useCallback(() => api("/api/v1/status", { token }).then((d) => { setData(d); setError(""); setPrefs(statusPrefs()); setStarred(loadJSON("statusStarred", [])); }).catch((e) => setError(e.message)).finally(() => setLoading(false)), [token]);
+    const load = useCallback(() => api("/api/v1/status", { token }).then((d) => { if (Array.isArray(d.notify)) saveJSON("statusPrefs", { ...statusPrefs(), notify: d.notify }); setData(d); setError(""); setPrefs(statusPrefs()); setStarred(loadJSON("statusStarred", [])); }).catch((e) => setError(e.message)).finally(() => setLoading(false)), [token]);
     useEffect(() => { load(); }, [load]);
     useEffect(() => { // archive my own updates before the server clears them after 24h
         if (!prefs.archive || !data.mine.length) return;
@@ -5089,7 +5318,7 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
     });
     const open = (groups, start) => setView({ groups, start });
     const addTap = (m) => { if (!F.status) return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setMode(m || null); setComposer(true); };
-    const feed = data.feed.filter((gr) => !prefs.muted.includes(gr.user.id)).slice().sort((a, b) => (a.allSeen === b.allSeen ? b.latest - a.latest : a.allSeen ? 1 : -1));
+    const feed = data.feed.map((gr) => statusUnhidden(gr, prefs)).filter((gr) => gr && !prefs.muted.includes(gr.user.id)).slice().sort((a, b) => (a.allSeen === b.allSeen ? b.latest - a.latest : a.allSeen ? 1 : -1));
     const mutedFeed = data.feed.filter((gr) => prefs.muted.includes(gr.user.id));
     const needle = q.trim().toLowerCase();
     const hits = needle ? feed.filter((gr) => gr.user.name.toLowerCase().includes(needle) || gr.items.some((it) => (it.text || "").toLowerCase().includes(needle))) : [];
@@ -6559,13 +6788,13 @@ function MessageInfoSheet({ m, conversation, myId, onClose }) {
 }
 
 // ---- forward one or more messages to other chats ----
-function ForwardSheet({ msgs, conversations, socket, token, onClose }) {
+function ForwardSheet({ msgs, conversations, socket, token, onClose, initialNote }) {
   const h = React.createElement;
   const [chosen, setChosen] = useState([]);       // chat ids
   const [toStatus, setToStatus] = useState(false); // also post to my status
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initialNote || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const needle = q.trim().toLowerCase();
@@ -8536,6 +8765,8 @@ function App() {
   });
   const socketRef = useRef(null);
   window.__lcSocket = () => socketRef.current;
+  window.__lcConvos = () => conversations;
+  window.__lcStartCall = (cv, video) => startCall(cv, video);
   const callApi = useRef(null);
   const groupCallApi = useRef(null);
     const startCall = (conversation, video) => { const api = conversation && conversation.isGroup ? groupCallApi : callApi; if (api.current) api.current.start(conversation, video); };
