@@ -2443,6 +2443,20 @@ app.get("/api/bot/chat", authMiddleware, (req, res) => {
   const h = u && Array.isArray(u.botChat) ? u.botChat.filter((m) => m && m.text && !m.digest && !m.off) : [];
   res.json({ messages: h.slice(-60).map((m) => ({ id: m.id, from: m.from, text: m.text, t: m.t })), llm: KB.llmReady() });
 });
+// Which AI provider is live on this Render server (names, models and status only: no keys, no error text). Used by the indicator on the AI screen.
+function aiLiveInfo(st, lastErrors) {
+  const list = (st.providers || []).map((p, i) => ({ i, name: p.name, model: [].concat(p.models || [])[0] || "", state: p.coolingDown ? "cooling" : p.online === false ? "down" : p.online === true ? "live" : "unknown", checked: (p.health && p.health.at) || null }))
+    .sort((a, b) => (a.state === "down" ? 1 : 0) - (b.state === "down" ? 1 : 0) || a.i - b.i);
+  const gi = list.findIndex((p) => p.name === "gemini"); if (gi > 0) list.unshift(list.splice(gi, 1)[0]); // Gemini always shows at the top of the list
+  const next = list.find((p) => p.state === "live" || p.state === "unknown") || null; // the one the next question goes to (cooling providers are skipped, like chat() does)
+  const used = Object.entries(lastErrors || {}).filter(([k, v]) => v && v.ok && k.indexOf(":") < 0).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)))[0];
+  return { providers: list.map(({ i, ...rest }) => rest), active: next ? next.name : null, lastUsed: used ? { name: used[0], model: used[1].model || "", at: used[1].at } : null };
+}
+app.get("/api/bot/live", authMiddleware, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const st = KB.aiStatus();
+  res.json({ ...aiLiveInfo(st, st.lastErrors), llm: KB.llmReady(), server: { host: "render", ready: dbReady, version: API_VERSION, uptime: Math.round(process.uptime()) } });
+});
 app.post("/api/bot/chat", authMiddleware, async (req, res) => {
   const text = String(req.body.text || "").trim().slice(0, 8000);
   if (!text) return res.status(400).json({ error: "Type something first" });

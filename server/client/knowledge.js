@@ -254,8 +254,8 @@ function providers() {
   add("deepseek", "https://api.deepseek.com/v1", E.DEEPSEEK_API_KEY, E.DEEPSEEK_MODEL || "deepseek-chat"); // DeepSeek (set DEEPSEEK_API_KEY)
   add("mistral", "https://api.mistral.ai/v1", E.MISTRAL_API_KEY, E.MISTRAL_MODEL || "mistral-small-latest"); // Mistral (set MISTRAL_API_KEY)
   add("custom", E.AI_BASE_URL, E.AI_API_KEY, E.AI_MODEL || "default");
-  // AI_PRIMARY=openai (or gemini, anthropic, groq...) tries that provider first
-  const first = String(E.AI_PRIMARY || "").trim().toLowerCase(), i = p.findIndex((x) => x.n === first);
+  // Gemini is always the first provider tried (the AI_PRIMARY setting in Render no longer changes this). If its key is missing or it is down, the next one answers.
+  const first = "gemini", i = p.findIndex((x) => x.n === first);
   if (i > 0) p.unshift(p.splice(i, 1)[0]);
   return p;
 }
