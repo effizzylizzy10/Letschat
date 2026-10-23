@@ -5165,6 +5165,72 @@ function aiLinkify(text) {
     if (last < text.length) out.push(text.slice(last));
     return out;
 }
+// ---- markdown for the LetsChat AI answers (bold, italic, headings, lists, tables, code blocks, links) ----
+function aiInline(t, kp) {
+    const out = [], ce = React.createElement;
+    const re = /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(__[^_\n]+?__)|(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))|(https?:\/\/[^\s)<>"']+)|(\*[^\s*][^*\n]*?\*)/g;
+    const link = { color: "#6FB3FF", textDecoration: "underline", wordBreak: "break-all" };
+    let last = 0, m, k = 0;
+    while ((m = re.exec(t))) {
+        if (m.index > last) out.push(t.slice(last, m.index));
+        const s = m[0], key = kp + "." + k++;
+        let used = s.length;
+        if (m[1]) out.push(ce("code", { key, style: { background: "rgba(255,255,255,.1)", borderRadius: 5, padding: "1px 5px", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: "0.9em" } }, s.slice(1, -1)));
+        else if (m[2] || m[3]) out.push(ce("strong", { key, style: { fontWeight: 700 } }, aiInline(s.slice(2, -2), key)));
+        else if (m[4]) { const mm = /^\[([^\]]+)\]\((.+)\)$/.exec(s); out.push(ce("a", { key, href: mm[2], target: "_blank", rel: "noopener noreferrer", style: link }, mm[1])); }
+        else if (m[5]) { const url = s.replace(/[.,;:!?]+$/, ""); used = url.length; out.push(ce("a", { key, href: url, target: "_blank", rel: "noopener noreferrer", style: link }, url)); }
+        else out.push(ce("em", { key }, aiInline(s.slice(1, -1), key)));
+        last = m.index + used; re.lastIndex = last;
+    }
+    if (last < t.length) out.push(t.slice(last));
+    return out;
+}
+function aiMd(text) {
+    const ce = React.createElement;
+    const lines = String(text || "").replace(/\r/g, "").split("\n");
+    const out = []; let i = 0, k = 0;
+    const isTableSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l || "") && (l || "").indexOf("-") >= 0;
+    const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    const startsBlock = (l, nx) => /^\s*```/.test(l) || /^(#{1,6})\s+/.test(l) || /^\s*>/.test(l) || /^\s*[-*+]\s+/.test(l) || /^\s*\d+[.)]\s+/.test(l) || (l.indexOf("|") >= 0 && isTableSep(nx));
+    while (i < lines.length) {
+        const ln = lines[i]; let m;
+        if ((m = /^\s*```\s*([\w+#.-]*)\s*$/.exec(ln))) { // code block (an unfinished one while the answer is still streaming too)
+            const code = []; i++;
+            while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) code.push(lines[i++]);
+            i++;
+            out.push(ce("div", { key: k++, style: { background: "#0B0F14", border: "1px solid #232B36", borderRadius: 10, overflow: "hidden" } },
+                m[1] ? ce("div", { style: { padding: "4px 10px", fontSize: 11, color: "#8A96A5", background: "#12161B", fontFamily: "Inter" } }, m[1]) : null,
+                ce("pre", { style: { margin: 0, padding: "10px 12px", overflowX: "auto", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: 13, lineHeight: 1.45, color: "#E6EDF3", whiteSpace: "pre", WebkitUserSelect: "text", userSelect: "text" } }, code.join("\n"))));
+            continue;
+        }
+        if (/^\s*$/.test(ln)) { i++; continue; }
+        if ((m = /^(#{1,6})\s+(.*)$/.exec(ln))) { const lv = m[1].length; out.push(ce("div", { key: k++, style: { fontFamily: "Sora", fontWeight: 700, fontSize: lv === 1 ? 19 : lv === 2 ? 17 : 15.5, lineHeight: 1.3, marginTop: 4 } }, aiInline(m[2], "h" + k))); i++; continue; }
+        if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(ln)) { out.push(ce("div", { key: k++, style: { height: 1, background: "#2B3544", margin: "4px 0" } })); i++; continue; }
+        if (/^\s*>/.test(ln)) { const q = []; while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, "")); out.push(ce("div", { key: k++, style: { borderLeft: "3px solid #35D0BA", paddingLeft: 10, color: "#C5CEDA", whiteSpace: "pre-wrap" } }, aiInline(q.join("\n"), "q" + k))); continue; }
+        if (/^\s*[-*+]\s+/.test(ln) || /^\s*\d+[.)]\s+/.test(ln)) {
+            const items = [];
+            while (i < lines.length && (/^\s*[-*+]\s+/.test(lines[i]) || /^\s*\d+[.)]\s+/.test(lines[i]))) {
+                const mm = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i]); items.push({ ind: Math.min(3, Math.floor(mm[1].replace(/\t/g, "  ").length / 2)), mark: /\d/.test(mm[2]) ? mm[2] : "\u2022", text: mm[3] }); i++;
+            }
+            out.push(ce("div", { key: k++, style: { display: "flex", flexDirection: "column", gap: 3 } }, items.map((it, n) => ce("div", { key: n, style: { display: "flex", gap: 7, paddingLeft: it.ind * 16 } },
+                ce("span", { style: { flexShrink: 0, minWidth: 14, color: "#8FD9CC" } }, it.mark), ce("span", { style: { minWidth: 0, flex: 1 } }, aiInline(it.text, "l" + k + "." + n))))));
+            continue;
+        }
+        if (ln.indexOf("|") >= 0 && isTableSep(lines[i + 1])) {
+            const head = cells(ln); i += 2; const rows = [];
+            while (i < lines.length && lines[i].indexOf("|") >= 0 && !/^\s*$/.test(lines[i])) rows.push(cells(lines[i++]));
+            const cs = { padding: "6px 9px", border: "1px solid #2B3544", textAlign: "left", verticalAlign: "top", fontSize: 13.5 };
+            out.push(ce("div", { key: k++, style: { overflowX: "auto" } }, ce("table", { style: { borderCollapse: "collapse", minWidth: "100%" } },
+                ce("thead", null, ce("tr", null, head.map((c, n) => ce("th", { key: n, style: { ...cs, background: "#12161B", fontWeight: 700 } }, aiInline(c, "th" + k + n))))),
+                ce("tbody", null, rows.map((r, n) => ce("tr", { key: n }, head.map((_, j) => ce("td", { key: j, style: cs }, aiInline(r[j] || "", "td" + k + n + "." + j)))))))));
+            continue;
+        }
+        const para = [ln]; i++;
+        while (i < lines.length && !/^\s*$/.test(lines[i]) && !startsBlock(lines[i], lines[i + 1]) && !/^\s*([-*_])(\s*\1){2,}\s*$/.test(lines[i])) para.push(lines[i++]);
+        out.push(ce("div", { key: k++, style: { whiteSpace: "pre-wrap" } }, aiInline(para.join("\n"), "p" + k)));
+    }
+    return ce("div", { style: { display: "flex", flexDirection: "column", gap: 8, minWidth: 0 } }, out);
+}
 // LetsChat AI page: a plain chat with the AI API (Gemini, OpenAI, Grok...). No learning, training, research or offline pack.
 // sharper video calls: sets the most data each sender may send (a clear picture needs this, not just a big camera size)
 function tuneSender(pc, maxVideo) {
@@ -5242,6 +5308,49 @@ function AiBotScreen({ token, onClose }) {
         return out && out.parts && out.parts.length ? out.parts : ["Sorry, I had no answer for that."];
     };
     const isNetErr = (e) => { const m = String((e && e.message) || ""); return !(e && e.name === "AbortError") && (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|network connection was lost|no internet connection/i.test(m)); };
+    const [liveId, setLiveId] = useState(null), abortRef = useRef(null);
+    // streaming answer: the text appears word by word as the AI writes it (like ChatGPT / Gemini / Claude); Stop keeps what was written
+    const askStream = async (text) => {
+        const ctl = new AbortController(); abortRef.current = ctl;
+        const aid = "a" + Date.now(); let acc = "", raf = 0, shown = false;
+        const flush = () => { raf = 0; const t = acc; setMsgs((m) => { const k = m.findIndex((x) => x.id === aid); if (k < 0) return [...m, { from: "ai", text: t, t: Date.now(), id: aid }]; const c = m.slice(); c[k] = { ...c[k], text: t }; return c; }); };
+        const queue = () => { if (!raf) raf = requestAnimationFrame(flush); };
+        try {
+            let res;
+            try { res = await fetch(`${API_URL}/api/bot/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ text }), signal: ctl.signal }); }
+            catch (e) { if (ctl.signal.aborted) return null; throw e; }
+            if (!res.ok || !res.body) {
+                const j = await res.json().catch(() => ({})); const msg = typeof j.error === "string" ? j.error : j.error && j.error.message;
+                if (res.status === 429 || res.status === 503 || (res.status === 502 && msg)) throw new Error(msg || "The AI could not answer right now");
+                return await askOnline(text); // older server without streaming: use the normal answer
+            }
+            const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", fail = "";
+            try {
+                for (;;) {
+                    const { value, done } = await reader.read(); if (done) break;
+                    buf += dec.decode(value, { stream: true }); let n;
+                    while ((n = buf.indexOf("\n")) >= 0) {
+                        const line = buf.slice(0, n).trim(); buf = buf.slice(n + 1);
+                        if (!line.startsWith("data:")) continue;
+                        let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+                        if (ev.type === "delta" && ev.text) { acc += ev.text; if (!shown) { shown = true; if (alive.current) setLiveId(aid); } if (alive.current) queue(); }
+                        else if (ev.type === "error") fail = ev.error || "The AI could not answer right now";
+                    }
+                }
+            } catch (e) { if (!ctl.signal.aborted && !acc) throw e; }
+            if (raf) { cancelAnimationFrame(raf); raf = 0; }
+            if (acc && alive.current) flush();
+            if (!acc && fail) throw new Error(fail);
+            return acc ? [acc] : (ctl.signal.aborted ? null : ["Sorry, I had no answer for that."]);
+        } finally { if (alive.current) setLiveId(null); abortRef.current = null; }
+    };
+    const stopAnswer = () => { try { abortRef.current && abortRef.current.abort(); } catch (e) { } };
+    const newChat = () => {
+        if (typing) return;
+        if (msgs.length && !window.confirm("Start a new chat? This clears the current conversation.")) return;
+        api("/api/bot/clear", { method: "POST", token, body: {} }).catch(() => { });
+        setMsgs([]); setErr(""); try { const b = brain(); b && b.saveChat && b.saveChat([]); } catch (e) { }
+    };
     const addAi = (parts) => setMsgs((m) => [...m, ...parts.map((x, i) => ({ from: "ai", text: x, t: Date.now(), id: "a" + Date.now() + i }))]);
     const answerOffline = async (text) => {
         const b = brain(); if (!b) return false;
@@ -5267,9 +5376,9 @@ function AiBotScreen({ token, onClose }) {
             if (typeof navigator !== "undefined" && navigator.onLine === false && b) await answerOffline(text);
             else {
                 let parts = null;
-                try { parts = await askOnline(text); }
+                try { parts = await askStream(text); }
                 catch (e) { if (b && isNetErr(e)) await answerOffline(text); else throw e; }
-                if (parts && alive.current) { addAi(parts); setOffMode(false); if (b) b.remember(text, parts); }
+                if (parts && alive.current) { setOffMode(false); if (b) b.remember(text, parts); }
             }
         } catch (e) {
             if (alive.current) setErr(e && e.name === "AbortError" ? "The AI is taking too long. Please try again in a moment." : (String((e && e.message) || "") || "The AI could not answer right now"));
@@ -5330,7 +5439,8 @@ function AiBotScreen({ token, onClose }) {
             React.createElement(AiBotAvatar, { size: 42, big: true }),
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
-                (typing || offMode ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : "offline mode") : liveChip))),
+                (typing || offMode ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : "offline mode") : liveChip)),
+            React.createElement("button", { "aria-label": "New chat", onClick: newChat, disabled: typing, style: { background: "none", border: "1px solid #2B3544", borderRadius: 999, padding: "6px 12px", color: "#35D0BA", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: typing ? 0.5 : 1, flexShrink: 0 } }, "New chat")),
         liveOpen && !offMode && livePanel,
         lite && lite.phase !== undefined && (() => {
             const sup = brain() && brain().lite.supported();
@@ -5359,17 +5469,17 @@ function AiBotScreen({ token, onClose }) {
                 const mine = m.from === "me";
                 return React.createElement("div", { key: m.id || i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8, animation: "lcAiIn .22s ease-out" } },
                     !mine && React.createElement(AiBotAvatar, { size: 28 }),
-                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: "78%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: "pre-wrap", wordBreak: "break-word", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, aiLinkify(m.text),
+                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: mine ? "78%" : "88%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: mine ? "pre-wrap" : "normal", wordBreak: "break-word", overflowWrap: "anywhere", minWidth: 0, userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, mine ? aiLinkify(m.text) : aiMd(m.text),
                         React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))), hlId === (m.id || i) && React.createElement("button", { onClick: () => { try { navigator.clipboard.writeText(m.text); } catch (e) {} setHlId(null); }, style: { alignSelf: "flex-end", background: "#1B212B", color: "#35D0BA", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" } }, "Copy"));
             }),
-            typing && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
+            typing && !liveId && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
                 React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
                 React.createElement("div", { style: { background: "#1B212B", borderRadius: "16px 16px 16px 4px" } }, React.createElement(AiTypingDots, null))),
             err && React.createElement("div", { style: { textAlign: "center", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12.5 } }, err),
             React.createElement("div", { ref: endRef })),
         React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: 8, background: "#12161B", borderTop: "1px solid #1E252E", flexShrink: 0 } },
-            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 4000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
-            React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => send(), disabled: !draft.trim() || typing, style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !draft.trim() || typing ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, React.createElement(Send, { size: 20, color: "#0E1116" }))));
+            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 20000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
+            React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => (typing ? stopAnswer() : send()), disabled: !typing && !draft.trim(), "aria-label": typing ? "Stop" : "Send", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !typing && !draft.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, typing ? React.createElement("span", { style: { width: 14, height: 14, borderRadius: 3, background: "#0E1116", display: "block" } }) : React.createElement(Send, { size: 20, color: "#0E1116" }))));
 }
 function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, onLive, presence, favorites = [], pinned = [], onSetPinned = () => { }, muted = {}, onMute = () => Promise.resolve(true) }) {
     const [aiOpen, setAiOpen] = useState(false);
