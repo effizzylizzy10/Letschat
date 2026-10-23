@@ -112,7 +112,8 @@ async function sportsDb(key) {
 
 async function league(key) {
   const L = LEAGUES[key]; if (!L) return [];
-  const json = await getJSON(BASE + L.path + "/scoreboard" + range());
+  let json = await getJSON(BASE + L.path + "/scoreboard" + range());
+  if (!json) json = await getJSON(BASE + L.path + "/scoreboard"); // ESPN answers 400 to a date range for some leagues: today's board still works
   const ev = parseEvents(json).map((e) => ({ ...e, league: L.label, key }));
   if (ev.length) return ev;
   try { return await sportsDb(key); } catch (e) { return []; }

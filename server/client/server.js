@@ -1757,7 +1757,7 @@ app.get("/api/status", authMiddleware, (req, res) => {
     .filter((g) => g.user)
     .map((g) => ({ ...g, allSeen: g.items.every((i) => i.seen) }))
     .sort((a, b) => (a.allSeen - b.allSeen) || (b.latest - a.latest));
-  res.json({ mine, feed });
+  res.json({ mine, feed, notify: ((db.users.find((u) => u.id === me) || {}).statusNotify) || [] });
 });
 app.post("/api/status", authMiddleware, (req, res) => {
   if (USE_DB && ready.statuses === false) return res.status(503).json({ error: "Status storage is not set up on the server yet" });
@@ -1781,8 +1781,37 @@ app.post("/api/status", authMiddleware, (req, res) => {
   list.push(s);
   writeDB(db);
   notifyTags(db, req.user.id, s.tags, "status");
+  try { pushStatusFollowers(db, req.user.id, s); } catch (e) { console.error("status push failed:", e && e.message); }
   res.json({ status: statusItem(s, req.user.id, db) });
 });
+// ---- "Get notifications" in the status viewer: a push alert when someone the person follows posts a new status ----
+app.post("/api/me/status-notify", authMiddleware, (req, res) => {
+  const db = readDB(), me = db.users.find((u) => u.id === req.user.id), { userId, on } = req.body || {};
+  if (!me || !userId || userId === me.id || !db.users.some((u) => u.id === userId)) return res.status(400).json({ error: "Choose a valid contact" });
+  const set = new Set(me.statusNotify || []);
+  if (on === false) set.delete(userId); else set.add(userId);
+  me.statusNotify = [...set].slice(-500);
+  writeDB(db);
+  res.json({ ok: true, notify: me.statusNotify });
+});
+function pushStatusFollowers(db, posterId, s) {
+  if (!PUSH_ON) return;
+  const poster = memberView(db.users.find((x) => x.id === posterId));
+  if (!poster) return;
+  for (const u of db.users) {
+    if (u.id === posterId || !(u.statusNotify || []).includes(posterId) || !(u.pushSubs || []).length || (u.blocked || []).includes(posterId) || !canSeeStatusItem(db, u.id, s)) continue;
+    const body = s.text ? String(s.text).slice(0, 90) : "Posted a photo";
+    for (const sub of u.pushSubs) {
+      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title: poster.name + " posted a status", body, tag: "status-" + posterId, url: "./" }), { TTL: 3600, urgency: "normal" })
+        .catch((err) => {
+          if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+            const d2 = readDB(), u2 = d2.users.find((x) => x.id === u.id);
+            if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
+          }
+        });
+    }
+  }
+}
 // reshare someone's update to my own status (24h like any other); it keeps a "reshared from <name>" source so viewers know
 app.post("/api/status/:id/reshare", authMiddleware, (req, res) => {
   if (USE_DB && ready.statuses === false) return res.status(503).json({ error: "Status storage is not set up on the server yet" });

@@ -13,7 +13,7 @@ const path = require("path");
 
 const E = process.env;
 // Keys are read ONLY from environment variables (Render > Environment). Never paste keys into source code.
-const KEY = (n) => E[n];
+const KEY = (n) => (typeof E[n] === "string" ? E[n].trim().replace(/^["']+|["']+$/g, "").trim() : E[n]); // a key pasted into Render with spaces or quotes still works
 const FILE = path.join(__dirname, "data", "ai-knowledge.json");
 const DAY = 864e5, HOUR = 36e5;
 const TTL = { wiki: 7 * DAY, ddg: 2 * DAY, weather: 3 * HOUR, fx: 6 * HOUR, dict: 30 * DAY, news: 3 * HOUR, ans: 12 * HOUR };
@@ -263,9 +263,32 @@ const llmReady = () => providers().length > 0;
 const cooldown = new Map(); // provider name -> time until it is tried again after a failure
 const lastErrors = {}; // provider name -> { at, error } (the real reason the last call failed, shown in /api/creator/ai-status)
 const noteErr = (n, msg) => { lastErrors[n] = { at: new Date().toISOString(), error: String(msg).slice(0, 300) }; console.error("[ai]", n, "failed:", String(msg).slice(0, 300)); };
-// Google's newer "AQ." keys must go in x-goog-api-key ALONE (a Bearer header is read as an OAuth token and rejected)
-const chatAuth = (p) => p.n === "gemini" ? (/^AQ\./.test(p.key) ? { "x-goog-api-key": p.key } : { Authorization: "Bearer " + p.key, "x-goog-api-key": p.key })
+// Google accepts a Gemini key in different headers depending on the key type (classic "AIza..." or newer "AQ...") and endpoint, and answers
+// "Missing or invalid Authorization header" when it is not the one it wants. So the first call tries all three header styles and remembers the one that works.
+let geminiMode = 0;
+const GEMINI_MODES = [
+  (k) => ({ Authorization: "Bearer " + k, "x-goog-api-key": k }),
+  (k) => ({ "x-goog-api-key": k }),
+  (k) => ({ Authorization: "Bearer " + k }),
+];
+const chatAuth = (p, mode) => p.n === "gemini" ? GEMINI_MODES[mode == null ? geminiMode : mode](p.key)
   : p.n === "anthropic" ? { Authorization: "Bearer " + p.key, "x-api-key": p.key, "anthropic-version": "2023-06-01" } : { Authorization: "Bearer " + p.key };
+async function isAuthFail(r) {
+  if (r.status === 401 || r.status === 403) return true;
+  if (r.status !== 400) return false;
+  try { return /authorization|api key|credential|oauth|unauthenticated/i.test((await r.clone().text()).slice(0, 400)); } catch (e) { return false; }
+}
+// fetch with the provider's auth headers; for Gemini, retries the other header styles when Google rejects the credentials
+async function authFetch(p, url, init) {
+  const send = (m) => fetch(url, { ...init, headers: { ...(init.headers || {}), ...chatAuth(p, m) } });
+  const r = await send(geminiMode);
+  if (p.n !== "gemini" || r.ok || !(await isAuthFail(r))) return r;
+  for (let i = 1; i < GEMINI_MODES.length; i++) {
+    const m = (geminiMode + i) % GEMINI_MODES.length, r2 = await send(m);
+    if (r2.ok || !(await isAuthFail(r2))) { geminiMode = m; return r2; } // credentials accepted (or failed for another reason, e.g. model name): keep this style
+  }
+  return r;
+}
 // OpenAI's gpt-5 / o-series models take max_completion_tokens, ignore a custom temperature, and spend part of the budget on reasoning
 function chatBody(p, model, messages, opt) {
   const max = (opt && opt.max) || 300, temperature = opt && opt.temp != null ? opt.temp : 0.3;
@@ -281,7 +304,7 @@ const markHealth = (n, ok, status, detail) => { health[n] = { ok, status: status
 async function probe(p) {
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 9000);
   try {
-    const r = await fetch(p.url.replace(/\/$/, "") + "/models", { signal: ctl.signal, headers: chatAuth(p) });
+    const r = await authFetch(p, p.url.replace(/\/$/, "") + "/models", { signal: ctl.signal });
     if (r.ok) markHealth(p.n, true, r.status, "online");
     else if (r.status === 401 || r.status === 403) markHealth(p.n, false, r.status, "key rejected");
     else if (r.status === 404 || r.status === 405) { if (!health[p.n]) markHealth(p.n, null, r.status, "no model list; checked on first use"); } // provider has no /models: real calls decide
@@ -301,9 +324,9 @@ async function chat(messages, opt) {
       if (providerDown || Date.now() - t0 > budget) break;
       const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), (opt && opt.timeout) || 14000);
       try {
-        const r = await fetch(p.url.replace(/\/$/, "") + "/chat/completions", {
+        const r = await authFetch(p, p.url.replace(/\/$/, "") + "/chat/completions", {
           method: "POST", signal: ctl.signal,
-          headers: { "Content-Type": "application/json", ...chatAuth(p) },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(chatBody(p, model, messages, opt)),
         });
         if (!r.ok) {
@@ -358,9 +381,9 @@ async function chatStream(messages, opt) {
       let timer = setTimeout(() => ctl.abort(), firstMs), got = "";
       const bump = () => { clearTimeout(timer); timer = setTimeout(() => ctl.abort(), idleMs); }; // no data for a while: give up on this provider
       try {
-        const r = await fetch(p.url.replace(/\/$/, "") + "/chat/completions", {
+        const r = await authFetch(p, p.url.replace(/\/$/, "") + "/chat/completions", {
           method: "POST", signal: ctl.signal,
-          headers: { "Content-Type": "application/json", ...chatAuth(p) },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...chatBody(p, model, messages, opt), stream: true }),
         });
         if (!r.ok) {
