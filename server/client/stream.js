@@ -1,5 +1,6 @@
 "use strict";
 // Streams the LetsChat AI answer token by token (like Gemini and ChatGPT).
+// When knowledge.js has chatStream() it is used (all your providers and models). The providers below are only the standalone fallback.
 // Tries each provider whose API key is set, in this order: Gemini, OpenAI, Groq, xAI (Grok).
 // Models can be changed with env vars: GEMINI_MODEL, OPENAI_MODEL, GROQ_MODEL, XAI_MODEL.
 // If no provider streams, server.js falls back to the normal (non-streaming) AI path.
@@ -79,6 +80,12 @@ async function readSSE(res, pick, o) {
 // messages: [{ role: "system" | "user" | "assistant", content }]
 // returns { text, by } or null when no provider could stream an answer
 async function streamChat(messages, opts = {}) {
+  // Preferred: knowledge.js streams through every provider you configured, with its own models, health checks and fallback order.
+  let KB = null;
+  try { KB = require("./knowledge"); } catch (e) { /* standalone mode below */ }
+  if (KB && typeof KB.chatStream === "function" && KB.llmReady()) {
+    return KB.chatStream(messages, { signal: opts.signal, onToken: opts.onToken, temp: opts.temp, max: opts.max, budget: opts.timeout });
+  }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), opts.timeout || 60000);
   if (opts.signal) {

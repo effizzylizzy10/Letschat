@@ -332,6 +332,81 @@ async function chat(messages, opt) {
 }
 const aiStatus = () => ({ providers: providers().map((p) => ({ name: p.n, models: [].concat(p.model), coolingDown: (cooldown.get(p.n) || 0) > Date.now(), online: health[p.n] ? health[p.n].ok : null, health: health[p.n] || null })), lastErrors });
 
+// ---------- streaming chat (the AI page shows the answer word by word, like Gemini and ChatGPT) ----------
+// Same providers, models, health ranking, cool-downs and fallback order as chat(), but with stream:true. Every piece of text goes to opt.onToken(text) as it arrives.
+// opt.signal (an AbortSignal) stops the answer: whatever was written so far is returned. If a provider fails AFTER some text was already sent to the person,
+// the next provider is NOT tried (the answer would start over and repeat itself): the partial text is returned instead.
+// Returns { text, by } or null when no provider could start an answer (the caller can then use chat()).
+async function chatStream(messages, opt) {
+  opt = opt || {};
+  const t0 = Date.now(), budget = opt.budget || 90000, outer = opt.signal;
+  const onToken = typeof opt.onToken === "function" ? opt.onToken : () => {};
+  const firstMs = opt.firstTokenTimeout || 20000, idleMs = opt.idleTimeout || 25000;
+  const order = providers().map((x, i) => ({ x, i })).sort((a, b) => rank(a.x) - rank(b.x) || a.i - b.i).map((o) => o.x);
+  for (const p of order) {
+    if (outer && outer.aborted) return null;
+    if (Date.now() - t0 > budget) break;
+    if ((cooldown.get(p.n) || 0) > Date.now()) continue;
+    const models = Array.isArray(p.model) ? p.model : [p.model];
+    let providerDown = false;
+    for (const model of models) {
+      if (providerDown || Date.now() - t0 > budget) break;
+      if (outer && outer.aborted) return null;
+      const ctl = new AbortController();
+      const onAbort = () => ctl.abort();
+      if (outer) outer.addEventListener("abort", onAbort, { once: true });
+      let timer = setTimeout(() => ctl.abort(), firstMs), got = "";
+      const bump = () => { clearTimeout(timer); timer = setTimeout(() => ctl.abort(), idleMs); }; // no data for a while: give up on this provider
+      try {
+        const r = await fetch(p.url.replace(/\/$/, "") + "/chat/completions", {
+          method: "POST", signal: ctl.signal,
+          headers: { "Content-Type": "application/json", ...chatAuth(p) },
+          body: JSON.stringify({ ...chatBody(p, model, messages, opt), stream: true }),
+        });
+        if (!r.ok) {
+          let body = ""; try { body = (await r.text()).slice(0, 250); } catch (e) {}
+          noteErr(p.n + ":" + model, "HTTP " + r.status + " " + body);
+          if (r.status === 401 || r.status === 403) markHealth(p.n, false, r.status, "key rejected");
+          if (r.status === 400 || r.status === 404) continue; // wrong/retired model name: try the next model of the same provider
+          providerDown = true;
+          cooldown.set(p.n, Date.now() + (r.status === 429 || r.status === 402 ? 5 * 60 * 1000 : r.status === 401 || r.status === 403 ? 30 * 60 * 1000 : 60 * 1000));
+          continue;
+        }
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let buf = "", finished = false;
+        while (!finished) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          bump();
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (data === "[DONE]") { finished = true; break; }
+            if (!data) continue;
+            let ev; try { ev = JSON.parse(data); } catch (e) { continue; } // a half-received line: ignore it
+            const d = ev.choices && ev.choices[0] && ev.choices[0].delta && ev.choices[0].delta.content;
+            if (d) { got += d; try { onToken(d); } catch (e) { /* a broken listener must not stop the answer */ } }
+          }
+        }
+        if (got.trim()) {
+          delete lastErrors[p.n + ":" + model]; lastErrors[p.n] = { at: new Date().toISOString(), ok: true, model, stream: true }; markHealth(p.n, true, 200, "online");
+          return { text: got.trim(), by: p.n };
+        }
+        noteErr(p.n + ":" + model, "empty streamed reply");
+      } catch (e) {
+        if (outer && outer.aborted) return got.trim() ? { text: got.trim(), by: p.n } : null; // stopped by the person: keep what was written
+        noteErr(p.n + ":" + model, "stream " + (e && e.name === "AbortError" ? "timeout" : (e && e.message) || e));
+        if (got.trim()) return { text: got.trim(), by: p.n }; // the cut-off answer was already shown: do not start over with another AI
+        providerDown = true; cooldown.set(p.n, Date.now() + 30 * 1000);
+      } finally { clearTimeout(timer); if (outer) outer.removeEventListener("abort", onAbort); }
+    }
+  }
+  return null;
+}
+
 // Real Gemini with Google Search grounding (the native Gemini API, not the compatibility endpoint): it searches the web by itself for every question and returns the sources it used.
 async function geminiSearch(messages, opt) {
   const key = KEY("GEMINI_API_KEY"); if (!key || (cooldown.get("gemini-search") || 0) > Date.now()) return null;
@@ -440,4 +515,4 @@ function stats() {
     ai: providers().map((p) => p.n), top: Object.values(store.asked).sort((a, b) => b.n - a.n).slice(0, 10).map((x) => ({ q: x.q, n: x.n })),
   };
 }
-module.exports = { checkAll, pickSentence, geminiSearch, answer, lookup, lookupAll, loadNews, refresh, start, stats, llmReady, aiStatus, isQuestion, scrub, tokens, topFacts, chat, _store: () => store };
+module.exports = { checkAll, pickSentence, geminiSearch, answer, lookup, lookupAll, loadNews, refresh, start, stats, llmReady, aiStatus, isQuestion, scrub, tokens, topFacts, chat, chatStream, _store: () => store };
