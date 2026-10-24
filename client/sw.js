@@ -230,17 +230,22 @@ self.addEventListener("fetch", function (e) {
 });
 
 // ---- Web push: show a notification even when the app is closed ----
+// Looks like Facebook Lite in the notification shade: the sender's photo (d.avatar) on the left, the message's picture (d.image) as a big
+// picture, and one notification per chat (d.tag) that updates instead of piling up.
 self.addEventListener("push", function (e) {
   wakeServer();
   var d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data ? e.data.text() : "" }; }
+  var big = d.image ? String(d.image) : undefined;
+  var avatar = d.avatar ? String(d.avatar) : (d.ai ? "icons/ai-bot-128.png" : "icons/icon-192.png");
   e.waitUntil(self.registration.showNotification(d.title || "Letschat Africa", {
     body: d.body || "New message",
     tag: d.tag || "letschat",       // same chat = one notification, updated
     renotify: true,
     requireInteraction: !!d.call,                          // a call alert stays on screen until it is tapped or dismissed
     vibrate: d.call ? [400, 200, 400, 200, 400] : undefined,
-    icon: d.ai ? "icons/ai-bot-128.png" : "icons/icon-192.png", // replies written by the AI show the robot
+    icon: avatar,                    // round sender photo (shown on the left), or the AI robot for AI replies
+    image: big,                     // picture shown large under the text, like Facebook's photo notifications
     badge: "icons/icon-192.png",
     timestamp: Date.now(),
     data: { url: d.url || "./" }
