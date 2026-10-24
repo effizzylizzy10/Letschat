@@ -55,10 +55,11 @@
     var mine = !!p.mine;
     var items = order.map(function (e) {
       var on = r[p.myId] === e;
-      return h("button", { key: e, "aria-label": e + " " + counts[e], onClick: function () { p.onReact(p.m, e); },
+      // only your own reaction can be tapped (to remove it); reactions made by other people are display-only
+      return h("button", { key: e, "aria-label": e + " " + counts[e], disabled: !on, onClick: function () { if (on) p.onReact(p.m, e); },
         style: mine
-          ? { display: "flex", alignItems: "center", gap: 3, background: "none", border: "none", padding: 0, cursor: "pointer", color: "#F5F7FA", fontFamily: "Inter", fontSize: 12.5, lineHeight: "20px" }
-          : { display: "flex", alignItems: "center", gap: 3, background: "#10141B", border: on ? "1px solid #35D0BA" : "1px solid #2B3544", borderRadius: 999, padding: "1px 7px", cursor: "pointer", color: "#F5F7FA", fontFamily: "Inter", fontSize: 12.5, lineHeight: "20px" } },
+          ? { display: "flex", alignItems: "center", gap: 3, background: "none", border: "none", padding: 0, cursor: on ? "pointer" : "default", pointerEvents: on ? "auto" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 12.5, lineHeight: "20px" }
+          : { display: "flex", alignItems: "center", gap: 3, background: "#10141B", border: on ? "1px solid #35D0BA" : "1px solid #2B3544", borderRadius: 999, padding: "1px 7px", cursor: on ? "pointer" : "default", pointerEvents: on ? "auto" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 12.5, lineHeight: "20px" } },
         h("span", { style: { fontSize: 14 } }, e), counts[e] > 1 && h("span", null, counts[e]));
     });
     return h("div", { style: mine

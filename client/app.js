@@ -5200,7 +5200,7 @@ function aiMd(text) {
             i++;
             out.push(ce("div", { key: k++, style: { background: "#0B0F14", border: "1px solid #232B36", borderRadius: 10, overflow: "hidden" } },
                 m[1] ? ce("div", { style: { padding: "4px 10px", fontSize: 11, color: "#8A96A5", background: "#12161B", fontFamily: "Inter" } }, m[1]) : null,
-                ce("pre", { style: { margin: 0, padding: "10px 12px", overflowX: "auto", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: 13, lineHeight: 1.45, color: "#E6EDF3", whiteSpace: "pre", WebkitUserSelect: "text", userSelect: "text" } }, code.join("\n"))));
+                ce("pre", { style: { margin: 0, padding: "10px 12px", overflowX: "auto", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: 13, lineHeight: 1.45, color: "#E6EDF3", whiteSpace: "pre", WebkitUserSelect: "none", userSelect: "none" } }, code.join("\n"))));
             continue;
         }
         if (/^\s*$/.test(ln)) { i++; continue; }
@@ -8740,7 +8740,7 @@ const FAQ_SECTIONS = [
     ] },
     { title: "Chatting", items: [
         ["How do I send a photo, file, voice note or location?", "Tap the paperclip for Gallery, Document, Contact, Location, Poll or Schedule. Files can be up to 3 MB. Use the camera to take a photo and hold or tap the microphone to record a voice note; tap again or tap send to send it. Share location asks your phone for permission first and only sends when you tap Send."],
-        ["How do I reply, react, edit, delete or forward a message?", "Swipe a message to the right to reply. Press and hold it to select it: you can react with an emoji, star it, copy, forward, or delete it. Delete for me removes it on your phone; Delete for everyone removes it for the other person too. You can edit your own text messages for 15 minutes after sending."],
+        ["How do I reply, react, edit, delete or forward a message?", "Swipe a message to the right to reply. Press and hold it to select it: you can react with an emoji, star it, copy, forward, or delete it. Delete for me removes it on your phone; Delete for everyone removes it for the other person too. You can edit your own text messages for 1 hour after sending."],
         ["What do the ticks mean?", "One grey tick means sent, two grey ticks mean delivered, and two green ticks mean the person has read it. A clock means the message is still sending. If it shows “Not sent”, tap it to retry."],
         ["How do I find an old message or media?", "Open the chat, tap the three dots and choose Search to look inside the chat. “Media, links and docs” lists all photos, files and links. Starred messages keeps the ones you saved."],
         ["What are disappearing messages and view once?", "Disappearing messages delete themselves after the time you pick: open the chat, tap the three dots → Disappearing messages. View once photos and videos can be opened only one time and then they are gone."],
@@ -9624,16 +9624,16 @@ function pcRow(key, icon, title, sub, onClick, right) {
 function ProfileChatOptions({ chatId, token, muted, onNotifications, onLock, setSheet, mediaHidden, onNote }) {
   const h = React.createElement;
   const [, bump] = useState(0);
-  const [biz, setBiz] = useState(null); // AI business for this chat: null = loading
+  const [biz, setBiz] = useState(null); // Chat AI for this chat: null = loading
   useEffect(() => { let live = true; if (token) api("/api/v1/me/ai/chat/" + chatId, { token }).then((d) => { if (live) setBiz(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBiz("na"); }); return () => { live = false; }; }, [chatId, token]);
-  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change AI business"); }); };
+  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "Chat AI is on for this chat" : "Chat AI is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change Chat AI"); }); };
   useEffect(() => { const f = () => bump((n) => n + 1); window.addEventListener("lcx", f); return () => window.removeEventListener("lcx", f); }, []);
   const ico = (I) => h(I, { size: 22, color: "#8891A0" });
   const lockOn = LCX.locked(chatId);
   const priv = loadJSON("chatpriv:" + chatId, {});
   const lockGo = () => { onLock(); setTimeout(() => bump((n) => n + 1), 50); };
   const aiRows = [
-    token && biz !== "na" ? pcRow("pc-biz", h(AiBotAvatar, { size: 26, style: { filter: biz === true ? "none" : "grayscale(1)", opacity: biz === true ? 1 : 0.7 } }), "AI business", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
+    token && biz !== "na" ? pcRow("pc-biz", h(AiBotAvatar, { size: 26, style: { filter: biz === true ? "none" : "grayscale(1)", opacity: biz === true ? 1 : 0.7 } }), "Chat AI", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
       h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: biz === true, disabled: biz === null, onChange: (v) => bizSet(v) }))) : null,
   ];
   return h(React.Fragment, null,
@@ -10410,12 +10410,12 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     };
     const notifyAct = (kind, on) => { if (socket && featOn("typingStatus"))
         socket.emit("typing", { conversationId: conversation.id, typing: !!on, kind }); }; // "recording" | "photo" | "file"
-    const EDIT_WINDOW_MS = 15 * 60 * 1000; // keep in step with the server
+    const EDIT_WINDOW_MS = 60 * 60 * 1000; // keep in step with the server
     const canEdit = (m) => !!m && !m.deleted && !m.audio && !m.hasAudio && !m.file && Date.now() - m.time <= EDIT_WINDOW_MS;
     const startEdit = (m) => {
         setSel(null);
         if (!canEdit(m))
-            return setError("Messages can only be edited for 15 minutes after sending");
+            return setError("Messages can only be edited for 1 hour after sending");
         setEditing(m);
         setDraft(m.text);
         setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
@@ -10438,12 +10438,12 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     catch (e) { } }, 250); };
     const pressEnd = () => clearTimeout(pressRef.current);
     const [emojiOpen, setEmojiOpen] = useState(false);
-    // AI business button in the typing area: per-chat on/off (same server setting as the toggle in the contact profile)
+    // Chat AI button in the typing area: per-chat on/off (same server setting as the toggle in the contact profile)
     const [loc, setLoc] = useState(null); // share-location sheet: { st: "find" | "ready" | "denied" | "err", ... }
     const locReq = useRef(0);
     const [bizOn, setBizOn] = useState(null); // null = loading, "na" = not available for this chat, true / false
     useEffect(() => { let live = true; setBizOn(null); if (token && conversation && conversation.id && !conversation.isGroup && !conversation.chatRoom) api("/api/v1/me/ai/chat/" + conversation.id, { token }).then((d) => { if (live) setBizOn(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBizOn("na"); }); else setBizOn("na"); return () => { live = false; }; }, [conversation && conversation.id, token]);
-    const bizToggle = () => { if (bizOn === null || bizOn === "na") return; const was = bizOn, v = !bizOn; setBizOn(v); api("/api/v1/me/ai/chat/" + conversation.id, { method: "PUT", token, body: { on: v } }).then((d) => { setBizOn(!!(d && d.on)); flashNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBizOn(was); flashNote((e && e.message) || "Could not change AI business"); }); };
+    const bizToggle = () => { if (bizOn === null || bizOn === "na") return; const was = bizOn, v = !bizOn; setBizOn(v); api("/api/v1/me/ai/chat/" + conversation.id, { method: "PUT", token, body: { on: v } }).then((d) => { setBizOn(!!(d && d.on)); flashNote(v ? "Chat AI is on for this chat" : "Chat AI is off for this chat"); }).catch((e) => { setBizOn(was); flashNote((e && e.message) || "Could not change Chat AI"); }); };
     const [attachOpen, setAttachOpen] = useState(false);
     const [pickSheet, setPickSheet] = useState(null);
     const [pendingMedia, setPendingMedia] = useState(null);
@@ -11265,7 +11265,7 @@ const shareContact = async () => {
                     return (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0" } },
                         React.createElement("div", { style: { flex: 1 } }),
                         conversation.isGroup && !editing && !rec && React.createElement("button", { "aria-label": "Mention a member", onMouseDown: e => e.preventDefault(), onClick: () => { setEmojiOpen(false); setDraft(d => /(^|\s)@[^\s@]*$/.test(d) ? d : (d && !/\s$/.test(d) ? d + " @" : d + "@")); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, style: { ...ib, color: "#9BA7B4", fontFamily: "Sora", fontWeight: 700, fontSize: 21, lineHeight: "24px", alignItems: "center", justifyContent: "center", minWidth: 40 } }, "@"),
-                        !editing && !rec && !isRoom && !conversation.isGroup && token && (bizOn === true || bizOn === false) && React.createElement("button", { "aria-label": bizOn ? "AI business is on. Tap to turn off" : "AI business is off. Tap to turn on", "aria-pressed": bizOn === true, onMouseDown: e => e.preventDefault(), onClick: bizToggle, style: { ...ib, padding: "2px 7px", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } },
+                        !editing && !rec && !isRoom && !conversation.isGroup && token && (bizOn === true || bizOn === false) && React.createElement("button", { "aria-label": bizOn ? "Chat AI is on. Tap to turn off" : "Chat AI is off. Tap to turn on", "aria-pressed": bizOn === true, onMouseDown: e => e.preventDefault(), onClick: bizToggle, style: { ...ib, padding: "2px 7px", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } },
                             React.createElement(AiBotAvatar, { size: 26, style: { border: bizOn ? "2px solid #35D0BA" : "2px solid transparent", boxSizing: "border-box", filter: bizOn ? "none" : "grayscale(1)", opacity: bizOn ? 1 : 0.6, transition: "opacity .15s, filter .15s" } }),
                             React.createElement("span", { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 9, lineHeight: "10px", letterSpacing: 0.3, color: bizOn ? "#35D0BA" : "#8891A0" } }, bizOn ? "AI ON" : "AI OFF")),
                         React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: ib },
@@ -11947,6 +11947,11 @@ function friendlyAuthError(e) {
         "auth/user-disabled": "This account has been disabled.",
         "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
         "auth/network-request-failed": "Network problem. Check your connection and try again.",
+        "auth/invalid-action-code": "This sign-in link is not valid any more. Ask for a new one.",
+        "auth/expired-action-code": "This sign-in link has expired. Ask for a new one.",
+        "auth/operation-not-allowed": "Email-link sign-in is not switched on yet. In Firebase: Authentication > Sign-in method > Email/Password > turn on Email link (passwordless sign-in).",
+        "auth/missing-continue-uri": "Email-link sign-in is not set up for this website yet.",
+        "auth/unauthorized-continue-uri": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
     };
     if (e && /region/i.test(e.message || ""))
         return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
@@ -12119,6 +12124,54 @@ function LoginScreen({ onContinue }) {
         await firebase.auth().sendPasswordResetEmail(email.trim());
         setNotice("Password reset link sent to " + email.trim() + ".");
     });
+    // ---- email only, no password: Firebase emails a one-time sign-in link that proves the person owns the address ----
+    const sendLink = () => run(async () => {
+        if (!emailOk)
+            throw new Error("Type your email address first.");
+        await firebase.auth().sendSignInLinkToEmail(email.trim(), { url: window.location.origin + window.location.pathname, handleCodeInApp: true });
+        try {
+            localStorage.setItem("lc-link-email", email.trim());
+        }
+        catch (e) { }
+        setEmailStage("linksent");
+        setNotice("");
+    });
+    const completeLink = (em, href) => run(async () => {
+        const cred = await firebase.auth().signInWithEmailLink(String(em).trim(), href || window.location.href);
+        try {
+            localStorage.removeItem("lc-link-email");
+        }
+        catch (e) { }
+        try {
+            window.history.replaceState(null, "", window.location.origin + window.location.pathname);
+        }
+        catch (e) { }
+        await finish(await cred.user.getIdToken(), "");
+    });
+    useEffect(() => {
+        // the person opened the sign-in link from their email: finish signing in (ask for the email if this is another phone or browser)
+        if (!FIREBASE_READY || window.__lcLinkSeen)
+            return;
+        let isLink = false;
+        try {
+            isLink = firebase.auth().isSignInWithEmailLink(window.location.href);
+        }
+        catch (e) { }
+        if (!isLink)
+            return;
+        window.__lcLinkSeen = true;
+        let saved = "";
+        try {
+            saved = localStorage.getItem("lc-link-email") || "";
+        }
+        catch (e) { }
+        if (saved) {
+            setEmail(saved);
+            completeLink(saved, window.location.href);
+        }
+        else
+            setEmailStage("linkconfirm");
+    }, []);
     const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
     const box = { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
     const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
@@ -12130,14 +12183,17 @@ function LoginScreen({ onContinue }) {
             React.createElement("input", { value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
             React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", flexShrink: 0 } }, nickLen(nickname) + "/" + NICK_MAX)),
         React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-8px 4px 14px", lineHeight: 1.4 } }, "Up to " + NICK_MAX + " characters: letters, numbers or symbols. No emoji. Friends use it to find you. It can\u2019t be changed later."), React.createElement(SimilarNicks, { list: similarNicks }));
-    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
-    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
+    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : (emailStage === "link" || emailStage === "linksent" || emailStage === "linkconfirm") ? emailStage : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
+    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email", link: "Sign in with email", linksent: "Check your email", linkconfirm: "Confirm your email" };
     const subs = {
         phone: "We'll text you a verification code. Or continue with Google.",
         code: "We sent a code to +" + dial + " " + formatNational(phone) + ".",
         name: "Your name and nickname are what people you chat with will see.",
         email: "Use your email and a password (6 or more characters).",
         verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
+        link: "No password needed. We email you a link: tap it and you are signed in.",
+        linksent: "We sent a sign-in link to " + email.trim() + ". Open it on this phone to sign in. Check your spam folder too.",
+        linkconfirm: "Type the email address the link was sent to, to finish signing in.",
     };
     return (React.createElement("div", { style: { height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
         React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
@@ -12170,7 +12226,8 @@ function LoginScreen({ onContinue }) {
             React.createElement("button", { disabled: busy || phone.length < 6 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 6 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
             React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
             React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"),
-            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Log in with email and password"))),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Log in with email and password"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: linkBtn }, "Sign in with email only (no password)"))),
         stage === "email" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [["Log in", false], ["Create account", true]].map(([label, v]) => (React.createElement("button", { key: label, onClick: () => { setIsNew(v); setError(""); setNotice(""); }, style: { flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, label)))),
             isNew && (React.createElement("div", { style: box },
@@ -12190,11 +12247,26 @@ function LoginScreen({ onContinue }) {
                             React.createElement("circle", { cx: 12, cy: 12, r: 3 })))))),
             React.createElement("button", { disabled: busy || !emailReady, onClick: submitEmail, style: btn(emailReady) }, busy ? "Please wait…" : isNew ? "Create account" : "Log in"),
             !isNew && React.createElement("button", { onClick: forgotPassword, style: linkBtn }, "Forgot password?"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: { ...linkBtn, color: "#35D0BA", marginTop: 8 } }, "Sign in with email only (no password)"),
             PHONE_LOGIN
                 ? React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead")
                 : React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
                     React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google")))),
+        stage === "link" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && sendLink(), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailOk || !FIREBASE_READY, onClick: sendLink, style: btn(emailOk && FIREBASE_READY) }, busy ? "Please wait…" : "Email me a sign-in link"),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Use a password instead"),
+            PHONE_LOGIN && React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead"))),
+        stage === "linksent" && (React.createElement(React.Fragment, null,
+            React.createElement("button", { disabled: busy, onClick: sendLink, style: btn(true) }, busy ? "Please wait…" : "Send the link again"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: linkBtn }, "Use a different email"))),
+        stage === "linkconfirm" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && completeLink(email), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailOk, onClick: () => completeLink(email), style: btn(emailOk) }, busy ? "Please wait…" : "Sign in"),
+            React.createElement("button", { onClick: () => { try { window.history.replaceState(null, "", window.location.origin + window.location.pathname); } catch (e) { } setEmailStage("link"); setError(""); }, style: linkBtn }, "Send me a new link"))),
         stage === "verify" && (React.createElement(React.Fragment, null,
             React.createElement("button", { disabled: busy, onClick: checkVerified, style: btn(true) }, busy ? "Please wait…" : "I've verified my email"),
             React.createElement("button", { onClick: resendVerification, style: linkBtn }, "Resend email"),

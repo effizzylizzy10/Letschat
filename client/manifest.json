@@ -79,5 +79,11 @@
         }
       ]
     }
+  },
+  "launch_handler": {
+    "client_mode": [
+      "focus-existing",
+      "auto"
+    ]
   }
 }

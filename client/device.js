@@ -17,37 +17,99 @@
   function persist() { try { return navigator.storage && navigator.storage.persist ? navigator.storage.persist() : Promise.resolve(false); } catch (e) { return Promise.resolve(false); } }
   persist();
 
-  // 2. one-time access setup after the app is installed: storage, camera, microphone
-  function askAccess() {
-    return persist().then(function () {
-      var md = navigator.mediaDevices;
-      if (!md || !md.getUserMedia) return;
-      return md.getUserMedia({ audio: true, video: true })
-        .catch(function () { return md.getUserMedia({ audio: true }); })
-        .then(function (s) { s.getTracks().forEach(function (t) { t.stop(); }); })
-        .catch(function () {});
+  // 2. permissions the app needs to run smoothly (notifications, camera, microphone, storage).
+  // The app asks once after sign-in, in one card, and ONLY for what is still missing: when everything is already allowed there is no prompt at all.
+  var SNOOZE = "lc-perm-snooze", PROMPTED = "lc-perm-prompted";
+  function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
+  function queryPerm(name) {
+    try { if (navigator.permissions && navigator.permissions.query) return navigator.permissions.query({ name: name }).then(function (r) { return r.state; }, function () { return "unknown"; }); } catch (e) {}
+    return Promise.resolve("unknown");
+  }
+  function ls(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  // each item: state is "granted" | "denied" | "prompt" (the browser will ask) | "unknown" (this browser cannot tell) | "na" (not available here)
+  function permissionStates() {
+    var notif = "na";
+    if ("Notification" in window && !(isIOS() && !standalone())) notif = Notification.permission === "default" ? "prompt" : Notification.permission;
+    var hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    return Promise.all([hasMedia ? queryPerm("camera") : "na", hasMedia ? queryPerm("microphone") : "na"]).then(function (r) {
+      return { notifications: notif, camera: r[0], microphone: r[1] };
     });
   }
-  function showSetup() {
-    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;animation:lcFadeUp .25s ease-out");
-    card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:4px", "Allow access"));
-    card.appendChild(el("div", "font-size:13px;color:#8891A0;margin-bottom:12px", "Camera, microphone and storage"));
-    var row = el("div", "display:flex;gap:8px");
+  var LABELS = {
+    notifications: ["Notifications", "new messages and incoming calls"],
+    camera: ["Camera", "video calls, photos and Go Live"],
+    microphone: ["Microphone", "voice notes and calls"]
+  };
+  function missingFrom(st) {
+    var out = [];
+    Object.keys(LABELS).forEach(function (k) {
+      // "unknown" (older browsers cannot report camera/microphone): ask only the first time, never again
+      if (st[k] === "prompt" || (st[k] === "unknown" && !ls(PROMPTED))) out.push(k);
+    });
+    return out;
+  }
+  function requestAll(missing) {
+    var steps = [];
+    if (missing.indexOf("notifications") >= 0) {
+      steps.push(function () {
+        if (window.LetschatPush && window.LetschatPush.enable) return window.LetschatPush.enable().catch(function () {});
+        return Notification.requestPermission().catch(function () {});
+      });
+    }
+    var cam = missing.indexOf("camera") >= 0, mic = missing.indexOf("microphone") >= 0;
+    if (cam || mic) {
+      steps.push(function () {
+        var md = navigator.mediaDevices;
+        var stop = function (s) { if (s) s.getTracks().forEach(function (t) { t.stop(); }); };
+        return md.getUserMedia({ audio: mic, video: cam })
+          .catch(function () { return cam && mic ? md.getUserMedia({ audio: true }) : null; }) // camera refused: still try the microphone
+          .then(stop, function () {});
+      });
+    }
+    steps.push(function () { return persist(); });
+    return steps.reduce(function (p, fn) { return p.then(function () { return fn(); }).catch(function () {}); }, Promise.resolve());
+  }
+  function showPermissionCard(missing, denied) {
+    if (document.getElementById("lc-perm-card")) return;
+    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
+    card.id = "lc-perm-card"; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", "Allow permissions");
+    card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:4px", "Allow permissions"));
+    card.appendChild(el("div", "font-size:13px;color:#8891A0;margin-bottom:10px", "Letschat needs these to run smoothly:"));
+    missing.forEach(function (k) {
+      var row = el("div", "display:flex;gap:8px;align-items:baseline;margin:0 0 6px;font-size:14px");
+      row.appendChild(el("span", "font-weight:600;color:#35D0BA", LABELS[k][0]));
+      row.appendChild(el("span", "color:#C5CEDA", "for " + LABELS[k][1]));
+      card.appendChild(row);
+    });
+    if (denied.length) card.appendChild(el("div", "font-size:12px;color:#B9A25A;margin:4px 0 0", denied.map(function (k) { return LABELS[k][0]; }).join(", ") + " blocked: turn on in your phone's app settings."));
+    var row = el("div", "display:flex;gap:8px;margin-top:12px");
     function btn(label, bg, color, fn) { var b = el("button", "flex:1;border:0;border-radius:20px;padding:11px 0;font:600 14px Inter,system-ui,sans-serif;cursor:pointer;background:" + bg + ";color:" + color, label); b.onclick = fn; return b; }
-    function finish() { try { localStorage.setItem(ASKED, "1"); } catch (e) {} card.remove(); }
-    row.appendChild(btn("Later", "#262E3A", "#F5F7FA", finish));
-    row.appendChild(btn("Allow", "#35D0BA", "#0E1116", function () { askAccess().then(finish, finish); }));
+    function close() { card.remove(); }
+    row.appendChild(btn("Later", "#262E3A", "#F5F7FA", function () { lsSet(SNOOZE, String(Date.now() + 24 * 3600 * 1000)); close(); }));
+    row.appendChild(btn("Allow", "#35D0BA", "#0E1116", function () {
+      lsSet(PROMPTED, "1"); close();
+      requestAll(missing).then(function () { lsSet(PROMPTED, "1"); });
+    }));
     card.appendChild(row); document.body.appendChild(card);
   }
-  window.addEventListener("appinstalled", function () { try { localStorage.removeItem(ASKED); } catch (e) {} });
+  function checkPermissions() {
+    var until = parseInt(ls(SNOOZE) || "0", 10);
+    if (until && Date.now() < until) return Promise.resolve();
+    return permissionStates().then(function (st) {
+      var missing = missingFrom(st);
+      if (!missing.length) return; // everything needed is already allowed (or blocked): no prompt
+      var denied = Object.keys(LABELS).filter(function (k) { return st[k] === "denied"; });
+      showPermissionCard(missing, denied);
+    }).catch(function () {});
+  }
   var tries = 0, poll = setInterval(function () {
     if (++tries > 60) return clearInterval(poll);
     var s = session();
-    if (!standalone() || !s || !s.token || document.hidden) return;
+    if (!s || !s.token || document.hidden) return;
     clearInterval(poll);
-    try { if (localStorage.getItem(ASKED)) return; } catch (e) { return; }
-    showSetup();
-  }, 3000);
+    checkPermissions();
+  }, 2500);
 
   // 3. back up chats to a file on this device
   function api(path) {
@@ -137,6 +199,70 @@
         .catch(function (e) { toast("Delete failed: " + e.message, 4000); });
     }
   };
+
+  // 5. keep Letschat running: stay alive in the background, do not close by accident, start together with the browser / computer
+  // 5a. hold a Web Lock for as long as the app is open: browsers do not freeze or discard a page that holds one (best effort, the phone can still stop apps to save battery)
+  try { if (navigator.locks && navigator.locks.request) navigator.locks.request("letschat-keepalive", function () { return new Promise(function () {}); }).catch(function () {}); } catch (e) {}
+  // 5b. installed app: pressing Back at the very first screen no longer closes it by mistake; press Back twice within 2.5 s to leave
+  if (standalone()) {
+    try {
+      history.pushState({ lcRoot: 1 }, "");
+      var lastBack = 0;
+      window.addEventListener("popstate", function (e) {
+        var st = e.state || history.state;
+        if (st && (st.lcRoot || st.lcBack)) return; // the app's own screens / panels
+        if (Date.now() - lastBack < 2500) { lastBack = 0; history.back(); return; } // second quick press: really leave
+        lastBack = Date.now();
+        try { history.pushState({ lcRoot: 1 }, ""); } catch (x) {}
+        toast("Press back again to exit", 2200);
+      });
+    } catch (e) {}
+  }
+  // 5c. help cards: install the app (so it can run in the background) and start it with the computer
+  function isDesktop() { return !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) && !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
+  function infoCard(id, title, lines, buttons) {
+    if (document.getElementById(id) || document.getElementById("lc-perm-card")) return;
+    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
+    card.id = id; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", title);
+    card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:6px", title));
+    lines.forEach(function (t) { card.appendChild(el("div", "font-size:13.5px;line-height:1.45;color:#C5CEDA;margin-bottom:6px", t)); });
+    var row = el("div", "display:flex;gap:8px;margin-top:10px");
+    buttons.forEach(function (b) {
+      var n = el("button", "flex:1;border:0;border-radius:20px;padding:11px 0;font:600 14px Inter,system-ui,sans-serif;cursor:pointer;background:" + (b.primary ? "#35D0BA" : "#262E3A") + ";color:" + (b.primary ? "#0E1116" : "#F5F7FA"), b.label);
+      n.onclick = function () { card.remove(); try { b.fn && b.fn(); } catch (e) {} };
+      row.appendChild(n);
+    });
+    card.appendChild(row); document.body.appendChild(card);
+  }
+  function snoozed(k) { var u = parseInt(ls(k) || "0", 10); return u && Date.now() < u; }
+  function snooze(k, days) { lsSet(k, String(Date.now() + days * 86400000)); }
+  function keepRunningHelp() {
+    if (!session()) return;
+    if (!standalone()) {
+      if (snoozed("lc-ka-install")) return;
+      if (window.__lcInstall) {
+        infoCard("lc-ka-card", "Install Letschat", ["Installed, Letschat opens like a normal app, keeps working in the background and keeps your message and call alerts coming."],
+          [{ label: "Not now", fn: function () { snooze("lc-ka-install", 3); } },
+           { label: "Install", primary: true, fn: function () { var p = window.__lcInstall; window.__lcInstall = null; try { p.prompt(); } catch (e) {} } }]);
+      } else if (isIOS()) {
+        infoCard("lc-ka-card", "Install Letschat", ["Tap the Share button, then Add to Home Screen. The installed app runs in the background and gives you alerts."],
+          [{ label: "Later", fn: function () { snooze("lc-ka-install", 7); } }, { label: "Got it", primary: true, fn: function () { snooze("lc-ka-install", 60); } }]);
+      }
+      return;
+    }
+    // installed on a computer (Chrome / Edge): the person turns on "start when I sign in" once
+    if (isDesktop() && !ls("lc-ka-autostart") && !snoozed("lc-ka-autostart-later") && /chrome|edg/i.test(navigator.userAgent)) {
+      infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose \u201cStart app when you sign in\u201d. Letschat then opens by itself every time you sign in to your computer."],
+        [{ label: "Later", fn: function () { snooze("lc-ka-autostart-later", 7); } }, { label: "Done", primary: true, fn: function () { lsSet("lc-ka-autostart", "1"); } }]);
+    }
+  }
+  var kaTries = 0, kaPoll = setInterval(function () {
+    if (++kaTries > 80) return clearInterval(kaPoll);
+    if (!session() || document.hidden || kaTries < 8) return; // wait until signed in and the permission card had its turn
+    if (document.getElementById("lc-perm-card")) return;
+    clearInterval(kaPoll); keepRunningHelp();
+  }, 4000);
+  window.LetschatKeepAlive = { help: keepRunningHelp };
 
   // 4. keep the app running: if the app never finished starting, reload once (and again when the connection returns)
   function stuck() { var b = document.getElementById("boot"); return !!(b && document.body.contains(b)); }
