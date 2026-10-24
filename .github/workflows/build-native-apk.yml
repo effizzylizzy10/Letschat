@@ -1,12 +1,19 @@
 name: Build native Android APK (Capacitor)
 # Tap Actions > "Build native Android APK (Capacitor)" > Run workflow.
-# About 10 minutes later the finished Letschat-native.apk is under "Artifacts". No signing key is needed:
-# the APK is signed with a debug key, so it installs on any phone (allow "install unknown apps").
+# About 10 minutes later the finished Letschat.apk is under "Artifacts".
+# It is signed with YOUR letschat key (from the two secrets below), so it installs over the old Letschat app.
+# Secrets needed: Settings > Secrets and variables > Actions >
+#   ANDROID_KEYSTORE_B64      = the text inside keystore.base64.txt
+#   ANDROID_KEYSTORE_PASSWORD = the key password from signing-info.txt
+# If the secrets are missing, it still builds a debug-signed APK so you always get a file.
 on:
   workflow_dispatch:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,6 +42,30 @@ jobs:
             grep -q "android.permission.$P" $M || sed -i "s#</manifest>#    <uses-permission android:name=\"android.permission.$P\" />\n</manifest>#" $M
           done
           grep uses-permission $M
+      - name: Let the app open sign-in links from emails
+        working-directory: native
+        run: |
+          python3 - <<'PY'
+          p = "android/app/src/main/AndroidManifest.xml"
+          s = open(p).read()
+          f = """
+                  <intent-filter>
+                      <action android:name="android.intent.action.VIEW" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <category android:name="android.intent.category.BROWSABLE" />
+                      <data android:scheme="https" android:host="letschatafrica-1df0c.firebaseapp.com" android:pathPrefix="/__/auth/" />
+                  </intent-filter>
+                  <intent-filter>
+                      <action android:name="android.intent.action.VIEW" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <category android:name="android.intent.category.BROWSABLE" />
+                      <data android:scheme="https" android:host="letschat-taupe.vercel.app" />
+                  </intent-filter>
+          """
+          assert "</activity>" in s
+          open(p, "w").write(s.replace("</activity>", f + "</activity>", 1))
+          PY
+          grep -c "intent-filter" android/app/src/main/AndroidManifest.xml
       - name: App icon from the Letschat logo
         working-directory: native
         continue-on-error: true
@@ -42,12 +73,27 @@ jobs:
           mkdir -p resources
           cp ../client/icons/icon-512.png resources/icon.png
           npx --yes @capacitor/assets generate --android --iconBackgroundColor '#0E1116' --iconBackgroundColorDark '#0E1116' --splashBackgroundColor '#05070A' --splashBackgroundColorDark '#05070A'
-      - name: Build the APK
+      - name: Build, then sign with the Letschat key
         working-directory: native/android
-        run: ./gradlew assembleDebug --no-daemon
-      - name: Collect the APK
-        run: cp native/android/app/build/outputs/apk/debug/app-debug.apk Letschat-native.apk
+        run: |
+          BT=$ANDROID_HOME/build-tools/34.0.0
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASS" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/letschat.keystore"
+            ./gradlew assembleRelease --no-daemon
+            $BT/zipalign -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+            $BT/apksigner sign --ks "$RUNNER_TEMP/letschat.keystore" --ks-key-alias letschat \
+              --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS \
+              --out "$GITHUB_WORKSPACE/Letschat.apk" "$RUNNER_TEMP/aligned.apk"
+            rm -f "$RUNNER_TEMP/letschat.keystore"
+            echo "Signed with the Letschat key. Certificate fingerprint:"
+            $BT/apksigner verify --print-certs "$GITHUB_WORKSPACE/Letschat.apk" | grep -i "SHA-256"
+            echo "Expected: F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8 (compare without colons/case)"
+          else
+            echo "WARNING: signing secrets missing, building a debug-signed APK instead."
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Letschat.apk"
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Letschat-native-apk
-          path: Letschat-native.apk
+          name: Letschat-apk
+          path: Letschat.apk
