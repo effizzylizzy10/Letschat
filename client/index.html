@@ -152,9 +152,28 @@
     ::selection { background: transparent; }
     input::selection, textarea::selection, [contenteditable="true"]::selection { background: rgba(53,208,186,.35); }
     #root { height: 100%; }
+    /* Cross-browser fit (Firefox, Safari, Opera, Samsung Internet, old Android): inputs may shrink inside flex rows (Firefox gives them a wide
+       minimum, which pushed the show/hide-password eye out of its box), buttons lose the browser's own look and Firefox's inner padding, icons inside
+       buttons never swallow the tap, and the Edge/IE built-in reveal icon is hidden so only Letschat's eye shows. */
+    html { height: 100%; height: -webkit-fill-available; -webkit-text-size-adjust: 100%; -moz-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { min-height: 100vh; min-height: -webkit-fill-available; -moz-osx-font-smoothing: grayscale; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    *, *::before, *::after { box-sizing: border-box; }
+    input, textarea, select { min-width: 0; max-width: 100%; font-family: inherit; }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]), textarea, button { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+    input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+    button { font-family: inherit; text-align: center; touch-action: manipulation; }
+    button::-moz-focus-inner, input::-moz-focus-inner { border: 0; padding: 0; }
+    button svg, [role="button"] svg { display: block; flex: none; pointer-events: none; }
+    input[type="password"]::-ms-reveal, input[type="password"]::-ms-clear, input::-ms-clear { display: none; }
+    input[type="search"]::-webkit-search-cancel-button, input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
+    input::placeholder, textarea::placeholder { opacity: 1; color: #6B7686; }
+    input::-moz-placeholder, textarea::-moz-placeholder { opacity: 1; color: #6B7686; }
+    img, video, canvas { max-width: 100%; }
+    * { scrollbar-width: thin; scrollbar-color: #2A3340 transparent; }
+    @supports (-webkit-touch-callout: none) { body { min-height: -webkit-fill-available; } }
 
     /* App fills the whole screen; the footer bar sits under it, touching both edges, and carries the host badge */
-    .app-shell { position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; height: 100vh; height: 100dvh; }
+    .app-shell { position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; height: 100vh; height: -webkit-fill-available; height: 100dvh; }
     .app-footer {
       position: relative; flex: 0 0 auto; width: 100%; box-sizing: border-box;
       height: calc(64px + env(safe-area-inset-bottom, 0px));

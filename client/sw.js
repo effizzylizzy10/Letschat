@@ -1,4 +1,4 @@
-// Letschat Africa service worker (v69: instant start from the saved app, background refresh, early server wake-up, fully offline-safe:
+// Letschat Africa service worker (v72: Data Saver aware, maskable icons saved for offline, safer cleanup, v69: instant start from the saved app, background refresh, early server wake-up, fully offline-safe:
 //   React / Firebase / Socket.IO are saved at install time, so the very first offline open boots; offline.js keeps chats and queued messages)
 // Built for: modern phones, iPhone Safari, Phoenix and other Chromium forks, old Android / KaiOS keypad phones.
 // - Page and app code: served from the device at once (no waiting for the network), then refreshed in the background. Every deploy
@@ -12,20 +12,23 @@
 //   keeps fewer photos, so it uses little storage and little data.
 // - Never touches the API, sockets, Lite pages (/lite), sends, uploads or audio/video range requests.
 // - Syntax stays simple on purpose (no optional catch binding, no async/await): old browsers must still be able to parse it.
-var VERSION = "letschat-shell-v71"; // bump (v57, v58...) to make every device drop its old copy
+var VERSION = "letschat-shell-v72"; // bump (v57, v58...) to make every device drop its old copy
 var CACHE = VERSION;
 var IMGS = "letschat-images-v1";    // profile, status and market photos
 var LIBS = "letschat-libs-v1";      // pinned library versions never change, so this cache is kept across updates
 var FONTS = "letschat-fonts-v1";    // Google Fonts files
 var SHARE = "letschat-share-v1";    // text, links and files received from the phone's Share menu, kept until the app picks them up
 var LITE = /[?&]lite=1/.test(self.location.search);
+// Data Saver (Chrome / Opera / Samsung "Lite mode") or a 2G connection: do not download the big optional files (sounds, wallpapers, large icons) up front
+var SAVE = false;
+try { var NC = self.navigator && (self.navigator.connection || self.navigator.mozConnection || self.navigator.webkitConnection); SAVE = !!(NC && (NC.saveData || /(^|-)2g$/.test(NC.effectiveType || ""))); } catch (e) {}
 var MAX_IMAGES = LITE ? 60 : 400;
 
 // SHELL = the files the app cannot start without (install fails if one is missing, so the old working version stays). EXTRAS = nice to have: a missing
 // icon, sound or picture never blocks an update.
 var SHELL = ["./", "./index.html", "./app.js", "./config.js", "./polyfills.js", "./compat.js", "./responsive.js", "./responsive.css", "./device.js", "./offline.js", "./brain.js", "./manifest.json"];
 if (!LITE) SHELL.push("./push.js", "./reactions.js", "./live.js");
-var EXTRAS = ["./app.legacy.js", "./icons/icon-192.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE ? [] : ["./icons/icon-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
+var EXTRAS = ["./app.legacy.js", "./icons/icon-192.png", "./icons/icon-maskable-192.png", "./icons/favicon-48.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE || SAVE ? [] : ["./icons/icon-512.png", "./icons/icon-maskable-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
 
 // Third-party files whose URL contains an exact version number: safe to keep forever.
 var PINNED = [
