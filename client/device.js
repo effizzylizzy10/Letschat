@@ -243,7 +243,7 @@
       if (window.__lcInstall) {
         infoCard("lc-ka-card", "Install Letschat", ["Installed, Letschat opens like a normal app, keeps working in the background and keeps your message and call alerts coming."],
           [{ label: "Not now", fn: function () { snooze("lc-ka-install", 3); } },
-           { label: "Install", primary: true, fn: function () { var p = window.__lcInstall; window.__lcInstall = null; try { p.prompt(); } catch (e) {} } }]);
+           { label: "Install", primary: true, fn: function () { window.LetschatInstall.install(); } }]);
       } else if (isIOS()) {
         infoCard("lc-ka-card", "Install Letschat", ["Tap the Share button, then Add to Home Screen. The installed app runs in the background and gives you alerts."],
           [{ label: "Later", fn: function () { snooze("lc-ka-install", 7); } }, { label: "Got it", primary: true, fn: function () { snooze("lc-ka-install", 60); } }]);
@@ -263,6 +263,55 @@
     clearInterval(kaPoll); keepRunningHelp();
   }, 4000);
   window.LetschatKeepAlive = { help: keepRunningHelp };
+
+  // 5d. install on Android and iPhone: one-tap install where the browser allows it, clear steps everywhere else
+  function inAppBrowser() { return /FBAN|FBAV|Instagram|Line\/|Snapchat|TikTok|MicroMessenger|; wv\)|WhatsApp/i.test(navigator.userAgent); }
+  function installGuide() {
+    var steps;
+    if (inAppBrowser()) steps = ["This page is open inside another app. Tap the three dots (or the Share icon), choose Open in browser (Chrome on Android, Safari on iPhone), then tap Install again."];
+    else if (isIOS()) steps = ["1. Tap the Share button (the square with an arrow, at the bottom or top of the screen).", "2. Scroll down and tap Add to Home Screen.", "3. Tap Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
+    else if (/android/i.test(navigator.userAgent)) steps = ["1. Tap the three dots menu at the top right of Chrome.", "2. Tap Install app (or Add to Home screen).", "3. Tap Install. Letschat now opens like a normal app.", "Using another browser? Open this page in Chrome and try again."];
+    else steps = ["Click the install icon at the right end of the address bar, or open the browser menu and choose Install Letschat."];
+    infoCard("lc-install-guide", "Install Letschat", steps, [{ label: "Done", primary: true }]);
+  }
+  window.addEventListener("appinstalled", function () { toast("Letschat installed", 3000); });
+  // Android app file: put Letschat.apk next to index.html (see ANDROID-APK.md). The download button only shows when the file really exists.
+  function apkAvailable() {
+    try {
+      return fetch("./Letschat.apk", { method: "HEAD", cache: "no-store" }).then(function (r) {
+        return r.ok && !/text\/html/i.test(r.headers.get("content-type") || "");
+      }).catch(function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
+  }
+  function downloadApk() {
+    var a = document.createElement("a"); a.href = "./Letschat.apk"; a.download = "Letschat.apk"; a.style.display = "none";
+    document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 1500);
+    toast("Downloading Letschat. Open the file when it finishes.", 6000);
+  }
+  function browserInstall() {
+    var p = window.__lcInstall;
+    if (p && p.prompt) {
+      window.__lcInstall = null;
+      try { p.prompt(); if (p.userChoice) p.userChoice.then(function (c) { if (c && c.outcome === "dismissed") snooze("lc-ka-install", 3); }, function () {}); return; } catch (e) {}
+    }
+    installGuide();
+  }
+  window.LetschatInstall = {
+    installed: function () { return standalone(); },
+    install: function () {
+      if (standalone()) return toast("Letschat is already installed", 2500);
+      if (/android/i.test(navigator.userAgent) && !inAppBrowser()) {
+        return apkAvailable().then(function (ok) {
+          if (!ok) return browserInstall();
+          infoCard("lc-install-guide", "Install Letschat for Android",
+            ["Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
+             "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway."],
+            [{ label: "Install from browser", fn: browserInstall }, { label: "Download app", primary: true, fn: downloadApk }]);
+        });
+      }
+      browserInstall();
+    }
+  };
 
   // 4. keep the app running: if the app never finished starting, reload once (and again when the connection returns)
   function stuck() { var b = document.getElementById("boot"); return !!(b && document.body.contains(b)); }

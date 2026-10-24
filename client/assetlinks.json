@@ -4,7 +4,7 @@
     "target": {
       "namespace": "android_app",
       "package_name": "com.letschatafrica.app",
-      "sha256_cert_fingerprints": ["REPLACE_WITH_SHA256_FROM_GOOGLE_PLAY_APP_SIGNING"]
+      "sha256_cert_fingerprints": ["F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8"]
     }
   }
 ]

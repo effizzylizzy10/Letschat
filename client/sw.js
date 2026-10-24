@@ -207,6 +207,7 @@ self.addEventListener("fetch", function (e) {
   }
 
   var p = url.pathname;
+  if (/\.apk$/i.test(p)) return;                         // the Android app download goes straight to the network
   if (p.indexOf("/socket.io") === 0 || p.indexOf("/api") === 0 || p.indexOf("/lite") === 0) return; // realtime, API, Lite pages
 
   var isPage = req.mode === "navigate";
