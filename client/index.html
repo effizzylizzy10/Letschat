@@ -144,6 +144,27 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=2" />
   <meta name="theme-color" content="#0E1116" />
   <script>window.__lcInstall = null; window.addEventListener("beforeinstallprompt", function (e) { /* On Android the real app (Letschat.apk) is offered first, so Chrome's own install bar is switched off there; the event is still kept so the web install stays available as a second choice. Other devices keep Chrome's normal bar. */ if (/android/i.test(navigator.userAgent)) { try { e.preventDefault(); } catch (x) {} } window.__lcInstall = e; }); window.addEventListener("appinstalled", function () { window.__lcInstall = null; });</script>
+  <script>/* Native Letschat app only: when Android opens an email sign-in link in the app, rebuild it as a normal page address so Firebase can finish the sign-in. */
+  (function () {
+    var C = window.Capacitor, A = C && C.Plugins && C.Plugins.App;
+    if (!A || !A.addListener) return;
+    function go(u) {
+      try {
+        var url = new URL(u), inner = url.searchParams.get("link"), t = inner ? new URL(inner) : url, p = t.searchParams;
+        var key = p.get("apiKey"), code = p.get("oobCode");
+        if (!key || !code) return;
+        var cont = p.get("continueUrl"), path = "/";
+        try { if (cont) path = new URL(cont).pathname || "/"; } catch (e) {}
+        var b = new URL(location.origin + path);
+        b.searchParams.set("apiKey", key); b.searchParams.set("oobCode", code);
+        b.searchParams.set("mode", p.get("mode") || "signIn"); b.searchParams.set("lang", p.get("lang") || "en");
+        location.href = b.href;
+      } catch (e) {}
+    }
+    A.addListener("appUrlOpen", function (e) { if (e && e.url) go(e.url); });
+    if (A.getLaunchUrl) A.getLaunchUrl().then(function (r) { if (r && r.url) go(r.url); }, function () {});
+  })();
+  </script>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #05070A; overflow: hidden; }
     /* No text highlighting anywhere in the app: only the message bubble highlight (long-press) is allowed. Typing boxes stay selectable so editing works. */
