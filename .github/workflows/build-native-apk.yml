@@ -1,1 +1,48 @@
-
+name: Build native Android APK (Capacitor)
+# Tap Actions > "Build native Android APK (Capacitor)" > Run workflow.
+# About 10 minutes later the finished Letschat-native.apk is under "Artifacts". No signing key is needed:
+# the APK is signed with a debug key, so it installs on any phone (allow "install unknown apps").
+on:
+  workflow_dispatch:
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Install Capacitor and create the Android project
+        working-directory: native
+        run: |
+          npm install --no-audit --no-fund
+          npx cap add android
+      - name: App permissions (camera, microphone, notifications, location)
+        working-directory: native
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          for P in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS POST_NOTIFICATIONS ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION VIBRATE WAKE_LOCK; do
+            grep -q "android.permission.$P" $M || sed -i "s#</manifest>#    <uses-permission android:name=\"android.permission.$P\" />\n</manifest>#" $M
+          done
+          grep uses-permission $M
+      - name: App icon from the Letschat logo
+        working-directory: native
+        continue-on-error: true
+        run: |
+          mkdir -p resources
+          cp ../client/icons/icon-512.png resources/icon.png
+          npx --yes @capacitor/assets generate --android --iconBackgroundColor '#0E1116' --iconBackgroundColorDark '#0E1116' --splashBackgroundColor '#05070A' --splashBackgroundColorDark '#05070A'
+      - name: Build the APK
+        working-directory: native/android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Collect the APK
+        run: cp native/android/app/build/outputs/apk/debug/app-debug.apk Letschat-native.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Letschat-native-apk
+          path: Letschat-native.apk
