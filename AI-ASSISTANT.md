@@ -140,7 +140,7 @@ Providers (set keys in Render > Environment): GEMINI_API_KEY, OPENAI_API_KEY, XA
 Other places that use bot.js (the `@ai` command in chats and the Tools AI assistant) were not changed.
 
 ## v26: AI bot in the typing area, report/block moved, enforced update page
-- **Typing area**: a LetsChat AI bot picture (icons/ai-bot-128.png) with "AI ON / AI OFF" under it sits in the message box row of every one-to-one chat. Tap it to turn AI business on or off for that chat (same server setting as the toggle in the contact profile, which now also uses the bot picture instead of the briefcase).
+- **Typing area**: a LetsChat AI bot picture (icons/ai-bot-128.png) with "AI ON / AI OFF" under it sits in the message box row of every one-to-one chat. Tap it to turn Chat AI on or off for that chat (same server setting as the toggle in the contact profile, which now also uses the bot picture instead of the briefcase).
 - **Three-dot menu**: Report and Block removed. They are back in the contact profile, under Clear chat.
 - **Update page**: when a new version takes over (every deploy changes sw.js), a full-screen "Update available" picture (`icons/update-banner.jpg`) blocks the app. The invisible tap area over "Click Here" clears the saved copy and opens `UPDATE_URL` from `client/config.js` (change it to your APK / Play Store link if you want). Code: `showUpdatePage` in `client/index.html`.
 
