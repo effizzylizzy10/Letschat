@@ -1918,11 +1918,11 @@ const aiOf = (u) => {
   if (!a.replied) a.replied = {};
   return a;
 };
-// "AI business" is switched on per chat (u.ai.chats[conversationId]): the AI learns from that chat and may answer in it for the owner
+// "Chat AI" is switched on per chat (u.ai.chats[conversationId]): the AI learns from that chat and may answer in it for the owner
 const aiChatOn = (u, cid) => !!(u && u.ai && u.ai.chats && u.ai.chats[cid]);
 const aiActive = (u, cid) => !!(u && u.ai && (u.ai.on || aiChatOn(u, cid)));
 // Autolearn: the AI studies everyone's one-to-one chats in the background (writing style, topics, usual replies). Learning is separate from
-// replying: it only answers for someone when their AI / AI business is switched on.
+// replying: it only answers for someone when their AI / Chat AI is switched on.
 const aiLearns = (u) => !!(u && !u.suspended);
 const aiNameWords = (u) => String((u && u.name) || "").toLowerCase().split(/[^a-z0-9\u00C0-\uFFFF]+/).filter((w) => w.length >= 3);
 function aiAddPair(a, incoming, reply, avoid) {
@@ -2190,19 +2190,19 @@ app.get("/api/me/ai/chat/:cid", authMiddleware, (req, res) => {
   if (!u || !convo || !convo.participantIds.includes(u.id)) return res.status(404).json({ error: "Chat not found" });
   res.json({ on: aiChatOn(u, convo.id), available: !convo.isGroup && !convo.chatRoom });
 });
-// AI business for one chat: while on, the AI learns from this chat and may reply in it for the owner (replies start with "AI:" and the other person is told)
+// Chat AI for one chat: while on, the AI learns from this chat and may reply in it for the owner (replies start with "AI:" and the other person is told)
 app.put("/api/me/ai/chat/:cid", authMiddleware, (req, res) => {
   const db = readDB(), u = db.users.find((x) => x.id === req.user.id);
   const convo = db.conversations.find((c) => c.id === String(req.params.cid));
   if (!u || !convo || !convo.participantIds.includes(u.id)) return res.status(404).json({ error: "Chat not found" });
-  if (convo.isGroup || convo.chatRoom) return res.status(400).json({ error: "AI business works in one-to-one chats" });
+  if (convo.isGroup || convo.chatRoom) return res.status(400).json({ error: "Chat AI works in one-to-one chats" });
   const a = aiOf(u), was = aiChatOn(u, convo.id), on = req.body.on === true;
   if (!a.chats) a.chats = {};
   if (on) a.chats[convo.id] = 1; else delete a.chats[convo.id];
   if (on && !was) {
     aiStudyHistory(db, u, convo.id);
-    groupNotice(db, convo, nameOf(db, u.id) + " turned on AI business in this chat. It learns from this chat and may reply for them. Replies start with \"AI:\".");
-  } else if (!on && was) groupNotice(db, convo, nameOf(db, u.id) + " turned off AI business in this chat.");
+    groupNotice(db, convo, nameOf(db, u.id) + " turned on Chat AI in this chat. It learns from this chat and may reply for them. Replies start with \"AI:\".");
+  } else if (!on && was) groupNotice(db, convo, nameOf(db, u.id) + " turned off Chat AI in this chat.");
   writeDB(db);
   res.json({ on: aiChatOn(u, convo.id), available: true });
 });
@@ -3598,7 +3598,7 @@ io.on("connection", (socket) => {
 
   // ---- edit / delete your own messages (everyone in the chat sees the change live) ----
   // Delete works any time. Text edits are allowed for EDIT_WINDOW_MS after sending (0 = no limit).
-  const EDIT_WINDOW_MS = 15 * 60 * 1000;
+  const EDIT_WINDOW_MS = 60 * 60 * 1000;
   const ownMessage = (messageId, fail) => {
     const db = readDB();
     const m = db.messages.find((x) => x.id === messageId);
@@ -3755,7 +3755,7 @@ io.on("connection", (socket) => {
     const { db, m } = o;
     if (m.deleted) return fail("This message was deleted");
     if (m.audio || m.file || m.poll) return fail("Only text messages can be edited");
-    if (EDIT_WINDOW_MS && Date.now() - m.time > EDIT_WINDOW_MS) return fail("Messages can only be edited for 15 minutes after sending");
+    if (EDIT_WINDOW_MS && Date.now() - m.time > EDIT_WINDOW_MS) return fail("Messages can only be edited for 1 hour after sending");
     const t = String(text || "").trim();
     if (!t) return fail("Message text required");
     if (YT_RE.test(t) && !isCreator(db.users.find((u) => u.id === userId))) return fail(YT_MSG);
