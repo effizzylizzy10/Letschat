@@ -300,6 +300,8 @@
     installed: function () { return standalone(); },
     install: function () {
       if (standalone()) return toast("Letschat is already installed", 2500);
+      // Chrome offered its one-tap install (the same prompt as the bar at the top): use it first
+      if (window.__lcInstall && window.__lcInstall.prompt) return browserInstall();
       if (/android/i.test(navigator.userAgent) && !inAppBrowser()) {
         return apkAvailable().then(function (ok) {
           if (!ok) return browserInstall();
