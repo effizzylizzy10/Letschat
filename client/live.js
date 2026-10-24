@@ -853,18 +853,39 @@
     var leave = function () { socket.emit(isHost && kind === "live" ? "live:end" : "live:leave", { code: code }); p.onClose(""); };
     var copy = function (t, msg) { try { navigator.clipboard.writeText(t).then(function () { flash(msg); }, function () { flash(t); }); } catch (e) { flash(t); } };
     var flipCam = function () {
-      var next = facingRef_(facing) === "user" ? "environment" : "user";
+      var cr = camRef.current;
+      if (cr.flipping) return;
+      var prev = facing, next = facingRef_(facing) === "user" ? "environment" : "user";
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return flash("Camera switching is not available on this phone.");
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: next }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } }, audio: false }).then(function (st) {
+      var size = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } };
+      var open = function (face) {
+        return navigator.mediaDevices.getUserMedia({ video: Object.assign({ facingMode: { exact: face } }, size), audio: false }).catch(function () {
+          return navigator.mediaDevices.getUserMedia({ video: Object.assign({ facingMode: { ideal: face } }, size), audio: false });
+        });
+      };
+      var done = function () { cr.flipping = false; };
+      cr.flipping = true;
+      // most phones can only run one camera at a time, so let go of the current one before opening the other
+      var old = cr.video;
+      if (old) { try { old.stop(); } catch (e) {} cr.video = null; }
+      open(next).then(function (st) {
         var nt = st.getVideoTracks()[0];
-        if (!nt) return;
-        if (!alive.current) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
-        var old = camRef.current.video;
-        camRef.current.video = nt;
-        if (old && old !== nt) { try { old.stop(); } catch (e) {} }
-        setFacing(next);
-        if (typeof refreshOut === "function") refreshOut();
-      }).catch(function () { flash(next === "environment" ? "Back camera is not available on this phone." : "Front camera is not available on this phone."); });
+        if (!nt) { done(); return; }
+        if (!alive.current) { st.getTracks().forEach(function (t) { t.stop(); }); done(); return; }
+        var got = ""; try { got = (nt.getSettings && nt.getSettings().facingMode) || ""; } catch (e) {}
+        cr.video = nt;
+        if (got && got !== next) flash(next === "environment" ? "Back camera is not available on this phone." : "Front camera is not available on this phone.");
+        else setFacing(next);
+        refreshOut();
+        done();
+      }).catch(function () {
+        // the other camera would not open: bring the first one back so the video does not go black
+        flash(next === "environment" ? "Back camera is not available on this phone." : "Front camera is not available on this phone.");
+        return open(prev).then(function (st) {
+          var t = st.getVideoTracks()[0];
+          if (t && alive.current) { cr.video = t; refreshOut(); } else if (t) t.stop();
+        }).catch(function () {}).then(done);
+      });
     };
     var facingRef_ = function (f) { return f; };
     var reshareLive = function () { var link = shareLink(code), msg = "Watch " + ((S.host && S.host.name) || "this live") + " live on Letschat. Code: " + code; if (navigator.share) navigator.share({ title: "Letschat Live", text: msg, url: link }).catch(function () {}); else copy(msg + " " + link, "Reshare link copied"); };
