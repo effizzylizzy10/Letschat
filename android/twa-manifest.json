@@ -1,1 +1,44 @@
-
+{
+  "packageId": "com.letschatafrica.app",
+  "host": "letschat-taupe.vercel.app",
+  "name": "Letschat Africa",
+  "launcherName": "Letschat",
+  "display": "standalone",
+  "orientation": "default",
+  "themeColor": "#0E1116",
+  "themeColorDark": "#0E1116",
+  "navigationColor": "#0E1116",
+  "navigationColorDark": "#0E1116",
+  "navigationDividerColor": "#0E1116",
+  "navigationDividerColorDark": "#0E1116",
+  "backgroundColor": "#05070A",
+  "enableNotifications": true,
+  "startUrl": "/index.html",
+  "iconUrl": "https://letschat-taupe.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://letschat-taupe.vercel.app/icons/icon-maskable-512.png",
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://letschat-taupe.vercel.app/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://letschat-taupe.vercel.app/",
+  "minSdkVersion": 21,
+  "signingKey": {
+    "path": "./letschat.keystore",
+    "alias": "letschat"
+  },
+  "splashScreenFadeOutDuration": 300,
+  "retainedBundles": []
+}
