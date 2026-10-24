@@ -1,0 +1,43 @@
+name: Build Android APK
+# Run it from the Actions tab (Run workflow). The finished Letschat.apk appears under "Artifacts" about 10 minutes later.
+on:
+  workflow_dispatch:
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Android build tools
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
+      - name: Bubblewrap settings
+        run: |
+          mkdir -p ~/.bubblewrap
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
+      - name: Signing key
+        working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: echo "$KEYSTORE_B64" | base64 -d > letschat.keystore
+      - name: Build the APK
+        working-directory: android
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          bubblewrap update --skipVersionUpgrade
+          bubblewrap build --skipPwaValidation
+          cp app-release-signed.apk Letschat.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Letschat-apk
+          path: android/Letschat.apk
