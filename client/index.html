@@ -300,6 +300,10 @@
   <script defer src="responsive.js"></script>
   <!-- Offline layer: saved chats / messages, the outbox for messages written without a connection, and the "Offline" pill. Must load before app.js. -->
   <script defer src="offline.js"></script>
+  <!-- Backups kept on the device, phonebook matching (finds registered contacts), and the chat bubble. Load before app.js. -->
+  <script defer src="backup-local.js"></script>
+  <script defer src="contacts-auto.js"></script>
+  <script defer src="bubble.js"></script>
 
   <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
   <script defer crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
