@@ -3,7 +3,7 @@
   var API = (window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.API_URL) || "";
   var ASKED = "lc-access-asked";
   function session() { try { return JSON.parse(localStorage.getItem("letschat-africa:session")) || null; } catch (e) { return null; } }
-  function standalone() { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true; }
+  function standalone() { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true || /LetschatApp/.test(navigator.userAgent); }
   function el(tag, css, text) { var n = document.createElement(tag); if (css) n.style.cssText = css; if (text != null) n.textContent = text; return n; }
   var toastEl;
   function toast(msg, ms) {
@@ -352,17 +352,17 @@
     installed: function () { return standalone(); },
     install: function () {
       if (standalone()) return toast("Letschat is already installed", 2500);
-      // Chrome offered its one-tap install (the same prompt as the bar at the top): use it first
-      if (window.__lcInstall && window.__lcInstall.prompt) return browserInstall();
+      // Android: the real app (Letschat.apk) comes first. If the file is not on the site yet, fall back to Chrome's web install.
       if (/android/i.test(navigator.userAgent) && !inAppBrowser()) {
         return apkAvailable().then(function (ok) {
           if (!ok) return browserInstall();
-          infoCard("lc-install-guide", "Install Letschat for Android",
+          infoCard("lc-install-guide", "Get the Letschat app for Android",
             ["Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
              "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway."],
-            [{ label: "Install from browser", fn: browserInstall }, { label: "Download app", primary: true, fn: downloadApk }]);
+            [{ label: "Use web version instead", fn: browserInstall }, { label: "Download app", primary: true, fn: downloadApk }]);
         });
       }
+      // Other devices: Chrome's one-tap install when it offers it
       browserInstall();
     }
   };
