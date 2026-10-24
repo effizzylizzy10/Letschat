@@ -1,0 +1,16 @@
+{
+  "appId": "com.letschatafrica.app",
+  "appName": "Letschat Africa",
+  "webDir": "www",
+  "server": {
+    "url": "https://letschat-taupe.vercel.app/",
+    "cleartext": false,
+    "allowNavigation": [
+      "letschat-taupe.vercel.app",
+      "*.firebaseapp.com",
+      "accounts.google.com",
+      "letschat-9tw4.onrender.com"
+    ]
+  },
+  "android": { "allowMixedContent": false }
+}
