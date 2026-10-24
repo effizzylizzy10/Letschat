@@ -32,14 +32,16 @@
     var notif = "na";
     if ("Notification" in window && !(isIOS() && !standalone())) notif = Notification.permission === "default" ? "prompt" : Notification.permission;
     var hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    return Promise.all([hasMedia ? queryPerm("camera") : "na", hasMedia ? queryPerm("microphone") : "na"]).then(function (r) {
-      return { notifications: notif, camera: r[0], microphone: r[1] };
+    var hasGeo = !!navigator.geolocation;
+    return Promise.all([hasMedia ? queryPerm("camera") : "na", hasMedia ? queryPerm("microphone") : "na", hasGeo ? queryPerm("geolocation") : "na"]).then(function (r) {
+      return { notifications: notif, camera: r[0], microphone: r[1], location: r[2] };
     });
   }
   var LABELS = {
     notifications: ["Notifications", "new messages and incoming calls"],
     camera: ["Camera", "video calls, photos and Go Live"],
-    microphone: ["Microphone", "voice notes and calls"]
+    microphone: ["Microphone", "voice notes and calls"],
+    location: ["Location", "sharing your location and finding people nearby"]
   };
   function missingFrom(st) {
     var out = [];
@@ -54,7 +56,19 @@
     if (missing.indexOf("notifications") >= 0) {
       steps.push(function () {
         if (window.LetschatPush && window.LetschatPush.enable) return window.LetschatPush.enable().catch(function () {});
-        return Notification.requestPermission().catch(function () {});
+        // old Safari / Firefox use a callback instead of a promise: support both
+        return new Promise(function (done) {
+          try { var r = Notification.requestPermission(function () { done(); }); if (r && r.then) r.then(function () { done(); }, function () { done(); }); } catch (e) { done(); }
+          setTimeout(done, 60000);
+        });
+      });
+    }
+    if (missing.indexOf("location") >= 0) {
+      steps.push(function () {
+        return new Promise(function (done) {
+          try { navigator.geolocation.getCurrentPosition(function () { done(); }, function () { done(); }, { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 }); } catch (e) { done(); }
+          setTimeout(done, 25000);
+        });
       });
     }
     var cam = missing.indexOf("camera") >= 0, mic = missing.indexOf("microphone") >= 0;
@@ -266,14 +280,52 @@
 
   // 5d. install on Android and iPhone: one-tap install where the browser allows it, clear steps everywhere else
   function inAppBrowser() { return /FBAN|FBAV|Instagram|Line\/|Snapchat|TikTok|MicroMessenger|; wv\)|WhatsApp/i.test(navigator.userAgent); }
+  // which browser is this? (used to show the exact install steps for it)
+  function browserKind() {
+    var ua = navigator.userAgent;
+    if (/Opera Mini/i.test(ua)) return "operamini";
+    if (/OPR\/|OPT\/|Opera/i.test(ua)) return "opera";
+    if (/SamsungBrowser/i.test(ua)) return "samsung";
+    if (/Firefox|FxiOS/i.test(ua)) return "firefox";
+    if (/EdgA|EdgiOS|Edg\//i.test(ua)) return "edge";
+    if (/CriOS|Chrome|Chromium/i.test(ua)) return "chrome";
+    return "safari";
+  }
   function installGuide() {
-    var steps;
+    var steps, b = browserKind(), android = /android/i.test(navigator.userAgent);
     if (inAppBrowser()) steps = ["This page is open inside another app. Tap the three dots (or the Share icon), choose Open in browser (Chrome on Android, Safari on iPhone), then tap Install again."];
-    else if (isIOS()) steps = ["1. Tap the Share button (the square with an arrow, at the bottom or top of the screen).", "2. Scroll down and tap Add to Home Screen.", "3. Tap Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
-    else if (/android/i.test(navigator.userAgent)) steps = ["1. Tap the three dots menu at the top right of Chrome.", "2. Tap Install app (or Add to Home screen).", "3. Tap Install. Letschat now opens like a normal app.", "Using another browser? Open this page in Chrome and try again."];
+    else if (isIOS()) {
+      steps = b === "safari"
+        ? ["1. Tap the Share button (the square with an arrow, at the bottom or top of the screen).", "2. Scroll down and tap Add to Home Screen.", "3. Tap Add. Letschat now opens like a normal app."]
+        : ["1. Tap the Share button (the square with an arrow) in the address bar, or open the \u22EF menu and choose Share.", "2. Tap Add to Home Screen, then Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
+      steps.push("iPhone and iPad do not use APK files: Add to Home Screen is the iPhone app.");
+    } else if (android && b === "operamini") steps = ["Opera Mini saves data by not running full apps, so Letschat works best in Chrome, Firefox or the full Opera browser.", "Open this page in one of them and tap Install, or download the Letschat app file (APK) with the Download app button."];
+    else if (android && b === "opera") steps = ["1. Tap the menu (three dots or the Opera icon).", "2. Tap Add to or Home screen, then Add.", "Or open this page in Chrome and tap Install."];
+    else if (android && b === "firefox") steps = ["1. Tap the three dots menu in Firefox.", "2. Tap Install (or Add app to Home screen).", "3. Tap Add. Letschat now opens like a normal app."];
+    else if (android && b === "samsung") steps = ["1. Tap the menu (three lines) in Samsung Internet.", "2. Tap Add page to, then Home screen (or Install).", "3. Tap Add."];
+    else if (android) steps = ["1. Tap the three dots menu at the top right of Chrome.", "2. Tap Install app (or Add to Home screen).", "3. Tap Install. Letschat now opens like a normal app.", "Using another browser? Open this page in Chrome and try again."];
+    else if (b === "safari") steps = ["In Safari on a Mac, choose File, then Add to Dock. Letschat then opens like a normal app."];
+    else if (b === "firefox") steps = ["Firefox on a computer cannot install web apps. Open Letschat in Chrome or Edge and use the install icon at the right end of the address bar, or keep it open in a pinned tab."];
     else steps = ["Click the install icon at the right end of the address bar, or open the browser menu and choose Install Letschat."];
     infoCard("lc-install-guide", "Install Letschat", steps, [{ label: "Done", primary: true }]);
   }
+  // Install check for phones without developer tools: open the site with ?installdebug=1 at the end of the address and wait 6 seconds.
+  // It says whether Chrome fired its one-tap install event and, if not, which requirement is missing.
+  if (/[?&]installdebug=1/.test(location.search)) setTimeout(function () {
+    var out = [], pend = [];
+    out.push(window.__lcInstall ? "Chrome install event: READY (one-tap install works)" : "Chrome install event: NOT fired");
+    out.push(standalone() ? "Running as the installed app (Chrome does not offer install here)." : "Running in the browser.");
+    out.push(location.protocol === "https:" ? "HTTPS: ok" : "HTTPS: MISSING (install needs https)");
+    out.push("serviceWorker.controller: " + (navigator.serviceWorker && navigator.serviceWorker.controller ? "ok" : "none yet (reload once)"));
+    pend.push(fetch("./manifest.json", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (m) {
+      out.push("manifest: ok (" + (m.name || "no name") + ", display " + m.display + ")");
+      return Promise.all((m.icons || []).map(function (i) {
+        var u = new URL(i.src, location.href).href;
+        return fetch(u, { method: "HEAD", cache: "no-store" }).then(function (r) { out.push("icon " + i.sizes + (i.purpose ? " " + i.purpose : "") + ": " + (r.ok && /image/.test(r.headers.get("content-type") || "") ? "ok" : "BROKEN (" + r.status + ")")); }, function () { out.push("icon " + i.sizes + ": BROKEN"); });
+      }));
+    }, function () { out.push("manifest: BROKEN (cannot load manifest.json)"); }));
+    Promise.all(pend).then(function () { infoCard("lc-install-debug", "Install check", out, [{ label: "Close", primary: true }]); });
+  }, 6000);
   window.addEventListener("appinstalled", function () { toast("Letschat installed", 3000); });
   // Android app file: put Letschat.apk next to index.html (see ANDROID-APK.md). The download button only shows when the file really exists.
   function apkAvailable() {
@@ -314,6 +366,34 @@
       browserInstall();
     }
   };
+
+  // 5e. "Letschat for Android" bar at the top of the page (light blue strip, logo, Download button, X), like GitHub's "GitHub Mobile for Android" bar.
+  // Android phones only, not inside the installed app, not inside other apps' browsers. X hides it for 7 days; Download opens the install prompt / APK card.
+  function androidBar() {
+    var ios = isIOS();
+    if (!(/android/i.test(navigator.userAgent) || ios) || standalone() || inAppBrowser() || snoozed("lc-android-bar") || document.getElementById("lc-android-bar")) return;
+    var bar = el("div", "position:fixed;top:0;left:0;right:0;height:52px;z-index:100000;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:0 10px 0 12px;background:#DDF4FF;border-bottom:1px solid #9BD0F5;color:#1F2328;font:500 15px Inter,Arial,sans-serif;");
+    bar.id = "lc-android-bar";
+    var logo = el("img", "width:26px;height:26px;border-radius:7px;flex:none;");
+    logo.src = "icons/favicon-48.png?v=2"; logo.alt = "";
+    var label = el("span", "flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", ios ? "Letschat for iPhone" : "Letschat for Android");
+    var go = el("button", "flex:none;height:36px;padding:0 16px;border-radius:8px;border:1px solid #D0D7DE;background:#F6F8FA;color:#1F2328;font:600 15px Inter,Arial,sans-serif;cursor:pointer;", ios ? "Install" : "Download");
+    var x = el("button", "flex:none;width:36px;height:36px;border:0;background:transparent;color:#0969DA;font:400 26px/1 Arial,sans-serif;cursor:pointer;", "\u00D7");
+    x.setAttribute("aria-label", "Close");
+    function hide() { bar.remove(); document.documentElement.style.removeProperty("--lc-bar"); }
+    go.onclick = function () { hide(); snooze("lc-android-bar", 3); if (window.LetschatInstall) window.LetschatInstall.install(); };
+    x.onclick = function () { hide(); snooze("lc-android-bar", 7); };
+    bar.appendChild(logo); bar.appendChild(label); bar.appendChild(go); bar.appendChild(x);
+    // push the app down so the bar does not cover its header
+    if (!document.getElementById("lc-bar-style")) {
+      var st = el("style"); st.id = "lc-bar-style";
+      st.textContent = ".app-shell{top:var(--lc-bar,0px)!important;height:calc(100vh - var(--lc-bar,0px))!important;height:calc(100dvh - var(--lc-bar,0px))!important}";
+      document.head.appendChild(st);
+    }
+    document.documentElement.style.setProperty("--lc-bar", "52px");
+    document.body.appendChild(bar);
+  }
+  setTimeout(androidBar, 2500);
 
   // 4. keep the app running: if the app never finished starting, reload once (and again when the connection returns)
   function stuck() { var b = document.getElementById("boot"); return !!(b && document.body.contains(b)); }
