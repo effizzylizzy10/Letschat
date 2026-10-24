@@ -12,5 +12,5 @@
       "letschat-9tw4.onrender.com"
     ]
   },
-  "android": { "allowMixedContent": false }
+  "android": { "allowMixedContent": false, "appendUserAgent": "LetschatApp" }
 }
