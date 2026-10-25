@@ -2,6 +2,7 @@ name: Build native Android APK (Capacitor)
 # Tap Actions > "Build native Android APK (Capacitor)" > Run workflow.
 # About 10 minutes later the finished Letschat.apk is under "Artifacts".
 # It is signed with YOUR letschat key (from the two secrets below), so it installs over the old Letschat app.
+# Every run gets a higher version number than the last (1.2.<run number>), so each new APK installs as an upgrade.
 # Secrets needed: Settings > Secrets and variables > Actions >
 #   ANDROID_KEYSTORE_B64      = the text inside keystore.base64.txt
 #   ANDROID_KEYSTORE_PASSWORD = the key password from signing-info.txt
@@ -34,6 +35,19 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx cap add android
+      - name: Version number (every build is higher than the last, so it installs over the old app)
+        working-directory: native
+        run: |
+          CODE=$((100 + GITHUB_RUN_NUMBER))
+          NAME="1.2.$GITHUB_RUN_NUMBER"
+          G=android/app/build.gradle
+          sed -i -E "s/versionCode [0-9]+/versionCode $CODE/; s/versionName \"[^\"]*\"/versionName \"$NAME\"/" $G
+          if grep -q "versionCode $CODE" $G && grep -q "versionName \"$NAME\"" $G; then
+            echo "App version: $NAME (version code $CODE)"
+          else
+            echo "WARNING: could not set the version number, so this APK may not install over the old app."
+          fi
+          grep -nE "versionCode|versionName" $G || true
       - name: App permissions (camera, microphone, notifications, location, photos/videos/files, background service)
         working-directory: native
         run: |
