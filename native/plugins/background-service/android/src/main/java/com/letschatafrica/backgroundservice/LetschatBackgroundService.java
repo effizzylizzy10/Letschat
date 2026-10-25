@@ -30,18 +30,18 @@ public class LetschatBackgroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String title = prefs.getString("title", "Letschat Africa");
-        String text = prefs.getString("text", "Connected. Tap to open.");
-        createChannel();
-        Notification notification = buildNotification(title, text);
         try {
+            SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+            String title = prefs.getString("title", "Letschat Africa");
+            String text = prefs.getString("text", "Connected. Tap to open.");
+            createChannel();
+            Notification notification = buildNotification(title, text);
             if (Build.VERSION.SDK_INT >= 34) {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING);
             } else {
                 startForeground(NOTIFICATION_ID, notification);
             }
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             // Android refused to start it (for example from the background on a strict phone): stop quietly
             stopSelf();
             return START_NOT_STICKY;
