@@ -1192,6 +1192,26 @@ app.get("/api/conversations/:id/messages", authMiddleware, (req, res) => {
   res.json({ messages: page.map((m) => roomSender(db, convo, stripViewOnce(receiptView(db, m, req.user, convo)), senderCache)), peek: peek, hasMore: since ? all.some((m) => m.time < since) : older.length > page.length });
 });
 
+// Reply written in the Android message pop-up (no live connection there): same rules as a message sent from the app.
+app.post("/api/conversations/:id/messages", authMiddleware, (req, res) => {
+  const b = req.body || {};
+  const text = typeof b.text === "string" ? b.text : "";
+  if (!text.trim()) return res.status(400).json({ error: "Message text required" });
+  let answered = false;
+  const timer = setTimeout(() => { if (!answered) { answered = true; res.status(504).json({ error: "Server is busy, try again" }); } }, 15000);
+  handleSend(req.user.id, {
+    conversationId: req.params.id,
+    text,
+    replyTo: typeof b.replyTo === "string" ? b.replyTo : undefined,
+    clientId: typeof b.clientId === "string" ? b.clientId : undefined,
+  }, (r) => {
+    if (answered) return;
+    answered = true; clearTimeout(timer);
+    if (r && r.error) return res.status(400).json({ error: r.error });
+    res.json({ ok: true, message: r && r.message });
+  });
+});
+
 // ---- link previews: title, description and picture of a web page that was pasted into a chat ----
 // The server fetches the page (never the phone), so the sender's address is not leaked to the site. Private and internal
 // addresses are refused at connect time (so redirects and DNS tricks cannot reach them), pages are size/time limited, results cached 1 hour.
