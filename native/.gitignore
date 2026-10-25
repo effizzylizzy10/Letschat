@@ -1,0 +1,6 @@
+node_modules/
+android/
+resources/
+*.keystore
+keystore.base64.txt
+signing-info.txt
