@@ -61,7 +61,9 @@ public final class MessagePoller {
         Thread t = new Thread(new Runnable() {
             @Override
             public void run() {
-                loop();
+                try {
+                    loop();
+                } catch (Throwable ignored) {}
             }
         }, "letschat-message-poller");
         t.setDaemon(true);
@@ -145,8 +147,8 @@ public final class MessagePoller {
                 if (best != null && total > 0 && System.currentTimeMillis() - lastSocketShow > SOCKET_QUIET_MS) {
                     present(ctx, api, token, best, bestGain, sp.getString("userId", ""));
                 }
-            } catch (Exception ignored) {
-                // a bad answer from the server: try again next time
+            } catch (Throwable ignored) {
+                // a bad answer from the server (or any other failure): try again next time, never crash the app
             }
         }
     }
