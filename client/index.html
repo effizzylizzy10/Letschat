@@ -165,6 +165,22 @@
     if (A.getLaunchUrl) A.getLaunchUrl().then(function (r) { if (r && r.url) go(r.url); }, function () {});
   })();
   </script>
+  <script>/* Native Letschat app only: pressing Back on the very first screen minimises Letschat into a floating chat head (like Messenger) instead of closing it. It needs the "Chat head" switch (Settings > Notifications, on by default) and Android's "Display over other apps" permission; without them Back closes the app as before. Tapping the chat head opens Letschat again. */
+  (function () {
+    var A = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (!A || !A.addListener) return;
+    function signedIn() { try { var s = JSON.parse(localStorage.getItem("letschat-africa:session")); return !!(s && s.token); } catch (e) { return false; } }
+    function headOn() { try { return localStorage.getItem("letschat-native:bubble") !== "0"; } catch (e) { return true; } }
+    function leave() { try { if (A.exitApp) A.exitApp(); } catch (e) {} }
+    function minimise() { try { if (A.minimizeApp) A.minimizeApp(); else leave(); } catch (e) { leave(); } }
+    A.addListener("backButton", function (ev) {
+      if (ev && ev.canGoBack) { try { history.back(); } catch (e) {} return; }
+      var BB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ChatBubble;
+      if (!BB || !BB.show || !headOn() || !signedIn()) { leave(); return; }
+      BB.show({ count: 0, title: "", text: "", chatId: "", avatar: "" }).then(minimise, leave);
+    });
+  })();
+  </script>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #05070A; overflow: hidden; }
     /* No text highlighting anywhere in the app: only the message bubble highlight (long-press) is allowed. Typing boxes stay selectable so editing works. */
