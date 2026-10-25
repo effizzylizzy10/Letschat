@@ -11947,6 +11947,12 @@ function friendlyAuthError(e) {
         "auth/user-disabled": "This account has been disabled.",
         "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
         "auth/network-request-failed": "Network problem. Check your connection and try again.",
+        "auth/missing-email": "Type your email address first.",
+        "auth/missing-password": "Type your password first.",
+        "auth/operation-not-allowed": "Email sign-in is turned off for this app. Ask the admin to enable it in Firebase (Authentication > Sign-in method).",
+        "auth/internal-error": "Something went wrong on our side. Please try again in a moment.",
+        "auth/expired-action-code": "This link has expired. Request a new one.",
+        "auth/invalid-action-code": "This link is invalid or has already been used.",
         "auth/invalid-action-code": "This sign-in link is not valid any more. Ask for a new one.",
         "auth/expired-action-code": "This sign-in link has expired. Ask for a new one.",
         "auth/operation-not-allowed": "Email-link sign-in is not switched on yet. In Firebase: Authentication > Sign-in method > Email/Password > turn on Email link (passwordless sign-in).",
@@ -11957,7 +11963,11 @@ function friendlyAuthError(e) {
         return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
     if (e && /already been rendered/i.test(e.message || ""))
         return "Please refresh the page and try again.";
-    return map[e && e.code] || (e && e.message) || "Something went wrong.";
+    if (e && map[e.code])
+        return map[e.code];
+    if (e && /^auth\//.test(e.code || ""))
+        return "Sign-in problem (" + e.code.replace("auth/", "") + "). Please try again.";
+    return (e && e.message) || "Something went wrong. Please try again.";
 }
 // Flipping, glowing logo: front = logo, back = credit. Flips back after FLIP_BACK_MS; animation pauses after PAUSE_MS (tap the logo to flip / resume).
 const FLIP_FRONT_MS = 30000, FLIP_BACK_MS = 30000, PAUSE_MS = 20 * 60 * 1000;
@@ -12082,19 +12092,28 @@ function LoginScreen({ onContinue }) {
     // ---- email + password ----
     const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
     const emailReady = emailOk && password.length >= 6 && (!isNew || (!!emailName.trim() && nickValid(nickname)));
+    const missingHint = !email.trim() ? "Enter your email address." : !emailOk ? "That email address doesn\u2019t look right." : password.length < 6 ? "Password needs at least 6 characters." : isNew && !emailName.trim() ? "Enter your name." : isNew && !nickValid(nickname) ? "Choose a nickname." : "";
     const submitEmail = () => run(async () => {
         setNotice("");
         const auth = firebase.auth();
         if (isNew) {
-            const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
-            await cred.user.updateProfile({ displayName: emailName.trim() });
-            await cred.user.sendEmailVerification();
+            const cred = await auth.createUserWithEmailAndPassword(email.trim().toLowerCase(), password);
+            try {
+                await cred.user.updateProfile({ displayName: emailName.trim() });
+            }
+            catch (e) { }
             setEmailUser(cred.user);
             setEmailStage("verify");
-            setNotice("Verification email sent. Check your inbox and spam folder.");
+            try {
+                await cred.user.sendEmailVerification();
+                setNotice("Verification email sent. Check your inbox and spam folder.");
+            }
+            catch (e) {
+                setNotice("Your account was created, but the email could not be sent. Tap \u201cResend email\u201d.");
+            }
             return;
         }
-        const cred = await auth.signInWithEmailAndPassword(email.trim(), password);
+        const cred = await auth.signInWithEmailAndPassword(email.trim().toLowerCase(), password);
         if (!cred.user.emailVerified) {
             try {
                 await cred.user.sendEmailVerification();
@@ -12121,8 +12140,8 @@ function LoginScreen({ onContinue }) {
     const forgotPassword = () => run(async () => {
         if (!emailOk)
             throw new Error("Type your email address first.");
-        await firebase.auth().sendPasswordResetEmail(email.trim());
-        setNotice("Password reset link sent to " + email.trim() + ".");
+        await firebase.auth().sendPasswordResetEmail(email.trim().toLowerCase());
+        setNotice("Password reset link sent to " + email.trim().toLowerCase() + ".");
     });
     // ---- email only, no password: Firebase emails a one-time sign-in link that proves the person owns the address ----
     const sendLink = () => run(async () => {
@@ -12245,6 +12264,7 @@ function LoginScreen({ onContinue }) {
                             React.createElement("line", { x1: 1, y1: 1, x2: 23, y2: 23 }))) : (React.createElement(React.Fragment, null,
                             React.createElement("path", { d: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" }),
                             React.createElement("circle", { cx: 12, cy: 12, r: 3 })))))),
+            !emailReady && missingHint && React.createElement("p", { role: "status", style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-6px 4px 12px", lineHeight: 1.4 } }, missingHint),
             React.createElement("button", { disabled: busy || !emailReady, onClick: submitEmail, style: btn(emailReady) }, busy ? "Please wait…" : isNew ? "Create account" : "Log in"),
             !isNew && React.createElement("button", { onClick: forgotPassword, style: linkBtn }, "Forgot password?"),
             React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: { ...linkBtn, color: "#35D0BA", marginTop: 8 } }, "Sign in with email only (no password)"),
