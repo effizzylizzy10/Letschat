@@ -367,7 +367,7 @@ final class BubbleController {
     private void showTarget() {
         if (xTarget != null) return;
         TextView x = new TextView(ctx);
-        x.setText("✕");
+        x.setText("\u2715");
         x.setTextColor(Color.WHITE);
         x.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
         x.setTypeface(Typeface.DEFAULT_BOLD);
