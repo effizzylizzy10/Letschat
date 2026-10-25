@@ -1,3 +1,68 @@
+// Android app only: let the page reach the native plugins (floating chat bubble, background service).
+// A website opened inside the Capacitor app does not get Capacitor.Plugins filled in, so the native glue script
+// found nothing to talk to and never added the "Floating chat bubble" switch. This connects the plugins by name.
+(function () {
+  try {
+    var C = window.Capacitor;
+    if (!C || typeof C.nativePromise !== "function" || typeof C.nativeCallback !== "function") return;
+    if (typeof C.isNativePlatform === "function" && !C.isNativePlatform()) return;
+    C.Plugins = C.Plugins || {};
+    var make = function (name, methods) {
+      if (C.Plugins[name]) return;
+      var p = {};
+      methods.forEach(function (m) { p[m] = function (o) { return C.nativePromise(name, m, o || {}); }; });
+      p.addListener = function (eventName, cb) {
+        try { C.nativeCallback(name, "addListener", { eventName: eventName }, cb); } catch (e) {}
+        return Promise.resolve({ remove: function () { return Promise.resolve(); } });
+      };
+      C.Plugins[name] = p;
+    };
+    make("BackgroundService", ["start", "stop", "isRunning", "isIgnoringBatteryOptimizations", "requestIgnoreBatteryOptimizations", "areNotificationsEnabled", "requestNotificationPermission", "showMessage", "clearMessages"]);
+    make("ChatBubble", ["setEnabled", "show", "hide", "checkOverlayPermission", "requestOverlayPermission"]);
+    make("App", ["getInfo", "getState", "getLaunchUrl", "exitApp", "minimizeApp"]);
+  } catch (e) {}
+})();
+
+// Android app only (needs the updated app): the WebView has no web notifications, so every "new Notification(...)" in the page,
+// the "Push notifications" and "Background alerts" switches included, is handed to the phone's own notification system (with sound).
+(function () {
+  try {
+    var C = window.Capacitor, BG = C && C.Plugins && C.Plugins.BackgroundService;
+    if (!BG || window.Notification || typeof BG.areNotificationsEnabled !== "function") return;
+    var perm = "default";
+    var apply = function (r) { perm = r && r.enabled ? "granted" : (r && r.state === "denied" ? "denied" : "default"); return perm; };
+    BG.areNotificationsEnabled().then(function (r) {
+      apply(r);
+      var NativeNotification = function (title, opts) {
+        opts = opts || {};
+        this.title = title; this.body = opts.body || ""; this.tag = opts.tag || "";
+        if (perm === "granted") BG.showMessage({ title: String(title || "Letschat Africa"), body: String(opts.body || ""), tag: String(opts.tag || "") }).catch(function () {});
+      };
+      NativeNotification.prototype.close = function () {};
+      Object.defineProperty(NativeNotification, "permission", { get: function () { return perm; } });
+      NativeNotification.requestPermission = function (cb) {
+        return BG.requestNotificationPermission().then(function (x) { var q = apply(x); if (typeof cb === "function") cb(q); return q; }, function () { return perm; });
+      };
+      window.Notification = NativeNotification;
+      var bannerOn = function () { try { return !!getNotifs().banner; } catch (e) { return false; } };
+      var setBanner = function (v) { try { saveJSON("notifs", Object.assign({}, getNotifs(), { banner: v })); } catch (e) {} };
+      window.__lcNativePush = {
+        status: function () {
+          return BG.areNotificationsEnabled().then(function (x) { var q = apply(x); return q === "granted" ? (bannerOn() ? "on" : "off") : (q === "denied" ? "denied" : "off"); }, function () { return "unsupported"; });
+        },
+        enable: function () {
+          return BG.requestNotificationPermission().then(function (x) {
+            if (apply(x) !== "granted") throw new Error("Allow notifications for Letschat in your phone settings, then come back and try again.");
+            try { var sp = BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }); if (sp && sp.catch) sp.catch(function () {}); } catch (e) {}
+            setBanner(true);
+          });
+        },
+        disable: function () { setBanner(false); return Promise.resolve(); }
+      };
+      document.addEventListener("visibilitychange", function () { if (!document.hidden) BG.areNotificationsEnabled().then(apply, function () {}); });
+    }, function () { /* older app without these native methods: nothing changes */ });
+  } catch (e) {}
+})();
 // AUTO-GENERATED from app.jsx
 "use strict";
 // ---- Built-in icons (replaces the lucide-react import; no external icon library needed) ----
@@ -407,7 +472,7 @@ function useNickSearch(value, token) {
     const [list, setList] = useState([]);
     useEffect(() => {
         const q = stripEmoji(String(value || "")).trim().replace(/^@+/, "");
-        if (!token || nickLen(q) < 2 || /[\s@]/.test(q) || (/^[0-9+()\-]+$/.test(q) && q.length > 5)) { setList([]); return; }
+        if (!token || nickLen(q) < 1 || /[\s@]/.test(q) || (/^[0-9+()\-]+$/.test(q) && q.length > 5)) { setList([]); return; }
         let dead = false;
         const t = setTimeout(async () => {
             try {
@@ -834,14 +899,14 @@ function TabBar({ active, setActive, onRoom }) {
         { id: "games", icon: Gamepad2, label: "Games" },
         { id: "tools", icon: Grid3x3, label: "Tools" },
     ];
-    return (React.createElement("div", { style: { display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 } }, tabs.map(t => {
+    return (React.createElement("div", { style: { display: "flex", borderTop: "1px solid #262E3A", background: "#161B22", paddingBottom: 6, paddingTop: 8, flexShrink: 0 } }, React.createElement("style", null, ".lc-tab-ic{position:relative;display:flex;align-items:center;justify-content:center;width:56px;height:30px;border-radius:16px}.lc-tab-ic::before{content:\"\";position:absolute;inset:0;border-radius:16px;background:rgba(53,208,186,.16);transform:scaleX(.25);opacity:0;transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .2s ease}.lc-tab-ic>*{position:relative;z-index:1}.lc-tab.on .lc-tab-ic::before{transform:scaleX(1);opacity:1}.lc-tab.on .lc-tab-ic>svg{animation:lcTabPop .32s cubic-bezier(.2,.8,.2,1)}.lc-tab:active .lc-tab-ic::before{opacity:1;transform:scaleX(.9)}@keyframes lcTabPop{0%{transform:scale(.8)}55%{transform:scale(1.15)}100%{transform:scale(1)}}@media (prefers-reduced-motion:reduce){.lc-tab-ic::before{transition:none}.lc-tab.on .lc-tab-ic>svg{animation:none}}"), tabs.map(t => {
         const Icon = t.icon;
         const isActive = active === t.id;
         return (React.createElement("button", { key: t.id, className: isActive ? "lc-tab on" : "lc-tab", onClick: () => (t.id === "room" && onRoom ? onRoom() : setActive(t.id)), style: {
                 flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
                 alignItems: "center", gap: 4, counterIncrement: "lcgap-4", cursor: "pointer", color: isActive ? "#35D0BA" : "#5B6673", padding: "4px 0",
             } },
-            React.createElement(Icon, { size: 22, strokeWidth: isActive ? 2.4 : 1.8 }),
+            React.createElement("span", { className: "lc-tab-ic" }, React.createElement(Icon, { size: 22, strokeWidth: isActive ? 2.4 : 1.8 })),
             React.createElement("span", { style: { fontSize: 11, fontFamily: "Inter", fontWeight: isActive ? 600 : 500 } }, t.label)));
     })));
 }
@@ -4900,7 +4965,7 @@ function GamesHub({ active, myId, me, socketRef, conversations = [], onCall, goG
     useEffect(() => { const t = setInterval(() => { if (socketRef.current !== sk)
         setSk(socketRef.current); }, 700); return () => clearInterval(t); }, [sk]);
     useEffect(() => { if (!sk)
-        return; refresh(); const t = setInterval(() => activeRef.current && refresh(), 8000); return () => clearInterval(t); }, [sk]);
+        return; refresh(); const t = setInterval(() => activeRef.current && !document.hidden && navigator.onLine !== false && refresh(), 8000); return () => clearInterval(t); }, [sk]);
     useEffect(() => { if (active) {
         refresh();
         setUnread(0);
@@ -5165,6 +5230,73 @@ function aiLinkify(text) {
     if (last < text.length) out.push(text.slice(last));
     return out;
 }
+// ---- markdown for the LetsChat AI answers (bold, italic, headings, lists, tables, code blocks, links) ----
+function aiInline(t, kp) {
+    const out = [], ce = React.createElement;
+    const re = /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(__[^_\n]+?__)|(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))|(https?:\/\/[^\s)<>"']+)|(\*[^\s*][^*\n]*?\*)/g;
+    const link = { color: "#6FB3FF", textDecoration: "underline", wordBreak: "break-all" };
+    let last = 0, m, k = 0;
+    while ((m = re.exec(t))) {
+        if (m.index > last) out.push(t.slice(last, m.index));
+        const s = m[0], key = kp + "." + k++;
+        let used = s.length;
+        if (m[1]) out.push(ce("code", { key, style: { background: "rgba(255,255,255,.1)", borderRadius: 5, padding: "1px 5px", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: "0.9em" } }, s.slice(1, -1)));
+        else if (m[2] || m[3]) out.push(ce("strong", { key, style: { fontWeight: 700 } }, aiInline(s.slice(2, -2), key)));
+        else if (m[4]) { const mm = /^\[([^\]]+)\]\((.+)\)$/.exec(s); out.push(ce("a", { key, href: mm[2], target: "_blank", rel: "noopener noreferrer", style: link }, mm[1])); }
+        else if (m[5]) { const url = s.replace(/[.,;:!?]+$/, ""); used = url.length; out.push(ce("a", { key, href: url, target: "_blank", rel: "noopener noreferrer", style: link }, url)); }
+        else out.push(ce("em", { key }, aiInline(s.slice(1, -1), key)));
+        last = m.index + used; re.lastIndex = last;
+    }
+    if (last < t.length) out.push(t.slice(last));
+    return out;
+}
+function aiMd(text) {
+    const ce = React.createElement;
+    const lines = String(text || "").replace(/\r/g, "").split("\n");
+    const out = []; let i = 0, k = 0;
+    const isTableSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l || "") && (l || "").indexOf("-") >= 0;
+    const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    const startsBlock = (l, nx) => /^\s*```/.test(l) || /^(#{1,6})\s+/.test(l) || /^\s*>/.test(l) || /^\s*[-*+]\s+/.test(l) || /^\s*\d+[.)]\s+/.test(l) || (l.indexOf("|") >= 0 && isTableSep(nx));
+    while (i < lines.length) {
+        const ln = lines[i]; let m;
+        if ((m = /^\s*```\s*([\w+#.-]*)\s*$/.exec(ln))) { // code block (an unfinished one while the answer is still streaming too)
+            const code = []; i++;
+            while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) code.push(lines[i++]);
+            i++;
+            out.push(ce("div", { key: k++, style: { background: "#0B0F14", border: "1px solid #232B36", borderRadius: 10, overflow: "hidden" } },
+                m[1] ? ce("div", { style: { padding: "4px 10px", fontSize: 11, color: "#8A96A5", background: "#12161B", fontFamily: "Inter" } }, m[1]) : null,
+                ce("pre", { style: { margin: 0, padding: "10px 12px", overflowX: "auto", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: 13, lineHeight: 1.45, color: "#E6EDF3", whiteSpace: "pre", WebkitUserSelect: "none", userSelect: "none" } }, code.join("\n"))));
+            continue;
+        }
+        if (/^\s*$/.test(ln)) { i++; continue; }
+        if ((m = /^(#{1,6})\s+(.*)$/.exec(ln))) { const lv = m[1].length; out.push(ce("div", { key: k++, style: { fontFamily: "Sora", fontWeight: 700, fontSize: lv === 1 ? 19 : lv === 2 ? 17 : 15.5, lineHeight: 1.3, marginTop: 4 } }, aiInline(m[2], "h" + k))); i++; continue; }
+        if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(ln)) { out.push(ce("div", { key: k++, style: { height: 1, background: "#2B3544", margin: "4px 0" } })); i++; continue; }
+        if (/^\s*>/.test(ln)) { const q = []; while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, "")); out.push(ce("div", { key: k++, style: { borderLeft: "3px solid #35D0BA", paddingLeft: 10, color: "#C5CEDA", whiteSpace: "pre-wrap" } }, aiInline(q.join("\n"), "q" + k))); continue; }
+        if (/^\s*[-*+]\s+/.test(ln) || /^\s*\d+[.)]\s+/.test(ln)) {
+            const items = [];
+            while (i < lines.length && (/^\s*[-*+]\s+/.test(lines[i]) || /^\s*\d+[.)]\s+/.test(lines[i]))) {
+                const mm = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i]); items.push({ ind: Math.min(3, Math.floor(mm[1].replace(/\t/g, "  ").length / 2)), mark: /\d/.test(mm[2]) ? mm[2] : "\u2022", text: mm[3] }); i++;
+            }
+            out.push(ce("div", { key: k++, style: { display: "flex", flexDirection: "column", gap: 3 } }, items.map((it, n) => ce("div", { key: n, style: { display: "flex", gap: 7, paddingLeft: it.ind * 16 } },
+                ce("span", { style: { flexShrink: 0, minWidth: 14, color: "#8FD9CC" } }, it.mark), ce("span", { style: { minWidth: 0, flex: 1 } }, aiInline(it.text, "l" + k + "." + n))))));
+            continue;
+        }
+        if (ln.indexOf("|") >= 0 && isTableSep(lines[i + 1])) {
+            const head = cells(ln); i += 2; const rows = [];
+            while (i < lines.length && lines[i].indexOf("|") >= 0 && !/^\s*$/.test(lines[i])) rows.push(cells(lines[i++]));
+            const cs = { padding: "6px 9px", border: "1px solid #2B3544", textAlign: "left", verticalAlign: "top", fontSize: 13.5 };
+            out.push(ce("div", { key: k++, style: { overflowX: "auto" } }, ce("table", { style: { borderCollapse: "collapse", minWidth: "100%" } },
+                ce("thead", null, ce("tr", null, head.map((c, n) => ce("th", { key: n, style: { ...cs, background: "#12161B", fontWeight: 700 } }, aiInline(c, "th" + k + n))))),
+                ce("tbody", null, rows.map((r, n) => ce("tr", { key: n }, head.map((_, j) => ce("td", { key: j, style: cs }, aiInline(r[j] || "", "td" + k + n + "." + j)))))))));
+            continue;
+        }
+        const para = [ln]; i++;
+        while (i < lines.length && !/^\s*$/.test(lines[i]) && !startsBlock(lines[i], lines[i + 1]) && !/^\s*([-*_])(\s*\1){2,}\s*$/.test(lines[i])) para.push(lines[i++]);
+        out.push(ce("div", { key: k++, style: { whiteSpace: "pre-wrap" } }, aiInline(para.join("\n"), "p" + k)));
+    }
+    return ce("div", { style: { display: "flex", flexDirection: "column", gap: 8, minWidth: 0 } }, out);
+}
+function aiMdSafe(text) { try { return aiMd(text); } catch (e) { return aiLinkify(String(text || "")); } }
 // LetsChat AI page: a plain chat with the AI API (Gemini, OpenAI, Grok...). No learning, training, research or offline pack.
 // sharper video calls: sets the most data each sender may send (a clear picture needs this, not just a big camera size)
 function tuneSender(pc, maxVideo) {
@@ -5179,151 +5311,246 @@ function tuneSender(pc, maxVideo) {
         });
     } catch (e) {}
 }
-// Markdown for AI answers (bold, code, lists, headings, links). Builds React elements only, never raw HTML.
-function aiMd(text) {
-    const out = [], lines = String(text || "").split("\n");
-    let i = 0, k = 0;
-    const inline = (s) => {
-        const parts = [], re = /\*\*([^*]+)\*\*|`([^`]+)`/g;
-        let last = 0, m;
-        while ((m = re.exec(s))) {
-            if (m.index > last) parts.push(...aiLinkify(s.slice(last, m.index)));
-            if (m[1] !== undefined) parts.push(React.createElement("strong", { key: "b" + k++, style: { fontWeight: 700 } }, aiLinkify(m[1])));
-            else parts.push(React.createElement("code", { key: "c" + k++, style: { background: "rgba(0,0,0,.35)", padding: "1px 5px", borderRadius: 5, fontFamily: "monospace", fontSize: "0.92em" } }, m[2]));
-            last = m.index + m[0].length;
-        }
-        if (last < s.length) parts.push(...aiLinkify(s.slice(last)));
-        return parts;
-    };
-    const isBullet = (l) => /^\s*[-*\u2022]\s+/.test(l), isNum = (l) => /^\s*\d+[.)]\s+/.test(l);
-    while (i < lines.length) {
-        const ln = lines[i];
-        if (/^\s*```/.test(ln)) {
-            const code = []; i++;
-            while (i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i++]);
-            i++;
-            out.push(React.createElement("pre", { key: "p" + k++, style: { background: "#0B0E13", border: "1px solid #252D38", borderRadius: 10, padding: "10px 12px", overflowX: "auto", fontFamily: "monospace", fontSize: 13, lineHeight: 1.45, margin: "6px 0", whiteSpace: "pre" } }, code.join("\n")));
-            continue;
-        }
-        if (isBullet(ln) || isNum(ln)) {
-            const ordered = isNum(ln), items = [];
-            while (i < lines.length && (ordered ? isNum(lines[i]) : isBullet(lines[i]))) items.push(lines[i++].replace(/^\s*([-*\u2022]|\d+[.)])\s+/, ""));
-            out.push(React.createElement(ordered ? "ol" : "ul", { key: "l" + k++, style: { margin: "4px 0", paddingLeft: 22 } }, items.map((x, j) => React.createElement("li", { key: j, style: { margin: "3px 0" } }, inline(x)))));
-            continue;
-        }
-        if (/^#{1,4}\s+/.test(ln)) { out.push(React.createElement("div", { key: "h" + k++, style: { fontFamily: "Sora", fontWeight: 700, margin: "8px 0 3px" } }, inline(ln.replace(/^#{1,4}\s+/, "")))); i++; continue; }
-        if (!ln.trim()) { out.push(React.createElement("div", { key: "s" + k++, style: { height: 8 } })); i++; continue; }
-        out.push(React.createElement("div", { key: "t" + k++ }, inline(ln)));
-        i++;
-    }
-    return out;
-}
-// LetsChat AI page: answers stream in word by word (server: /api/bot/chat/stream, stream.js), like Gemini or ChatGPT.
-// Stop ends the answer early and keeps what was written. Each answer can be copied. Markdown is shown properly.
 function AiBotScreen({ token, onClose }) {
     const WELCOME = { from: "ai", text: "Hi, I'm LetsChat AI \uD83D\uDC4B Ask me anything.", t: Date.now(), id: "welcome" };
     const [msgs, setMsgs] = useState([]);
+    const [hlId, setHlId] = useState(null); // the message bubble that is highlighted (long-press), not the text
+    const pressRef = useRef(null);
     const [draft, setDraft] = useState("");
-    const [busyNow, setBusyNow] = useState(false);
+    const [typing, setTyping] = useState(false);
     const [err, setErr] = useState("");
     const [ready, setReady] = useState(false);
-    const [copiedId, setCopiedId] = useState(null);
-    const endRef = useRef(null), listRef = useRef(null), busy = useRef(false), alive = useRef(true), stopRef = useRef(null);
-    useEffect(() => { alive.current = true; return () => { alive.current = false; if (stopRef.current) stopRef.current.abort(); }; }, []);
+    const endRef = useRef(null), listRef = useRef(null), busy = useRef(false), alive = useRef(true);
+    useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+    // which AI provider is live on the Render server (checked every 30 seconds while this screen is open)
+    const [live, setLive] = useState(null), [liveOpen, setLiveOpen] = useState(false);
     useEffect(() => {
-        api("/api/bot/chat", { token }).then((s) => { if (alive.current) { setMsgs(s.messages || []); setReady(true); } })
-            .catch(() => { if (alive.current) { setErr("Could not load your earlier AI chat."); setReady(true); } });
+        let dead = false, timer = null;
+        const poll = () => api("/api/bot/live", { token, timeoutMs: 12000 }).then((d) => { if (!dead) setLive(d); }).catch(() => { if (!dead) setLive("err"); }).finally(() => { if (!dead) timer = setTimeout(poll, 30000); });
+        poll();
+        return () => { dead = true; if (timer) clearTimeout(timer); };
+    }, [token]);
+    // v71: offline brain (window.LCBrain, brain.js) answers on the phone when there is no network
+    const brain = () => (typeof window !== "undefined" && window.LCBrain) || null;
+    const [offMode, setOffMode] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
+    const [lite, setLite] = useState(() => { const b = brain(); return b && b.lite ? b.lite.state() : null; });
+    useEffect(() => { const b = brain(); if (!b || !b.lite) return; setLite(b.lite.state()); return b.lite.subscribe((st) => { if (alive.current) setLite(st); }); }, []);
+    const installModel = (ms) => { // ms = one model, or a list to install one after the other
+        const b = brain(); if (!b || !b.lite) return;
+        const list = Array.isArray(ms) ? ms : [ms], mb = list.reduce((n, m) => n + m.mb, 0), names = list.map((m) => m.name).join(" + ");
+        const conn = typeof navigator !== "undefined" && (navigator.connection || navigator.mozConnection || navigator.webkitConnection);
+        const cell = conn && (conn.type === "cellular" || conn.saveData);
+        if (!window.confirm("Download the offline AI model" + (list.length > 1 ? "s" : "") + " \"" + names + "\" (about " + mb + " MB)?" + (cell ? "\n\nYou seem to be on mobile data. Use Wi-Fi if you can." : "\n\nWi-Fi is best. Keep this screen open until it finishes.") + "\nAfter that it works with no network.")) return;
+        (list.length > 1 ? b.lite.installAll() : b.lite.install(list[0].id)).catch(() => { });
+    };
+    useEffect(() => {
+        const on = () => setOffMode(false), off = () => setOffMode(true);
+        window.addEventListener("online", on); window.addEventListener("offline", off);
+        return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
     }, []);
-    useEffect(() => { const box = listRef.current, el = endRef.current; if (box) box.scrollTop = box.scrollHeight; else if (el && el.scrollIntoView) el.scrollIntoView(false); }, [msgs, ready]);
-    const patchAi = (aiId, fn) => { if (alive.current) setMsgs((m) => m.map((x) => (x.id === aiId ? fn(x) : x))); };
-    const stop = () => { if (stopRef.current) stopRef.current.abort(); };
+    useEffect(() => {
+        const localChat = () => { const b = brain(); return b ? b.loadChat() : []; };
+        api("/api/bot/chat", { token }).then((s) => {
+            if (!alive.current) return;
+            let list = s.messages || [];
+            const local = localChat(), lt = (x) => (x.length ? Number(x[x.length - 1].t) || 0 : 0);
+            if (local.length && lt(local) > lt(list)) list = local; // chats held while offline are newer than the saved server copy
+            setMsgs(list); setReady(true);
+        }).catch(() => {
+            if (!alive.current) return;
+            const local = localChat();
+            if (local.length) setMsgs(local); else if (!(typeof navigator !== "undefined" && navigator.onLine === false)) setErr("Could not load your earlier AI chat.");
+            setReady(true);
+        });
+    }, []);
+    useEffect(() => { const b = brain(); if (ready && msgs.length && b) b.saveChat(msgs); }, [msgs, ready]);
+    useEffect(() => { const box = listRef.current, el = endRef.current; if (box) box.scrollTop = box.scrollHeight; else if (el && el.scrollIntoView) el.scrollIntoView(false); }, [msgs, typing, ready]);
+    const askOnline = async (text) => {
+        let out = null;
+        for (let attempt = 0; attempt < 2 && !out; attempt++) {
+            try { out = await api("/api/bot/chat", { method: "POST", token, body: { text }, timeoutMs: 95000 }); }
+            catch (e) { const m = String((e && e.message) || ""); const net = e instanceof TypeError || (e && e.name === "AbortError") || /failed to fetch|networkerror|load failed|network request failed|aborted|network connection was lost|no internet connection/i.test(m); if (attempt === 1 || !net || (e && e.name === "AbortError") || /no internet connection/i.test(m)) throw e; await new Promise((r) => setTimeout(r, 1200)); }
+        }
+        return out && out.parts && out.parts.length ? out.parts : ["Sorry, I had no answer for that."];
+    };
+    const isNetErr = (e) => { const m = String((e && e.message) || ""); return !(e && e.name === "AbortError") && (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|network connection was lost|no internet connection/i.test(m)); };
+    const [liveId, setLiveId] = useState(null), [status, setStatus] = useState(""), abortRef = useRef(null);
+    // streaming answer: the text appears word by word as the AI writes it (like ChatGPT / Gemini / Claude); Stop keeps what was written
+    const askStream = async (text) => {
+        const ctl = new AbortController(); abortRef.current = ctl;
+        const aid = "a" + Date.now(); let acc = "", raf = 0, shown = false, lastByte = Date.now(), stalled = false;
+        const wd = setInterval(() => { if (Date.now() - lastByte > 60000) { stalled = true; try { ctl.abort(); } catch (e) { } } }, 5000); // nothing for a minute: give up on the stream and ask the normal way
+        const flush = () => { raf = 0; const t = acc; setMsgs((m) => { const k = m.findIndex((x) => x.id === aid); if (k < 0) return [...m, { from: "ai", text: t, t: Date.now(), id: aid }]; const c = m.slice(); c[k] = { ...c[k], text: t }; return c; }); };
+        const queue = () => { if (!raf) raf = requestAnimationFrame(flush); };
+        try {
+            let res;
+            try { res = await fetch(`${API_URL}/api/bot/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ text }), signal: ctl.signal }); }
+            catch (e) { if (ctl.signal.aborted) return stalled ? await askOnline(text) : null; throw e; }
+            if (!res.ok || !res.body) {
+                const j = await res.json().catch(() => ({})); const msg = typeof j.error === "string" ? j.error : j.error && j.error.message;
+                if (res.status === 429 || res.status === 503 || (res.status === 502 && msg)) throw new Error(msg || "The AI could not answer right now");
+                return await askOnline(text); // older server without streaming: use the normal answer
+            }
+            const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", fail = "";
+            try {
+                for (;;) {
+                    const { value, done } = await reader.read(); if (done) break;
+                    lastByte = Date.now();
+                    buf += dec.decode(value, { stream: true }); let n;
+                    while ((n = buf.indexOf("\n")) >= 0) {
+                        const line = buf.slice(0, n).trim(); buf = buf.slice(n + 1);
+                        if (!line.startsWith("data:")) continue;
+                        let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+                        if (ev.type === "delta" && ev.text) { acc += ev.text; if (acc.trim()) { if (!shown) { shown = true; if (alive.current) { setLiveId(aid); setStatus(""); } } if (alive.current) queue(); } }
+                        else if (ev.type === "status") { if (!shown && alive.current) setStatus(ev.text || ""); }
+                        else if (ev.type === "error") fail = ev.error || "The AI could not answer right now";
+                    }
+                }
+            } catch (e) { if (!ctl.signal.aborted && !acc) throw e; }
+            if (raf) { cancelAnimationFrame(raf); raf = 0; }
+            if (acc.trim() && alive.current) flush();
+            if (!acc.trim() && fail) throw new Error(fail);
+            if (acc.trim()) return [acc];
+            if (ctl.signal.aborted && !stalled) return null;
+            return await askOnline(text); // nothing came through the stream: ask the normal way instead of showing a blank answer
+        } finally { clearInterval(wd); if (alive.current) { setLiveId(null); setStatus(""); } abortRef.current = null; }
+    };
+    const stopAnswer = () => { try { abortRef.current && abortRef.current.abort(); } catch (e) { } };
+    const newChat = () => {
+        if (typing) return;
+        if (msgs.length && !window.confirm("Start a new chat? This clears the current conversation.")) return;
+        api("/api/bot/clear", { method: "POST", token, body: {} }).catch(() => { });
+        setMsgs([]); setErr(""); try { const b = brain(); b && b.saveChat && b.saveChat([]); } catch (e) { }
+    };
+    const addAi = (parts) => setMsgs((m) => [...m, ...parts.map((x, i) => ({ from: "ai", text: x, t: Date.now(), id: "a" + Date.now() + i }))]);
+    const answerOffline = async (text) => {
+        const b = brain(); if (!b) return false;
+        const hasModel = !!(b.lite && b.lite.ready());
+        const r = b.answer(text, { noQueue: hasModel });
+        let parts = r.parts;
+        if (!r.matched && hasModel) {
+            try {
+                const t = await b.lite.ask(text, msgs);
+                parts = [t + "\n(Offline model: short answers, can be wrong.)"];
+            } catch (e) { b.queue(text); parts = r.parts; }
+        } else await new Promise((res) => setTimeout(res, 450 + Math.random() * 550));
+        if (alive.current) { addAi(parts); setOffMode(true); }
+        return true;
+    };
     const send = async () => {
         const text = String(draft).trim();
         if (!text || busy.current) return;
-        if (typeof navigator !== "undefined" && navigator.onLine === false) { setErr("No internet connection. Please try again when you are online."); return; }
-        const aiId = "a" + Date.now();
-        busy.current = true; setBusyNow(true); setErr(""); setDraft("");
-        setMsgs((m) => [...m, { from: "me", text, t: Date.now(), id: "m" + Date.now() }, { from: "ai", text: "", t: Date.now(), id: aiId, streaming: true }]);
-        const ctl = new AbortController(); stopRef.current = ctl;
-        let gotText = false;
+        busy.current = true; setErr(""); setDraft(""); setTyping(true);
+        setMsgs((m) => [...m, { from: "me", text, t: Date.now(), id: "m" + Date.now() }]);
         try {
-            if (window.__lcWake) { try { await window.__lcWake(false); } catch (e) { /* wake is best effort */ } }
-            const res = await fetch(`${API_URL}/api/bot/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ text }), signal: ctl.signal });
-            if (!res.ok || !res.body) {
-                let msg = "The AI could not answer right now";
-                try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) { /* keep default */ }
-                throw new Error(msg);
-            }
-            const reader = res.body.getReader(), dec = new TextDecoder();
-            let buf = "";
-            for (;;) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buf += dec.decode(value, { stream: true });
-                let i;
-                while ((i = buf.indexOf("\n\n")) >= 0) {
-                    const block = buf.slice(0, i); buf = buf.slice(i + 2);
-                    const line = block.split("\n").find((l) => l.startsWith("data: "));
-                    if (!line) continue;
-                    let ev = null;
-                    try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
-                    if (ev.type === "delta") { gotText = true; patchAi(aiId, (x) => ({ ...x, text: x.text + ev.text })); }
-                    else if (ev.type === "error") throw new Error(ev.error);
-                    else if (ev.type === "done") patchAi(aiId, (x) => ({ ...x, streaming: false, id: ev.id || x.id }));
-                }
+            const b = brain();
+            if (typeof navigator !== "undefined" && navigator.onLine === false && b) await answerOffline(text);
+            else {
+                let parts = null;
+                try { parts = await askStream(text); }
+                catch (e) { if (b && isNetErr(e)) await answerOffline(text); else throw e; }
+                if (parts && alive.current) { setOffMode(false); if (b) b.remember(text, parts); }
             }
         } catch (e) {
-            if (!ctl.signal.aborted && alive.current) setErr((e && e.message) || "The AI could not answer right now");
+            if (alive.current) setErr(e && e.name === "AbortError" ? "The AI is taking too long. Please try again in a moment." : (String((e && e.message) || "") || "The AI could not answer right now"));
         }
-        patchAi(aiId, (x) => ({ ...x, streaming: false }));
-        if (!gotText && alive.current) setMsgs((m) => m.filter((x) => x.id !== aiId)); // no answer at all: drop the empty bubble
-        stopRef.current = null; busy.current = false;
-        if (alive.current) setBusyNow(false);
+        if (alive.current) setTyping(false);
+        busy.current = false;
     };
-    const copy = (m) => {
-        try { navigator.clipboard.writeText(m.text); } catch (e) { /* clipboard not allowed */ }
-        setCopiedId(m.id); setTimeout(() => { if (alive.current) setCopiedId((c) => (c === m.id ? null : c)); }, 1500);
-    };
+    // questions the offline brain could not answer are sent to the real AI by themselves when the network is back
+    useEffect(() => {
+        const b = brain(); if (!b || offMode || !ready || busy.current) return;
+        const q = b.takePending(); if (!q.length) return;
+        let stop = false; busy.current = true; setTyping(true);
+        (async () => {
+            for (let i = 0; i < q.length; i++) {
+                if (stop) { q.slice(i).forEach((x) => b.queue(x)); break; }
+                try {
+                    const parts = await askOnline(q[i]);
+                    if (!alive.current) break;
+                    parts[0] = "Back online \u2014 here is the full answer to \"" + (q[i].length > 60 ? q[i].slice(0, 57) + "..." : q[i]) + "\":\n" + parts[0];
+                    addAi(parts); b.remember(q[i], parts);
+                } catch (e) { q.slice(i).forEach((x) => b.queue(x)); break; }
+            }
+            if (alive.current) setTyping(false);
+            busy.current = false;
+        })();
+        return () => { stop = true; };
+    }, [offMode, ready]);
     const list = msgs.length || !ready ? msgs : [WELCOME];
     const hhmm = (t) => { try { return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
-    const cursor = React.createElement("span", { style: { display: "inline-block", width: 8, height: 15, marginLeft: 2, verticalAlign: "-2px", background: "#35D0BA", animation: "lcAiCaret 0.9s steps(2) infinite" } });
-    const actionBtn = (label, onClick) => React.createElement("button", { onClick, style: { background: "none", border: "1px solid #252D38", color: "#8FA0B3", borderRadius: 999, padding: "3px 10px", fontFamily: "Inter", fontSize: 11.5, cursor: "pointer" } }, label);
+    const AI_NAMES = { gemini: "Gemini", openai: "ChatGPT (OpenAI)", anthropic: "Claude", groq: "Groq", openrouter: "OpenRouter", openrouter2: "OpenRouter 2", openrouter3: "OpenRouter 3", huggingface: "Hugging Face", sambanova: "SambaNova", github: "GitHub Models", cohere: "Cohere", cloudflare: "Cloudflare", requesty: "Requesty", together: "Together", xai: "Grok (xAI)", deepseek: "DeepSeek", mistral: "Mistral", custom: "Custom AI" };
+    const aiName = (n) => AI_NAMES[n] || n;
+    const STATE = { live: ["#21C063", "Live"], unknown: ["#F2B84B", "Not checked yet"], cooling: ["#F2B84B", "Resting after an error"], down: ["#FF6B5D", "Down"] };
+    const liv = live === null ? { color: "#8891A0", text: "Checking\u2026" }
+        : live === "err" ? { color: "#FF6B5D", text: "Server not reachable" }
+        : !live.llm ? { color: "#FF6B5D", text: "No AI connected on Render" }
+        : live.active ? { color: "#21C063", text: "Live \u00B7 " + aiName(live.active), pulse: true }
+        : { color: "#F2B84B", text: "AI busy \u00B7 retrying" };
+    const upMin = live && live !== "err" && live.server ? Math.round(live.server.uptime / 60) : 0;
+    const livePanel = React.createElement("div", { onClick: () => setLiveOpen(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 8 } },
+        React.createElement("div", { onClick: (e) => e.stopPropagation(), role: "dialog", "aria-label": "AI server status", style: { position: "absolute", top: 64, left: 12, right: 12, maxHeight: "70%", overflowY: "auto", background: "#161B22", border: "1px solid #232B36", borderRadius: 16, padding: "12px 14px", boxShadow: "0 10px 30px rgba(0,0,0,.5)", animation: "lcAiIn .18s ease-out" } },
+            React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", marginBottom: 2 } }, "AI on Render"),
+            React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", marginBottom: 10 } }, live === "err" || !live ? "The server did not answer. It may be waking up." : "Server " + (live.server && live.server.ready ? "ready" : "starting") + (live.server && live.server.version ? " \u00B7 v" + live.server.version : "") + " \u00B7 up " + (upMin >= 60 ? Math.floor(upMin / 60) + "h " + (upMin % 60) + "m" : upMin + "m")),
+            live && live !== "err" && (live.providers || []).map((p) => { const st = STATE[p.state] || STATE.unknown; return React.createElement("div", { key: p.name, style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "8px 0", borderTop: "1px solid #1E252E" } },
+                React.createElement("span", { style: { width: 9, height: 9, borderRadius: 5, background: st[0], flexShrink: 0 } }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                    React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 14, color: "#F5F7FA" } }, aiName(p.name), live.active === p.name && React.createElement("span", { style: { marginLeft: 8, fontFamily: "Inter", fontSize: 10.5, fontWeight: 700, color: "#06210F", background: "#21C063", borderRadius: 999, padding: "2px 7px" } }, "ANSWERING")),
+                    React.createElement("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, p.model)),
+                React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, fontWeight: 600, color: st[0], flexShrink: 0 } }, st[1])); }),
+            live && live !== "err" && !(live.providers || []).length && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DB", padding: "6px 0" } }, "No AI key is set on Render yet. Add one (for example GEMINI_API_KEY) under Environment."),
+            live && live !== "err" && live.lastUsed && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 11.5, color: "#8891A0", marginTop: 8 } }, "Last answer by " + aiName(live.lastUsed.name) + " at " + hhmm(live.lastUsed.at))));
+    const liveChip = React.createElement("button", { onClick: () => setLiveOpen((v) => !v), "aria-label": "AI server status", style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12, color: liv.color, maxWidth: "100%" } },
+        React.createElement("style", null, "@keyframes lcAiPulse{0%{box-shadow:0 0 0 0 rgba(33,192,99,.6)}70%,100%{box-shadow:0 0 0 7px rgba(33,192,99,0)}}@keyframes lcAiIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}.lc-aipulse{animation:lcAiPulse 1.8s ease-out infinite}@media (prefers-reduced-motion:reduce){.lc-aipulse{animation:none}}"),
+        React.createElement("span", { className: liv.pulse ? "lc-aipulse" : undefined, style: { width: 8, height: 8, borderRadius: 4, background: liv.color, display: "inline-block", flexShrink: 0 } }),
+        React.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, liv.text));
     return React.createElement("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "#0E1116", display: "flex", flexDirection: "column" } },
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, counterIncrement: "lcgap-12", padding: "12px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", flexShrink: 0 } },
             React.createElement("button", { "aria-label": "Back", onClick: onClose, style: { background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" } }, React.createElement(ArrowLeft, { size: 22, color: "#F5F7FA" })),
             React.createElement(AiBotAvatar, { size: 42, big: true }),
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
-                React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, busyNow ? "typing\u2026" : "online"))),
-        React.createElement("div", { ref: listRef, style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 10 } },
-            React.createElement("style", null, "@keyframes lcAiDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}@keyframes lcAiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes lcAiBob{50%{transform:translateY(-3px)}}@keyframes lcAiCaret{50%{opacity:0}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
+                (typing || offMode ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? (status || "typing\u2026") : "offline mode") : liveChip)),
+            React.createElement("button", { "aria-label": "New chat", onClick: newChat, disabled: typing, style: { background: "none", border: "1px solid #2B3544", borderRadius: 999, padding: "6px 12px", color: "#35D0BA", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: typing ? 0.5 : 1, flexShrink: 0 } }, "New chat")),
+        liveOpen && !offMode && livePanel,
+        lite && lite.phase !== undefined && (() => {
+            const sup = brain() && brain().lite.supported();
+            const have = lite.have || [], missing = (lite.models || []).filter((m) => have.indexOf(m.id) < 0);
+            const names = (lite.models || []).filter((m) => have.indexOf(m.id) >= 0).map((m) => m.name).join(" + ");
+            const box = { padding: "8px 14px", background: "#12161B", borderBottom: "1px solid #1E252E", fontFamily: "Inter", fontSize: 12.5, color: "#C5CEDA", flexShrink: 0 };
+            const btn = { background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 14, padding: "5px 12px", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginRight: 6, marginBottom: 4 };
+            const link = { background: "none", border: "none", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 };
+            if (lite.phase === "installing") return React.createElement("div", { style: box }, (lite.msg || ("Downloading " + (lite.cur || "offline AI") + "\u2026 " + lite.pct + "%")), React.createElement("div", { style: { height: 4, borderRadius: 2, background: "#1E252E", marginTop: 6 } }, React.createElement("div", { style: { height: 4, borderRadius: 2, background: "#35D0BA", width: lite.pct + "%", transition: "width .3s" } })));
+            const removeLink = React.createElement("button", { style: link, onClick: () => { if (window.confirm("Remove the offline AI models from this phone?")) brain().lite.remove(); } }, "Remove");
+            if (have.length && !missing.length) return React.createElement("div", { style: box }, "Offline AI installed (" + names + ") \u00b7 ", removeLink);
+            if (!have.length && lite.hidden && lite.phase !== "error") return null;
+            if (!sup || !sup.ok) return lite.phase === "error" ? React.createElement("div", { style: box }, lite.msg) : null;
+            const total = missing.reduce((n, m) => n + m.mb, 0);
+            return React.createElement("div", { style: box },
+                lite.phase === "error" || lite.msg ? React.createElement("div", { style: { color: "#FF6B5D", marginBottom: 6 } }, "Could not install: " + lite.msg) : null,
+                React.createElement("div", { style: { marginBottom: 6 } }, have.length ? "Installed: " + names + ". Add the rest so I can answer better with no network." : "Get small AI models on your phone so I can answer more with no network."),
+                missing.length > 1 && React.createElement("button", { style: btn, onClick: () => installModel(missing) }, "Install both (" + total + " MB)"),
+                missing.map((m) => React.createElement("button", { key: m.id, style: { ...btn, background: missing.length > 1 ? "#1E252E" : "#35D0BA", color: missing.length > 1 ? "#F5F7FA" : "#0E1116" }, onClick: () => installModel(m) }, m.name + " (" + m.mb + " MB)")),
+                have.length ? removeLink : React.createElement("button", { style: link, onClick: () => brain().lite.hide() }, "Not now"));
+        })(),
+        React.createElement("div", { ref: listRef, onClick: () => setHlId(null), style: { flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 8 } },
+            React.createElement("style", null, "@keyframes lcAiDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}@keyframes lcAiIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes lcAiBob{50%{transform:translateY(-3px)}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}"),
             !ready && React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13, padding: 20 } }, "Loading\u2026"),
             list.map((m, i) => {
-                const mine = m.from === "me", key = m.id || i;
-                if (!mine && m.streaming && !m.text) {
-                    return React.createElement("div", { key, style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
-                        React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
-                        React.createElement("div", { style: { background: "#1B212B", borderRadius: "16px 16px 16px 4px" } }, React.createElement(AiTypingDots, null)));
-                }
-                const body = mine
-                    ? aiLinkify(m.text)
-                    : [...aiMd(m.text), m.streaming ? cursor : null];
-                return React.createElement("div", { key, style: { display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start", animation: "lcAiIn .22s ease-out" } },
-                    React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, maxWidth: "100%" } },
-                        !mine && React.createElement(AiBotAvatar, { size: 28 }),
-                        React.createElement("div", { style: { maxWidth: mine ? "78%" : "calc(100% - 36px)", background: mine ? "#1F8F7E" : "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.5, padding: "9px 13px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: mine ? "pre-wrap" : "normal", wordBreak: "break-word" } }, body)),
-                    !mine && !m.streaming && m.text && React.createElement("div", { style: { display: "flex", gap: 6, marginLeft: 36, marginTop: 4 } }, actionBtn(copiedId === m.id ? "Copied" : "Copy", () => copy(m))),
-                    React.createElement("div", { style: { fontSize: 10.5, color: "#6B7786", marginTop: 2, marginLeft: mine ? 0 : 36 } }, hhmm(m.t)));
+                const mine = m.from === "me";
+                return React.createElement("div", { key: m.id || i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8, animation: "lcAiIn .22s ease-out" } },
+                    !mine && React.createElement(AiBotAvatar, { size: 28 }),
+                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: mine ? "78%" : "88%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: mine ? "pre-wrap" : "normal", wordBreak: "break-word", overflowWrap: "anywhere", minWidth: 0, userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, mine ? aiLinkify(m.text) : aiMdSafe(m.text),
+                        React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))), hlId === (m.id || i) && React.createElement("button", { onClick: () => { try { navigator.clipboard.writeText(m.text); } catch (e) {} setHlId(null); }, style: { alignSelf: "flex-end", background: "#1B212B", color: "#35D0BA", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" } }, "Copy"));
             }),
+            typing && !liveId && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
+                React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
+                React.createElement("div", { style: { background: "#1B212B", borderRadius: "16px 16px 16px 4px" } }, React.createElement(AiTypingDots, null))),
             err && React.createElement("div", { style: { textAlign: "center", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12.5 } }, err),
             React.createElement("div", { ref: endRef })),
         React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: 8, background: "#12161B", borderTop: "1px solid #1E252E", flexShrink: 0 } },
-            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !busyNow) send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 4000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
-            busyNow
-                ? React.createElement("button", { "aria-label": "Stop", onClick: stop, style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#F5F7FA", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } },
-                    React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 24 24" }, React.createElement("rect", { x: 5, y: 5, width: 14, height: 14, rx: 2, fill: "#0E1116" })))
-                : React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => send(), disabled: !draft.trim(), style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !draft.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } },
-                    React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "#0E1116", strokeWidth: 2.2, strokeLinejoin: "round" }, React.createElement("path", { d: "M3 11l18-8-8 18-2-8-8-2z" })))));
+            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 20000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
+            React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => (typing ? stopAnswer() : send()), disabled: !typing && !draft.trim(), "aria-label": typing ? "Stop" : "Send", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !typing && !draft.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, typing ? React.createElement("span", { style: { width: 14, height: 14, borderRadius: 3, background: "#0E1116", display: "block" } }) : React.createElement(Send, { size: 20, color: "#0E1116" }))));
 }
 function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, onLive, presence, favorites = [], pinned = [], onSetPinned = () => { }, muted = {}, onMute = () => Promise.resolve(true) }) {
     const [aiOpen, setAiOpen] = useState(false);
@@ -6783,14 +7010,14 @@ function CallsScreen({ conversations = [], onCall = () => { }, favorites = [], t
     const avatar = (peer, isGroup, size) => (peer && peer.avatar
         ? ce(Ring, { size, color: peer.color || "#5B6673", initials: peer.initials || "?", photo: peer.avatar })
         : ce("div", { style: { width: size, height: size, borderRadius: "50%", background: "#6B7C8C", display: "flex", alignItems: "flex-end", justifyContent: "center", overflow: "hidden", flexShrink: 0 } }, ce(isGroup ? Users : User, { size: size * 0.62, color: "#C9D3DC", style: { marginBottom: -2 } })));
-    const roundBtn = (label, icon, onClick) => ce("button", { key: label, onClick, style: { background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", flex: 1, padding: 0 } },
-        ce("span", { style: { width: 76, height: 76, borderRadius: "50%", background: "#1D2329", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(icon, { size: 30, color: "#F5F7FA" })),
-        ce("span", { style: { fontFamily: "Inter", fontSize: 14.5, color: "#C9D1DC" } }, label));
+    const roundBtn = (label, icon, onClick) => ce("button", { key: label, onClick, style: { background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", flex: 1, padding: 0 } },
+        ce("span", { style: { width: 56, height: 56, borderRadius: "50%", background: "#1D2329", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(icon, { size: 20, color: "#F5F7FA" })),
+        ce("span", { style: { fontFamily: "Inter", fontSize: 13, color: "#C9D1DC" } }, label));
     const pickRow = (c, onVoice, onVideo) => ce("div", { key: c.id, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "10px 4px", borderBottom: "1px solid #1B212B" } },
         avatar(c.other, false, 44),
         ce("div", { style: { flex: 1, minWidth: 0, fontFamily: "Inter", fontSize: 16, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, c.other.name),
-        onVoice && F.voiceCalls && ce("button", { onClick: onVoice, "aria-label": "Voice call", style: { ...iconBtnStyle, marginRight: 14 } }, ce(Phone, { size: 22, color: "#F5F7FA" })),
-        onVideo && F.videoCalls && ce("button", { onClick: onVideo, "aria-label": "Video call", style: { ...iconBtnStyle, marginRight: 4 } }, ce(Video, { size: 22, color: "#F5F7FA" })));
+        onVoice && F.voiceCalls && ce("button", { onClick: onVoice, "aria-label": "Voice call", style: { ...iconBtnStyle, marginRight: 14 } }, ce(Phone, { size: 18, color: "#F5F7FA" })),
+        onVideo && F.videoCalls && ce("button", { onClick: onVideo, "aria-label": "Video call", style: { ...iconBtnStyle, marginRight: 4 } }, ce(Video, { size: 18, color: "#F5F7FA" })));
     const search = (value, set, ph) => ce("input", { value, onChange: (e) => set(e.target.value), placeholder: ph, style: { width: "100%", boxSizing: "border-box", background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, padding: "10px 12px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 10 } });
     const pickList = (onVoice, onVideo, onPick) => {
         const list = dms.filter((c) => !pickQ.trim() || personMatch(c.other, pickQ));
@@ -6821,12 +7048,12 @@ function CallsScreen({ conversations = [], onCall = () => { }, favorites = [], t
             avatar(e.peer, isGroup, 58),
             ce("div", { style: { flex: 1, minWidth: 0 } },
                 ce("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 18, color: k === "missed" ? "#F15B6C" : "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ((e.peer && e.peer.name) || "Unknown") + (g.n > 1 ? " (" + g.n + ")" : "")),
-                ce("div", { style: { display: "flex", alignItems: "center", gap: 7, counterIncrement: "lcgap-7", marginTop: 3, fontFamily: "Inter", fontSize: 15, color: "#9BA7B4" } }, ce(k === "out" ? CallArrowOut : CallArrowIn, { size: 17, color: col }), ce("span", null, callWhen(e.time)))),
-            ce("button", { onClick: (ev) => { ev.stopPropagation(); callBack(e, e.video); }, "aria-label": e.video ? "Video call" : "Voice call", style: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" } }, ce(e.video ? Video : Phone, { size: 25, color: "#F5F7FA" })));
+                ce("div", { style: { display: "flex", alignItems: "center", gap: 7, counterIncrement: "lcgap-7", marginTop: 3, fontFamily: "Inter", fontSize: 15, color: "#9BA7B4" } }, ce(k === "out" ? CallArrowOut : CallArrowIn, { size: 14, color: col }), ce("span", null, callWhen(e.time)))),
+            ce("button", { onClick: (ev) => { ev.stopPropagation(); callBack(e, e.video); }, "aria-label": e.video ? "Video call" : "Voice call", style: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" } }, ce(e.video ? Video : Phone, { size: 20, color: "#F5F7FA" })));
     };
     const topRight = ce("div", { style: { display: "flex", alignItems: "center", gap: 18, counterIncrement: "lcgap-18", position: "relative" } },
-        ce("button", { onClick: () => { setSearching((v) => !v); setQ(""); }, "aria-label": "Search calls", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(Search, { size: 24, color: "#F5F7FA" })),
-        ce("button", { onClick: () => setMenu((v) => !v), "aria-label": "More options", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(MoreVertical, { size: 24, color: "#F5F7FA" })),
+        ce("button", { onClick: () => { setSearching((v) => !v); setQ(""); }, "aria-label": "Search calls", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(Search, { size: 20, color: "#F5F7FA" })),
+        ce("button", { onClick: () => setMenu((v) => !v), "aria-label": "More options", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(MoreVertical, { size: 20, color: "#F5F7FA" })),
         menu && ce("div", { style: { position: "absolute", top: 34, right: 0, minWidth: 180, background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "6px 0", boxShadow: "0 10px 28px rgba(0,0,0,.5)", zIndex: 30 } }, ce("div", { onClick: clear, style: { padding: "12px 18px", fontFamily: "Inter", fontSize: 15, color: "#F5F7FA", cursor: "pointer" } }, "Clear call log")));
     return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } },
         ce(TopBar, { title: "Calls", right: topRight }),
@@ -6835,18 +7062,18 @@ function CallsScreen({ conversations = [], onCall = () => { }, favorites = [], t
         due && ce("div", { style: { margin: "0 16px 8px", padding: "10px 12px", borderRadius: 12, background: "#10211D", border: "1px solid #1E8677", display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", flexShrink: 0 } },
             ce("div", { style: { flex: 1, fontFamily: "Inter", fontSize: 14, color: "#F5F7FA" } }, "Time to call " + due.name),
             ce("button", { onClick: () => { const c = conversations.find((x) => x.id === due.conversationId); removeSched(due.id); setDue(null); if (c) onCall(c, !!due.video); }, style: smallBtn }, "Call"),
-            ce("button", { onClick: () => { removeSched(due.id); setDue(null); }, "aria-label": "Dismiss", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#8891A0" }))),
+            ce("button", { onClick: () => { removeSched(due.id); setDue(null); }, "aria-label": "Dismiss", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 15, color: "#8891A0" }))),
         ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 110 } },
-            ce("div", { style: { display: "flex", padding: "6px 8px 22px" } }, roundBtn("Call", Phone, () => setSheet("new")), roundBtn("Schedule", CallCalendar, () => setSheet("schedule")), roundBtn("Keypad", CallKeypad, () => setSheet("keypad")), roundBtn("Favorites", CallHeart, () => setSheet("fav"))),
+            ce("div", { style: { display: "flex", padding: "4px 8px 14px" } }, roundBtn("Call", Phone, () => setSheet("new")), roundBtn("Schedule", CallCalendar, () => setSheet("schedule")), roundBtn("Keypad", CallKeypad, () => setSheet("keypad")), roundBtn("Favorites", CallHeart, () => setSheet("fav"))),
             sched.filter((s) => !s.shown).length > 0 && ce("div", null,
                 ce("div", { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 22, color: "#F5F7FA", padding: "4px 16px 8px" } }, "Scheduled"),
                 sched.filter((s) => !s.shown).map((s) => ce("div", { key: s.id, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "8px 16px" } },
                     ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Inter", fontWeight: 500, fontSize: 17, color: "#F5F7FA" } }, s.name), ce("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#9BA7B4", marginTop: 2 } }, (s.video ? "Video" : "Voice") + " \u00B7 " + callWhen(s.at))),
-                    ce("button", { onClick: () => removeSched(s.id), "aria-label": "Cancel scheduled call", style: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" } }, ce(X, { size: 20, color: "#8891A0" }))))),
+                    ce("button", { onClick: () => removeSched(s.id), "aria-label": "Cancel scheduled call", style: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" } }, ce(X, { size: 16, color: "#8891A0" }))))),
             ce("div", { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 22, color: "#F5F7FA", padding: "4px 16px 8px" } }, "Recent"),
             !shown.length && ce("div", { style: { padding: "30px 30px", textAlign: "center", fontFamily: "Inter", fontSize: 14, color: "#8891A0" } }, q.trim() ? "No calls match your search." : "No calls yet. Tap the green button to start one."),
             shown.map(rowFor)),
-        ce("button", { onClick: () => setSheet("new"), "aria-label": "New call", style: { position: "absolute", right: 18, bottom: 18, width: 74, height: 74, borderRadius: 22, border: "none", background: "#25D366", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 8px 22px rgba(0,0,0,.45)", zIndex: 20 } }, ce(CallPhonePlus, { size: 32, color: "#0E1116" })),
+        ce("button", { onClick: () => setSheet("new"), "aria-label": "New call", style: { position: "absolute", right: 16, bottom: 16, width: 56, height: 56, borderRadius: 18, border: "none", background: "#25D366", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 8px 22px rgba(0,0,0,.45)", zIndex: 20 } }, ce(CallPhonePlus, { size: 22, color: "#0E1116" })),
         sheets);
 }
 // ---- status ----
@@ -7224,6 +7451,7 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
     const [txt, setTxt] = useState({ id: null, v: "", c: "#FFFFFF" });
     const [caption, setCaption] = useState("");
     const [tags, setTags] = useState([]);
+    const [mentions, setMentions] = useState([]), [noReshare, setNoReshare] = useState(false);
     const [music, setMusic] = useState(null); // { name, buf, dur, start, len }
     const [playing, setPlaying] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -7445,14 +7673,15 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
     const insertAt = () => { setCaption((c) => (c && !/\s$/.test(c) ? c + " " : c) + "@"); setTimeout(() => capRef.current && capRef.current.focus(), 0); };
     // the picker hands back the chosen people and groups: their @names are put in the caption (and taken out again when unchosen)
     const applyMentions = (chosen) => {
-        let cap = caption;
         const keep = chosen.map((t) => t.type + t.id);
+        let cap = caption;
         for (const t of liveTags(cap, tags)) if (!keep.includes(t.type + t.id)) cap = cap.replace(new RegExp("\\s?@" + String(t.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|$)", "i"), "");
-        for (const t of chosen) if (!cap.toLowerCase().includes("@" + String(t.name).toLowerCase())) cap = (cap && !/\s$/.test(cap) ? cap + " " : cap) + "@" + t.name + " ";
-        setCaption(cap.slice(0, 300));
-        setTags(chosen.map((t) => ({ type: t.type, id: t.id, name: t.name })));
+        setCaption(cap);
+        setTags([]);
+        setMentions(chosen.map((t) => ({ type: t.type, id: t.id, name: t.name })));
         setMentionOpen(false);
     };
+    const allTags = () => { const m = new Map(); [...liveTags(caption, tags), ...mentions].forEach((t) => m.set(t.type + t.id, t)); return [...m.values()]; };
     const pickAudio = async (e) => {
         const f = e.target.files && e.target.files[0];
         e.target.value = "";
@@ -7481,7 +7710,9 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
         setError("");
         stopPlay();
         try {
-            const body = { text: caption.trim(), bg, tags: liveTags(caption, tags).map((t) => ({ type: t.type, id: t.id })) };
+            const body = { text: caption.trim(), bg, tags: allTags().map((t) => ({ type: t.type, id: t.id })) };
+            if (noReshare)
+                body.noReshare = true;
             if (hasArt)
                 body.photo = await bakeStatus(filterId !== "none" ? await statusFiltered(photo, filterId) : photo, nat, bg, items, strokes);
             if (music) {
@@ -7505,12 +7736,15 @@ function StatusComposer({ token, onClose, onPosted, mode }) {
     const dot = (c, on, f) => ce("button", { key: c, onClick: f, "aria-label": "Colour " + c, style: { width: 28, height: 28, borderRadius: 14, background: c, border: on ? "3px solid #fff" : "3px solid rgba(255,255,255,.25)", cursor: "pointer", padding: 0, flexShrink: 0 } });
     const bottom = draw
         ? ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "10px 14px 18px", flexShrink: 0 } }, STATUS_TEXT_COLORS.map((c) => dot(c, pen === c, () => setPen(c))), ce("div", { style: { flex: 1 } }), ce("button", { onClick: () => setStrokes((a) => a.slice(0, -1)), disabled: !strokes.length, style: { ...smallBtn, opacity: strokes.length ? 1 : 0.4 } }, "Undo"), ce("button", { onClick: () => setDraw(false), style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done"))
-        : ce("div", { style: { flexShrink: 0 } }, !photo && ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))), filterStrip, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } }, ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }), ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })), ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }), ce("button", { onClick: () => setMentionOpen(true), "aria-label": "Add mentions", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))), ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999, padding: "9px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: post, disabled: !canPost, "aria-label": "Post status", style: { width: 56, height: 56, borderRadius: 28, border: "none", background: "#21C063", cursor: canPost ? "pointer" : "default", opacity: canPost ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: canPost ? "0 0 18px rgba(33,192,99,.55)" : "none" } }, busy ? ce("span", { style: { color: "#06210F", fontFamily: "Inter", fontWeight: 700, fontSize: 12 } }, "…") : ce(Send, { size: 26, color: "#06210F" }))));
+        : ce("div", { style: { flexShrink: 0 } }, !photo && ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", justifyContent: "center", padding: "0 12px 10px" } }, STATUS_COLORS.map((c) => dot(c, bg === c, () => setBg(c)))), filterStrip, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", margin: "0 12px", padding: "4px 12px", background: "transparent", border: "1px solid rgba(255,255,255,.3)", borderRadius: 999 } }, ce("input", { ref: fileRef, type: "file", accept: "image/*", onChange: pick, style: { display: "none" } }), ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(ImagePlus, { size: 24, color: "#E6EAF0" })), ce(MentionField, { token, value: caption, onChange: (t) => setCaption(t.slice(0, 300)), tags, setTags, placeholder: "Add a caption…", fieldRef: capRef, className: "lc-plain", style: { width: "100%", boxSizing: "border-box", background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 17, padding: "12px 0" } }), ce("button", { onClick: () => setMentionOpen(true), "aria-label": "Add mentions", style: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" } }, ce(AtSign, { size: 26, color: "#E6EAF0" }))), ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 12px 16px" } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", background: "transparent", background: "rgba(255,255,255,.1)", borderRadius: 999, padding: "8px 14px", color: "#E6EAF0", fontFamily: "Inter", fontSize: 14.5 } }, ce(Radio, { size: 17, color: "#E6EAF0" }), "Status (Contacts)",
+                ce("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": photo ? "Change photo" : "Add photo", style: { background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex" } }, ce(Plus, { size: 18, color: "#E6EAF0" })),
+                ce("button", { onClick: () => setNoReshare((v) => !v), "aria-label": noReshare ? "Reshare is off" : "Reshare is on", title: noReshare ? "Reshare is off" : "Reshare is on", style: { background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", opacity: noReshare ? 0.4 : 1 } }, ce(GiReshare, { size: 18, color: noReshare ? "#E6EAF0" : "#35D0BA" })),
+                ce("button", { onClick: () => setMentionOpen(true), "aria-label": "Add mentions", style: { background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center", gap: 3 } }, ce(AtSign, { size: 18, color: mentions.length ? "#35D0BA" : "#E6EAF0" }), mentions.length > 0 && ce("span", { style: { fontFamily: "Inter", fontSize: 12, fontWeight: 700, color: "#35D0BA" } }, mentions.length))), ce("div", { style: { flex: 1 } }), ce("button", { onClick: post, disabled: !canPost, "aria-label": "Post status", style: { width: 56, height: 56, borderRadius: 28, border: "none", background: "#21C063", cursor: canPost ? "pointer" : "default", opacity: canPost ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: canPost ? "0 0 18px rgba(33,192,99,.55)" : "none" } }, busy ? ce("span", { style: { color: "#06210F", fontFamily: "Inter", fontWeight: 700, fontSize: 12 } }, "…") : ce(Send, { size: 26, color: "#06210F" }))));
     const sheetBox = { position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(15,20,28,.4)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderRadius: "22px 22px 0 0", borderTop: "1px solid rgba(53,208,186,.5)", padding: "14px 16px 22px", maxHeight: "70%", overflowY: "auto", animation: "hubUp .22s ease-out", zIndex: 10 };
     const musicPanel = panel === "music" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => { stopPlay(); setPanel(null); } }, ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox }, ce("div", { style: { display: "flex", alignItems: "center", marginBottom: 12 } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA" } }, "Add music"), ce("button", { onClick: () => { stopPlay(); setPanel(null); }, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")), ce("input", { ref: audioRef, type: "file", accept: "audio/*", onChange: pickAudio, style: { display: "none" } }), !music && ce("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#9BA7B4", marginBottom: 12 } }, "Pick a song or sound from your phone, then choose the part you want (up to 15 seconds)."), ce("button", { onClick: () => audioRef.current && audioRef.current.click(), style: { ...smallBtn, width: "100%", padding: "11px 12px", marginBottom: 14 } }, music ? "Choose a different file" : "Choose audio from your device"), music && ce("div", null, ce("div", { style: { fontFamily: "Sora", fontWeight: 700, fontSize: 14, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, "♪ " + music.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", margin: "2px 0 12px" } }, "Full length " + clock(music.dur) + " · playing " + clock(music.start) + " to " + clock(music.start + music.len)), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 4 } }, "Start at"), ce("input", { type: "range", min: 0, max: Math.max(0, Math.floor((music.dur - music.len) * 2) / 2), step: 0.5, value: music.start, disabled: music.dur - music.len < 0.5, onChange: (e) => setClip({ start: Number(e.target.value) }), style: { width: "100%", accentColor: "#35D0BA", marginBottom: 12 } }), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#9BA7B4", marginBottom: 6 } }, "Length"), ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [5, 10, 15].filter((n) => n <= Math.floor(music.dur) || n === 5).map((n) => ce("button", { key: n, onClick: () => setClip({ len: Math.min(n, Math.floor(music.dur) || n) }), style: { ...smallBtn, flex: 1, background: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#35D0BA" : "#1E2530", color: music.len === Math.min(n, Math.floor(music.dur) || n) ? "#0E1116" : "#35D0BA" } }, n + " sec"))), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10" } }, ce("button", { onClick: () => (playing ? stopPlay() : startPlay()), style: { ...smallBtn, flex: 1, padding: "10px 12px" } }, playing ? "⏹ Stop preview" : "▶ Preview"), ce("button", { onClick: () => { stopPlay(); setMusic(null); }, style: { ...smallBtn, flex: 1, padding: "10px 12px", color: "#FF6B5D" } }, "Remove music")))));
     const stickerPanel = panel === "sticker" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.6)" }, onClick: () => setPanel(null) }, ce("div", { onClick: (e) => e.stopPropagation(), style: sheetBox }, ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", marginBottom: 12 } }, "Stickers and emojis"), ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, counterIncrement: "lcgap-6" } }, STICKERS.map((s) => ce("button", { key: s, onClick: () => { addItem({ kind: "sticker", v: s, c: "#fff", s: 0.2 }); setPanel(null); }, "aria-label": "Sticker " + s, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, fontSize: 30, padding: "8px 0", cursor: "pointer" } }, s))), ce("div", { style: { fontFamily: "Sora", fontWeight: 800, fontSize: 17, color: "#F5F7FA", margin: "18px 0 10px" } }, "Shapes and arrows"), ce("div", { style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, counterIncrement: "lcgap-6" } }, SHAPE_LIST.map((k) => { const df = SHAPE_DEFS[k]; return ce("button", { key: k, onClick: () => { addItem({ kind: "shape", v: k, c: "#FFFFFF", f: false, s: df.open ? 0.4 : 0.3 }); setPanel(null); }, "aria-label": "Shape " + k, style: { background: "transparent", border: "1px solid rgba(255,255,255,.2)", borderRadius: 12, padding: "10px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("svg", { width: 34, height: 34 * df.h / 100 + 6, viewBox: "0 0 100 " + df.h, style: { overflow: "visible" } }, ce("path", { d: df.d, fill: "none", stroke: "#fff", strokeWidth: 7, strokeLinecap: "round", strokeLinejoin: "round" }), df.head && ce("path", { d: df.head, fill: "#fff", stroke: "#fff", strokeWidth: 2 }))); }))));
     const textPanel = panel === "text" && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9, background: "rgba(3,5,9,.88)", display: "flex", flexDirection: "column" } }, ce("div", { style: { display: "flex", alignItems: "center", padding: "12px" } }, ce("button", { onClick: () => setPanel(null), style: { ...smallBtn, color: "#9BA7B4" } }, "Cancel"), ce("div", { style: { flex: 1 } }), ce("button", { onClick: saveText, style: { ...smallBtn, background: "#35D0BA", color: "#0E1116", border: "none" } }, "Done")), ce("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" } }, ce("textarea", { autoFocus: true, value: txt.v, rows: 3, maxLength: 80, onChange: (e) => setTxt({ ...txt, v: e.target.value.split("\n").slice(0, 3).join("\n") }), placeholder: "Type something…", className: "lc-plain", style: { width: "100%", background: "none", border: "none", outline: "none", resize: "none", textAlign: "center", color: txt.c, fontFamily: "Sora", fontWeight: 700, fontSize: 30, textShadow: "0 2px 8px rgba(0,0,0,.6)" } })), ce("div", { style: { display: "flex", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12", padding: "10px 12px 24px" } }, STATUS_TEXT_COLORS.map((c) => dot(c, txt.c === c, () => setTxt({ ...txt, c })))));
-    return ce("div", { role: "dialog", "aria-label": "New status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 65, background: "#000", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, top, error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })), ce("div", { ref: areaRef, style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, stage, selBar, musicChip), bottom, musicPanel, stickerPanel, textPanel, mentionOpen && ce(MentionPicker, { token, initial: liveTags(caption, tags), onClose: () => setMentionOpen(false), onDone: applyMentions }), cropping && photo && ce(StatusCropModal, { src: photo, onCancel: () => setCropping(false), onDone: applyCrop, onRotate: rotate }));
+    return ce("div", { role: "dialog", "aria-label": "New status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 65, background: "#000", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, top, error && ce("div", { style: { flexShrink: 0 } }, ce(Banner, { text: error, onClose: () => setError("") })), ce("div", { ref: areaRef, style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" } }, stage, selBar, musicChip), bottom, musicPanel, stickerPanel, textPanel, mentionOpen && ce(MentionPicker, { token, initial: allTags(), onClose: () => setMentionOpen(false), onDone: applyMentions }), cropping && photo && ce(StatusCropModal, { src: photo, onCancel: () => setCropping(false), onDone: applyCrop, onRotate: rotate }));
 }
 // ---- status v2: story rail, search, starred, archive, privacy/mute, reactions + replies ----
 const STATUS_QUICK = ["😍", "😂", "😮", "😢", "🙏", "👍"];
@@ -7565,9 +7799,53 @@ function statusActions(c) {
     };
     return { message, call };
 }
+// ---- My status three-dots menu: View mentions, Forward, Save, Share to Instagram, Delete ----
+// the update as an image file: a photo status is fetched as it is, a text status is drawn on its colour (1080x1920)
+async function statusFile(item) {
+    if (item.photo) {
+        const b = await (await fetch(photoSrc(item.photo))).blob();
+        const ext = (b.type && b.type.split("/")[1] || "jpeg").replace("jpeg", "jpg").replace(/[^a-z0-9]/gi, "");
+        return new File([b], "letschat-status-" + item.id + "." + ext, { type: b.type || "image/jpeg" });
+    }
+    const W = 1080, H = 1920, c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d"); g.fillStyle = item.bg || "#1E8677"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle"; g.font = "600 64px Sora, Inter, sans-serif";
+    const lines = []; String(item.text || "").split("\n").forEach((para) => { let cur = ""; para.split(" ").forEach((w) => { const t = cur ? cur + " " + w : w; if (g.measureText(t).width > W - 160 && cur) { lines.push(cur); cur = w; } else cur = t; }); lines.push(cur); });
+    const lh = 84, y0 = H / 2 - ((lines.length - 1) * lh) / 2; lines.forEach((l, k) => g.fillText(l, W / 2, y0 + k * lh));
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/png"));
+    if (!blob) throw new Error("Could not create the image");
+    return new File([blob], "letschat-status-" + item.id + ".png", { type: "image/png" });
+}
+function statusDownload(file) {
+    const url = URL.createObjectURL(file), a = document.createElement("a");
+    a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function statusMineMenuItems(c) {
+    const { item, flash, mi, setMenu, setSheet } = c;
+    const save = async () => {
+        setMenu(false);
+        try { statusDownload(await statusFile(item)); flash("Saved to your device"); }
+        catch (e) { flash((e && e.message) || "Could not save this update"); }
+    };
+    const instagram = async () => { // opens the phone's share sheet with the update attached; pick Instagram there
+        setMenu(false);
+        try {
+            const f = await statusFile(item);
+            if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f] }); return; }
+            statusDownload(f); flash("Saved. Open Instagram and add it from your gallery");
+        } catch (e) { if (e && e.name === "AbortError") return; flash((e && e.message) || "Could not share to Instagram"); }
+    };
+    return [
+        mi("View mentions", () => { setMenu(false); if (item.tags && item.tags.length) setSheet("mentions"); else flash("No one is mentioned in this status"); }),
+        mi("Forward", () => { setMenu(false); setSheet("forward"); }),
+        mi("Save", save),
+        mi("Share to Instagram", instagram),
+    ];
+}
 function statusMenuItems(c) {
     const { group, item, token, onChanged, flash, mi, setMenu, setSheet, dropItem } = c;
-    if (group.mine) return [];
+    if (group.mine) return statusMineMenuItems(c);
     const user = group.user, p = statusPrefs(), notifyOn = p.notify.includes(user.id), act = statusActions(c);
     const notify = async () => {
         setMenu(false);
@@ -7627,6 +7905,11 @@ function StatusSheets(c) {
                 ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, title),
                 ce("button", { onClick: close, "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(X, { size: 20, color: "#8891A0" }))),
             body));
+    if (sheet === "mentions") return wrap("Mentions", ce("div", { style: { padding: "0 6px 6px" } },
+        (item.tags || []).map((t) => ce("div", { key: t.type + t.id, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "9px 12px" } },
+            ce("div", { style: { width: 40, height: 40, borderRadius: 20, background: "rgba(53,208,186,.14)", border: "1px solid rgba(53,208,186,.4)", display: "flex", alignItems: "center", justifyContent: "center", color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 15, flexShrink: 0 } }, t.type === "group" ? "\u{1F465}" : (t.name || "?").charAt(0).toUpperCase()),
+            ce("div", { style: { flex: 1, minWidth: 0, fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, t.name),
+            ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, t.type === "group" ? "Group" : "Contact")))));
     if (sheet === "contact") {
         const pill = (label, fn) => ce("button", { key: label, onClick: fn, style: { flex: 1, padding: "12px 0", borderRadius: 12, border: "1px solid #2B3544", background: "#1E2530", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 14, cursor: "pointer" } }, label);
         return wrap("Contact info", ce("div", { style: { padding: "6px 18px 4px", textAlign: "center" } },
@@ -7648,9 +7931,16 @@ function StatusSheets(c) {
     }
     return null;
 }
-function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
+// mentions are private: the @names are taken out of the caption and the tag pills are not shown to viewers (the owner sees them under View mentions)
+const statusShownText = (item) => {
+    let t = String(item.text || "");
+    const names = (item.tags || []).map((g) => String(g.name || "")).filter(Boolean).sort((a, b) => b.length - a.length);
+    for (const n of names) t = t.replace(new RegExp("\\s?@" + n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=[\\s.,!?;:]|$)", "gi"), "");
+    return t.replace(/[ \t]+\n/g, "\n").trim();
+};
+function StatusViewer({ groups, start, startItem, token, onClose, onChanged, onChat }) {
     const [g, setG] = useState(start);
-    const [i, setI] = useState(0);
+    const [i, setI] = useState(startItem || 0);
     const [paused, setPaused] = useState(false);
     const [menu, setMenu] = useState(false);
     const [more, setMore] = useState(false);
@@ -7798,7 +8088,7 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
     };
     const sendReply = () => { const t = reply.trim(); if (!t)
         return; setReply(""); sendToOwner(t); };
-    const long = !!(item.photo && item.text && item.text.length > 110);
+    const shown = statusShownText(item), long = !!(item.photo && shown && shown.length > 110);
     const hold = {
         onMouseDown: () => setPaused(true), onMouseUp: () => setPaused(false),
         onTouchStart: (e) => { const t = e.touches[0]; sw.current = { x: t.clientX, y: t.clientY, mx: 0, my: 0, on: true, moved: false, block: sw.current.block }; setPaused(true); },
@@ -7820,12 +8110,12 @@ function StatusViewer({ groups, start, token, onClose, onChanged, onChat }) {
         onTouchCancel: () => { sw.current.on = false; setPaused(false); setDx(0); }
     };
     const mi = (label, fn, color) => ce("button", { key: label, onClick: fn, style: { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 18px", fontFamily: "Inter", fontSize: 14.5, color: color || "#E6EAF0", cursor: "pointer" } }, label);
-    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}@keyframes lcStIn{from{opacity:0;transform:translateX(var(--d,28px))}to{opacity:1;transform:none}}"), ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } }, ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more || seenOpen || sheet ? "paused" : "running" } })))), ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", position: "relative", zIndex: 3 } }, ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })), ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.mine ? "My status" : group.user.name), item.reshared && ce("div", { style: { display: "flex", alignItems: "center", gap: 4, fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: "#35D0BA" } }, ce(GiReshare, { size: 12, color: "#35D0BA" }), "Reshared from " + item.reshared.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (group.items.length > 1 ? " · " + (i + 1) + "/" + group.items.length : "") + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))), ce("button", { onClick: () => setMenu(!menu), "aria-label": "More", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(MoreVertical, { size: 22, color: "#fff" })), menu && ce("div", { style: { position: "absolute", top: 54, right: 12, background: "#1B212B", borderRadius: 12, minWidth: 230, maxHeight: "calc(100% - 70px)", overflowY: "auto", boxShadow: "0 8px 28px rgba(0,0,0,.5)" } }, ...statusMenuItems({ group, item, token, onChat, onClose, onChanged, flash, mi, setMenu, setSheet, dropItem: () => { if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } } }), mi(isStar ? "Remove star" : "Star", toggleStar), !group.mine && mi("\u21BB Reshare to my status", reshare), !group.mine && mi("Mute " + group.user.name, muteUser), group.mine && mi("Delete", () => { setMenu(false); remove(); }, "#FF6B5D"))), ce("div", Object.assign({ style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", transform: dx ? "translateX(" + dx + "px)" : "none", opacity: dx ? Math.max(0.5, 1 - Math.abs(dx) / 400) : 1, transition: dx ? "none" : "transform .2s ease, opacity .2s ease" } }, hold), item.photo && ce("img", { key: item.id, src: photoSrc(item.photo), alt: "", draggable: false, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out" } }), !item.photo && ce("div", { key: item.id, style: { "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out", padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(item.text)), ce("div", { onClick: () => { if (Date.now() - sw.current.block > 350)
+    return ce("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 70, background: item.photo ? "#000" : item.bg, display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } }, ce("style", null, "@keyframes lcStBar{from{width:0}to{width:100%}}@keyframes lcStIn{from{opacity:0;transform:translateX(var(--d,28px))}to{opacity:1;transform:none}}"), ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "12px 12px 0" } }, group.items.map((it, k) => ce("div", { key: it.id, style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.35)", overflow: "hidden" } }, ce("div", { key: g + "-" + i + "-" + k, style: { height: "100%", background: "#fff", width: k < i ? "100%" : k > i ? "0%" : undefined, animation: k === i ? "lcStBar " + dur + "ms linear forwards" : "none", animationPlayState: paused || menu || more || seenOpen || sheet ? "paused" : "running" } })))), ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", position: "relative", zIndex: 3 } }, ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" })), ce(Ring, { size: 38, color: group.user.color, initials: group.user.initials, photo: group.user.avatar }), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#fff" } }, group.user.name), item.reshared && ce("div", { style: { display: "flex", alignItems: "center", gap: 4, fontFamily: "Inter", fontSize: 11.5, fontWeight: 600, color: "#35D0BA" } }, ce(GiReshare, { size: 12, color: "#35D0BA" }), "Reshared from " + item.reshared.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12, color: "rgba(255,255,255,.75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ago(item.time) + (group.items.length > 1 ? " · " + (i + 1) + "/" + group.items.length : "") + (item.music ? " · ♪ " + (item.musicName || "Music") : ""))), ce("button", { onClick: () => setMenu(!menu), "aria-label": "More", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(MoreVertical, { size: 22, color: "#fff" })), menu && ce("div", { style: { position: "absolute", top: 54, right: 12, background: "#1B212B", borderRadius: 12, minWidth: 230, maxWidth: "calc(100vw - 24px)", maxHeight: "calc(100vh - 130px)", overflowY: "auto", zIndex: 8, boxShadow: "0 8px 28px rgba(0,0,0,.5)" } }, ...statusMenuItems({ group, item, token, onChat, onClose, onChanged, flash, mi, setMenu, setSheet, dropItem: () => { if (group.items.length === 1) onClose(); else { group.items.splice(i, 1); setI(Math.max(0, i - 1)); } } }), !group.mine && mi(isStar ? "Remove star" : "Star", toggleStar), !group.mine && !item.noReshare && mi("\u21BB Reshare to my status", reshare), !group.mine && mi("Mute " + group.user.name, muteUser), group.mine && mi("Delete", () => { setMenu(false); remove(); }, "#FF6B5D"))), ce("div", Object.assign({ style: { flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", transform: dx ? "translateX(" + dx + "px)" : "none", opacity: dx ? Math.max(0.5, 1 - Math.abs(dx) / 400) : 1, transition: dx ? "none" : "transform .2s ease, opacity .2s ease" } }, hold), item.photo && ce("img", { key: item.id, src: photoSrc(item.photo), alt: "", draggable: false, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out" } }), !item.photo && ce("div", { key: item.id, style: { "--d": dirRef.current * 28 + "px", animation: "lcStIn .22s ease-out", padding: 28, textAlign: "center", fontFamily: "Sora", fontWeight: 600, fontSize: 24, color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, richText(shown)), ce("div", { onClick: () => { if (Date.now() - sw.current.block > 350)
             prev(); }, style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "35%" } }), ce("div", { onClick: () => { if (Date.now() - sw.current.block > 350)
-            next(); }, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })), ((item.photo && item.text) || (item.tags && item.tags.length)) && ce("div", { onClick: () => long && setMore(!more), style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)", maxHeight: more ? "45%" : undefined, overflowY: more ? "auto" : undefined, cursor: long ? "pointer" : "default" } }, item.photo && item.text ? (long && !more ? ce("span", null, richText(item.text.slice(0, 110).trim() + "… "), ce("b", null, "Read more")) : richText(item.text)) : null, ce(TagPills, { tags: item.tags, light: true })), group.mine ? ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } }, ce("button", { onClick: () => setSeenOpen(true), "aria-label": "See who viewed", style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "none", border: "none", cursor: "pointer", padding: 0, color: "#fff", fontFamily: "Inter", fontSize: 13.5, textAlign: "left" } }, ce("span", { style: { display: "flex", alignItems: "center" } }, (item.viewers || []).slice(0, 3).map((v, k) => ce("div", { key: v.id, style: { marginLeft: k ? -8 : 0, border: "2px solid #000", borderRadius: "50%", display: "flex" } }, ce(Ring, { size: 24, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false })))), ce("span", null, (item.views || 0) ? "Seen by " + (item.views || 0) + " · tap to chat" : "No views yet")), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete"))
+            next(); }, style: { position: "absolute", right: 0, top: 0, bottom: 0, width: "65%" } })), (item.photo && shown) && ce("div", { onClick: () => long && setMore(!more), style: { padding: "12px 20px", textAlign: "center", color: "#fff", fontFamily: "Inter", fontSize: 15, background: "rgba(0,0,0,.55)", maxHeight: more ? "45%" : undefined, overflowY: more ? "auto" : undefined, cursor: long ? "pointer" : "default" } }, (long && !more ? ce("span", null, richText(shown.slice(0, 110).trim() + "… "), ce("b", null, "Read more")) : richText(shown))), group.mine ? ce("div", { style: { display: "flex", alignItems: "center", padding: "12px 18px 22px", color: "#fff", fontFamily: "Inter", fontSize: 13.5, background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } }, ce("button", { onClick: () => setSeenOpen(true), "aria-label": "See who viewed", style: { flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "none", border: "none", cursor: "pointer", padding: 0, color: "#fff", fontFamily: "Inter", fontSize: 13.5, textAlign: "left" } }, ce("span", { style: { display: "flex", alignItems: "center" } }, (item.viewers || []).slice(0, 3).map((v, k) => ce("div", { key: v.id, style: { marginLeft: k ? -8 : 0, border: "2px solid #000", borderRadius: "50%", display: "flex" } }, ce(Ring, { size: 24, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false })))), ce("span", null, (item.views || 0) ? "Seen by " + (item.views || 0) + " · tap to chat" : "No views yet")), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete"))
         : ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "10px 12px 20px", background: "rgba(0,0,0,.35)", position: "relative", zIndex: 2 } }, ce("input", { value: reply, onChange: (e) => setReply(e.target.value), onFocus: () => setPaused(true), onBlur: () => setPaused(false), onKeyDown: (e) => { if (e.key === "Enter")
                 sendReply(); }, placeholder: "Reply", style: { flex: 1, minWidth: 0, background: "rgba(255,255,255,.14)", border: "none", outline: "none", borderRadius: 999, padding: "10px 16px", color: "#fff", fontFamily: "Inter", fontSize: 14.5 } }), reply.trim() ? ce("button", { onClick: sendReply, "aria-label": "Send reply", style: { width: 38, height: 38, borderRadius: 19, border: "none", background: "#21C063", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, ce(Send, { size: 18, color: "#06210F" }))
-            : STATUS_QUICK.slice(0, 5).map((e) => ce("button", { key: e, onClick: () => sendToOwner(e + " reacted to your status"), "aria-label": "React " + e, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 2 } }, e))), seenOpen && group.mine && ce("div", { onClick: () => setSeenOpen(false), style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 6, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "flex-end" } }, ce("div", { onClick: (e) => e.stopPropagation(), role: "dialog", "aria-label": "Status viewers", style: { width: "100%", maxHeight: "68%", background: "#161B22", borderRadius: "20px 20px 0 0", display: "flex", flexDirection: "column", boxShadow: "0 -8px 28px rgba(0,0,0,.5)" } }, ce("div", { style: { display: "flex", alignItems: "center", padding: "16px 18px 8px" } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, "Viewed by " + (item.views || 0)), ce("button", { onClick: () => setSeenOpen(false), "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(X, { size: 20, color: "#8891A0" }))), ce("div", { style: { overflowY: "auto", padding: "0 6px 18px" } }, !(item.viewers || []).length && ce("div", { style: { padding: "26px 20px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Nobody has viewed this update yet."), (item.viewers || []).map((v) => ce("div", { key: v.id, onClick: () => { Promise.resolve(onChat && onChat(v)).catch((e) => flash((e && e.message) || "Could not open chat")); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "9px 12px", cursor: "pointer", borderRadius: 12 } }, ce(Ring, { size: 46, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false }), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, v.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, v.at ? "Viewed " + ago(v.at) : "Viewed")), ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#21C063", flexShrink: 0 } }, "Chat")))))), sheet && !group.mine && ce(StatusSheets, { sheet, setSheet, group, item, token, flash, onChat, onClose }), toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
+            : STATUS_QUICK.slice(0, 5).map((e) => ce("button", { key: e, onClick: () => sendToOwner(e + " reacted to your status"), "aria-label": "React " + e, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 2 } }, e))), seenOpen && group.mine && ce("div", { onClick: () => setSeenOpen(false), style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 6, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "flex-end" } }, ce("div", { onClick: (e) => e.stopPropagation(), role: "dialog", "aria-label": "Status viewers", style: { width: "100%", maxHeight: "68%", background: "#161B22", borderRadius: "20px 20px 0 0", display: "flex", flexDirection: "column", boxShadow: "0 -8px 28px rgba(0,0,0,.5)" } }, ce("div", { style: { display: "flex", alignItems: "center", padding: "16px 18px 8px" } }, ce("div", { style: { flex: 1, fontFamily: "Sora", fontWeight: 700, fontSize: 16, color: "#F5F7FA" } }, "Viewed by " + (item.views || 0)), ce("button", { onClick: () => setSeenOpen(false), "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 4 } }, ce(X, { size: 20, color: "#8891A0" }))), ce("div", { style: { overflowY: "auto", padding: "0 6px 18px" } }, !(item.viewers || []).length && ce("div", { style: { padding: "26px 20px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Nobody has viewed this update yet."), (item.viewers || []).map((v) => ce("div", { key: v.id, onClick: () => { Promise.resolve(onChat && onChat(v)).catch((e) => flash((e && e.message) || "Could not open chat")); }, style: { display: "flex", alignItems: "center", gap: 14, counterIncrement: "lcgap-14", padding: "9px 12px", cursor: "pointer", borderRadius: 12 } }, ce(Ring, { size: 46, color: v.color || "#35D0BA", initials: v.initials, photo: v.avatar, ring: false }), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, v.name), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0" } }, v.at ? "Viewed " + ago(v.at) : "Viewed")), ce("span", { style: { fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, color: "#21C063", flexShrink: 0 } }, "Chat")))))), sheet && ce(StatusSheets, { sheet, setSheet, group, item, token, flash, onChat, onClose }), toast && ce("div", { style: { position: "absolute", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "rgba(20,24,30,.95)", color: "#fff", padding: "9px 16px", borderRadius: 999, fontFamily: "Inter", fontSize: 13.5, zIndex: 5, whiteSpace: "nowrap" } }, toast));
 }
 // A tiny grid of saved updates (used by Starred and Archive)
 function StatusSaved({ title, list, empty, onBack, onRemove, top }) {
@@ -7922,6 +8212,39 @@ function BroadcastScreen({ token, contacts, onBack }) {
     const members = cur.ids.map(byId).filter(Boolean), hist = cur.history || [];
     return ce("div", { style: col }, ce(TopBar, { title: cur.name, onBack: () => setView(null), right: ce("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8" } }, ce("button", { onClick: () => startEdit(cur), style: smallBtn }, "Edit"), ce("button", { onClick: remove, style: { ...smallBtn, color: "#FF6B5D" } }, "Delete")) }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 12px" } }, ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginBottom: 12, lineHeight: 1.5 } }, "Recipients (" + members.length + "): " + (members.map((m) => m.name).join(", ") || "none available")), !hist.length && ce("div", { style: { padding: "26px 10px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "Type a message below to send it to everyone on this list."), hist.map((h, k) => ce("div", { key: k, style: { display: "flex", justifyContent: "flex-end", marginBottom: 10 } }, ce("div", { style: { maxWidth: "82%", background: "#1E8677", color: "#fff", borderRadius: "14px 14px 4px 14px", padding: "9px 12px", fontFamily: "Inter", fontSize: 14.5, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, h.text, ce("div", { style: { fontSize: 11, opacity: 0.75, marginTop: 4, textAlign: "right" } }, "Sent to " + h.ok + " · " + new Date(h.time).toLocaleString()))))), msg && ce("div", { style: { padding: "6px 16px", fontFamily: "Inter", fontSize: 12.5, color: "#35D0BA", flexShrink: 0 } }, msg), ce("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, counterIncrement: "lcgap-8", padding: "8px 12px 14px", flexShrink: 0, borderTop: "1px solid #1F2733" } }, ce("textarea", { value: text, rows: 1, maxLength: MAX_MSG_CHARS, onChange: (e) => setText(e.target.value), placeholder: "Broadcast message", style: { flex: 1, minWidth: 0, resize: "none", maxHeight: 120, background: "#1E2530", border: "1px solid #262E3A", borderRadius: 18, outline: "none", padding: "10px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15 } }), ce("button", { onClick: send, disabled: busy || !text.trim(), "aria-label": "Send broadcast", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#21C063", opacity: busy || !text.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } }, busy ? ce("span", { style: { color: "#06210F", fontWeight: 700 } }, "…") : ce(Send, { size: 22, color: "#06210F" }))));
 }
+// ---- Status intro: shown when you tap Add status and have no update of your own yet ----
+// the latest updates from your contacts fan out on both sides of an "Add status" card
+function StatusIntro({ profile, feed, onAdd, onClose }) {
+    const css = "@keyframes lcInL{from{opacity:0;transform:translateX(70px) rotate(0deg) scale(.82)}to{opacity:1;transform:rotate(-9deg)}}" +
+        "@keyframes lcInR{from{opacity:0;transform:translateX(-70px) rotate(0deg) scale(.82)}to{opacity:1;transform:rotate(9deg)}}" +
+        "@keyframes lcInM{from{opacity:0;transform:translateY(24px) scale(.7)}60%{transform:translateY(-4px) scale(1.04)}to{opacity:1;transform:none}}" +
+        "@keyframes lcInUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}" +
+        "@keyframes lcInBar{from{width:0}to{width:33%}}";
+    const FALL = ["#1E8677", "#8B7CF6"];
+    const side = (gr, k, left) => {
+        const it = gr && gr.items && gr.items[gr.items.length - 1], rot = left ? -9 : 9;
+        return ce("div", { key: left ? "l" : "r", style: { position: "absolute", top: 6, [left ? "left" : "right"]: 0, width: 104, height: 176, borderRadius: 18, overflow: "hidden", transform: "rotate(" + rot + "deg)", animation: (left ? "lcInL" : "lcInR") + " .6s cubic-bezier(.2,.9,.3,1) .1s both", background: it && !it.photo ? it.bg : "linear-gradient(160deg," + FALL[k] + ",#101820)", boxShadow: "0 10px 26px rgba(0,0,0,.5)", zIndex: 1 } },
+            it && it.photo && ce("img", { src: photoSrc(it.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }),
+            it && !it.photo && ce("div", { style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 10, color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 12, textAlign: "center", wordBreak: "break-word", overflow: "hidden" } }, (it.text || "").slice(0, 60)),
+            gr && ce("div", { style: { position: "absolute", top: 8, left: 8, borderRadius: "50%", border: "2px solid rgba(255,255,255,.55)", display: "flex" } }, ce(Ring, { size: 30, color: gr.user.color || "#35D0BA", initials: gr.user.initials, photo: gr.user.avatar, ring: false })),
+            gr && ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "24px 8px 9px", background: "linear-gradient(transparent, rgba(0,0,0,.75))", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 12.5, lineHeight: 1.2, textAlign: "left", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word" } }, gr.user.name));
+    };
+    return ce("div", { role: "dialog", "aria-label": "Add status", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 66, background: "#0B1014", display: "flex", flexDirection: "column", maxWidth: 640, margin: "0 auto" } },
+        ce("style", null, css),
+        ce("div", { style: { display: "flex", gap: 4, counterIncrement: "lcgap-4", padding: "12px 12px 0" } },
+            ce("div", { style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.3)", overflow: "hidden" } }, ce("div", { style: { height: "100%", background: "#fff", width: "33%", animation: "lcInBar .9s ease-out both" } })),
+            ce("div", { style: { flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,.3)" } })),
+        ce("div", { style: { padding: "12px 14px" } }, ce("button", { onClick: onClose, "aria-label": "Back", style: { background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 } }, ce(ArrowLeft, { size: 24, color: "#fff" }))),
+        ce("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 24px 60px" } },
+            ce("div", { style: { position: "relative", width: 290, maxWidth: "100%", height: 192, marginBottom: 40 } },
+                side(feed[0], 0, true), side(feed[1], 1, false),
+                ce("div", { onClick: onAdd, style: { position: "absolute", top: 0, left: "50%", marginLeft: -52, width: 104, height: 188, borderRadius: 18, background: "#1D2329", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, counterIncrement: "lcgap-18", animation: "lcInM .55s cubic-bezier(.2,.9,.3,1) both", zIndex: 2, cursor: "pointer", boxShadow: "0 10px 30px rgba(0,0,0,.55)" } },
+                    ce("div", { style: { position: "relative" } }, ce(Ring, { size: 62, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: false }),
+                        ce("div", { style: { position: "absolute", right: -5, bottom: -5, width: 24, height: 24, borderRadius: 12, background: "#21C063", border: "2px solid #1D2329", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Plus, { size: 15, color: "#06210F" }))),
+                    ce("div", { style: { color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 15, lineHeight: 1.25, textAlign: "center" } }, "Add", ce("br"), "status"))),
+            ce("div", { style: { fontFamily: "Sora", fontWeight: 500, fontSize: 25, lineHeight: 1.35, color: "#fff", textAlign: "center", animation: "lcInUp .5s ease-out .25s both" } }, "Share your own moments with people you choose"),
+            ce("button", { onClick: onAdd, style: { marginTop: 34, background: "#fff", color: "#0B1014", border: "none", borderRadius: 999, padding: "16px 36px", fontFamily: "Sora", fontWeight: 600, fontSize: 17, cursor: "pointer", animation: "lcInUp .5s ease-out .38s both" } }, "Add status")));
+}
 function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
     const [data, setData] = useState({ mine: [], feed: [] });
     const [loading, setLoading] = useState(true);
@@ -7933,6 +8256,7 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
     const [searching, setSearching] = useState(false);
     const [q, setQ] = useState("");
     const [recents, setRecents] = useState(() => loadJSON("statusRecents", []));
+    const [intro, setIntro] = useState(false);
     const [sub, setSub] = useState(null); // "starred" | "privacy" | "archive"
     const [prefs, setPrefs] = useState(statusPrefs);
     const [starred, setStarred] = useState(() => loadJSON("statusStarred", []));
@@ -7953,8 +8277,10 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
         return () => { dead = true; };
     }, [data.mine.map((s) => s.id).join(","), prefs.archive]);
     const mineGroup = { mine: true, user: profile, items: data.mine };
-    useInnerBack(!!(view || composer || searching || menu || sub), () => {
-        if (view) {
+    useInnerBack(!!(view || composer || searching || menu || sub || intro), () => {
+        if (intro)
+            setIntro(false);
+        else if (view) {
             setView(null);
             load();
         }
@@ -7969,7 +8295,7 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
         else if (sub)
             setSub(null);
     });
-    const open = (groups, start) => setView({ groups, start });
+    const open = (groups, start, startItem) => setView({ groups, start, startItem });
     const addTap = (m) => { if (!F.status)
         return setError("Status upload is turned off. Turn it on in Tools > Sounds & features."); setMode(m || null); setComposer(true); };
     const feed = data.feed.map((gr) => statusUnhidden(gr, prefs)).filter((gr) => gr && !prefs.muted.includes(gr.user.id)).slice().sort((a, b) => (a.allSeen === b.allSeen ? b.latest - a.latest : a.allSeen ? 1 : -1));
@@ -7990,13 +8316,15 @@ function StatusScreen({ profile, token, onSettings, contacts, onChat }) {
             top: ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Archive my status updates"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Keep a copy on this device after your update disappears.")), ce(Toggle, { on: prefs.archive, onChange: (v) => setPref({ archive: v }) })) });
     if (sub === "privacy")
         return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%" } }, ce(TopBar, { title: "Status privacy", onBack: () => setSub(null) }), ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, ce("div", { style: { ...settingRow } }, ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "View receipts"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2 } }, "Let people know when you have seen their status. Turn off to view privately.")), ce(Toggle, { on: prefs.receipts, onChange: (v) => setPref({ receipts: v }) })), head("Muted updates"), !mutedFeed.length && ce("div", { style: { padding: "6px 16px 16px", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No muted contacts. Mute someone from the ⋮ menu while viewing their status."), mutedFeed.map((gr) => row(gr.user.id, ce(Ring, { size: 44, color: "#8A96A5", initials: gr.user.initials, photo: gr.user.avatar, ring: false }), gr.user.name, "Muted", null, ce("button", { onClick: () => setPref({ muted: prefs.muted.filter((x) => x !== gr.user.id) }), style: smallBtn }, "Unmute")))));
+    if (intro)
+        return ce(StatusIntro, { profile, feed, onClose: () => setIntro(false), onAdd: () => { setIntro(false); addTap("photo"); } });
     const stRing = (u, size, seen) => ce("div", { style: { width: size, height: size, borderRadius: "50%", border: "3px solid " + (seen ? "#5B6673" : "#21C063"), padding: 2, boxSizing: "border-box", background: "rgba(0,0,0,.35)", flexShrink: 0 } }, ce(Ring, { size: size - 10, color: u.color || "#35D0BA", initials: u.initials, photo: u.avatar, ring: false }));
-    const card = (key, onClick, bgNode, label, avatar, extra) => ce("div", { key, onClick, style: { flex: "0 0 auto", width: 90, height: 158, borderRadius: 18, overflow: "hidden", position: "relative", cursor: "pointer", background: "#101820", border: "1px solid #1F2733", boxSizing: "border-box" } }, bgNode, avatar, extra, ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 9px 10px", background: "linear-gradient(transparent, rgba(0,0,0,.82))" } }, ce("div", { style: { color: "#fff", fontFamily: "Sora", fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, textAlign: "left", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "break-word" } }, label)));
+    const card = (key, onClick, bgNode, label, avatar, extra) => ce("div", { key, onClick, className: "lc-stcard" + (String(key).indexOf("mine-") === 0 ? " lc-stmine" : ""), style: { flex: "0 0 auto", width: 90, height: 158, borderRadius: 18, overflow: "hidden", position: "relative", cursor: "pointer", background: "#101820", border: "1px solid #1F2733", boxSizing: "border-box" } }, bgNode, avatar, extra, ce("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 9px 10px", background: "linear-gradient(transparent, rgba(0,0,0,.82))" } }, ce("div", { style: { color: "#fff", fontFamily: "Sora", fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, textAlign: "left", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "break-word" } }, label)));
     const thumb = (gr) => { const it = gr.items[gr.items.length - 1]; return it.photo ? ce("img", { src: photoSrc(it.photo), alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } }) : ce("div", { style: { width: "100%", height: "100%", background: it.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, boxSizing: "border-box", color: "#fff", fontFamily: "Sora", fontWeight: 600, fontSize: 11, textAlign: "center", wordBreak: "break-word", overflow: "hidden" } }, (it.text || "").slice(0, 50)); };
     const topRight = ce("div", { style: { display: "flex", alignItems: "center", gap: 6, counterIncrement: "lcgap-6", position: "relative" } }, iconBtn("Search status", ce(Search, { size: 22, color: "#F5F7FA" }), () => { setSearching(true); setQ(""); }), iconBtn("Menu", ce(MoreVertical, { size: 22, color: "#F5F7FA" }), () => setMenu(!menu)), menu && ce("div", { style: { position: "absolute", top: 40, right: 0, background: "#161B22", borderRadius: 20, minWidth: 225, padding: "6px 0", boxShadow: "0 8px 28px rgba(0,0,0,.5)", overflow: "hidden", zIndex: 30 } }, [["Advertise", () => setInfo("Advertise is coming soon.")], ["Create channel", () => setInfo("Channels are coming soon.")], ["Broadcast", () => setSub("broadcast")], ["Status privacy", () => setSub("privacy")], ["Starred", () => setSub("starred")], ["Status archive settings", () => setSub("archive")], ["Settings", () => onSettings && onSettings()]].map(([l, fn]) => ce("button", { key: l, onClick: () => { setMenu(false); fn(); }, style: { display: "block", position: "relative", width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 20px 14px 32px", fontFamily: "Inter", fontSize: 16.5, color: "#E6EAF0", cursor: "pointer", whiteSpace: "nowrap" } }, l === "Settings" && ce("span", { style: { position: "absolute", left: 14, top: "50%", marginTop: -4, width: 8, height: 8, borderRadius: 4, background: "#21C063" } }), l))));
     const searchBar = ce("div", { style: { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", padding: "12px 14px", background: "#0E1116", flexShrink: 0 } }, iconBtn("Back", ce(ArrowLeft, { size: 22, color: "#F5F7FA" }), () => { setSearching(false); setQ(""); }), ce("input", { autoFocus: true, value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search status", style: { flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 16 } }), q && iconBtn("Clear", ce(X, { size: 18, color: "#8891A0" }), () => setQ("")));
     return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, searching ? searchBar : ce(TopBar, { title: "Updates", right: topRight }), searching ? ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, !needle && recents.length > 0 && ce("div", { style: { display: "flex", alignItems: "center", padding: "6px 16px" } }, ce("span", { style: { flex: 1, fontFamily: "Inter", fontSize: 13, color: "#8891A0" } }, "Recent searches"), ce("button", { onClick: () => { setRecents([]); saveJSON("statusRecents", []); }, style: smallBtn }, "Clear all")), !needle && recents.map((t) => row("r" + t, ce(Search, { size: 20, color: "#8A96A5" }), t, "", () => setQ(t), ce("button", { onClick: (e) => { e.stopPropagation(); const n = recents.filter((x) => x !== t); setRecents(n); saveJSON("statusRecents", n); }, "aria-label": "Remove", style: { background: "none", border: "none", cursor: "pointer", display: "flex" } }, ce(X, { size: 16, color: "#8A96A5" })))), needle && hits.map((gr) => row(gr.user.id, ce(Ring, { size: 48, color: gr.allSeen ? "#5B6673" : gr.user.color, initials: gr.user.initials, photo: gr.user.avatar, ring: true }), gr.user.name, gr.items.length + (gr.items.length === 1 ? " new status" : " new statuses") + " · " + ago(gr.latest), () => openFrom(gr))), needle && !hits.length && ce("div", { style: { padding: "30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13.5 } }, "No status updates match “" + q.trim() + "”."))
-        : ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 150 }, onClick: () => menu && setMenu(false) }, error && ce(Banner, { text: error, onClose: () => setError("") }), info && ce(Banner, { text: info, tone: "info", onClose: () => setInfo("") }), ce("div", { style: { padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 700, fontSize: 22, color: "#F5F7FA" } }, "Status"), ce("div", { style: { display: "flex", gap: 7, counterIncrement: "lcgap-7", overflowX: "auto", padding: "0 16px 14px", scrollbarWidth: "none" } }, card("add", () => addTap("photo"), ce("div", { style: { position: "absolute", left: 0, right: 0, top: 36, display: "flex", justifyContent: "center" } }, ce("div", { style: { position: "relative" } }, ce(Ring, { size: 50, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: false }), ce("div", { "aria-label": "Add status", style: { position: "absolute", right: -5, bottom: -5, width: 24, height: 24, borderRadius: 12, background: F.status ? "#21C063" : "#5B6673", border: "2px solid #101820", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Plus, { size: 15, color: "#06210F" })))), "Add status", null, null), data.mine.length > 0 && card("mine", () => open([mineGroup], 0), thumb(mineGroup), "My status", ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(profile, 52, false)), data.mine.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, data.mine.length)), feed.map((gr, k) => card(gr.user.id, () => { remember(gr.user.name); open(feed, k); }, thumb(gr), gr.user.name, ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(gr.user, 52, gr.allSeen)), gr.items.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, gr.items.length)))), ce("button", { onClick: () => setInfo("Boost status is coming soon."), style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12", width: "calc(100% - 44px)", margin: "4px 22px 6px", height: 42, borderRadius: 999, background: "transparent", border: "1px solid #2B3544", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 16, cursor: "pointer" } }, ce(Megaphone, { size: 20, color: "#21C063" }), "Boost status"), loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading…"), !loading && !feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")), !searching && ce("div", { style: { position: "absolute", right: 16, bottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 14, counterIncrement: "lcgap-14", zIndex: 20 } }, ce("button", { onClick: () => addTap("text"), "aria-label": "Text status", style: { width: 46, height: 46, borderRadius: 15, border: "none", background: "#1F2630", boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Pencil, { size: 22, color: "#E6EAF0" })), ce("button", { onClick: () => addTap("photo"), "aria-label": "Add status", style: { width: 62, height: 62, borderRadius: 20, border: "none", background: "#21C063", boxShadow: "0 6px 18px rgba(33,192,99,.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce("div", { style: { position: "relative", display: "flex" } }, ce(Camera, { size: 28, color: "#06210F" }), ce("div", { style: { position: "absolute", top: -8, right: -9, display: "flex" } }, ce(Plus, { size: 14, color: "#06210F" }))))), composer && ce(StatusComposer, { token, mode, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }), view && ce(StatusViewer, { groups: view.groups, start: view.start, token, onClose: () => { setView(null); load(); }, onChanged: load, onChat }));
+        : ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 150 }, onClick: () => menu && setMenu(false) }, error && ce(Banner, { text: error, onClose: () => setError("") }), info && ce(Banner, { text: info, tone: "info", onClose: () => setInfo("") }), ce("div", { style: { padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 700, fontSize: 22, color: "#F5F7FA" } }, "Status"), ce("div", { className: "lc-strail", style: { display: "flex", gap: 7, counterIncrement: "lcgap-7", overflowX: "auto", padding: "0 16px 14px", scrollbarWidth: "none" } }, ce("style", { key: "lc-st-css" }, ".lc-stcard{animation:lcStCardIn .5s cubic-bezier(.2,.9,.3,1) both;transition:transform .15s ease}.lc-stcard:active{transform:scale(.95)}.lc-strail>.lc-stcard:nth-child(1){animation-delay:.02s}.lc-strail>.lc-stcard:nth-child(2){animation-delay:.1s}.lc-strail>.lc-stcard:nth-child(3){animation-delay:.18s}.lc-strail>.lc-stcard:nth-child(4){animation-delay:.26s}.lc-strail>.lc-stcard:nth-child(5){animation-delay:.34s}.lc-strail>.lc-stcard:nth-child(n+6){animation-delay:.42s}.lc-stmine::after{content:'';position:absolute;top:0;right:0;bottom:0;left:0;border-radius:18px;pointer-events:none;animation:lcStGlow 2.4s ease-in-out .6s infinite}.lc-stmine img{animation:lcStZoom 7s ease-in-out infinite alternate}.lc-stplus{animation:lcStPlus 1.8s ease-in-out infinite}@keyframes lcStCardIn{from{opacity:0;transform:translateY(18px) scale(.9)}to{opacity:1;transform:none}}@keyframes lcStGlow{0%,100%{box-shadow:inset 0 0 0 2px rgba(33,192,99,.25),inset 0 0 8px rgba(33,192,99,.1)}50%{box-shadow:inset 0 0 0 2px rgba(33,192,99,.95),inset 0 0 22px rgba(33,192,99,.35)}}@keyframes lcStZoom{from{transform:scale(1)}to{transform:scale(1.08)}}@keyframes lcStPlus{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(33,192,99,.6)}50%{transform:scale(1.12);box-shadow:0 0 0 6px rgba(33,192,99,0)}}@media (prefers-reduced-motion:reduce){.lc-stcard,.lc-stmine::after,.lc-stmine img,.lc-stplus{animation:none!important}}"), card("add", () => (F.status && !loading && !data.mine.length ? setIntro(true) : addTap("photo")), ce("div", { style: { position: "absolute", left: 0, right: 0, top: 36, display: "flex", justifyContent: "center" } }, ce("div", { style: { position: "relative" } }, ce(Ring, { size: 50, color: "#35D0BA", initials: profile.initials, photo: profile.avatar, ring: false }), ce("div", { "aria-label": "Add status", className: "lc-stplus", style: { position: "absolute", right: -5, bottom: -5, width: 24, height: 24, borderRadius: 12, background: F.status ? "#21C063" : "#5B6673", border: "2px solid #101820", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(Plus, { size: 15, color: "#06210F" })))), "Add status", null, null), ...data.mine.map((it, k) => card("mine-" + it.id, () => open([mineGroup], 0, k), thumb({ items: [it] }), ago(it.time), ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(profile, 52, false)))), feed.map((gr, k) => card(gr.user.id, () => { remember(gr.user.name); open(feed, k); }, thumb(gr), gr.user.name, ce("div", { style: { position: "absolute", top: 6, left: 6 } }, stRing(gr.user, 52, gr.allSeen)), gr.items.length > 1 && ce("div", { style: { position: "absolute", top: 8, right: 8, minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: "rgba(0,0,0,.6)", color: "#fff", fontFamily: "Inter", fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center" } }, gr.items.length)))), ce("button", { onClick: () => setInfo("Boost status is coming soon."), style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 12, counterIncrement: "lcgap-12", width: "calc(100% - 44px)", margin: "4px 22px 6px", height: 42, borderRadius: 999, background: "transparent", border: "1px solid #2B3544", color: "#21C063", fontFamily: "Sora", fontWeight: 600, fontSize: 16, cursor: "pointer" } }, ce(Megaphone, { size: 20, color: "#21C063" }), "Boost status"), loading && ce("div", { style: { padding: 24, textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "Loading…"), !loading && !feed.length && ce("div", { style: { padding: "26px 30px", textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 13 } }, "No updates from your contacts yet. Status updates from people you chat with show up here for 24 hours.")), !searching && ce("div", { style: { position: "absolute", right: 16, bottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 14, counterIncrement: "lcgap-14", zIndex: 20 } }, ce("button", { onClick: () => addTap("text"), "aria-label": "Text status", style: { width: 46, height: 46, borderRadius: 15, border: "none", background: "#1F2630", boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce(Pencil, { size: 22, color: "#E6EAF0" })), ce("button", { onClick: () => addTap("photo"), "aria-label": "Add status", style: { width: 62, height: 62, borderRadius: 20, border: "none", background: "#21C063", boxShadow: "0 6px 18px rgba(33,192,99,.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, ce("div", { style: { position: "relative", display: "flex" } }, ce(Camera, { size: 28, color: "#06210F" }), ce("div", { style: { position: "absolute", top: -8, right: -9, display: "flex" } }, ce(Plus, { size: 14, color: "#06210F" }))))), composer && ce(StatusComposer, { token, mode, onClose: () => setComposer(false), onPosted: () => { setComposer(false); load(); } }), view && ce(StatusViewer, { groups: view.groups, start: view.start, startItem: view.startItem, token, onClose: () => { setView(null); load(); }, onChanged: load, onChat }));
 }
 // ---- Tools > Sounds & features ----
 function FeaturesScreen({ onBack }) {
@@ -8080,7 +8408,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
     const nickRow = ce("div", { key: "nickname", onClick: () => setNickOpen(true), style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" } }, ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(AtSign, { size: 21, color: "#35D0BA" })), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Nickname"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35, overflowWrap: "anywhere" } }, user && user.username ? "@" + user.username + " \u00B7 permanent, friends can search for you with it" : "Not set \u00B7 tap to add")));
     const nickSheet = nickOpen && ce("div", { onClick: () => setNickOpen(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 60 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "92%", overflowY: "auto" } }, ce(NicknameEditor, { token, user: user || {}, onCancel: () => setNickOpen(false), onSaved: (u) => { if (u) onUserChange(u); setNickOpen(false); } })));
     const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
-    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }), menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } }, menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))), nickSheet, ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } }, "Last 7 days performance", ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))), info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "0 16px" } }, stat(ToolMsg, String(started), "Conversations started"), stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"), stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")), !promoOff && heading("For you"), !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } }, ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })), ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", paddingRight: 24 } }, ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })), ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))), ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")), heading("Grow your business"), row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")), row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile), row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")), heading("Your nickname"), nickRow, heading("Organize your chats"), row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")), aiRow, row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")), row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")), row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")), heading("Manage your account"), row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile), row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")), row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()), row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")), (isCreator || videos.length) ? [heading("How to"), ce("div", { key: "vids", style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", overflowX: "auto", padding: "4px 16px 8px" } },
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }), menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } }, menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))), nickSheet, ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } }, "Last 7 days performance", ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))), info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "0 16px" } }, stat(ToolMsg, String(started), "Conversations started"), stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"), stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")), !promoOff && heading("For you"), !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } }, ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })), ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", paddingRight: 24 } }, ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })), ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))), ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")), heading("Grow your business"), row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")), row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile), row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")), heading("Your nickname"), nickRow, heading("Organize your chats"), row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")), aiRow, row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")), row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")), row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")), heading("Manage your account"), row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile), row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")), row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), window.LetschatInstall && !window.LetschatInstall.installed() && row(BackupIcon, "Install app", "Add Letschat to your home screen", () => window.LetschatInstall.install()), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()), row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")), (isCreator || videos.length) ? [heading("How to"), ce("div", { key: "vids", style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", overflowX: "auto", padding: "4px 16px 8px" } },
         isCreator && ce("div", { key: "add", onClick: () => { setVErr(""); setVAdd(true); }, style: { flex: "0 0 150px", minHeight: 140, border: "1px dashed #35D0BA", borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer", color: "#35D0BA", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5 } }, ce("div", { style: { fontSize: 26, lineHeight: 1 } }, "+"), "Add YouTube video"),
         videos.map((v) => ce("div", { key: v.id, onClick: () => window.open(v.url, "_blank", "noopener"), style: { flex: "0 0 150px", position: "relative", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
             ce("div", { style: { height: 86, backgroundColor: "#000", backgroundImage: "url(https://img.youtube.com/vi/" + v.vid + "/hqdefault.jpg)", backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))),
@@ -8385,7 +8713,7 @@ function alertIncoming(m, convo, viewingThis) {
     }
 }
 function PushRow() {
-    const P = window.LetschatPush;
+    const P = window.__lcNativePush || window.LetschatPush;
     const [st, setSt] = useState("checking");
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
@@ -8415,7 +8743,7 @@ function PushRow() {
     };
     const note = err || (st === "needs-install" ? "On iPhone: tap Share, then Add to Home Screen, open Letschat from there, and come back to turn this on."
         : st === "unsupported" ? "Not supported in this browser."
-            : st === "denied" ? "Blocked in your browser settings. Allow notifications for this site to use this."
+            : st === "denied" ? (window.__lcNativePush ? "Blocked. Tap the switch to open the phone's notification settings and allow Letschat." : "Blocked in your browser settings. Allow notifications for this site to use this.")
                 : st === "unavailable" ? "Not set up on the server yet."
                     : "Get message alerts even when the app is closed.");
     return (React.createElement("div", { style: settingRow }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Push notifications"), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: err ? "#FF6B5D" : "#8891A0", marginTop: 2 } }, note)), React.createElement(Toggle, { on: st === "on", onChange: change, disabled: busy || st === "checking" || st === "unsupported" || st === "needs-install" || st === "denied" || st === "unavailable" })));
@@ -8477,7 +8805,7 @@ const FAQ_SECTIONS = [
     ] },
     { title: "Chatting", items: [
         ["How do I send a photo, file, voice note or location?", "Tap the paperclip for Gallery, Document, Contact, Location, Poll or Schedule. Files can be up to 3 MB. Use the camera to take a photo and hold or tap the microphone to record a voice note; tap again or tap send to send it. Share location asks your phone for permission first and only sends when you tap Send."],
-        ["How do I reply, react, edit, delete or forward a message?", "Swipe a message to the right to reply. Press and hold it to select it: you can react with an emoji, star it, copy, forward, or delete it. Delete for me removes it on your phone; Delete for everyone removes it for the other person too. You can edit your own text messages for 15 minutes after sending."],
+        ["How do I reply, react, edit, delete or forward a message?", "Swipe a message to the right to reply. Press and hold it to select it: you can react with an emoji, star it, copy, forward, or delete it. Delete for me removes it on your phone; Delete for everyone removes it for the other person too. You can edit your own text messages for 1 hour after sending."],
         ["What do the ticks mean?", "One grey tick means sent, two grey ticks mean delivered, and two green ticks mean the person has read it. A clock means the message is still sending. If it shows “Not sent”, tap it to retry."],
         ["How do I find an old message or media?", "Open the chat, tap the three dots and choose Search to look inside the chat. “Media, links and docs” lists all photos, files and links. Starred messages keeps the ones you saved."],
         ["What are disappearing messages and view once?", "Disappearing messages delete themselves after the time you pick: open the chat, tap the three dots → Disappearing messages. View once photos and videos can be opened only one time and then they are gone."],
@@ -8939,7 +9267,7 @@ function timeLeft(at) {
 }
 function ExpiryTag({ at }) {
     const [, tick] = useState(0);
-    useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(t); }, []);
+    useEffect(() => { const t = setInterval(() => { if (!document.hidden) tick((n) => n + 1); }, 30000); return () => clearInterval(t); }, []);
     return React.createElement("span", { title: "Disappears automatically", style: { fontSize: 10.5, color: "#B9C2CC" } }, "\u23F1 " + timeLeft(at));
 }
 function DisappearSheet({ current, onPick, onClose }) {
@@ -9361,16 +9689,16 @@ function pcRow(key, icon, title, sub, onClick, right) {
 function ProfileChatOptions({ chatId, token, muted, onNotifications, onLock, setSheet, mediaHidden, onNote }) {
   const h = React.createElement;
   const [, bump] = useState(0);
-  const [biz, setBiz] = useState(null); // AI business for this chat: null = loading
+  const [biz, setBiz] = useState(null); // Chat AI for this chat: null = loading
   useEffect(() => { let live = true; if (token) api("/api/v1/me/ai/chat/" + chatId, { token }).then((d) => { if (live) setBiz(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBiz("na"); }); return () => { live = false; }; }, [chatId, token]);
-  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change AI business"); }); };
+  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "Chat AI is on for this chat" : "Chat AI is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change Chat AI"); }); };
   useEffect(() => { const f = () => bump((n) => n + 1); window.addEventListener("lcx", f); return () => window.removeEventListener("lcx", f); }, []);
   const ico = (I) => h(I, { size: 22, color: "#8891A0" });
   const lockOn = LCX.locked(chatId);
   const priv = loadJSON("chatpriv:" + chatId, {});
   const lockGo = () => { onLock(); setTimeout(() => bump((n) => n + 1), 50); };
   const aiRows = [
-    token && biz !== "na" ? pcRow("pc-biz", h(AiBotAvatar, { size: 26, style: { filter: biz === true ? "none" : "grayscale(1)", opacity: biz === true ? 1 : 0.7 } }), "AI business", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
+    token && biz !== "na" ? pcRow("pc-biz", h(AiBotAvatar, { size: 26, style: { filter: biz === true ? "none" : "grayscale(1)", opacity: biz === true ? 1 : 0.7 } }), "Chat AI", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
       h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: biz === true, disabled: biz === null, onChange: (v) => bizSet(v) }))) : null,
   ];
   return h(React.Fragment, null,
@@ -9709,41 +10037,6 @@ const GalleryIcon = makeIcon([["r", 3, 3, 18, 18, 2], ["c", 9, 9, 2], ["p", "m21
 const DocIcon = makeIcon([["p", "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"], ["p", "M14 2v6h6"], ["p", "M16 13H8"], ["p", "M16 17H8"]]);
 const LcPollIcon = makeIcon([["p", "M4 20V10"], ["p", "M10 20V4"], ["p", "M16 20v-7"], ["p", "M22 20H2"]]);
 const LcClockIcon = makeIcon([["p", "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z"], ["p", "M12 6v6l4 2"]]);
-// ---- greeting writer: pick a type (love, friendship, prayer, consoling...), the AI writes it, you edit and use it in the chat ----
-const LcHeartIcon = makeIcon([["p", "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21.2l7.7-7.7 1.1-1.1a5.5 5.5 0 0 0 0-7.8z"]]);
-const LC_GREETS = [["goodmorning", "Good morning", "🌅"], ["goodnight", "Good night", "🌙"], ["love", "Love", "❤️"], ["friendship", "Friendship", "🤝"], ["prayer", "Prayer", "🙏"], ["consoling", "Consoling", "🕊️"], ["encouragement", "Encouragement", "💪"], ["birthday", "Birthday", "🎂"], ["getwell", "Get well", "🌿"], ["congrats", "Congratulations", "🎉"], ["thanks", "Thank you", "🙌"], ["sorry", "Sorry", "🥺"], ["anniversary", "Anniversary", "💍"]];
-function GreetingSheet({ token, defaultName, onUse, onClose }) {
-  const [cat, setCat] = useState("");
-  const [name, setName] = useState(defaultName || "");
-  const [length, setLength] = useState("medium");
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const write = async (c, again) => {
-    const category = c || cat; if (!category) return setErr("Pick a message type first");
-    setBusy(true); setErr("");
-    try {
-      const d = await api("/api/v1/greetings/generate", { method: "POST", token, body: { category, name: name.trim(), length, avoid: again ? text : "" } });
-      setText(d.text || "");
-    } catch (e) { setErr(e.message || "Could not write the message. Try again."); }
-    setBusy(false);
-  };
-  const field = { width: "100%", boxSizing: "border-box", background: "#1E2530", border: "1px solid #2B3544", borderRadius: 12, padding: "12px 14px", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none", marginBottom: 8 };
-  const chip = (on) => ({ padding: "8px 12px", borderRadius: 999, border: "1px solid " + (on ? "#35D0BA" : "#2B3544"), background: on ? "#35D0BA22" : "#1E2530", color: on ? "#35D0BA" : "#C9D1DB", fontFamily: "Inter", fontSize: 13.5, cursor: "pointer" });
-  return React.createElement(SheetFrame, { title: "Send a greeting", onClose, tall: true },
-    React.createElement("div", { style: { padding: "0 16px 18px" } },
-      React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 } },
-        LC_GREETS.map(([id, label, em]) => React.createElement("button", { key: id, onClick: () => { setCat(id); write(id); }, style: chip(cat === id) }, em + " " + label))),
-      React.createElement("input", { value: name, maxLength: 40, onChange: (e) => setName(e.target.value), placeholder: "Their name (optional)", "aria-label": "Their name", style: field }),
-      React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
-        [["short", "Short"], ["medium", "Medium"], ["long", "Long"]].map(([id, label]) => React.createElement("button", { key: id, onClick: () => setLength(id), style: chip(length === id) }, label))),
-      busy && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 14, color: "#8891A0", padding: "6px 2px 12px" } }, "Writing…"),
-      err && React.createElement("div", { style: { fontFamily: "Inter", fontSize: 13.5, color: "#FF6B6B", padding: "0 2px 10px" } }, err),
-      text && React.createElement("textarea", { value: text, rows: 6, maxLength: 1200, onChange: (e) => setText(e.target.value), "aria-label": "Message", style: { ...field, resize: "vertical", lineHeight: 1.45 } }),
-      text && React.createElement("div", { style: { display: "flex", gap: 8 } },
-        React.createElement("button", { disabled: busy, onClick: () => write(cat, true), style: { flex: 1, padding: "13px 0", borderRadius: 12, border: "1px solid #2B3544", background: "#1E2530", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: "pointer" } }, "Another"),
-        React.createElement("button", { disabled: busy || !text.trim(), onClick: () => onUse(text.trim()), style: { flex: 1, padding: "13px 0", borderRadius: 12, border: "none", background: "#35D0BA", color: "#05070A", fontFamily: "Sora", fontWeight: 700, fontSize: 14.5, cursor: "pointer" } }, "Use message"))));
-}
 function AttachSheet({ onClose, onPick }) {
     const items = [
         { id: "location", label: "Location", Icon: MapPin, color: "#35D0BA" },
@@ -9752,8 +10045,7 @@ function AttachSheet({ onClose, onPick }) {
         { id: "document", label: "Document", Icon: DocIcon, color: "#FF8A5D" },
         { id: "catalogue", label: "Catalogue", Icon: ShoppingBag, color: "#B58CFF" },
         ...(featOn("polls") ? [{ id: "poll", label: "Poll", Icon: LcPollIcon, color: "#4FD1C5" }] : []),
-        { id: "greeting", label: "Greeting", Icon: LcHeartIcon, color: "#FF6B8A" },
-    ...(featOn("scheduling") ? [{ id: "schedule", label: "Schedule", Icon: LcClockIcon, color: "#F687B3" }] : []),
+        ...(featOn("scheduling") ? [{ id: "schedule", label: "Schedule", Icon: LcClockIcon, color: "#F687B3" }] : []),
     ];
     return React.createElement("div", { onClick: onClose, style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 54, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" } }, React.createElement("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", boxSizing: "border-box", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTop: "1px solid #262E3A", padding: "20px 14px 24px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px 8px", animation: "lcPop .18s ease-out" } }, items.map((it) => React.createElement("button", { key: it.id, onClick: () => onPick(it.id), "aria-label": it.label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: 0 } }, React.createElement("span", { style: { width: 58, height: 58, borderRadius: "50%", background: it.color + "22", border: "1.5px solid " + it.color + "66", display: "flex", alignItems: "center", justifyContent: "center" } }, React.createElement(it.Icon, { size: 26, color: it.color })), React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#C9D1DB" } }, it.label)))));
 }
@@ -10183,12 +10475,12 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     };
     const notifyAct = (kind, on) => { if (socket && featOn("typingStatus"))
         socket.emit("typing", { conversationId: conversation.id, typing: !!on, kind }); }; // "recording" | "photo" | "file"
-    const EDIT_WINDOW_MS = 15 * 60 * 1000; // keep in step with the server
+    const EDIT_WINDOW_MS = 60 * 60 * 1000; // keep in step with the server
     const canEdit = (m) => !!m && !m.deleted && !m.audio && !m.hasAudio && !m.file && Date.now() - m.time <= EDIT_WINDOW_MS;
     const startEdit = (m) => {
         setSel(null);
         if (!canEdit(m))
-            return setError("Messages can only be edited for 15 minutes after sending");
+            return setError("Messages can only be edited for 1 hour after sending");
         setEditing(m);
         setDraft(m.text);
         setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
@@ -10211,12 +10503,12 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     catch (e) { } }, 250); };
     const pressEnd = () => clearTimeout(pressRef.current);
     const [emojiOpen, setEmojiOpen] = useState(false);
-    // AI business button in the typing area: per-chat on/off (same server setting as the toggle in the contact profile)
+    // Chat AI button in the typing area: per-chat on/off (same server setting as the toggle in the contact profile)
     const [loc, setLoc] = useState(null); // share-location sheet: { st: "find" | "ready" | "denied" | "err", ... }
     const locReq = useRef(0);
     const [bizOn, setBizOn] = useState(null); // null = loading, "na" = not available for this chat, true / false
     useEffect(() => { let live = true; setBizOn(null); if (token && conversation && conversation.id && !conversation.isGroup && !conversation.chatRoom) api("/api/v1/me/ai/chat/" + conversation.id, { token }).then((d) => { if (live) setBizOn(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBizOn("na"); }); else setBizOn("na"); return () => { live = false; }; }, [conversation && conversation.id, token]);
-    const bizToggle = () => { if (bizOn === null || bizOn === "na") return; const was = bizOn, v = !bizOn; setBizOn(v); api("/api/v1/me/ai/chat/" + conversation.id, { method: "PUT", token, body: { on: v } }).then((d) => { setBizOn(!!(d && d.on)); flashNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBizOn(was); flashNote((e && e.message) || "Could not change AI business"); }); };
+    const bizToggle = () => { if (bizOn === null || bizOn === "na") return; const was = bizOn, v = !bizOn; setBizOn(v); api("/api/v1/me/ai/chat/" + conversation.id, { method: "PUT", token, body: { on: v } }).then((d) => { setBizOn(!!(d && d.on)); flashNote(v ? "Chat AI is on for this chat" : "Chat AI is off for this chat"); }).catch((e) => { setBizOn(was); flashNote((e && e.message) || "Could not change Chat AI"); }); };
     const [attachOpen, setAttachOpen] = useState(false);
     const [pickSheet, setPickSheet] = useState(null);
     const [pendingMedia, setPendingMedia] = useState(null);
@@ -10685,7 +10977,6 @@ const shareContact = async () => {
         else
             playSound("send"); });
     };
-    const useGreeting = (t) => { setSheetName(null); setDraft((t || "").slice(0, MAX_MSG_CHARS)); setTimeout(() => inputRef.current && inputRef.current.focus(), 50); };
     const onPickAttach = (id) => {
         setAttachOpen(false);
         if (id === "location")
@@ -10700,8 +10991,6 @@ const shareContact = async () => {
             shareCatalogue();
         else if (id === "poll")
             setSheetName("poll");
-        else if (id === "greeting")
-            setSheetName("greeting");
         else if (id === "schedule")
             setSheetName("schedule");
     };
@@ -11041,7 +11330,7 @@ const shareContact = async () => {
                     return (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0" } },
                         React.createElement("div", { style: { flex: 1 } }),
                         conversation.isGroup && !editing && !rec && React.createElement("button", { "aria-label": "Mention a member", onMouseDown: e => e.preventDefault(), onClick: () => { setEmojiOpen(false); setDraft(d => /(^|\s)@[^\s@]*$/.test(d) ? d : (d && !/\s$/.test(d) ? d + " @" : d + "@")); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, style: { ...ib, color: "#9BA7B4", fontFamily: "Sora", fontWeight: 700, fontSize: 21, lineHeight: "24px", alignItems: "center", justifyContent: "center", minWidth: 40 } }, "@"),
-                        !editing && !rec && !isRoom && !conversation.isGroup && token && (bizOn === true || bizOn === false) && React.createElement("button", { "aria-label": bizOn ? "AI business is on. Tap to turn off" : "AI business is off. Tap to turn on", "aria-pressed": bizOn === true, onMouseDown: e => e.preventDefault(), onClick: bizToggle, style: { ...ib, padding: "2px 7px", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } },
+                        !editing && !rec && !isRoom && !conversation.isGroup && token && (bizOn === true || bizOn === false) && React.createElement("button", { "aria-label": bizOn ? "Chat AI is on. Tap to turn off" : "Chat AI is off. Tap to turn on", "aria-pressed": bizOn === true, onMouseDown: e => e.preventDefault(), onClick: bizToggle, style: { ...ib, padding: "2px 7px", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } },
                             React.createElement(AiBotAvatar, { size: 26, style: { border: bizOn ? "2px solid #35D0BA" : "2px solid transparent", boxSizing: "border-box", filter: bizOn ? "none" : "grayscale(1)", opacity: bizOn ? 1 : 0.6, transition: "opacity .15s, filter .15s" } }),
                             React.createElement("span", { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 9, lineHeight: "10px", letterSpacing: 0.3, color: bizOn ? "#35D0BA" : "#8891A0" } }, bizOn ? "AI ON" : "AI OFF")),
                         React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: ib },
@@ -11107,7 +11396,6 @@ const shareContact = async () => {
                 flashNote("That message is older. Scroll up to load it."); } }),
         sheetName === "media" && React.createElement(MediaDocsSheet, { msgs: msgs, conversation: conversation, myId: myId, onOpenImage: setViewer, onClose: () => setSheetName(null) }),
         sheetName === "poll" && React.createElement(PollSheet, { onSend: sendPoll, onClose: () => setSheetName(null) }),
-        sheetName === "greeting" && React.createElement(GreetingSheet, { token: token, defaultName: conversation.other && !conversation.isGroup ? String(conversation.other.name || "").split(" ")[0] : "", onUse: useGreeting, onClose: () => setSheetName(null) }),
         sheetName === "schedule" && React.createElement(ScheduleSheet, { conversationId: conversation.id, socket: socket, onClose: () => setSheetName(null) }),
         needPin && React.createElement(LockPrompt, { mode: "enter", onCancel: onBack, onDone: () => { LCX.unlocked.add(conversation.id); setNeedPin(false); } }),
         sheetName === "lockset" && React.createElement(LockPrompt, { mode: "set", onCancel: () => setSheetName(null), onDone: () => { LCX.setLocked(conversation.id, true); LCX.unlocked.add(conversation.id); setSheetName(null); flashNote("Chat locked"); } }),
@@ -11724,12 +12012,27 @@ function friendlyAuthError(e) {
         "auth/user-disabled": "This account has been disabled.",
         "auth/captcha-check-failed": "Security check failed. Refresh the page and try again.",
         "auth/network-request-failed": "Network problem. Check your connection and try again.",
+        "auth/missing-email": "Type your email address first.",
+        "auth/missing-password": "Type your password first.",
+        "auth/operation-not-allowed": "Email sign-in is turned off for this app. Ask the admin to enable it in Firebase (Authentication > Sign-in method).",
+        "auth/internal-error": "Something went wrong on our side. Please try again in a moment.",
+        "auth/expired-action-code": "This link has expired. Request a new one.",
+        "auth/invalid-action-code": "This link is invalid or has already been used.",
+        "auth/invalid-action-code": "This sign-in link is not valid any more. Ask for a new one.",
+        "auth/expired-action-code": "This sign-in link has expired. Ask for a new one.",
+        "auth/operation-not-allowed": "Email-link sign-in is not switched on yet. In Firebase: Authentication > Sign-in method > Email/Password > turn on Email link (passwordless sign-in).",
+        "auth/missing-continue-uri": "Email-link sign-in is not set up for this website yet.",
+        "auth/unauthorized-continue-uri": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
     };
     if (e && /region/i.test(e.message || ""))
         return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
     if (e && /already been rendered/i.test(e.message || ""))
         return "Please refresh the page and try again.";
-    return map[e && e.code] || (e && e.message) || "Something went wrong.";
+    if (e && map[e.code])
+        return map[e.code] + (e.code === "auth/network-request-failed" || e.code === "auth/internal-error" ? " (" + e.code.replace("auth/", "") + ")" : "");
+    if (e && /^auth\//.test(e.code || ""))
+        return "Sign-in problem (" + e.code.replace("auth/", "") + "). Please try again.";
+    return (e && e.message) || "Something went wrong. Please try again.";
 }
 // Flipping, glowing logo: front = logo, back = credit. Flips back after FLIP_BACK_MS; animation pauses after PAUSE_MS (tap the logo to flip / resume).
 const FLIP_FRONT_MS = 30000, FLIP_BACK_MS = 30000, PAUSE_MS = 20 * 60 * 1000;
@@ -11790,6 +12093,74 @@ function LoginScreen({ onContinue }) {
     const [emailName, setEmailName] = useState("");
     const [nickname, setNickname] = useState(""); // required when creating an account
     const [emailUser, setEmailUser] = useState(null);
+    const emailRef = useRef(null), passRef = useRef(null), emailNameRef = useRef(null), nickRef = useRef(null);
+    // true inside the Android app (Capacitor WebView): Google blocks sign-in there, and phone keyboards / autofill can fill a box without telling React
+    const IN_APP = /LetschatApp/i.test(navigator.userAgent || "") || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    useEffect(() => {
+        // Copy what is really in the boxes into the form state, so autofilled or pasted text enables the button (a filled box with a greyed-out button)
+        const t = setInterval(() => {
+            const e = emailRef.current, pw = passRef.current, nm = emailNameRef.current, nk = nickRef.current;
+            if (e && typeof e.value === "string") setEmail(prev => prev === e.value ? prev : e.value);
+            if (pw && typeof pw.value === "string") setPassword(prev => prev === pw.value ? prev : pw.value);
+            if (nm && typeof nm.value === "string") setEmailName(prev => prev === nm.value ? prev : nm.value);
+            if (nk && typeof nk.value === "string") setNickname(prev => { const v = nickClean(nk.value); return prev === v ? prev : v; });
+        }, 350);
+        return () => clearInterval(t);
+    }, []);
+    useEffect(() => {
+        // Links from Firebase emails (verify email, reset password) can open inside the app: finish them here instead of ignoring them
+        if (!FIREBASE_READY || window.__lcActionSeen)
+            return;
+        let q;
+        try {
+            q = new URLSearchParams(window.location.search);
+        }
+        catch (e) {
+            return;
+        }
+        const mode = q.get("mode"), code = q.get("oobCode");
+        if (!code || (mode !== "verifyEmail" && mode !== "resetPassword"))
+            return;
+        window.__lcActionSeen = true;
+        const clean = () => { try {
+            window.history.replaceState(null, "", window.location.origin + window.location.pathname);
+        }
+        catch (e) { } };
+        (async () => {
+            try {
+                const auth = firebase.auth();
+                if (mode === "verifyEmail") {
+                    await auth.applyActionCode(code);
+                    clean();
+                    setNotice("Your email is verified. Log in now.");
+                    try {
+                        if (auth.currentUser)
+                            await auth.currentUser.reload();
+                    }
+                    catch (e) { }
+                }
+                else {
+                    const em = await auth.verifyPasswordResetCode(code);
+                    let pw = "";
+                    while (pw.length < 6) {
+                        pw = window.prompt(pw ? "Use at least 6 characters.\nNew password for " + em + ":" : "Choose a new password for " + em + " (6 or more characters):") || "";
+                        if (!pw)
+                            break;
+                    }
+                    clean();
+                    if (pw.length >= 6) {
+                        await auth.confirmPasswordReset(code, pw);
+                        setEmail(em);
+                        setNotice("Password changed. Log in with your new password.");
+                    }
+                }
+            }
+            catch (e) {
+                clean();
+                setError(friendlyAuthError(e));
+            }
+        })();
+    }, []);
     const [notice, setNotice] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
@@ -11845,6 +12216,8 @@ function LoginScreen({ onContinue }) {
         await finish(await cred.user.getIdToken(), "");
     });
     const google = () => run(async () => {
+        if (IN_APP)
+            throw new Error("Google sign-in is not available inside the app (Google blocks it). Use your email and password, or \u201cSign in with email only\u201d.");
         const provider = new firebase.auth.GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" }); // always show Google's account chooser (never silently reuse the signed-in account)
         const cred = await firebase.auth().signInWithPopup(provider);
@@ -11854,19 +12227,32 @@ function LoginScreen({ onContinue }) {
     // ---- email + password ----
     const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
     const emailReady = emailOk && password.length >= 6 && (!isNew || (!!emailName.trim() && nickValid(nickname)));
+    const missingHint = !email.trim() ? "Enter your email address." : !emailOk ? "That email address doesn\u2019t look right." : password.length < 6 ? "Password needs at least 6 characters." : isNew && !emailName.trim() ? "Enter your name." : isNew && !nickValid(nickname) ? "Choose a nickname." : "";
     const submitEmail = () => run(async () => {
         setNotice("");
         const auth = firebase.auth();
+        const em = ((emailRef.current && emailRef.current.value) || email).trim().toLowerCase();
+        const pw = (passRef.current && passRef.current.value) || password;
+        if (!em || pw.length < 6)
+            throw new Error(!em ? "Type your email address first." : "Password needs at least 6 characters.");
         if (isNew) {
-            const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
-            await cred.user.updateProfile({ displayName: emailName.trim() });
-            await cred.user.sendEmailVerification();
+            const cred = await auth.createUserWithEmailAndPassword(em, pw);
+            try {
+                await cred.user.updateProfile({ displayName: emailName.trim() });
+            }
+            catch (e) { }
             setEmailUser(cred.user);
             setEmailStage("verify");
-            setNotice("Verification email sent. Check your inbox and spam folder.");
+            try {
+                await cred.user.sendEmailVerification();
+                setNotice("Verification email sent. Check your inbox and spam folder.");
+            }
+            catch (e) {
+                setNotice("Your account was created, but the email could not be sent. Tap \u201cResend email\u201d.");
+            }
             return;
         }
-        const cred = await auth.signInWithEmailAndPassword(email.trim(), password);
+        const cred = await auth.signInWithEmailAndPassword(em, pw);
         if (!cred.user.emailVerified) {
             try {
                 await cred.user.sendEmailVerification();
@@ -11893,9 +12279,57 @@ function LoginScreen({ onContinue }) {
     const forgotPassword = () => run(async () => {
         if (!emailOk)
             throw new Error("Type your email address first.");
-        await firebase.auth().sendPasswordResetEmail(email.trim());
-        setNotice("Password reset link sent to " + email.trim() + ".");
+        await firebase.auth().sendPasswordResetEmail(email.trim().toLowerCase());
+        setNotice("Password reset link sent to " + email.trim().toLowerCase() + ".");
     });
+    // ---- email only, no password: Firebase emails a one-time sign-in link that proves the person owns the address ----
+    const sendLink = () => run(async () => {
+        if (!emailOk)
+            throw new Error("Type your email address first.");
+        await firebase.auth().sendSignInLinkToEmail(email.trim(), { url: window.location.origin + window.location.pathname, handleCodeInApp: true });
+        try {
+            localStorage.setItem("lc-link-email", email.trim());
+        }
+        catch (e) { }
+        setEmailStage("linksent");
+        setNotice("");
+    });
+    const completeLink = (em, href) => run(async () => {
+        const cred = await firebase.auth().signInWithEmailLink(String(em).trim(), href || window.location.href);
+        try {
+            localStorage.removeItem("lc-link-email");
+        }
+        catch (e) { }
+        try {
+            window.history.replaceState(null, "", window.location.origin + window.location.pathname);
+        }
+        catch (e) { }
+        await finish(await cred.user.getIdToken(), "");
+    });
+    useEffect(() => {
+        // the person opened the sign-in link from their email: finish signing in (ask for the email if this is another phone or browser)
+        if (!FIREBASE_READY || window.__lcLinkSeen)
+            return;
+        let isLink = false;
+        try {
+            isLink = firebase.auth().isSignInWithEmailLink(window.location.href);
+        }
+        catch (e) { }
+        if (!isLink)
+            return;
+        window.__lcLinkSeen = true;
+        let saved = "";
+        try {
+            saved = localStorage.getItem("lc-link-email") || "";
+        }
+        catch (e) { }
+        if (saved) {
+            setEmail(saved);
+            completeLink(saved, window.location.href);
+        }
+        else
+            setEmailStage("linkconfirm");
+    }, []);
     const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
     const box = { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
     const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
@@ -11904,17 +12338,20 @@ function LoginScreen({ onContinue }) {
     const nicknameBox = () => React.createElement(React.Fragment, null,
         React.createElement("div", { style: box },
             React.createElement("span", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 16 } }, "@"),
-            React.createElement("input", { value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
+            React.createElement("input", { ref: nickRef, value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
             React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", flexShrink: 0 } }, nickLen(nickname) + "/" + NICK_MAX)),
         React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-8px 4px 14px", lineHeight: 1.4 } }, "Up to " + NICK_MAX + " characters: letters, numbers or symbols. No emoji. Friends use it to find you. It can\u2019t be changed later."), React.createElement(SimilarNicks, { list: similarNicks }));
-    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
-    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
+    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : (emailStage === "link" || emailStage === "linksent" || emailStage === "linkconfirm") ? emailStage : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
+    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email", link: "Sign in with email", linksent: "Check your email", linkconfirm: "Confirm your email" };
     const subs = {
         phone: "We'll text you a verification code. Or continue with Google.",
         code: "We sent a code to +" + dial + " " + formatNational(phone) + ".",
         name: "Your name and nickname are what people you chat with will see.",
         email: "Use your email and a password (6 or more characters).",
         verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
+        link: "No password needed. We email you a link: tap it and you are signed in.",
+        linksent: "We sent a sign-in link to " + email.trim() + ". Open it on this phone to sign in. Check your spam folder too.",
+        linkconfirm: "Type the email address the link was sent to, to finish signing in.",
     };
     return (React.createElement("div", { style: { height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
         React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
@@ -11947,17 +12384,18 @@ function LoginScreen({ onContinue }) {
             React.createElement("button", { disabled: busy || phone.length < 6 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 6 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
             React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
             React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"),
-            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Log in with email and password"))),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Log in with email and password"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: linkBtn }, "Sign in with email only (no password)"))),
         stage === "email" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [["Log in", false], ["Create account", true]].map(([label, v]) => (React.createElement("button", { key: label, onClick: () => { setIsNew(v); setError(""); setNotice(""); }, style: { flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, label)))),
             isNew && (React.createElement("div", { style: box },
-                React.createElement("input", { value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
+                React.createElement("input", { ref: emailNameRef, value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
             isNew && nicknameBox(),
             React.createElement("div", { style: box },
-                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
             React.createElement("div", { style: box },
-                    React.createElement("input", { type: showPassword ? "text" : "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password", autoComplete: isNew ? "new-password" : "current-password", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }),
-                    React.createElement("button", { type: "button", onClick: () => setShowPassword(v => !v), "aria-label": showPassword ? "Hide password" : "Show password", "aria-pressed": showPassword, style: { background: "none", border: "none", padding: 0, margin: 0, cursor: "pointer", color: showPassword ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+                    React.createElement("input", { ref: passRef, type: showPassword ? "text" : "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password", autoComplete: isNew ? "new-password" : "current-password", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }),
+                    React.createElement("button", { type: "button", onMouseDown: e => e.preventDefault(), onClick: () => setShowPassword(v => !v), "aria-label": showPassword ? "Hide password" : "Show password", "aria-pressed": showPassword, style: { background: "none", border: "none", padding: 0, margin: "-6px -6px -6px 0", cursor: "pointer", color: showPassword ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto", width: 36, height: 36, minWidth: 36, lineHeight: 0, WebkitAppearance: "none", MozAppearance: "none", appearance: "none" } },
                         React.createElement("svg", { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, showPassword ? (React.createElement(React.Fragment, null,
                             React.createElement("path", { d: "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" }),
                             React.createElement("path", { d: "M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" }),
@@ -11965,13 +12403,29 @@ function LoginScreen({ onContinue }) {
                             React.createElement("line", { x1: 1, y1: 1, x2: 23, y2: 23 }))) : (React.createElement(React.Fragment, null,
                             React.createElement("path", { d: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" }),
                             React.createElement("circle", { cx: 12, cy: 12, r: 3 })))))),
+            !emailReady && missingHint && React.createElement("p", { role: "status", style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-6px 4px 12px", lineHeight: 1.4 } }, missingHint),
             React.createElement("button", { disabled: busy || !emailReady, onClick: submitEmail, style: btn(emailReady) }, busy ? "Please wait…" : isNew ? "Create account" : "Log in"),
             !isNew && React.createElement("button", { onClick: forgotPassword, style: linkBtn }, "Forgot password?"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: { ...linkBtn, color: "#35D0BA", marginTop: 8 } }, "Sign in with email only (no password)"),
             PHONE_LOGIN
                 ? React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead")
-                : React.createElement(React.Fragment, null,
+                : IN_APP ? null : React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
                     React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google")))),
+        stage === "link" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && sendLink(), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailOk || !FIREBASE_READY, onClick: sendLink, style: btn(emailOk && FIREBASE_READY) }, busy ? "Please wait…" : "Email me a sign-in link"),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Use a password instead"),
+            PHONE_LOGIN && React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead"))),
+        stage === "linksent" && (React.createElement(React.Fragment, null,
+            React.createElement("button", { disabled: busy, onClick: sendLink, style: btn(true) }, busy ? "Please wait…" : "Send the link again"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: linkBtn }, "Use a different email"))),
+        stage === "linkconfirm" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && completeLink(email), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailOk, onClick: () => completeLink(email), style: btn(emailOk) }, busy ? "Please wait…" : "Sign in"),
+            React.createElement("button", { onClick: () => { try { window.history.replaceState(null, "", window.location.origin + window.location.pathname); } catch (e) { } setEmailStage("link"); setError(""); }, style: linkBtn }, "Send me a new link"))),
         stage === "verify" && (React.createElement(React.Fragment, null,
             React.createElement("button", { disabled: busy, onClick: checkVerified, style: btn(true) }, busy ? "Please wait…" : "I've verified my email"),
             React.createElement("button", { onClick: resendVerification, style: linkBtn }, "Resend email"),
@@ -11990,6 +12444,7 @@ function LoginScreen({ onContinue }) {
             nicknameBox(),
             React.createElement("button", { disabled: busy || !name.trim() || !nickValid(nickname), onClick: createAccount, style: btn(!!name.trim() && nickValid(nickname)) }, busy ? "Please wait…" : "Create account"))),
         React.createElement("div", { id: "recaptcha-wrap" }),
+        window.LetschatInstall && !window.LetschatInstall.installed() && React.createElement("button", { onClick: () => window.LetschatInstall.install(), style: { ...linkBtn, color: "#35D0BA", marginBottom: 20 } }, "Install the app on your phone"),
         React.createElement("p", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#8A96A5", marginTop: 22, lineHeight: 1.6 } }, "Your email or Google account is your Letschat Africa ID. Your nickname (set at sign up, change it in Tools) lets friends find you without sharing either.")));
 }
 function App() {
