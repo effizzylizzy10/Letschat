@@ -101,6 +101,18 @@ final class BubbleController {
 
     void show(final int count, final String title, final String text, final String id, final String avatar) {
         ui.post(() -> {
+            try {
+                showNow(count, title, text, id, avatar);
+            } catch (Throwable t) {
+                try {
+                    removeView();
+                } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    private void showNow(final int count, final String title, final String text, final String id, final String avatar) {
+        {
             if (!isEnabled() || !Settings.canDrawOverlays(ctx)) return;
             ensureView();
             if (row == null) return;
@@ -130,7 +142,7 @@ final class BubbleController {
             } else {
                 setPreviewVisible(false);
             }
-        });
+        }
     }
 
     void hide() {
@@ -308,7 +320,7 @@ final class BubbleController {
                     // from here the position is measured from the left edge while dragging
                     lp.gravity = Gravity.TOP | Gravity.START;
                     lp.x = onRight ? screenW() - dp(56) : 0;
-                    wm.updateViewLayout(row, lp);
+                    updateLayoutSafe();
                     startX = lp.x;
                     startY = lp.y;
                     touchX = e.getRawX();
@@ -323,7 +335,7 @@ final class BubbleController {
                     moved = true;
                     lp.x = Math.max(0, Math.min(screenW() - dp(56), (int) (startX + dx)));
                     lp.y = clampY((int) (startY + dy));
-                    wm.updateViewLayout(row, lp);
+                    updateLayoutSafe();
                     showTarget();
                     inDismissZone = overTarget(e.getRawX(), e.getRawY());
                     holder.setAlpha(inDismissZone ? 0.5f : 1f);
@@ -357,6 +369,12 @@ final class BubbleController {
         }
     }
 
+    private void updateLayoutSafe() {
+        try {
+            if (row != null) wm.updateViewLayout(row, lp);
+        } catch (RuntimeException ignored) {}
+    }
+
     private void snapToEdge() {
         if (row == null) return;
         onRight = (lp.x + dp(28)) > screenW() / 2;
@@ -376,7 +394,7 @@ final class BubbleController {
     private void showTarget() {
         if (xTarget != null) return;
         TextView x = new TextView(ctx);
-        x.setText("\u2715");
+        x.setText("✕");
         x.setTextColor(Color.WHITE);
         x.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
         x.setTypeface(Typeface.DEFAULT_BOLD);
