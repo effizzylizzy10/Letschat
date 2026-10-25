@@ -1,9 +1,13 @@
 package com.letschatafrica.chatbubble;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -21,6 +25,10 @@ public class ChatBubblePlugin extends Plugin {
     private static final String BRIDGE_ASSET = "letschat-native-bridge.js";
     private BubbleController controller;
     private String bridgeJs;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private volatile boolean resumed = false;
+    private volatile boolean rendererLost = false;
+    private long lastRecover = 0;
 
     @Override
     public void load() {
@@ -38,6 +46,19 @@ public class ChatBubblePlugin extends Plugin {
                     @Override
                     public void onPageLoaded(WebView webView) {
                         injectBridge(webView);
+                    }
+
+                    /**
+                     * Android kills the page's renderer process when the phone is short of memory (very common while the app sits
+                     * in the background). Capacitor's default answer is "not handled", which makes Android kill the whole app and
+                     * show "Letschat Africa keeps stopping". Answering "handled" keeps the app (and its background service) alive;
+                     * the page is then rebuilt, right away when Letschat is on screen, otherwise the next time it is opened.
+                     */
+                    @Override
+                    public boolean onRenderProcessGone(WebView webView, RenderProcessGoneDetail detail) {
+                        rendererLost = true;
+                        if (resumed) mainHandler.post(ChatBubblePlugin.this::recoverPage);
+                        return true;
                     }
                 }
             );
@@ -60,9 +81,24 @@ public class ChatBubblePlugin extends Plugin {
         } catch (Exception ignored) {}
     }
 
+    /** Rebuilds the page after its renderer process was lost (the old WebView can no longer be used). */
+    private void recoverPage() {
+        if (!rendererLost) return;
+        long now = System.currentTimeMillis();
+        if (now - lastRecover < 3000) return; // never loop
+        Activity a = getActivity();
+        if (a == null || a.isFinishing()) return;
+        lastRecover = now;
+        rendererLost = false;
+        try {
+            a.recreate();
+        } catch (Throwable ignored) {}
+    }
+
     @Override
     protected void handleOnPause() {
         super.handleOnPause();
+        resumed = false;
         MessagePoller.setForeground(false);
         JSObject data = new JSObject();
         data.put("active", false);
@@ -72,7 +108,9 @@ public class ChatBubblePlugin extends Plugin {
     @Override
     protected void handleOnResume() {
         super.handleOnResume();
+        resumed = true;
         MessagePoller.setForeground(true);
+        if (rendererLost) mainHandler.post(this::recoverPage);
         controller.hide(); // the bubble and the message pop-up are only for when Letschat is not on screen
         JSObject data = new JSObject();
         data.put("active", true);
