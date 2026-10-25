@@ -17,7 +17,7 @@
     "appendUserAgent": "LetschatApp",
     "backgroundColor": "#05070A",
     "webContentsDebuggingEnabled": false,
-    "captureInput": true,
+    "captureInput": false,
     "loggingBehavior": "none"
   }
 }
