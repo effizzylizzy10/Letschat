@@ -26,6 +26,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -41,11 +43,13 @@ import java.util.Iterator;
 import java.util.LinkedList;
 
 /**
- * The Letschat message pop-up (the same layout as the WhatsApp pop-up): a card over other apps with the sender's photo and name,
- * "1 of N" with previous / next arrows, the quoted message when the new message is a reply, the message itself, a reply box
- * (emoji key, text, green send/mic button) and the Close and View buttons.
- * Messages that arrive while the app is not on screen are queued; Close clears them, View opens Letschat on that chat,
- * sending a reply posts it to the Letschat server and removes that chat's messages from the pop-up.
+ * The Letschat message card (the same layout as the WhatsApp pop-up): the sender's photo and name, "1 of N" with previous / next
+ * arrows, the quoted message when the new message is a reply, the message itself, a reply box (emoji key, text, green send/mic
+ * button) and the Close and View buttons.
+ * Messages that arrive while the app is not on screen are queued and announced by a toast on the floating chat head. The card
+ * stays closed until the person taps the chat head: the head then grows into the card (expandFrom). Close shrinks the card back
+ * into the head and clears the queue, View opens Letschat on that chat, sending a reply posts it to the Letschat server and removes
+ * that chat's messages from the card.
  */
 final class MessagePopup {
 
@@ -79,6 +83,8 @@ final class MessagePopup {
     private static final int C_GREEN = 0xFF21C063;
     private static final int C_LINE = 0xFF2A3942;
     private static final int C_MUTED = 0xFF8696A0;
+    /** Size the card has while it is "inside" the chat head: it grows from this to full size and shrinks back to it. */
+    private static final float SHRUNK = 0.12f;
 
     private static MessagePopup instance;
 
@@ -87,7 +93,7 @@ final class MessagePopup {
         return instance;
     }
 
-    /** Shows (or adds to) the pop-up, unless the person turned the floating bubble off or the overlay permission is missing. */
+    /** Queues the message and shows a toast on the chat head, unless the person turned the floating bubble off or the overlay permission is missing. */
     static void notifyMessage(Context context, Item item) {
         Context app = context.getApplicationContext();
         if (!BubbleController.get(app).isEnabled() || !Settings.canDrawOverlays(app)) return;
@@ -104,6 +110,11 @@ final class MessagePopup {
     private final LruCache<String, Bitmap> avatars = new LruCache<>(12);
     private int index = 0;
     private boolean sending = false;
+    /** True while the card shrinks back into the chat head. */
+    private boolean collapsing = false;
+    /** Screen position of the chat head's centre when the card was opened: the card grows from and shrinks to this point. */
+    private int originX = -1;
+    private int originY = -1;
 
     private LinearLayout root;
     private WindowManager.LayoutParams lp;
@@ -128,6 +139,21 @@ final class MessagePopup {
 
     // ---- public ----
 
+    /** True while messages are waiting for the person (main thread only). */
+    boolean hasMessages() {
+        return !items.isEmpty();
+    }
+
+    /** How many messages are waiting (main thread only). */
+    int pendingCount() {
+        return items.size();
+    }
+
+    /** True while the card is on screen (main thread only). */
+    boolean isOpen() {
+        return root != null;
+    }
+
     void push(final Item item) {
         if (item == null) return;
         ui.post(new Runnable() {
@@ -139,6 +165,7 @@ final class MessagePopup {
                     // a pop-up that cannot be drawn must never close the whole app
                     try {
                         removeView();
+                        BubbleController.get(ctx).onCardClosed(0);
                     } catch (Throwable ignored) {}
                     items.clear();
                 }
@@ -158,13 +185,15 @@ final class MessagePopup {
             if (index > 0) index--;
         }
         items.add(item);
-        if (root == null) {
-            index = 0;
-            build();
+        if (root != null) {
+            refresh(); // the card is already open: just update "N of M"
+            return;
         }
-        if (root != null) refresh();
+        // The card stays closed until the person taps the chat head: the head shows a toast with this message and the waiting count.
+        BubbleController.get(ctx).show(items.size(), item.title, item.text, item.chatId, item.avatar);
     }
 
+    /** Removes the card and forgets every waiting message at once (the chat head is going away too). */
     void dismiss() {
         ui.post(new Runnable() {
             @Override
@@ -176,10 +205,97 @@ final class MessagePopup {
         });
     }
 
+    /**
+     * A tap on the chat head: the head grows into this card. (cx, cy) is the middle of the head on the screen.
+     * Returns false when there is nothing to show (the caller then simply opens Letschat). Main thread only.
+     */
+    boolean expandFrom(int cx, int cy) {
+        if (items.isEmpty()) return false;
+        try {
+            if (root != null) removeView(); // never two cards on screen
+            index = 0;
+            if (!build()) return false;
+            refresh();
+            if (root == null) return false;
+            originX = cx;
+            originY = cy;
+            final View card = root;
+            // the card is invisible until its first layout; then it grows out of the head's position
+            card.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                    if (right - left <= 0 || bottom - top <= 0) return;
+                    v.removeOnLayoutChangeListener(this);
+                    if (v != root) return;
+                    pivotAtHead(v);
+                    v.setScaleX(SHRUNK);
+                    v.setScaleY(SHRUNK);
+                    v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(new DecelerateInterpolator(1.8f)).start();
+                }
+            });
+            ui.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    // safety net: should the first layout never be reported, show the card anyway instead of leaving it invisible
+                    if (root == card && !collapsing && card.getAlpha() == 0f) {
+                        card.setAlpha(1f);
+                        card.setScaleX(1f);
+                        card.setScaleY(1f);
+                    }
+                }
+            }, 700);
+            BubbleController.get(ctx).onCardOpened();
+            return true;
+        } catch (Throwable t) {
+            try {
+                removeView();
+            } catch (Throwable ignored) {}
+            return false;
+        }
+    }
+
+    /** Makes the card grow from (and shrink back to) the chat head: the pivot is the head's position, kept inside the card. */
+    private void pivotAtHead(View card) {
+        if (originX < 0 || originY < 0) return;
+        int[] loc = new int[2];
+        card.getLocationOnScreen(loc);
+        float px = Math.max(0f, Math.min((float) card.getWidth(), (float) (originX - loc[0])));
+        float py = Math.max(0f, Math.min((float) card.getHeight(), (float) (originY - loc[1])));
+        card.setPivotX(px);
+        card.setPivotY(py);
+    }
+
+    /** Close, or the last waiting message was answered: the card shrinks back into the chat head, which then pops up again. */
+    private void collapseToHead() {
+        if (collapsing) return;
+        final View card = root;
+        hideKeyboard();
+        if (card == null) {
+            BubbleController.get(ctx).onCardClosed(items.size());
+            return;
+        }
+        collapsing = true;
+        card.animate().cancel();
+        card.animate().alpha(0f).scaleX(SHRUNK).scaleY(SHRUNK).setDuration(200).setInterpolator(new AccelerateInterpolator(1.3f)).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                collapsing = false;
+                if (root == card) removeView();
+                BubbleController.get(ctx).onCardClosed(items.size());
+            }
+        }).start();
+    }
+
+    /** Takes the card away without animation and gives the chat head back. */
+    private void closeNow() {
+        removeView();
+        BubbleController.get(ctx).onCardClosed(items.size());
+    }
+
     // ---- view building ----
 
-    private void build() {
-        if (root != null) return;
+    private boolean build() {
+        if (root != null) return true;
 
         root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -381,7 +497,9 @@ final class MessagePopup {
         close.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                dismiss();
+                items.clear(); // Close forgets the waiting messages; the card shrinks back into the chat head
+                index = 0;
+                collapseToHead();
             }
         });
         TextView view = pillButton("View");
@@ -412,12 +530,13 @@ final class MessagePopup {
         lp.y = dp(70);
         lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         try {
+            root.setAlpha(0f); // invisible until expandFrom grows it out of the chat head
             wm.addView(root, lp);
-            root.setAlpha(0f);
-            root.animate().alpha(1f).setDuration(160).start();
+            return true;
         } catch (RuntimeException e) {
             root = null;
             items.clear();
+            return false;
         }
     }
 
@@ -451,7 +570,7 @@ final class MessagePopup {
     private void refresh() {
         if (root == null || counterView == null || msgView == null) return;
         if (items.isEmpty()) {
-            removeView();
+            closeNow();
             return;
         }
         if (index < 0) index = 0;
@@ -510,7 +629,7 @@ final class MessagePopup {
                             if (chat.equals(iter.next().chatId)) iter.remove(); // that chat is answered
                         }
                         if (index > items.size() - 1) index = items.size() - 1;
-                        if (items.isEmpty()) removeView();
+                        if (items.isEmpty()) collapseToHead(); // nothing left to answer: the card shrinks back into the chat head
                         else refresh();
                     }
                 });
@@ -560,6 +679,7 @@ final class MessagePopup {
     private void removeView() {
         if (root != null) {
             try {
+                root.animate().cancel();
                 wm.removeView(root);
             } catch (RuntimeException ignored) {}
         }
@@ -578,6 +698,7 @@ final class MessagePopup {
         input = null;
         actionBtn = null;
         sending = false;
+        collapsing = false;
     }
 
     // ---- photo ----

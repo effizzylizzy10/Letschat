@@ -18,7 +18,12 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -39,10 +44,12 @@ import java.net.URL;
 
 /**
  * Draws the floating Letschat chat head in its own overlay window: the sender's round photo with a red unread badge and a
- * blue speech bubble showing the message (like Messenger). It is drawn in its own overlay window (no extra service needed: the background
- * service keeps the process alive). Behaves like the Messenger chat head: drag to move, let go and it glides to the left or right edge
- * (a fling picks the side), tap opens the app, and dragging it onto the X at the bottom pulls it in; letting go there shrinks it away
- * until the next message. The head is never faded: it always stays fully opaque.
+ * blue toast next to it (the sender's name and the message, shown for a few seconds every time a new message arrives). It is drawn
+ * in its own overlay window (no extra service needed: the background service keeps the process alive). Behaves like the Messenger
+ * chat head: drag to move, let go and it glides to the left or right edge (a fling picks the side), and dragging it onto the X at
+ * the bottom pulls it in; letting go there shrinks it away until the next message. The head is never faded: it always stays fully opaque.
+ * A tap on the head (or on its toast) makes it grow into the WhatsApp-style message card (see MessagePopup) when messages are
+ * waiting; the head is tucked away while the card is open and pops back when the card closes. With nothing waiting, a tap opens the app.
  */
 final class BubbleController {
 
@@ -84,6 +91,8 @@ final class BubbleController {
     private boolean dragging = false;
     /** True while the head glides to an edge or shrinks into the X: a new message must not restyle it meanwhile. */
     private boolean snapping = false;
+    /** True while the message card is open: the head is shrunk away inside it and does not catch touches. */
+    private boolean expanded = false;
     private ValueAnimator snapAnim;
     /** Difference between a screen y and the overlay window's own y (the status bar), used to place the head on the X. */
     private int winOffY = 0;
@@ -129,6 +138,10 @@ final class BubbleController {
     private void showNow(final int count, final String title, final String text, final String id, final String avatar) {
         {
             if (!isEnabled() || !Settings.canDrawOverlays(ctx)) return;
+            if (expanded) {
+                if (MessagePopup.get(ctx).isOpen()) return; // the message card is open: the head is tucked away inside it
+                restoreHead(false); // the card is gone but the head was never given back
+            }
             ensureView();
             if (row == null) return;
             chatId = id == null ? "" : id;
@@ -140,10 +153,10 @@ final class BubbleController {
             }
             setAvatar(avatar, title);
             if (dragging || snapping) return; // the person is moving the head right now: never shrink, fade or re-pop it under their finger
-            // the speech bubble shows the message itself (the sender is the photo next to it)
-            String line = (text == null || text.isEmpty()) ? (title == null ? "" : title) : text;
+            // the toast: the sender's name above the message
+            CharSequence line = toastText(title, text);
             ui.removeCallbacks(hidePreviewTask);
-            if (!line.isEmpty()) {
+            if (line.length() > 0) {
                 preview.setText(line);
                 boolean wasHidden = preview.getVisibility() != View.VISIBLE;
                 setPreviewVisible(true);
@@ -161,6 +174,20 @@ final class BubbleController {
         }
     }
 
+    /** The toast text: the sender's name (small and bold) on the first line, the message below it. */
+    private CharSequence toastText(String title, String text) {
+        String name = title == null ? "" : title.trim();
+        String msg = text == null ? "" : text.trim();
+        if (name.isEmpty()) return msg;
+        if (msg.isEmpty()) return name;
+        SpannableStringBuilder sb = new SpannableStringBuilder(name);
+        sb.setSpan(new StyleSpan(Typeface.BOLD), 0, name.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sb.setSpan(new RelativeSizeSpan(0.85f), 0, name.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sb.setSpan(new ForegroundColorSpan(0xFFCFE8FF), 0, name.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sb.append('\n').append(msg);
+        return sb;
+    }
+
     void hide() {
         MessagePopup.get(ctx).dismiss(); // the message pop-up goes away together with the chat head
         ui.post(this::removeView);
@@ -172,6 +199,75 @@ final class BubbleController {
             chatId = id == null ? "" : id;
             openApp();
         });
+    }
+
+    // ---- tap: the head grows into the message card ----
+
+    /** Screen position of the middle of the head (null when it is not on screen). Not affected by the head's own pop animation. */
+    int[] headCenter() {
+        if (row == null || holder == null || holder.getWidth() == 0) return null;
+        int[] loc = new int[2];
+        row.getLocationOnScreen(loc);
+        return new int[] { loc[0] + holder.getLeft() + holder.getWidth() / 2, loc[1] + holder.getTop() + holder.getHeight() / 2 };
+    }
+
+    /** A tap on the head or on its toast: with waiting messages the head grows into the message card, otherwise Letschat opens. */
+    private void onHeadTapped() {
+        ui.removeCallbacks(hidePreviewTask);
+        MessagePopup popup = MessagePopup.get(ctx);
+        int[] c = headCenter();
+        if (c != null && popup.hasMessages() && popup.expandFrom(c[0], c[1])) return;
+        openApp();
+    }
+
+    /** The message card is opening out of the head: the head shrinks away into it (size only, never faded) and stops catching touches. */
+    void onCardOpened() {
+        expanded = true;
+        ui.removeCallbacks(hidePreviewTask);
+        if (row == null || holder == null) return;
+        setPreviewVisible(false);
+        holder.animate().cancel();
+        holder.animate().scaleX(0f).scaleY(0f).setDuration(160).setInterpolator(new DecelerateInterpolator()).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                if (expanded && lp != null && row != null) {
+                    lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                    updateLayoutSafe();
+                }
+            }
+        }).start();
+    }
+
+    /** The message card is gone again (Close, or every waiting message was answered): the head pops back with the messages still waiting. */
+    void onCardClosed(int remaining) {
+        if (!expanded) return;
+        if (badge != null) {
+            if (remaining > 0) {
+                badge.setText(remaining > 99 ? "99+" : String.valueOf(remaining));
+                badge.setVisibility(View.VISIBLE);
+            } else {
+                badge.setVisibility(View.GONE);
+            }
+        }
+        setPreviewVisible(false);
+        restoreHead(true);
+    }
+
+    /** Gives the head back (touchable and full size), with a small pop when the card has just shrunk into it. */
+    private void restoreHead(boolean pop) {
+        expanded = false;
+        if (row == null || holder == null || lp == null) return;
+        lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        updateLayoutSafe();
+        holder.animate().cancel();
+        if (pop) {
+            holder.setScaleX(0f);
+            holder.setScaleY(0f);
+            holder.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(new OvershootInterpolator(2.4f)).start();
+        } else {
+            holder.setScaleX(1f);
+            holder.setScaleY(1f);
+        }
     }
 
     // ---- view building ----
@@ -219,7 +315,7 @@ final class BubbleController {
         preview = new TextView(ctx);
         preview.setTextColor(Color.WHITE);
         preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        preview.setTypeface(Typeface.DEFAULT_BOLD);
+        preview.setTypeface(Typeface.DEFAULT);
         preview.setMaxLines(3);
         preview.setEllipsize(TextUtils.TruncateAt.END);
         preview.setMaxWidth(dp(220));
@@ -229,8 +325,14 @@ final class BubbleController {
         previewBg.setCornerRadius(dp(18));
         preview.setBackground(previewBg);
         preview.setVisibility(View.GONE);
+        preview.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onHeadTapped(); // tapping the toast works like tapping the head
+            }
+        });
 
-        // small diamond that makes the speech bubble point at the photo
+        // small diamond that makes the toast point at the photo
         tail = new View(ctx);
         GradientDrawable tailBg = new GradientDrawable();
         tailBg.setColor(BUBBLE_BLUE);
@@ -295,6 +397,7 @@ final class BubbleController {
             snapAnim = null;
         }
         snapping = false;
+        expanded = false;
         hideTarget();
         dragging = false;
         if (row != null) {
@@ -431,7 +534,7 @@ final class BubbleController {
                         hideTarget();
                         holder.setScaleX(1f);
                         holder.setScaleY(1f);
-                        openApp();
+                        onHeadTapped(); // waiting messages: the head grows into the message card; otherwise Letschat opens
                     } else if (inDismissZone) {
                         dismissAnimated(); // the X stays on screen until the head has shrunk into it
                     } else {
