@@ -4,14 +4,28 @@ path = sys.argv[1]
 s = open(path, encoding="utf-8").read()
 
 PERMISSIONS = [
+    # network
     "INTERNET",
+    "ACCESS_NETWORK_STATE",
+    "ACCESS_WIFI_STATE",
+    # calls, voice notes, video, status camera
     "CAMERA",
     "RECORD_AUDIO",
     "MODIFY_AUDIO_SETTINGS",
+    "BLUETOOTH_CONNECT",          # route call audio to a Bluetooth headset (Android 12+)
+    # photos, videos and audio the person attaches or saves
+    "READ_MEDIA_IMAGES",
+    "READ_MEDIA_VIDEO",
+    "READ_MEDIA_AUDIO",
+    "READ_MEDIA_VISUAL_USER_SELECTED",   # "select photos" choice on Android 14+
+    ("READ_EXTERNAL_STORAGE", 32),        # older Android versions only
+    ("WRITE_EXTERNAL_STORAGE", 28),       # saving files on Android 9 and older
+    # notifications, location sharing, haptics
     "POST_NOTIFICATIONS",
     "ACCESS_FINE_LOCATION",
     "ACCESS_COARSE_LOCATION",
     "VIBRATE",
+    # staying connected in the background
     "WAKE_LOCK",
     "RECEIVE_BOOT_COMPLETED",
     "FOREGROUND_SERVICE",
@@ -20,10 +34,20 @@ PERMISSIONS = [
     "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
 ]
 
+# Hardware the app can use but does not need: without these lines Google Play hides the app from phones/tablets lacking it
+FEATURES = ["android.hardware.camera", "android.hardware.camera.autofocus", "android.hardware.microphone",
+            "android.hardware.location", "android.hardware.location.gps", "android.hardware.bluetooth",
+            "android.hardware.touchscreen"]
+
 add = ""
 for p in PERMISSIONS:
-    if "android.permission." + p not in s:
-        add += '    <uses-permission android:name="android.permission.%s" />\n' % p
+    name, max_sdk = (p, None) if isinstance(p, str) else p
+    if 'android.permission.%s"' % name not in s:
+        extra = ' android:maxSdkVersion="%d"' % max_sdk if max_sdk else ""
+        add += '    <uses-permission android:name="android.permission.%s"%s />\n' % (name, extra)
+for f in FEATURES:
+    if 'android:name="%s"' % f not in s:
+        add += '    <uses-feature android:name="%s" android:required="false" />\n' % f
 if add:
     assert "</manifest>" in s, "no </manifest> in AndroidManifest.xml"
     s = s.replace("</manifest>", add + "</manifest>", 1)
