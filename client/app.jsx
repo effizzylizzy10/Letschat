@@ -5166,6 +5166,73 @@ function aiLinkify(text) {
     if (last < text.length) out.push(text.slice(last));
     return out;
 }
+// ---- markdown for the LetsChat AI answers (bold, italic, headings, lists, tables, code blocks, links) ----
+function aiInline(t, kp) {
+    const out = [], ce = React.createElement;
+    const re = /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)|(__[^_\n]+?__)|(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))|(https?:\/\/[^\s)<>"']+)|(\*[^\s*][^*\n]*?\*)/g;
+    const link = { color: "#6FB3FF", textDecoration: "underline", wordBreak: "break-all" };
+    let last = 0, m, k = 0;
+    while ((m = re.exec(t))) {
+        if (m.index > last) out.push(t.slice(last, m.index));
+        const s = m[0], key = kp + "." + k++;
+        let used = s.length;
+        if (m[1]) out.push(ce("code", { key, style: { background: "rgba(255,255,255,.1)", borderRadius: 5, padding: "1px 5px", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: "0.9em" } }, s.slice(1, -1)));
+        else if (m[2] || m[3]) out.push(ce("strong", { key, style: { fontWeight: 700 } }, aiInline(s.slice(2, -2), key)));
+        else if (m[4]) { const mm = /^\[([^\]]+)\]\((.+)\)$/.exec(s); out.push(ce("a", { key, href: mm[2], target: "_blank", rel: "noopener noreferrer", style: link }, mm[1])); }
+        else if (m[5]) { const url = s.replace(/[.,;:!?]+$/, ""); used = url.length; out.push(ce("a", { key, href: url, target: "_blank", rel: "noopener noreferrer", style: link }, url)); }
+        else out.push(ce("em", { key }, aiInline(s.slice(1, -1), key)));
+        last = m.index + used; re.lastIndex = last;
+    }
+    if (last < t.length) out.push(t.slice(last));
+    return out;
+}
+function aiMd(text) {
+    const ce = React.createElement;
+    const lines = String(text || "").replace(/\r/g, "").split("\n");
+    const out = []; let i = 0, k = 0;
+    const isTableSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l || "") && (l || "").indexOf("-") >= 0;
+    const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    const startsBlock = (l, nx) => /^\s*```/.test(l) || /^(#{1,6})\s+/.test(l) || /^\s*>/.test(l) || /^\s*[-*+]\s+/.test(l) || /^\s*\d+[.)]\s+/.test(l) || (l.indexOf("|") >= 0 && isTableSep(nx));
+    while (i < lines.length) {
+        const ln = lines[i]; let m;
+        if ((m = /^\s*```\s*([\w+#.-]*)\s*$/.exec(ln))) { // code block (an unfinished one while the answer is still streaming too)
+            const code = []; i++;
+            while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) code.push(lines[i++]);
+            i++;
+            out.push(ce("div", { key: k++, style: { background: "#0B0F14", border: "1px solid #232B36", borderRadius: 10, overflow: "hidden" } },
+                m[1] ? ce("div", { style: { padding: "4px 10px", fontSize: 11, color: "#8A96A5", background: "#12161B", fontFamily: "Inter" } }, m[1]) : null,
+                ce("pre", { style: { margin: 0, padding: "10px 12px", overflowX: "auto", fontFamily: "ui-monospace,Menlo,Consolas,monospace", fontSize: 13, lineHeight: 1.45, color: "#E6EDF3", whiteSpace: "pre", WebkitUserSelect: "none", userSelect: "none" } }, code.join("\n"))));
+            continue;
+        }
+        if (/^\s*$/.test(ln)) { i++; continue; }
+        if ((m = /^(#{1,6})\s+(.*)$/.exec(ln))) { const lv = m[1].length; out.push(ce("div", { key: k++, style: { fontFamily: "Sora", fontWeight: 700, fontSize: lv === 1 ? 19 : lv === 2 ? 17 : 15.5, lineHeight: 1.3, marginTop: 4 } }, aiInline(m[2], "h" + k))); i++; continue; }
+        if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(ln)) { out.push(ce("div", { key: k++, style: { height: 1, background: "#2B3544", margin: "4px 0" } })); i++; continue; }
+        if (/^\s*>/.test(ln)) { const q = []; while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, "")); out.push(ce("div", { key: k++, style: { borderLeft: "3px solid #35D0BA", paddingLeft: 10, color: "#C5CEDA", whiteSpace: "pre-wrap" } }, aiInline(q.join("\n"), "q" + k))); continue; }
+        if (/^\s*[-*+]\s+/.test(ln) || /^\s*\d+[.)]\s+/.test(ln)) {
+            const items = [];
+            while (i < lines.length && (/^\s*[-*+]\s+/.test(lines[i]) || /^\s*\d+[.)]\s+/.test(lines[i]))) {
+                const mm = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i]); items.push({ ind: Math.min(3, Math.floor(mm[1].replace(/\t/g, "  ").length / 2)), mark: /\d/.test(mm[2]) ? mm[2] : "\u2022", text: mm[3] }); i++;
+            }
+            out.push(ce("div", { key: k++, style: { display: "flex", flexDirection: "column", gap: 3 } }, items.map((it, n) => ce("div", { key: n, style: { display: "flex", gap: 7, paddingLeft: it.ind * 16 } },
+                ce("span", { style: { flexShrink: 0, minWidth: 14, color: "#8FD9CC" } }, it.mark), ce("span", { style: { minWidth: 0, flex: 1 } }, aiInline(it.text, "l" + k + "." + n))))));
+            continue;
+        }
+        if (ln.indexOf("|") >= 0 && isTableSep(lines[i + 1])) {
+            const head = cells(ln); i += 2; const rows = [];
+            while (i < lines.length && lines[i].indexOf("|") >= 0 && !/^\s*$/.test(lines[i])) rows.push(cells(lines[i++]));
+            const cs = { padding: "6px 9px", border: "1px solid #2B3544", textAlign: "left", verticalAlign: "top", fontSize: 13.5 };
+            out.push(ce("div", { key: k++, style: { overflowX: "auto" } }, ce("table", { style: { borderCollapse: "collapse", minWidth: "100%" } },
+                ce("thead", null, ce("tr", null, head.map((c, n) => ce("th", { key: n, style: { ...cs, background: "#12161B", fontWeight: 700 } }, aiInline(c, "th" + k + n))))),
+                ce("tbody", null, rows.map((r, n) => ce("tr", { key: n }, head.map((_, j) => ce("td", { key: j, style: cs }, aiInline(r[j] || "", "td" + k + n + "." + j)))))))));
+            continue;
+        }
+        const para = [ln]; i++;
+        while (i < lines.length && !/^\s*$/.test(lines[i]) && !startsBlock(lines[i], lines[i + 1]) && !/^\s*([-*_])(\s*\1){2,}\s*$/.test(lines[i])) para.push(lines[i++]);
+        out.push(ce("div", { key: k++, style: { whiteSpace: "pre-wrap" } }, aiInline(para.join("\n"), "p" + k)));
+    }
+    return ce("div", { style: { display: "flex", flexDirection: "column", gap: 8, minWidth: 0 } }, out);
+}
+function aiMdSafe(text) { try { return aiMd(text); } catch (e) { return aiLinkify(String(text || "")); } }
 // LetsChat AI page: a plain chat with the AI API (Gemini, OpenAI, Grok...). No learning, training, research or offline pack.
 // sharper video calls: sets the most data each sender may send (a clear picture needs this, not just a big camera size)
 function tuneSender(pc, maxVideo) {
@@ -5243,6 +5310,54 @@ function AiBotScreen({ token, onClose }) {
         return out && out.parts && out.parts.length ? out.parts : ["Sorry, I had no answer for that."];
     };
     const isNetErr = (e) => { const m = String((e && e.message) || ""); return !(e && e.name === "AbortError") && (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|network connection was lost|no internet connection/i.test(m)); };
+    const [liveId, setLiveId] = useState(null), [status, setStatus] = useState(""), abortRef = useRef(null);
+    // streaming answer: the text appears word by word as the AI writes it (like ChatGPT / Gemini / Claude); Stop keeps what was written
+    const askStream = async (text) => {
+        const ctl = new AbortController(); abortRef.current = ctl;
+        const aid = "a" + Date.now(); let acc = "", raf = 0, shown = false, lastByte = Date.now(), stalled = false;
+        const wd = setInterval(() => { if (Date.now() - lastByte > 60000) { stalled = true; try { ctl.abort(); } catch (e) { } } }, 5000); // nothing for a minute: give up on the stream and ask the normal way
+        const flush = () => { raf = 0; const t = acc; setMsgs((m) => { const k = m.findIndex((x) => x.id === aid); if (k < 0) return [...m, { from: "ai", text: t, t: Date.now(), id: aid }]; const c = m.slice(); c[k] = { ...c[k], text: t }; return c; }); };
+        const queue = () => { if (!raf) raf = requestAnimationFrame(flush); };
+        try {
+            let res;
+            try { res = await fetch(`${API_URL}/api/bot/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ text }), signal: ctl.signal }); }
+            catch (e) { if (ctl.signal.aborted) return stalled ? await askOnline(text) : null; throw e; }
+            if (!res.ok || !res.body) {
+                const j = await res.json().catch(() => ({})); const msg = typeof j.error === "string" ? j.error : j.error && j.error.message;
+                if (res.status === 429 || res.status === 503 || (res.status === 502 && msg)) throw new Error(msg || "The AI could not answer right now");
+                return await askOnline(text); // older server without streaming: use the normal answer
+            }
+            const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", fail = "";
+            try {
+                for (;;) {
+                    const { value, done } = await reader.read(); if (done) break;
+                    lastByte = Date.now();
+                    buf += dec.decode(value, { stream: true }); let n;
+                    while ((n = buf.indexOf("\n")) >= 0) {
+                        const line = buf.slice(0, n).trim(); buf = buf.slice(n + 1);
+                        if (!line.startsWith("data:")) continue;
+                        let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+                        if (ev.type === "delta" && ev.text) { acc += ev.text; if (acc.trim()) { if (!shown) { shown = true; if (alive.current) { setLiveId(aid); setStatus(""); } } if (alive.current) queue(); } }
+                        else if (ev.type === "status") { if (!shown && alive.current) setStatus(ev.text || ""); }
+                        else if (ev.type === "error") fail = ev.error || "The AI could not answer right now";
+                    }
+                }
+            } catch (e) { if (!ctl.signal.aborted && !acc) throw e; }
+            if (raf) { cancelAnimationFrame(raf); raf = 0; }
+            if (acc.trim() && alive.current) flush();
+            if (!acc.trim() && fail) throw new Error(fail);
+            if (acc.trim()) return [acc];
+            if (ctl.signal.aborted && !stalled) return null;
+            return await askOnline(text); // nothing came through the stream: ask the normal way instead of showing a blank answer
+        } finally { clearInterval(wd); if (alive.current) { setLiveId(null); setStatus(""); } abortRef.current = null; }
+    };
+    const stopAnswer = () => { try { abortRef.current && abortRef.current.abort(); } catch (e) { } };
+    const newChat = () => {
+        if (typing) return;
+        if (msgs.length && !window.confirm("Start a new chat? This clears the current conversation.")) return;
+        api("/api/bot/clear", { method: "POST", token, body: {} }).catch(() => { });
+        setMsgs([]); setErr(""); try { const b = brain(); b && b.saveChat && b.saveChat([]); } catch (e) { }
+    };
     const addAi = (parts) => setMsgs((m) => [...m, ...parts.map((x, i) => ({ from: "ai", text: x, t: Date.now(), id: "a" + Date.now() + i }))]);
     const answerOffline = async (text) => {
         const b = brain(); if (!b) return false;
@@ -5268,9 +5383,9 @@ function AiBotScreen({ token, onClose }) {
             if (typeof navigator !== "undefined" && navigator.onLine === false && b) await answerOffline(text);
             else {
                 let parts = null;
-                try { parts = await askOnline(text); }
+                try { parts = await askStream(text); }
                 catch (e) { if (b && isNetErr(e)) await answerOffline(text); else throw e; }
-                if (parts && alive.current) { addAi(parts); setOffMode(false); if (b) b.remember(text, parts); }
+                if (parts && alive.current) { setOffMode(false); if (b) b.remember(text, parts); }
             }
         } catch (e) {
             if (alive.current) setErr(e && e.name === "AbortError" ? "The AI is taking too long. Please try again in a moment." : (String((e && e.message) || "") || "The AI could not answer right now"));
@@ -5331,7 +5446,8 @@ function AiBotScreen({ token, onClose }) {
             React.createElement(AiBotAvatar, { size: 42, big: true }),
             React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                 React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 16, color: "#F5F7FA" } }, "LetsChat AI"),
-                (typing || offMode ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? "typing\u2026" : "offline mode") : liveChip))),
+                (typing || offMode ? React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#35D0BA" } }, typing ? (status || "typing\u2026") : "offline mode") : liveChip)),
+            React.createElement("button", { "aria-label": "New chat", onClick: newChat, disabled: typing, style: { background: "none", border: "1px solid #2B3544", borderRadius: 999, padding: "6px 12px", color: "#35D0BA", fontFamily: "Inter", fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: typing ? 0.5 : 1, flexShrink: 0 } }, "New chat")),
         liveOpen && !offMode && livePanel,
         lite && lite.phase !== undefined && (() => {
             const sup = brain() && brain().lite.supported();
@@ -5360,17 +5476,17 @@ function AiBotScreen({ token, onClose }) {
                 const mine = m.from === "me";
                 return React.createElement("div", { key: m.id || i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", alignItems: "flex-end", gap: 8, animation: "lcAiIn .22s ease-out" } },
                     !mine && React.createElement(AiBotAvatar, { size: 28 }),
-                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: "78%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: "pre-wrap", wordBreak: "break-word", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, aiLinkify(m.text),
+                    React.createElement("div", { onClick: (e) => e.stopPropagation(), onContextMenu: (e) => { e.preventDefault(); setHlId(m.id || i); }, onTouchStart: () => { clearTimeout(pressRef.current); pressRef.current = setTimeout(() => setHlId(m.id || i), 450); }, onTouchEnd: () => clearTimeout(pressRef.current), onTouchMove: () => clearTimeout(pressRef.current), style: { maxWidth: mine ? "78%" : "88%", background: hlId === (m.id || i) ? (mine ? "#25A89A" : "#2A3646") : (mine ? "#1F8F7E" : "#1B212B"), outline: hlId === (m.id || i) ? "2px solid #35D0BA" : "none", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, lineHeight: 1.4, padding: "9px 12px", borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px", whiteSpace: mine ? "pre-wrap" : "normal", wordBreak: "break-word", overflowWrap: "anywhere", minWidth: 0, userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" } }, mine ? aiLinkify(m.text) : aiMdSafe(m.text),
                         React.createElement("div", { style: { fontSize: 10.5, color: "rgba(255,255,255,.55)", textAlign: "right", marginTop: 3 } }, hhmm(m.t))), hlId === (m.id || i) && React.createElement("button", { onClick: () => { try { navigator.clipboard.writeText(m.text); } catch (e) {} setHlId(null); }, style: { alignSelf: "flex-end", background: "#1B212B", color: "#35D0BA", border: "1px solid #2B3544", borderRadius: 999, padding: "4px 10px", fontFamily: "Inter", fontSize: 12.5, cursor: "pointer" } }, "Copy"));
             }),
-            typing && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
+            typing && !liveId && React.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 8, animation: "lcAiIn .2s ease-out" } },
                 React.createElement(AiBotAvatar, { size: 28, style: { animation: "lcAiBob 1s ease-in-out infinite" } }),
                 React.createElement("div", { style: { background: "#1B212B", borderRadius: "16px 16px 16px 4px" } }, React.createElement(AiTypingDots, null))),
             err && React.createElement("div", { style: { textAlign: "center", color: "#FF6B5D", fontFamily: "Inter", fontSize: 12.5 } }, err),
             React.createElement("div", { ref: endRef })),
         React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", padding: 8, background: "#12161B", borderTop: "1px solid #1E252E", flexShrink: 0 } },
-            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 4000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
-            React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => send(), disabled: !draft.trim() || typing, style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !draft.trim() || typing ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, React.createElement(Send, { size: 20, color: "#0E1116" }))));
+            React.createElement("input", { value: draft, onChange: (e) => setDraft(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") send(); }, placeholder: "Message LetsChat AI", enterKeyHint: "send", autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", maxLength: 20000, style: { flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 22, border: "none", background: "#1B212B", color: "#F5F7FA", fontFamily: "Inter", fontSize: 15, outline: "none" } }),
+            React.createElement("button", { "aria-label": "Send", onMouseDown: (e) => e.preventDefault(), onClick: () => (typing ? stopAnswer() : send()), disabled: !typing && !draft.trim(), "aria-label": typing ? "Stop" : "Send", style: { width: 44, height: 44, borderRadius: 22, border: "none", background: "#35D0BA", opacity: !typing && !draft.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" } }, typing ? React.createElement("span", { style: { width: 14, height: 14, borderRadius: 3, background: "#0E1116", display: "block" } }) : React.createElement(Send, { size: 20, color: "#0E1116" }))));
 }
 function ChatsScreen({ token, profile, conversations, loading, error, onOpenChat, onProfile, onNewChat, onNewGroup, onLive, presence, favorites = [], pinned = [], onSetPinned = () => { }, muted = {}, onMute = () => Promise.resolve(true) }) {
     const [aiOpen, setAiOpen] = useState(false);
@@ -8228,7 +8344,7 @@ function ToolsScreen({ onProfile, onOpen = () => { }, onTab = () => { }, setting
     const nickRow = ce("div", { key: "nickname", onClick: () => setNickOpen(true), style: { display: "flex", alignItems: "center", gap: 16, padding: "12px 16px", cursor: "pointer" } }, ce("div", { style: { width: 28, display: "flex", justifyContent: "center" } }, ce(AtSign, { size: 21, color: "#35D0BA" })), ce("div", { style: { flex: 1, minWidth: 0 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Nickname"), ce("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: "#8891A0", marginTop: 2, lineHeight: 1.35, overflowWrap: "anywhere" } }, user && user.username ? "@" + user.username + " \u00B7 permanent, friends can search for you with it" : "Not set \u00B7 tap to add")));
     const nickSheet = nickOpen && ce("div", { onClick: () => setNickOpen(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "#000000B0", display: "flex", alignItems: "flex-end", zIndex: 60 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { width: "100%", background: "#161B22", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "20px 20px 28px", borderTop: "1px solid #262E3A", maxHeight: "92%", overflowY: "auto" } }, ce(NicknameEditor, { token, user: user || {}, onCancel: () => setNickOpen(false), onSaved: (u) => { if (u) onUserChange(u); setNickOpen(false); } })));
     const menuItem = (label, view) => ce("div", { key: label, onClick: () => { setMenu(false); onOpen(view); }, style: { padding: "13px 18px", fontFamily: "Inter", fontSize: 14.5, color: "#F5F7FA", cursor: "pointer" } }, label);
-    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }), menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } }, menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))), nickSheet, ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } }, "Last 7 days performance", ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))), info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "0 16px" } }, stat(ToolMsg, String(started), "Conversations started"), stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"), stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")), !promoOff && heading("For you"), !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } }, ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })), ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", paddingRight: 24 } }, ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })), ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))), ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")), heading("Grow your business"), row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")), row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile), row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")), heading("Your nickname"), nickRow, heading("Organize your chats"), row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")), aiRow, row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")), row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")), row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")), heading("Manage your account"), row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile), row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")), row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()), row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")), (isCreator || videos.length) ? [heading("How to"), ce("div", { key: "vids", style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", overflowX: "auto", padding: "4px 16px 8px" } },
+    return ce("div", { style: { display: "flex", flexDirection: "column", height: "100%", position: "relative" } }, ce(TopBar, { title: "Tools", right: ce("button", { "aria-label": "More options", onClick: () => setMenu(!menu), style: { background: "none", border: "none", color: "#F5F7FA", cursor: "pointer", padding: 4, display: "flex" } }, ce(MoreVertical, { size: 22 })) }), menu && ce("div", { onClick: () => setMenu(false), style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 } }, ce("div", { onClick: (e) => e.stopPropagation(), style: { position: "absolute", top: 54, right: 12, background: "#1B212B", border: "1px solid #262E3A", borderRadius: 12, minWidth: 190, boxShadow: "0 12px 32px rgba(0,0,0,.5)", overflow: "hidden" } }, menuItem("Communities", "communities"), menuItem("Notifications", "notifs"), menuItem("Sounds & features", "features"))), nickSheet, ce("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: 24 } }, ce("div", { style: { display: "flex", alignItems: "center", gap: 8, counterIncrement: "lcgap-8", padding: "6px 16px 12px", fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#9BA7B4" } }, "Last 7 days performance", ce("button", { "aria-label": "About these numbers", onClick: () => setInfo(!info), style: { background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" } }, ce(ToolInfo, { size: 19, color: "#9BA7B4" }))), info && ce("div", { style: { margin: "0 16px 12px", padding: "10px 12px", borderRadius: 10, background: "#1B212B", border: "1px solid #262E3A", fontFamily: "Inter", fontSize: 12.5, color: "#9BA7B4", lineHeight: 1.45 } }, "Conversations started counts new one-to-one chats from the past 7 days. Status views counts everyone who viewed your status updates that are still live (they last 24 hours). Catalog views shows dashes because Market views are not counted yet."), ce("div", { style: { display: "flex", gap: 10, counterIncrement: "lcgap-10", padding: "0 16px" } }, stat(ToolMsg, String(started), "Conversations started"), stat(Grid3x3, catViews === null ? "\u2014 \u2014" : String(catViews), "Catalog views"), stat(Radio, statusViews === null ? "\u2014 \u2014" : String(statusViews), "Status views")), !promoOff && heading("For you"), !promoOff && ce("div", { style: { margin: "0 16px", border: "1px solid #262E3A", borderRadius: 16, padding: 16, position: "relative", background: "#10151C" } }, ce("button", { "aria-label": "Dismiss", onClick: dismissPromo, style: { position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" } }, ce(X, { size: 18, color: "#9BA7B4" })), ce("div", { style: { display: "flex", gap: 14, counterIncrement: "lcgap-14", paddingRight: 24 } }, ce("div", { style: { width: 48, height: 48, borderRadius: 12, background: "#1E2A2E", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, ce(ToolMegaphone, { size: 24, color: "#35D0BA" })), ce("div", { style: { flex: 1 } }, ce("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA", lineHeight: 1.3 } }, "Create your first listing"), ce("div", { style: { fontFamily: "Inter", fontSize: 13, color: "#8891A0", marginTop: 4, lineHeight: 1.4 } }, "Reach potential customers with a listing that starts chats."))), ce("button", { onClick: () => onTab("market"), style: { marginTop: 14, background: "#35D0BA", color: "#0E1116", border: "none", borderRadius: 22, padding: "10px 22px", fontFamily: "Sora", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Get started")), heading("Grow your business"), row(Grid3x3, "Catalog", "Show products and services", () => onOpen("catalog")), row(ToolMegaphone, "Advertise", "Help people find you with your profile link", onProfile), row(ToolStore, "Manage listings", "See all your listings in one place", () => onTab("market")), heading("Your nickname"), nickRow, heading("Organize your chats"), row(Users, "Lists", nFav ? "Manage people and groups \u00B7 " + nFav + (nFav === 1 ? " favourite" : " favourites") : "Manage people and groups", () => onOpen("favs")), aiRow, row(Smile, "Greeting message", biz.greeting.on ? "On \u00B7 welcomes new customers automatically" : "Welcome new customers automatically", () => onOpen("greeting")), row(ToolMoon, "Away message", biz.away.on ? "On \u00B7 replies automatically when you\u2019re away" : "Reply automatically when you\u2019re away", () => onOpen("away")), row(ToolZap, "Quick replies", biz.quickReplies.length ? biz.quickReplies.length + (biz.quickReplies.length === 1 ? " saved reply" : " saved replies") : "Reuse frequent messages", () => onOpen("quick")), heading("Manage your account"), row(ToolStore, "Profile", "Manage name, photo, bio and profile link", onProfile), row(Lock, "Privacy", settings.blocked.length ? settings.blocked.length + " blocked \u00B7 read receipts, last seen" : "Blocked, read receipts, last seen", () => onOpen("privacy")), row(HelpCircle, "Help Center", "Get help, contact us", () => onOpen("help")), isCreator && row(CreatorLogo, "Letschat Creator", "Broadcast, block members, rules", () => onOpen("creator")), row(HelpCircle, "Rules & guidelines", "What is allowed on Letschat", () => onOpen("rules")), window.LetschatInstall && !window.LetschatInstall.installed() && row(BackupIcon, "Install app", "Add Letschat to your home screen", () => window.LetschatInstall.install()), row(BackupIcon, "Back up to device", "Save chats to this device", () => window.LetschatBackup && window.LetschatBackup.run()), row(BackupIcon, "Restore from backup", "Choose a backup file", () => window.LetschatBackup && window.LetschatBackup.restore()), row(TrashIcon, "Delete account", "", () => window.LetschatAccount && window.LetschatAccount.remove()), row(User, "About the developer", "Abdullahi Salawu \u00B7 Letschat Africa", () => onOpen("about")), (isCreator || videos.length) ? [heading("How to"), ce("div", { key: "vids", style: { display: "flex", gap: 12, counterIncrement: "lcgap-12", overflowX: "auto", padding: "4px 16px 8px" } },
         isCreator && ce("div", { key: "add", onClick: () => { setVErr(""); setVAdd(true); }, style: { flex: "0 0 150px", minHeight: 140, border: "1px dashed #35D0BA", borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer", color: "#35D0BA", fontFamily: "Inter", fontWeight: 500, fontSize: 13.5 } }, ce("div", { style: { fontSize: 26, lineHeight: 1 } }, "+"), "Add YouTube video"),
         videos.map((v) => ce("div", { key: v.id, onClick: () => window.open(v.url, "_blank", "noopener"), style: { flex: "0 0 150px", position: "relative", border: "1px solid #262E3A", borderRadius: 14, overflow: "hidden", cursor: "pointer", background: "#10151C" } },
             ce("div", { style: { height: 86, backgroundColor: "#000", backgroundImage: "url(https://img.youtube.com/vi/" + v.vid + "/hqdefault.jpg)", backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" } }, ce("div", { style: { width: 38, height: 38, borderRadius: "50%", background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center" } }, ce(ToolPlay, { size: 18, color: "#fff", style: { fill: "#fff" } }))),
@@ -8704,7 +8820,7 @@ const FAQ_SECTIONS = [
     ] },
     { title: "Chatting", items: [
         ["How do I send a photo, file, voice note or location?", "Tap the paperclip for Gallery, Document, Contact, Location, Poll or Schedule. Files can be up to 3 MB. Use the camera to take a photo and hold or tap the microphone to record a voice note; tap again or tap send to send it. Share location asks your phone for permission first and only sends when you tap Send."],
-        ["How do I reply, react, edit, delete or forward a message?", "Swipe a message to the right to reply. Press and hold it to select it: you can react with an emoji, star it, copy, forward, or delete it. Delete for me removes it on your phone; Delete for everyone removes it for the other person too. You can edit your own text messages for 15 minutes after sending."],
+        ["How do I reply, react, edit, delete or forward a message?", "Swipe a message to the right to reply. Press and hold it to select it: you can react with an emoji, star it, copy, forward, or delete it. Delete for me removes it on your phone; Delete for everyone removes it for the other person too. You can edit your own text messages for 1 hour after sending."],
         ["What do the ticks mean?", "One grey tick means sent, two grey ticks mean delivered, and two green ticks mean the person has read it. A clock means the message is still sending. If it shows “Not sent”, tap it to retry."],
         ["How do I find an old message or media?", "Open the chat, tap the three dots and choose Search to look inside the chat. “Media, links and docs” lists all photos, files and links. Starred messages keeps the ones you saved."],
         ["What are disappearing messages and view once?", "Disappearing messages delete themselves after the time you pick: open the chat, tap the three dots → Disappearing messages. View once photos and videos can be opened only one time and then they are gone."],
@@ -9588,16 +9704,16 @@ function pcRow(key, icon, title, sub, onClick, right) {
 function ProfileChatOptions({ chatId, token, muted, onNotifications, onLock, setSheet, mediaHidden, onNote }) {
   const h = React.createElement;
   const [, bump] = useState(0);
-  const [biz, setBiz] = useState(null); // AI business for this chat: null = loading
+  const [biz, setBiz] = useState(null); // Chat AI for this chat: null = loading
   useEffect(() => { let live = true; if (token) api("/api/v1/me/ai/chat/" + chatId, { token }).then((d) => { if (live) setBiz(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBiz("na"); }); return () => { live = false; }; }, [chatId, token]);
-  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change AI business"); }); };
+  const bizSet = (v) => { const was = biz; setBiz(v); api("/api/v1/me/ai/chat/" + chatId, { method: "PUT", token, body: { on: v } }).then((d) => { setBiz(!!(d && d.on)); onNote(v ? "Chat AI is on for this chat" : "Chat AI is off for this chat"); }).catch((e) => { setBiz(was); onNote((e && e.message) || "Could not change Chat AI"); }); };
   useEffect(() => { const f = () => bump((n) => n + 1); window.addEventListener("lcx", f); return () => window.removeEventListener("lcx", f); }, []);
   const ico = (I) => h(I, { size: 22, color: "#8891A0" });
   const lockOn = LCX.locked(chatId);
   const priv = loadJSON("chatpriv:" + chatId, {});
   const lockGo = () => { onLock(); setTimeout(() => bump((n) => n + 1), 50); };
   const aiRows = [
-    token && biz !== "na" ? pcRow("pc-biz", h(AiBotAvatar, { size: 26, style: { filter: biz === true ? "none" : "grayscale(1)", opacity: biz === true ? 1 : 0.7 } }), "AI business", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
+    token && biz !== "na" ? pcRow("pc-biz", h(AiBotAvatar, { size: 26, style: { filter: biz === true ? "none" : "grayscale(1)", opacity: biz === true ? 1 : 0.7 } }), "Chat AI", biz === true ? "On. Learns from this chat and may reply for you when you are away. Replies start with \"AI:\"." : "Let the AI learn from this chat and reply for you", () => { if (biz !== null) bizSet(!biz); },
       h("span", { onClick: (e) => e.stopPropagation(), style: { display: "flex" } }, h(Toggle, { on: biz === true, disabled: biz === null, onChange: (v) => bizSet(v) }))) : null,
   ];
   return h(React.Fragment, null,
@@ -10374,12 +10490,12 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     };
     const notifyAct = (kind, on) => { if (socket && featOn("typingStatus"))
         socket.emit("typing", { conversationId: conversation.id, typing: !!on, kind }); }; // "recording" | "photo" | "file"
-    const EDIT_WINDOW_MS = 15 * 60 * 1000; // keep in step with the server
+    const EDIT_WINDOW_MS = 60 * 60 * 1000; // keep in step with the server
     const canEdit = (m) => !!m && !m.deleted && !m.audio && !m.hasAudio && !m.file && Date.now() - m.time <= EDIT_WINDOW_MS;
     const startEdit = (m) => {
         setSel(null);
         if (!canEdit(m))
-            return setError("Messages can only be edited for 15 minutes after sending");
+            return setError("Messages can only be edited for 1 hour after sending");
         setEditing(m);
         setDraft(m.text);
         setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
@@ -10402,12 +10518,12 @@ useEffect(() => { const h = () => { if (document.hidden && featOn("chatLock") &&
     catch (e) { } }, 250); };
     const pressEnd = () => clearTimeout(pressRef.current);
     const [emojiOpen, setEmojiOpen] = useState(false);
-    // AI business button in the typing area: per-chat on/off (same server setting as the toggle in the contact profile)
+    // Chat AI button in the typing area: per-chat on/off (same server setting as the toggle in the contact profile)
     const [loc, setLoc] = useState(null); // share-location sheet: { st: "find" | "ready" | "denied" | "err", ... }
     const locReq = useRef(0);
     const [bizOn, setBizOn] = useState(null); // null = loading, "na" = not available for this chat, true / false
     useEffect(() => { let live = true; setBizOn(null); if (token && conversation && conversation.id && !conversation.isGroup && !conversation.chatRoom) api("/api/v1/me/ai/chat/" + conversation.id, { token }).then((d) => { if (live) setBizOn(d && d.available === false ? "na" : !!(d && d.on)); }).catch(() => { if (live) setBizOn("na"); }); else setBizOn("na"); return () => { live = false; }; }, [conversation && conversation.id, token]);
-    const bizToggle = () => { if (bizOn === null || bizOn === "na") return; const was = bizOn, v = !bizOn; setBizOn(v); api("/api/v1/me/ai/chat/" + conversation.id, { method: "PUT", token, body: { on: v } }).then((d) => { setBizOn(!!(d && d.on)); flashNote(v ? "AI business is on for this chat" : "AI business is off for this chat"); }).catch((e) => { setBizOn(was); flashNote((e && e.message) || "Could not change AI business"); }); };
+    const bizToggle = () => { if (bizOn === null || bizOn === "na") return; const was = bizOn, v = !bizOn; setBizOn(v); api("/api/v1/me/ai/chat/" + conversation.id, { method: "PUT", token, body: { on: v } }).then((d) => { setBizOn(!!(d && d.on)); flashNote(v ? "Chat AI is on for this chat" : "Chat AI is off for this chat"); }).catch((e) => { setBizOn(was); flashNote((e && e.message) || "Could not change Chat AI"); }); };
     const [attachOpen, setAttachOpen] = useState(false);
     const [pickSheet, setPickSheet] = useState(null);
     const [pendingMedia, setPendingMedia] = useState(null);
@@ -11229,7 +11345,7 @@ const shareContact = async () => {
                     return (React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 0, counterIncrement: "lcgap-0" } },
                         React.createElement("div", { style: { flex: 1 } }),
                         conversation.isGroup && !editing && !rec && React.createElement("button", { "aria-label": "Mention a member", onMouseDown: e => e.preventDefault(), onClick: () => { setEmojiOpen(false); setDraft(d => /(^|\s)@[^\s@]*$/.test(d) ? d : (d && !/\s$/.test(d) ? d + " @" : d + "@")); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); }, style: { ...ib, color: "#9BA7B4", fontFamily: "Sora", fontWeight: 700, fontSize: 21, lineHeight: "24px", alignItems: "center", justifyContent: "center", minWidth: 40 } }, "@"),
-                        !editing && !rec && !isRoom && !conversation.isGroup && token && (bizOn === true || bizOn === false) && React.createElement("button", { "aria-label": bizOn ? "AI business is on. Tap to turn off" : "AI business is off. Tap to turn on", "aria-pressed": bizOn === true, onMouseDown: e => e.preventDefault(), onClick: bizToggle, style: { ...ib, padding: "2px 7px", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } },
+                        !editing && !rec && !isRoom && !conversation.isGroup && token && (bizOn === true || bizOn === false) && React.createElement("button", { "aria-label": bizOn ? "Chat AI is on. Tap to turn off" : "Chat AI is off. Tap to turn on", "aria-pressed": bizOn === true, onMouseDown: e => e.preventDefault(), onClick: bizToggle, style: { ...ib, padding: "2px 7px", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 } },
                             React.createElement(AiBotAvatar, { size: 26, style: { border: bizOn ? "2px solid #35D0BA" : "2px solid transparent", boxSizing: "border-box", filter: bizOn ? "none" : "grayscale(1)", opacity: bizOn ? 1 : 0.6, transition: "opacity .15s, filter .15s" } }),
                             React.createElement("span", { style: { fontFamily: "Inter", fontWeight: 700, fontSize: 9, lineHeight: "10px", letterSpacing: 0.3, color: bizOn ? "#35D0BA" : "#8891A0" } }, bizOn ? "AI ON" : "AI OFF")),
                         React.createElement("button", { "aria-label": emojiOpen ? "Close emoji" : "Open emoji", onClick: () => setEmojiOpen(o => !o), style: ib },
@@ -11917,13 +12033,18 @@ function friendlyAuthError(e) {
         "auth/internal-error": "Something went wrong on our side. Please try again in a moment.",
         "auth/expired-action-code": "This link has expired. Request a new one.",
         "auth/invalid-action-code": "This link is invalid or has already been used.",
+        "auth/invalid-action-code": "This sign-in link is not valid any more. Ask for a new one.",
+        "auth/expired-action-code": "This sign-in link has expired. Ask for a new one.",
+        "auth/operation-not-allowed": "Email-link sign-in is not switched on yet. In Firebase: Authentication > Sign-in method > Email/Password > turn on Email link (passwordless sign-in).",
+        "auth/missing-continue-uri": "Email-link sign-in is not set up for this website yet.",
+        "auth/unauthorized-continue-uri": "This website is not authorized in Firebase (Authentication > Settings > Authorized domains).",
     };
     if (e && /region/i.test(e.message || ""))
         return "Text messages to this country are not enabled yet. In Firebase: Authentication > Settings > SMS region policy, allow Nigeria.";
     if (e && /already been rendered/i.test(e.message || ""))
         return "Please refresh the page and try again.";
     if (e && map[e.code])
-        return map[e.code];
+        return map[e.code] + (e.code === "auth/network-request-failed" || e.code === "auth/internal-error" ? " (" + e.code.replace("auth/", "") + ")" : "");
     if (e && /^auth\//.test(e.code || ""))
         return "Sign-in problem (" + e.code.replace("auth/", "") + "). Please try again.";
     return (e && e.message) || "Something went wrong. Please try again.";
@@ -11987,6 +12108,74 @@ function LoginScreen({ onContinue }) {
     const [emailName, setEmailName] = useState("");
     const [nickname, setNickname] = useState(""); // required when creating an account
     const [emailUser, setEmailUser] = useState(null);
+    const emailRef = useRef(null), passRef = useRef(null), emailNameRef = useRef(null), nickRef = useRef(null);
+    // true inside the Android app (Capacitor WebView): Google blocks sign-in there, and phone keyboards / autofill can fill a box without telling React
+    const IN_APP = /LetschatApp/i.test(navigator.userAgent || "") || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    useEffect(() => {
+        // Copy what is really in the boxes into the form state, so autofilled or pasted text enables the button (a filled box with a greyed-out button)
+        const t = setInterval(() => {
+            const e = emailRef.current, pw = passRef.current, nm = emailNameRef.current, nk = nickRef.current;
+            if (e && typeof e.value === "string") setEmail(prev => prev === e.value ? prev : e.value);
+            if (pw && typeof pw.value === "string") setPassword(prev => prev === pw.value ? prev : pw.value);
+            if (nm && typeof nm.value === "string") setEmailName(prev => prev === nm.value ? prev : nm.value);
+            if (nk && typeof nk.value === "string") setNickname(prev => { const v = nickClean(nk.value); return prev === v ? prev : v; });
+        }, 350);
+        return () => clearInterval(t);
+    }, []);
+    useEffect(() => {
+        // Links from Firebase emails (verify email, reset password) can open inside the app: finish them here instead of ignoring them
+        if (!FIREBASE_READY || window.__lcActionSeen)
+            return;
+        let q;
+        try {
+            q = new URLSearchParams(window.location.search);
+        }
+        catch (e) {
+            return;
+        }
+        const mode = q.get("mode"), code = q.get("oobCode");
+        if (!code || (mode !== "verifyEmail" && mode !== "resetPassword"))
+            return;
+        window.__lcActionSeen = true;
+        const clean = () => { try {
+            window.history.replaceState(null, "", window.location.origin + window.location.pathname);
+        }
+        catch (e) { } };
+        (async () => {
+            try {
+                const auth = firebase.auth();
+                if (mode === "verifyEmail") {
+                    await auth.applyActionCode(code);
+                    clean();
+                    setNotice("Your email is verified. Log in now.");
+                    try {
+                        if (auth.currentUser)
+                            await auth.currentUser.reload();
+                    }
+                    catch (e) { }
+                }
+                else {
+                    const em = await auth.verifyPasswordResetCode(code);
+                    let pw = "";
+                    while (pw.length < 6) {
+                        pw = window.prompt(pw ? "Use at least 6 characters.\nNew password for " + em + ":" : "Choose a new password for " + em + " (6 or more characters):") || "";
+                        if (!pw)
+                            break;
+                    }
+                    clean();
+                    if (pw.length >= 6) {
+                        await auth.confirmPasswordReset(code, pw);
+                        setEmail(em);
+                        setNotice("Password changed. Log in with your new password.");
+                    }
+                }
+            }
+            catch (e) {
+                clean();
+                setError(friendlyAuthError(e));
+            }
+        })();
+    }, []);
     const [notice, setNotice] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
@@ -12042,6 +12231,8 @@ function LoginScreen({ onContinue }) {
         await finish(await cred.user.getIdToken(), "");
     });
     const google = () => run(async () => {
+        if (IN_APP)
+            throw new Error("Google sign-in is not available inside the app (Google blocks it). Use your email and password, or \u201cSign in with email only\u201d.");
         const provider = new firebase.auth.GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" }); // always show Google's account chooser (never silently reuse the signed-in account)
         const cred = await firebase.auth().signInWithPopup(provider);
@@ -12055,8 +12246,12 @@ function LoginScreen({ onContinue }) {
     const submitEmail = () => run(async () => {
         setNotice("");
         const auth = firebase.auth();
+        const em = ((emailRef.current && emailRef.current.value) || email).trim().toLowerCase();
+        const pw = (passRef.current && passRef.current.value) || password;
+        if (!em || pw.length < 6)
+            throw new Error(!em ? "Type your email address first." : "Password needs at least 6 characters.");
         if (isNew) {
-            const cred = await auth.createUserWithEmailAndPassword(email.trim().toLowerCase(), password);
+            const cred = await auth.createUserWithEmailAndPassword(em, pw);
             try {
                 await cred.user.updateProfile({ displayName: emailName.trim() });
             }
@@ -12072,7 +12267,7 @@ function LoginScreen({ onContinue }) {
             }
             return;
         }
-        const cred = await auth.signInWithEmailAndPassword(email.trim().toLowerCase(), password);
+        const cred = await auth.signInWithEmailAndPassword(em, pw);
         if (!cred.user.emailVerified) {
             try {
                 await cred.user.sendEmailVerification();
@@ -12102,6 +12297,54 @@ function LoginScreen({ onContinue }) {
         await firebase.auth().sendPasswordResetEmail(email.trim().toLowerCase());
         setNotice("Password reset link sent to " + email.trim().toLowerCase() + ".");
     });
+    // ---- email only, no password: Firebase emails a one-time sign-in link that proves the person owns the address ----
+    const sendLink = () => run(async () => {
+        if (!emailOk)
+            throw new Error("Type your email address first.");
+        await firebase.auth().sendSignInLinkToEmail(email.trim(), { url: window.location.origin + window.location.pathname, handleCodeInApp: true });
+        try {
+            localStorage.setItem("lc-link-email", email.trim());
+        }
+        catch (e) { }
+        setEmailStage("linksent");
+        setNotice("");
+    });
+    const completeLink = (em, href) => run(async () => {
+        const cred = await firebase.auth().signInWithEmailLink(String(em).trim(), href || window.location.href);
+        try {
+            localStorage.removeItem("lc-link-email");
+        }
+        catch (e) { }
+        try {
+            window.history.replaceState(null, "", window.location.origin + window.location.pathname);
+        }
+        catch (e) { }
+        await finish(await cred.user.getIdToken(), "");
+    });
+    useEffect(() => {
+        // the person opened the sign-in link from their email: finish signing in (ask for the email if this is another phone or browser)
+        if (!FIREBASE_READY || window.__lcLinkSeen)
+            return;
+        let isLink = false;
+        try {
+            isLink = firebase.auth().isSignInWithEmailLink(window.location.href);
+        }
+        catch (e) { }
+        if (!isLink)
+            return;
+        window.__lcLinkSeen = true;
+        let saved = "";
+        try {
+            saved = localStorage.getItem("lc-link-email") || "";
+        }
+        catch (e) { }
+        if (saved) {
+            setEmail(saved);
+            completeLink(saved, window.location.href);
+        }
+        else
+            setEmailStage("linkconfirm");
+    }, []);
     const linkBtn = { background: "none", border: "none", color: "#8891A0", fontFamily: "Inter", fontSize: 13, marginTop: 14, cursor: "pointer", width: "100%" };
     const box = { display: "flex", alignItems: "center", gap: 10, counterIncrement: "lcgap-10", background: "#161B22", border: "1px solid #262E3A", borderRadius: 14, padding: "14px 16px", marginBottom: 16 };
     const inputStyle = { flex: 1, background: "none", border: "none", outline: "none", color: "#F5F7FA", fontFamily: "Sora", fontWeight: 600, fontSize: 16, letterSpacing: 0.5 };
@@ -12110,17 +12353,20 @@ function LoginScreen({ onContinue }) {
     const nicknameBox = () => React.createElement(React.Fragment, null,
         React.createElement("div", { style: box },
             React.createElement("span", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 16 } }, "@"),
-            React.createElement("input", { value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
+            React.createElement("input", { ref: nickRef, value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
             React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", flexShrink: 0 } }, nickLen(nickname) + "/" + NICK_MAX)),
         React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-8px 4px 14px", lineHeight: 1.4 } }, "Up to " + NICK_MAX + " characters: letters, numbers or symbols. No emoji. Friends use it to find you. It can\u2019t be changed later."), React.createElement(SimilarNicks, { list: similarNicks }));
-    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
-    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email" };
+    const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : (emailStage === "link" || emailStage === "linksent" || emailStage === "linkconfirm") ? emailStage : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
+    const titles = { phone: "Log in or sign up", code: "Enter the code", name: "What's your name?", email: isNew ? "Create your account" : "Log in with email", verify: "Verify your email", link: "Sign in with email", linksent: "Check your email", linkconfirm: "Confirm your email" };
     const subs = {
         phone: "We'll text you a verification code. Or continue with Google.",
         code: "We sent a code to +" + dial + " " + formatNational(phone) + ".",
         name: "Your name and nickname are what people you chat with will see.",
         email: "Use your email and a password (6 or more characters).",
         verify: "We sent a link to " + email.trim() + ". Open it, then tap the button below.",
+        link: "No password needed. We email you a link: tap it and you are signed in.",
+        linksent: "We sent a sign-in link to " + email.trim() + ". Open it on this phone to sign in. Check your spam folder too.",
+        linkconfirm: "Type the email address the link was sent to, to finish signing in.",
     };
     return (React.createElement("div", { style: { height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "safe center", padding: "0 28px", background: "radial-gradient(circle at 50% 0%, #12251F 0%, #0E1116 62%)", overflowY: "auto" } },
         React.createElement("div", { style: { textAlign: "center", marginBottom: 30 } },
@@ -12153,17 +12399,18 @@ function LoginScreen({ onContinue }) {
             React.createElement("button", { disabled: busy || phone.length < 6 || !FIREBASE_READY, onClick: sendCode, style: btn(phone.length >= 6 && FIREBASE_READY) }, busy ? "Please wait…" : "Send code"),
             React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
             React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google"),
-            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Log in with email and password"))),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Log in with email and password"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: linkBtn }, "Sign in with email only (no password)"))),
         stage === "email" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [["Log in", false], ["Create account", true]].map(([label, v]) => (React.createElement("button", { key: label, onClick: () => { setIsNew(v); setError(""); setNotice(""); }, style: { flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, label)))),
             isNew && (React.createElement("div", { style: box },
-                React.createElement("input", { value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
+                React.createElement("input", { ref: emailNameRef, value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
             isNew && nicknameBox(),
             React.createElement("div", { style: box },
-                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
             React.createElement("div", { style: box },
-                    React.createElement("input", { type: showPassword ? "text" : "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password", autoComplete: isNew ? "new-password" : "current-password", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }),
-                    React.createElement("button", { type: "button", onClick: () => setShowPassword(v => !v), "aria-label": showPassword ? "Hide password" : "Show password", "aria-pressed": showPassword, style: { background: "none", border: "none", padding: 0, margin: 0, cursor: "pointer", color: showPassword ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+                    React.createElement("input", { ref: passRef, type: showPassword ? "text" : "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password", autoComplete: isNew ? "new-password" : "current-password", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }),
+                    React.createElement("button", { type: "button", onMouseDown: e => e.preventDefault(), onClick: () => setShowPassword(v => !v), "aria-label": showPassword ? "Hide password" : "Show password", "aria-pressed": showPassword, style: { background: "none", border: "none", padding: 0, margin: "-6px -6px -6px 0", cursor: "pointer", color: showPassword ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto", width: 36, height: 36, minWidth: 36, lineHeight: 0, WebkitAppearance: "none", MozAppearance: "none", appearance: "none" } },
                         React.createElement("svg", { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, showPassword ? (React.createElement(React.Fragment, null,
                             React.createElement("path", { d: "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" }),
                             React.createElement("path", { d: "M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" }),
@@ -12174,11 +12421,26 @@ function LoginScreen({ onContinue }) {
             !emailReady && missingHint && React.createElement("p", { role: "status", style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-6px 4px 12px", lineHeight: 1.4 } }, missingHint),
             React.createElement("button", { disabled: busy || !emailReady, onClick: submitEmail, style: btn(emailReady) }, busy ? "Please wait…" : isNew ? "Create account" : "Log in"),
             !isNew && React.createElement("button", { onClick: forgotPassword, style: linkBtn }, "Forgot password?"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: { ...linkBtn, color: "#35D0BA", marginTop: 8 } }, "Sign in with email only (no password)"),
             PHONE_LOGIN
                 ? React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead")
-                : React.createElement(React.Fragment, null,
+                : IN_APP ? null : React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
                     React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google")))),
+        stage === "link" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && sendLink(), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailOk || !FIREBASE_READY, onClick: sendLink, style: btn(emailOk && FIREBASE_READY) }, busy ? "Please wait…" : "Email me a sign-in link"),
+            React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Use a password instead"),
+            PHONE_LOGIN && React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead"))),
+        stage === "linksent" && (React.createElement(React.Fragment, null,
+            React.createElement("button", { disabled: busy, onClick: sendLink, style: btn(true) }, busy ? "Please wait…" : "Send the link again"),
+            React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: linkBtn }, "Use a different email"))),
+        stage === "linkconfirm" && (React.createElement(React.Fragment, null,
+            React.createElement("div", { style: box },
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && completeLink(email), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+            React.createElement("button", { disabled: busy || !emailOk, onClick: () => completeLink(email), style: btn(emailOk) }, busy ? "Please wait…" : "Sign in"),
+            React.createElement("button", { onClick: () => { try { window.history.replaceState(null, "", window.location.origin + window.location.pathname); } catch (e) { } setEmailStage("link"); setError(""); }, style: linkBtn }, "Send me a new link"))),
         stage === "verify" && (React.createElement(React.Fragment, null,
             React.createElement("button", { disabled: busy, onClick: checkVerified, style: btn(true) }, busy ? "Please wait…" : "I've verified my email"),
             React.createElement("button", { onClick: resendVerification, style: linkBtn }, "Resend email"),
@@ -12197,6 +12459,7 @@ function LoginScreen({ onContinue }) {
             nicknameBox(),
             React.createElement("button", { disabled: busy || !name.trim() || !nickValid(nickname), onClick: createAccount, style: btn(!!name.trim() && nickValid(nickname)) }, busy ? "Please wait…" : "Create account"))),
         React.createElement("div", { id: "recaptcha-wrap" }),
+        window.LetschatInstall && !window.LetschatInstall.installed() && React.createElement("button", { onClick: () => window.LetschatInstall.install(), style: { ...linkBtn, color: "#35D0BA", marginBottom: 20 } }, "Install the app on your phone"),
         React.createElement("p", { style: { textAlign: "center", fontFamily: "Inter", fontSize: 12, color: "#8A96A5", marginTop: 22, lineHeight: 1.6 } }, "Your email or Google account is your Letschat Africa ID. Your nickname (set at sign up, change it in Tools) lets friends find you without sharing either.")));
 }
 function App() {
