@@ -133,24 +133,36 @@ final class MessagePopup {
         ui.post(new Runnable() {
             @Override
             public void run() {
-                if (!item.id.isEmpty()) {
-                    if (seen.contains(item.id)) return; // the live connection and the checker can both report the same message
-                    seen.add(item.id);
-                    seenOrder.add(item.id);
-                    while (seenOrder.size() > MAX_SEEN) seen.remove(seenOrder.removeFirst());
+                try {
+                    handlePush(item);
+                } catch (Throwable t) {
+                    // a pop-up that cannot be drawn must never close the whole app
+                    try {
+                        removeView();
+                    } catch (Throwable ignored) {}
+                    items.clear();
                 }
-                if (items.size() >= MAX_ITEMS) {
-                    items.remove(0);
-                    if (index > 0) index--;
-                }
-                items.add(item);
-                if (root == null) {
-                    index = 0;
-                    build();
-                }
-                if (root != null) refresh();
             }
         });
+    }
+
+    private void handlePush(Item item) {
+        if (!item.id.isEmpty()) {
+            if (seen.contains(item.id)) return; // the live connection and the checker can both report the same message
+            seen.add(item.id);
+            seenOrder.add(item.id);
+            while (seenOrder.size() > MAX_SEEN) seen.remove(seenOrder.removeFirst());
+        }
+        if (items.size() >= MAX_ITEMS) {
+            items.remove(0);
+            if (index > 0) index--;
+        }
+        items.add(item);
+        if (root == null) {
+            index = 0;
+            build();
+        }
+        if (root != null) refresh();
     }
 
     void dismiss() {
@@ -222,8 +234,8 @@ final class MessagePopup {
         nav.addView(counterView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         LinearLayout arrows = new LinearLayout(ctx);
         arrows.setOrientation(LinearLayout.HORIZONTAL);
-        prevBtn = arrow("\u2039");
-        nextBtn = arrow("\u203A");
+        prevBtn = arrow("‹");
+        nextBtn = arrow("›");
         prevBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -302,7 +314,7 @@ final class MessagePopup {
         pill.setBackground(pillBg);
 
         TextView emoji = new TextView(ctx);
-        emoji.setText("\u263A");
+        emoji.setText("☺");
         emoji.setTextColor(C_MUTED);
         emoji.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
         emoji.setGravity(Gravity.CENTER);
@@ -437,7 +449,7 @@ final class MessagePopup {
     // ---- showing the current message ----
 
     private void refresh() {
-        if (root == null) return;
+        if (root == null || counterView == null || msgView == null) return;
         if (items.isEmpty()) {
             removeView();
             return;
