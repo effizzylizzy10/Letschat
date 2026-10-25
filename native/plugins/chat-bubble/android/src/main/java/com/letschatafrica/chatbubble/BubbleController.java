@@ -1,5 +1,8 @@
 package com.letschatafrica.chatbubble;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -20,12 +23,14 @@ import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.TextView;
 import java.io.InputStream;
@@ -35,8 +40,9 @@ import java.net.URL;
 /**
  * Draws the floating Letschat chat head in its own overlay window: the sender's round photo with a red unread badge and a
  * blue speech bubble showing the message (like Messenger). It is drawn in its own overlay window (no extra service needed: the background
- * service keeps the process alive). Drag to move, it snaps to the left or right edge, tap opens the app,
- * drop it in the bottom part of the screen to dismiss it until the next message.
+ * service keeps the process alive). Behaves like the Messenger chat head: drag to move, let go and it glides to the left or right edge
+ * (a fling picks the side), tap opens the app, and dragging it onto the X at the bottom pulls it in; letting go there shrinks it away
+ * until the next message. The head is never faded: it always stays fully opaque.
  */
 final class BubbleController {
 
@@ -72,8 +78,15 @@ final class BubbleController {
     private String chatId = "";
     private FrameLayout xTarget;
     private GradientDrawable xBg;
+    /** Screen centre of the X target, measured once while it is at normal size. */
+    private int[] xCenter;
     /** True while a finger is on the chat head: nothing may restyle, dim or animate it meanwhile. */
     private boolean dragging = false;
+    /** True while the head glides to an edge or shrinks into the X: a new message must not restyle it meanwhile. */
+    private boolean snapping = false;
+    private ValueAnimator snapAnim;
+    /** Difference between a screen y and the overlay window's own y (the status bar), used to place the head on the X. */
+    private int winOffY = 0;
 
     private final Runnable hidePreviewTask = new Runnable() {
         @Override
@@ -126,7 +139,7 @@ final class BubbleController {
                 badge.setVisibility(View.GONE);
             }
             setAvatar(avatar, title);
-            if (dragging) return; // the person is moving the head right now: never shrink, fade or re-pop it under their finger
+            if (dragging || snapping) return; // the person is moving the head right now: never shrink, fade or re-pop it under their finger
             // the speech bubble shows the message itself (the sender is the photo next to it)
             String line = (text == null || text.isEmpty()) ? (title == null ? "" : title) : text;
             ui.removeCallbacks(hidePreviewTask);
@@ -277,6 +290,11 @@ final class BubbleController {
 
     private void removeView() {
         ui.removeCallbacks(hidePreviewTask);
+        if (snapAnim != null) {
+            snapAnim.cancel();
+            snapAnim = null;
+        }
+        snapping = false;
         hideTarget();
         dragging = false;
         if (row != null) {
@@ -314,13 +332,37 @@ final class BubbleController {
         private float touchY;
         private boolean moved;
         private boolean inDismissZone;
+        private VelocityTracker vt;
+
+        /** Feeds the velocity tracker with screen coordinates (the window moves with the finger, so view coordinates would read as standing still). */
+        private void track(MotionEvent e) {
+            if (vt == null) return;
+            MotionEvent c = MotionEvent.obtain(e);
+            c.setLocation(e.getRawX(), e.getRawY());
+            vt.addMovement(c);
+            c.recycle();
+        }
+
+        private void releaseTracker() {
+            if (vt != null) {
+                vt.recycle();
+                vt = null;
+            }
+        }
 
         @Override
         public boolean onTouch(View v, MotionEvent e) {
             if (row == null) return false;
             switch (e.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_DOWN: {
                     ui.removeCallbacks(hidePreviewTask);
+                    // catching the head while it is still gliding to an edge: keep it exactly where it is
+                    boolean midGlide = snapping;
+                    if (snapAnim != null) {
+                        snapAnim.cancel();
+                        snapAnim = null;
+                    }
+                    snapping = false;
                     dragging = true;
                     // an arrival animation (fade-in or pop) that is still running must not fight the finger
                     holder.animate().cancel();
@@ -330,10 +372,18 @@ final class BubbleController {
                     holder.setScaleY(1f);
                     row.setAlpha(1f);
                     setPreviewVisible(false);
-                    // from here the position is measured from the left edge while dragging
-                    lp.gravity = Gravity.TOP | Gravity.START;
-                    lp.x = onRight ? screenW() - dp(56) : 0;
-                    updateLayoutSafe();
+                    if (!midGlide) {
+                        int[] loc = new int[2];
+                        row.getLocationOnScreen(loc);
+                        winOffY = loc[1] - lp.y;
+                        // from here the position is measured from the left edge while dragging
+                        lp.gravity = Gravity.TOP | Gravity.START;
+                        lp.x = onRight ? screenW() - dp(56) : 0;
+                        updateLayoutSafe();
+                    }
+                    releaseTracker();
+                    vt = VelocityTracker.obtain();
+                    track(e);
                     startX = lp.x;
                     startY = lp.y;
                     touchX = e.getRawX();
@@ -341,43 +391,65 @@ final class BubbleController {
                     moved = false;
                     inDismissZone = false;
                     return true;
+                }
                 case MotionEvent.ACTION_MOVE: {
+                    track(e);
                     float dx = e.getRawX() - touchX;
                     float dy = e.getRawY() - touchY;
                     if (!moved && Math.abs(dx) < dp(6) && Math.abs(dy) < dp(6)) return true;
                     moved = true;
-                    lp.x = Math.max(0, Math.min(screenW() - dp(56), (int) (startX + dx)));
-                    lp.y = clampY((int) (startY + dy));
-                    updateLayoutSafe();
                     showTarget();
-                    inDismissZone = overTarget(e.getRawX(), e.getRawY());
-                    // stays fully visible while dragged (only a little bigger over the X)
+                    // near the X the head is pulled into its centre (and stays there until the finger moves clearly away)
+                    inDismissZone = overTarget(e.getRawX(), e.getRawY(), inDismissZone);
+                    int[] c = inDismissZone ? targetCenter() : null;
+                    if (c != null) {
+                        lp.x = c[0] - dp(28);
+                        lp.y = c[1] - dp(28) - winOffY;
+                    } else {
+                        lp.x = Math.max(0, Math.min(screenW() - dp(56), (int) (startX + dx)));
+                        lp.y = clampY((int) (startY + dy));
+                    }
+                    updateLayoutSafe();
+                    // stays fully visible and full size while dragged
                     holder.setAlpha(1f);
-                    holder.setScaleX(inDismissZone ? 1.2f : 1f);
-                    holder.setScaleY(inDismissZone ? 1.2f : 1f);
+                    holder.setScaleX(1f);
+                    holder.setScaleY(1f);
                     return true;
                 }
-                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_UP: {
+                    track(e);
                     dragging = false;
-                    hideTarget();
-                    holder.setAlpha(1f);
-                    holder.setScaleX(1f);
-                    holder.setScaleY(1f);
+                    float vx = 0f;
+                    float vy = 0f;
+                    if (vt != null) {
+                        vt.computeCurrentVelocity(1000);
+                        vx = vt.getXVelocity();
+                        vy = vt.getYVelocity();
+                    }
+                    releaseTracker();
                     if (!moved) {
+                        hideTarget();
+                        holder.setScaleX(1f);
+                        holder.setScaleY(1f);
                         openApp();
                     } else if (inDismissZone) {
-                        removeView();
+                        dismissAnimated(); // the X stays on screen until the head has shrunk into it
                     } else {
-                        snapToEdge();
+                        hideTarget();
+                        holder.setScaleX(1f);
+                        holder.setScaleY(1f);
+                        animateSnap(vx, vy);
                     }
                     return true;
+                }
                 case MotionEvent.ACTION_CANCEL:
                     dragging = false;
+                    releaseTracker();
                     hideTarget();
                     holder.setAlpha(1f);
                     holder.setScaleX(1f);
                     holder.setScaleY(1f);
-                    snapToEdge();
+                    animateSnap(0f, 0f);
                     return true;
                 default:
                     return false;
@@ -391,17 +463,88 @@ final class BubbleController {
         } catch (RuntimeException ignored) {}
     }
 
-    private void snapToEdge() {
+    /**
+     * Messenger-style release: the head glides to the nearest side edge (a sideways fling chooses the side) and a vertical
+     * fling carries it a little further up or down. Only position and size are animated, never opacity.
+     */
+    private void animateSnap(float vx, float vy) {
         if (row == null) return;
-        onRight = (lp.x + dp(28)) > screenW() / 2;
+        final int w = dp(56);
+        final boolean right;
+        if (Math.abs(vx) > dp(500)) {
+            right = vx > 0;
+        } else {
+            right = (lp.x + w / 2) > screenW() / 2;
+        }
+        final int fromX = lp.x;
+        final int fromY = lp.y;
+        final int toX = right ? screenW() - w : 0;
+        final int toY = clampY(lp.y + (int) (vy * 0.12f));
+        if (snapAnim != null) snapAnim.cancel();
+        snapping = true;
+        final boolean[] cancelled = { false };
+        final ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
+        a.setDuration(260);
+        a.setInterpolator(new DecelerateInterpolator(2f));
+        a.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator an) {
+                if (row == null) return;
+                float f = (Float) an.getAnimatedValue();
+                lp.x = fromX + (int) ((toX - fromX) * f);
+                lp.y = fromY + (int) ((toY - fromY) * f);
+                updateLayoutSafe();
+            }
+        });
+        a.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationCancel(Animator animation) {
+                cancelled[0] = true;
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                if (!cancelled[0]) finishSnap(right);
+            }
+        });
+        snapAnim = a;
+        a.start();
+    }
+
+    /** The glide has arrived: switch the window back to edge gravity, remember the spot and give the head a small landing bounce. */
+    private void finishSnap(boolean right) {
+        snapping = false;
+        snapAnim = null;
+        if (row == null) return;
+        onRight = right;
         lp.gravity = Gravity.TOP | (onRight ? Gravity.END : Gravity.START);
         lp.x = 0;
         lp.y = clampY(lp.y);
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("right", onRight).putInt("y", lp.y).apply();
         arrange();
-        try {
-            wm.updateViewLayout(row, lp);
-        } catch (RuntimeException ignored) {}
+        updateLayoutSafe();
+        if (holder != null) {
+            holder.setScaleX(0.88f);
+            holder.setScaleY(0.88f);
+            holder.animate().scaleX(1f).scaleY(1f).setDuration(220).setInterpolator(new OvershootInterpolator(3f)).start();
+        }
+    }
+
+    /** Dropped on the X: the head shrinks into it (size only, it is never faded), then the window goes away until the next message. */
+    private void dismissAnimated() {
+        final FrameLayout h = holder;
+        if (h == null || row == null) {
+            removeView();
+            return;
+        }
+        snapping = true; // nothing may restyle the head while it shrinks
+        h.animate().scaleX(0f).scaleY(0f).setDuration(160).setInterpolator(new DecelerateInterpolator()).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                snapping = false;
+                if (holder == h) removeView();
+            }
+        }).start();
     }
 
 
@@ -450,18 +593,30 @@ final class BubbleController {
         }
         xTarget = null;
         xBg = null;
+        xCenter = null;
     }
 
-    /** True while the finger is over the X itself (a little wider than the circle); the X turns red and grows. */
-    private boolean overTarget(float rawX, float rawY) {
-        if (xTarget == null || xTarget.getWidth() == 0) return false;
-        int[] loc = new int[2];
-        xTarget.getLocationOnScreen(loc);
-        float cx = loc[0] + xTarget.getWidth() / 2f;
-        float cy = loc[1] + xTarget.getHeight() / 2f;
-        float dx = rawX - cx;
-        float dy = rawY - cy;
-        float reach = dp(40); // the X circle is 32 dp in radius: only a drop right on it dismisses the head
+    /** Screen centre of the X, measured while it is at normal size (null until it has been laid out). */
+    private int[] targetCenter() {
+        if (xTarget == null || xTarget.getWidth() == 0) return null;
+        if (xCenter == null && xTarget.getScaleX() == 1f) {
+            int[] loc = new int[2];
+            xTarget.getLocationOnScreen(loc);
+            xCenter = new int[] { loc[0] + xTarget.getWidth() / 2, loc[1] + xTarget.getHeight() / 2 };
+        }
+        return xCenter;
+    }
+
+    /**
+     * True while the finger is near the X: the head is then pulled into the X, which turns red and grows. Once caught it stays
+     * caught until the finger moves clearly away (a larger radius), so it does not flicker at the edge.
+     */
+    private boolean overTarget(float rawX, float rawY, boolean wasNear) {
+        int[] c = targetCenter();
+        if (c == null) return false;
+        float dx = rawX - c[0];
+        float dy = rawY - c[1];
+        float reach = wasNear ? dp(76) : dp(56);
         boolean hit = dx * dx + dy * dy < reach * reach;
         if (xBg != null) xBg.setColor(hit ? 0xFFE53935 : 0xCC1B1F27);
         xTarget.setScaleX(hit ? 1.25f : 1f);
