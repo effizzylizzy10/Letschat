@@ -18,7 +18,7 @@
         if (bar || isUp() || !document.body) return;
         bar = document.createElement("div");
         bar.setAttribute("role", "status");
-        bar.textContent = "Waking up the server\u2026 almost there.";
+        bar.textContent = "Waking up the server… almost there.";
         bar.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:100001;padding:8px 12px;text-align:center;font:13px/1.3 Inter,Arial,sans-serif;background:#1B2B33;color:#35D0BA;padding-top:calc(8px + env(safe-area-inset-top,0px))";
         document.body.appendChild(bar);
       }
@@ -165,39 +165,19 @@
     if (A.getLaunchUrl) A.getLaunchUrl().then(function (r) { if (r && r.url) go(r.url); }, function () {});
   })();
   </script>
-  <script>/* Native Letschat app only: pressing Back 3 times on the very first screen minimises Letschat into a floating chat head (like Messenger) instead of closing it. Back still closes chats and screens one step at a time. It needs the "Chat head" switch (Settings > Notifications, on by default) and Android's "Display over other apps" permission; without them Back closes the app as before. Tapping the chat head opens Letschat again. */
+  <script>/* Native Letschat app only: ONE press of Back on the very first screen minimises Letschat (nothing to switch on). The floating chat head then comes up by itself (the native plugin shows it as soon as the app leaves the screen) and tapping it opens Letschat again. Back still closes chats and screens one step at a time. It needs the "Floating chat bubble" switch (Settings > Notifications, on by default) and Android's "Display over other apps" permission; without them Back closes the app as before. */
   (function () {
     var A = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
     if (!A || !A.addListener) return;
-    var taps = 0, tapTimer = null, toastEl = null, toastTimer = null;
     function signedIn() { try { var s = JSON.parse(localStorage.getItem("letschat-africa:session")); return !!(s && s.token); } catch (e) { return false; } }
     function headOn() { try { return localStorage.getItem("letschat-native:bubble") !== "0"; } catch (e) { return true; } }
     function leave() { try { if (A.exitApp) A.exitApp(); } catch (e) {} }
     function minimise() { try { if (A.minimizeApp) A.minimizeApp(); else leave(); } catch (e) { leave(); } }
-    function toast(t) {
-      try {
-        if (!toastEl) {
-          toastEl = document.createElement("div");
-          toastEl.style.cssText = "position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#1E2530;color:#F5F7FA;border:1px solid #262E3A;border-radius:18px;padding:9px 16px;font:600 13px Inter,sans-serif;z-index:99999;pointer-events:none;opacity:0;transition:opacity .15s;max-width:80%;text-align:center";
-          document.body.appendChild(toastEl);
-        }
-        toastEl.textContent = t; toastEl.style.opacity = "1";
-        clearTimeout(toastTimer); toastTimer = setTimeout(function () { toastEl.style.opacity = "0"; }, 1800);
-      } catch (e) {}
-    }
     A.addListener("backButton", function (ev) {
-      if (ev && ev.canGoBack) { taps = 0; try { history.back(); } catch (e) {} return; }
+      if (ev && ev.canGoBack) { try { history.back(); } catch (e) {} return; }
       var BB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ChatBubble;
-      if (!BB || !BB.show || !headOn() || !signedIn()) { leave(); return; }
-      taps++;
-      clearTimeout(tapTimer);
-      if (taps < 3) {
-        toast(taps === 1 ? "Press Back 2 more times to minimise" : "Press Back once more to minimise");
-        tapTimer = setTimeout(function () { taps = 0; }, 2500);
-        return;
-      }
-      taps = 0;
-      BB.show({ count: 0, title: "", text: "", chatId: "", avatar: "" }).then(minimise, leave);
+      if (!BB || !headOn() || !signedIn()) { leave(); return; }
+      minimise();
     });
   })();
   </script>
@@ -206,6 +186,10 @@
     /* No text highlighting anywhere in the app: only the message bubble highlight (long-press) is allowed. Typing boxes stay selectable so editing works. */
     html, body, #root, #root * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
     input, textarea, [contenteditable="true"], [contenteditable=""] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+    /* The rule above is weaker than "#root *" (an id beats an element name), so every typing box inside the app ended up with user-select: none. On Android that
+       makes the keyboard keep the letters in its suggestion bar while the box stays empty (sign-in button never turns on). These rules are as strong as "#root *"
+       and come after it, so typing boxes always accept text. */
+    #root input, #root textarea, #root [contenteditable="true"], #root [contenteditable=""] { -webkit-user-select: text !important; user-select: text !important; -webkit-touch-callout: default !important; }
     ::selection { background: transparent; }
     input::selection, textarea::selection, [contenteditable="true"]::selection { background: rgba(53,208,186,.35); }
     #root { height: 100%; }
