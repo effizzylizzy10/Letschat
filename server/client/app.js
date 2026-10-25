@@ -8748,6 +8748,62 @@ function PushRow() {
                     : "Get message alerts even when the app is closed.");
     return (React.createElement("div", { style: settingRow }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Push notifications"), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: err ? "#FF6B5D" : "#8891A0", marginTop: 2 } }, note)), React.createElement(Toggle, { on: st === "on", onChange: change, disabled: busy || st === "checking" || st === "unsupported" || st === "needs-install" || st === "denied" || st === "unavailable" })));
 }
+function BubbleRow() {
+    // "Floating chat bubble" setting. Only shown inside the Letschat Android app (a WebView); the native side is the ChatBubble plugin.
+    const KEY = "letschat-native:bubble";
+    const plugin = () => { try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ChatBubble) || null; } catch { return null; } };
+    const inApp = (() => { try { return /LetschatApp|; wv\)/.test(navigator.userAgent) || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); } catch { return false; } })();
+    const readOn = () => { try { return localStorage.getItem(KEY) !== "0"; } catch { return true; } };
+    const [on, setOn] = useState(readOn);
+    const [perm, setPerm] = useState("unknown");
+    const refresh = () => {
+        const p = plugin();
+        if (!p || !p.checkOverlayPermission)
+            return;
+        p.checkOverlayPermission().then((r) => setPerm(r && r.granted ? "granted" : "missing")).catch(() => { });
+    };
+    useEffect(() => {
+        refresh();
+        const h = () => { if (!document.hidden)
+            refresh(); };
+        document.addEventListener("visibilitychange", h);
+        return () => document.removeEventListener("visibilitychange", h);
+    }, []);
+    if (!inApp)
+        return null;
+    const p = plugin();
+    const askPermission = () => { const q = plugin(); if (q && q.requestOverlayPermission)
+        q.requestOverlayPermission().catch(() => { }); };
+    const change = (v) => {
+        setOn(v);
+        try {
+            localStorage.setItem(KEY, v ? "1" : "0");
+        }
+        catch { }
+        const q = plugin();
+        if (!q)
+            return;
+        if (q.setEnabled)
+            q.setEnabled({ enabled: v }).catch(() => { });
+        if (!v) {
+            if (q.hide)
+                q.hide().catch(() => { });
+            return;
+        }
+        if (q.checkOverlayPermission)
+            q.checkOverlayPermission().then((r) => { if (r && r.granted)
+                setPerm("granted");
+            else {
+                setPerm("missing");
+                askPermission();
+            } }).catch(() => { });
+    };
+    const needPerm = !!p && on && perm === "missing";
+    const note = !p ? "Not available in this version of the app. Install the latest Letschat Android app to use it."
+        : needPerm ? "Allow \u201CDisplay over other apps\u201D for Letschat in Android settings, then come back."
+            : "Show the sender\u2019s photo and message in a bubble over other apps when a message arrives.";
+    return (React.createElement("div", { style: settingRow, "data-lc-bubble-row": "1" }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Floating chat bubble"), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: needPerm ? "#FFB74D" : "#8891A0", marginTop: 2 } }, note), needPerm && React.createElement("button", { onClick: askPermission, style: { ...smallBtn, marginTop: 8 } }, "Allow display over other apps")), React.createElement(Toggle, { on: !!p && on, onChange: change, disabled: !p })));
+}
 function NotificationsScreen({ onBack }) {
     const [prefs, setPrefs] = useState(getNotifs);
     const [perm, setPerm] = useState(() => ("Notification" in window ? Notification.permission : "unsupported"));
@@ -8777,7 +8833,7 @@ function NotificationsScreen({ onBack }) {
             navigator.vibrate && navigator.vibrate(200);
         }
         catch { }
-    } }), row("Group messages", "Get alerts for messages in groups.", prefs.groups, (v) => set({ groups: v })), React.createElement(PushRow, null), row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"), row("Show message preview", "Include the message text in background alerts.", prefs.preview, (v) => set({ preview: v })), React.createElement("div", { style: { padding: "18px 16px" } }, React.createElement("button", { onClick: () => playPing("test", true), style: smallBtn }, "Play test sound")))));
+    } }), row("Group messages", "Get alerts for messages in groups.", prefs.groups, (v) => set({ groups: v })), React.createElement(PushRow, null), row("Background alerts", bannerNote, prefs.banner && perm === "granted", askBanner, perm === "unsupported" || perm === "denied"), row("Show message preview", "Include the message text in background alerts.", prefs.preview, (v) => set({ preview: v })), React.createElement(BubbleRow, null), React.createElement("div", { style: { padding: "18px 16px" } }, React.createElement("button", { onClick: () => playPing("test", true), style: smallBtn }, "Play test sound")))));
 }
 function CommunitiesScreen({ conversations, myId, presence, onBack, onOpenChat, onNewGroup }) {
     const groups = conversations.filter(c => c.isGroup);
