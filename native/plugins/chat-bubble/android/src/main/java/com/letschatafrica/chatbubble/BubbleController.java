@@ -70,6 +70,8 @@ final class BubbleController {
     private WindowManager.LayoutParams lp;
     private boolean onRight = true;
     private String chatId = "";
+    private FrameLayout xTarget;
+    private GradientDrawable xBg;
 
     private final Runnable hidePreviewTask = new Runnable() {
         @Override
@@ -250,6 +252,7 @@ final class BubbleController {
 
     private void removeView() {
         ui.removeCallbacks(hidePreviewTask);
+        hideTarget();
         if (row != null) {
             try {
                 wm.removeView(row);
@@ -312,13 +315,15 @@ final class BubbleController {
                     lp.x = Math.max(0, Math.min(screenW() - dp(56), (int) (startX + dx)));
                     lp.y = clampY((int) (startY + dy));
                     wm.updateViewLayout(row, lp);
-                    inDismissZone = e.getRawY() > screenH() * 0.88f;
+                    showTarget();
+                    inDismissZone = overTarget(e.getRawX(), e.getRawY());
                     holder.setAlpha(inDismissZone ? 0.5f : 1f);
                     holder.setScaleX(inDismissZone ? 1.2f : 1f);
                     holder.setScaleY(inDismissZone ? 1.2f : 1f);
                     return true;
                 }
                 case MotionEvent.ACTION_UP:
+                    hideTarget();
                     holder.setAlpha(1f);
                     holder.setScaleX(1f);
                     holder.setScaleY(1f);
@@ -331,6 +336,7 @@ final class BubbleController {
                     }
                     return true;
                 case MotionEvent.ACTION_CANCEL:
+                    hideTarget();
                     holder.setAlpha(1f);
                     holder.setScaleX(1f);
                     holder.setScaleY(1f);
@@ -353,6 +359,71 @@ final class BubbleController {
         try {
             wm.updateViewLayout(row, lp);
         } catch (RuntimeException ignored) {}
+    }
+
+
+    // ---- the X "cancel" target that appears at the bottom while the chat head is dragged ----
+
+    private void showTarget() {
+        if (xTarget != null) return;
+        TextView x = new TextView(ctx);
+        x.setText("✕");
+        x.setTextColor(Color.WHITE);
+        x.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        x.setTypeface(Typeface.DEFAULT_BOLD);
+        x.setGravity(Gravity.CENTER);
+        xBg = new GradientDrawable();
+        xBg.setShape(GradientDrawable.OVAL);
+        xBg.setColor(0xCC1B1F27);
+        xBg.setStroke(dp(2), 0x66FFFFFF);
+        x.setBackground(xBg);
+        FrameLayout box = new FrameLayout(ctx);
+        box.addView(x, new FrameLayout.LayoutParams(dp(64), dp(64)));
+        box.setAlpha(0f);
+        int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
+        WindowManager.LayoutParams tp = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        );
+        tp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        tp.y = dp(56);
+        try {
+            wm.addView(box, tp);
+            xTarget = box;
+            box.animate().alpha(1f).setDuration(150).start();
+        } catch (RuntimeException e) {
+            xTarget = null;
+        }
+    }
+
+    private void hideTarget() {
+        if (xTarget != null) {
+            try {
+                wm.removeView(xTarget);
+            } catch (RuntimeException ignored) {}
+        }
+        xTarget = null;
+        xBg = null;
+    }
+
+    /** True while the finger is over the X; the X turns red and grows. */
+    private boolean overTarget(float rawX, float rawY) {
+        if (xTarget == null || xTarget.getWidth() == 0) return false;
+        int[] loc = new int[2];
+        xTarget.getLocationOnScreen(loc);
+        float cx = loc[0] + xTarget.getWidth() / 2f;
+        float cy = loc[1] + xTarget.getHeight() / 2f;
+        float dx = rawX - cx;
+        float dy = rawY - cy;
+        float reach = dp(80);
+        boolean hit = dx * dx + dy * dy < reach * reach;
+        if (xBg != null) xBg.setColor(hit ? 0xFFE53935 : 0xCC1B1F27);
+        xTarget.setScaleX(hit ? 1.25f : 1f);
+        xTarget.setScaleY(hit ? 1.25f : 1f);
+        return hit;
     }
 
     // ---- helpers ----

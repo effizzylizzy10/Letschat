@@ -25,6 +25,7 @@ public class ChatBubblePlugin extends Plugin {
     @Override
     public void load() {
         controller = BubbleController.get(getContext());
+        MessagePoller.ensureRunning(getContext()); // the sign-in token from last time may already be stored
         controller.setListener(chatId -> {
             JSObject data = new JSObject();
             data.put("chatId", chatId == null ? "" : chatId);
@@ -62,6 +63,7 @@ public class ChatBubblePlugin extends Plugin {
     @Override
     protected void handleOnPause() {
         super.handleOnPause();
+        MessagePoller.setForeground(false);
         JSObject data = new JSObject();
         data.put("active", false);
         notifyListeners("appState", data);
@@ -70,6 +72,7 @@ public class ChatBubblePlugin extends Plugin {
     @Override
     protected void handleOnResume() {
         super.handleOnResume();
+        MessagePoller.setForeground(true);
         controller.hide(); // the bubble is only for when Letschat is not on screen
         JSObject data = new JSObject();
         data.put("active", true);
@@ -107,6 +110,7 @@ public class ChatBubblePlugin extends Plugin {
             call.reject("Overlay permission not granted");
             return;
         }
+        MessagePoller.noteSocketShow();
         controller.show(call.getInt("count", 0), call.getString("title", ""), call.getString("text", ""), call.getString("chatId", ""), call.getString("avatar", ""));
         call.resolve();
     }
@@ -123,6 +127,13 @@ public class ChatBubblePlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("enabled", controller.isEnabled());
         call.resolve(ret);
+    }
+
+    /** The page hands over the sign-in so new messages can be found while the app is closed. An empty token (sign-out) stops it. */
+    @PluginMethod
+    public void setSession(PluginCall call) {
+        MessagePoller.setSession(getContext(), call.getString("token", ""), call.getString("apiUrl", ""), call.getString("userId", ""));
+        call.resolve();
     }
 
     @PluginMethod

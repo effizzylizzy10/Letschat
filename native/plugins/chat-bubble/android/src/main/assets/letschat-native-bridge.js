@@ -54,7 +54,18 @@
     }).catch(noop);
   }
 
+  // Hands the sign-in to the native side so the chat head can pop up for new messages while the app is closed.
+  var sentTok = null;
+  function sendSession() {
+    if (!BB || !BB.setSession) return;
+    var s = session(), tok = s && s.token ? String(s.token) : "";
+    if (tok === sentTok) return;
+    sentTok = tok;
+    BB.setSession({ token: tok, apiUrl: apiBase(), userId: String(myId() || "") }).catch(function () { sentTok = null; });
+  }
+
   function syncService() {
+    sendSession();
     if (!BG) return;
     var li = loggedIn();
     if (li && !serviceOn) {

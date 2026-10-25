@@ -47,6 +47,12 @@ public class LetschatBackgroundService extends Service {
             return START_NOT_STICKY;
         }
         running = true;
+        // The new-message checker lives in the chat bubble plugin (reached by name: the two plugins are separate modules)
+        try {
+            Class.forName("com.letschatafrica.chatbubble.MessagePoller").getMethod("ensureRunning", android.content.Context.class).invoke(null, getApplicationContext());
+        } catch (Throwable ignored) {
+            // chat bubble plugin missing: the service still keeps the app connected
+        }
         return START_STICKY;
     }
 
