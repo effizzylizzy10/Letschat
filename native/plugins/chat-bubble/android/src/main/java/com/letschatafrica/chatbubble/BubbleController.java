@@ -338,7 +338,8 @@ final class BubbleController {
                     updateLayoutSafe();
                     showTarget();
                     inDismissZone = overTarget(e.getRawX(), e.getRawY());
-                    holder.setAlpha(inDismissZone ? 0.5f : 1f);
+                    // stays fully visible while dragged (only a little bigger over the X)
+                    holder.setAlpha(1f);
                     holder.setScaleX(inDismissZone ? 1.2f : 1f);
                     holder.setScaleY(inDismissZone ? 1.2f : 1f);
                     return true;
@@ -445,7 +446,7 @@ final class BubbleController {
         float cy = loc[1] + xTarget.getHeight() / 2f;
         float dx = rawX - cx;
         float dy = rawY - cy;
-        float reach = dp(80);
+        float reach = dp(56);
         boolean hit = dx * dx + dy * dy < reach * reach;
         if (xBg != null) xBg.setColor(hit ? 0xFFE53935 : 0xCC1B1F27);
         xTarget.setScaleX(hit ? 1.25f : 1f);
