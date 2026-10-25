@@ -9,12 +9,12 @@
 
     <application>
         <service
-            android:name=".LetschatBackgroundService"
+            android:name="com.letschatafrica.backgroundservice.LetschatBackgroundService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging" />
 
         <receiver
-            android:name=".BootReceiver"
+            android:name="com.letschatafrica.backgroundservice.BootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
