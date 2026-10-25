@@ -5799,18 +5799,22 @@ function PushRow() {
         React.createElement(Toggle, { on: st === "on", onChange: change, disabled: busy || st === "checking" || st === "unsupported" || st === "needs-install" || st === "denied" || st === "unavailable" })));
 }
 function BubbleRow() {
-    // "Floating chat bubble" setting. Only shown inside the Letschat Android app (a WebView); the native side is the ChatBubble plugin.
+    // "Chat head" settings (the floating bubble over other apps). Only shown inside the Letschat Android app (a WebView);
+    // the native side is the ChatBubble plugin, battery/keep-alive is the BackgroundService plugin.
     const KEY = "letschat-native:bubble";
-    const plugin = () => { try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ChatBubble) || null; } catch { return null; } };
+    const plug = (name) => { try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name]) || null; } catch { return null; } };
     const inApp = (() => { try { return /LetschatApp|; wv\)/.test(navigator.userAgent) || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); } catch { return false; } })();
     const readOn = () => { try { return localStorage.getItem(KEY) !== "0"; } catch { return true; } };
     const [on, setOn] = useState(readOn);
     const [perm, setPerm] = useState("unknown");
+    const [bat, setBat] = useState("unknown");
+    const [msg, setMsg] = useState("");
     const refresh = () => {
-        const p = plugin();
-        if (!p || !p.checkOverlayPermission)
-            return;
-        p.checkOverlayPermission().then((r) => setPerm(r && r.granted ? "granted" : "missing")).catch(() => { });
+        const p = plug("ChatBubble"), b = plug("BackgroundService");
+        if (p && p.checkOverlayPermission)
+            p.checkOverlayPermission().then((r) => setPerm(r && r.granted ? "granted" : "missing")).catch(() => { });
+        if (b && b.isIgnoringBatteryOptimizations)
+            b.isIgnoringBatteryOptimizations().then((r) => setBat(r && r.ignoring ? "ok" : "restricted")).catch(() => { });
     };
     useEffect(() => {
         refresh();
@@ -5821,16 +5825,19 @@ function BubbleRow() {
     }, []);
     if (!inApp)
         return null;
-    const p = plugin();
-    const askPermission = () => { const q = plugin(); if (q && q.requestOverlayPermission)
+    const p = plug("ChatBubble"), b = plug("BackgroundService");
+    const askPermission = () => { const q = plug("ChatBubble"); if (q && q.requestOverlayPermission)
         q.requestOverlayPermission().catch(() => { }); };
+    const askBattery = () => { const q = plug("BackgroundService"); if (q && q.requestIgnoreBatteryOptimizations)
+        q.requestIgnoreBatteryOptimizations().catch(() => { }); };
     const change = (v) => {
         setOn(v);
+        setMsg("");
         try {
             localStorage.setItem(KEY, v ? "1" : "0");
         }
         catch { }
-        const q = plugin();
+        const q = plug("ChatBubble");
         if (!q)
             return;
         if (q.setEnabled)
@@ -5848,11 +5855,27 @@ function BubbleRow() {
                 askPermission();
             } }).catch(() => { });
     };
+    const test = () => {
+        const q = plug("ChatBubble");
+        if (!q || !q.show)
+            return;
+        setMsg("");
+        q.show({ count: 1, title: "Letschat", text: "This is your chat head. Drag it, or tap it to open Letschat.", chatId: "", avatar: "" })
+            .then(() => setMsg("Chat head shown. Press Home to see it over other apps."))
+            .catch(() => { setPerm("missing"); setMsg("Could not show it: allow \u201CDisplay over other apps\u201D first."); });
+    };
     const needPerm = !!p && on && perm === "missing";
+    const title = { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" };
+    const sub = (c) => ({ fontFamily: "Inter", fontSize: 12.5, color: c || "#8891A0", marginTop: 2 });
     const note = !p ? "Not available in this version of the app. Install the latest Letschat Android app to use it."
-        : needPerm ? "Allow \u201CDisplay over other apps\u201D for Letschat in Android settings, then come back."
-            : "Show the sender\u2019s photo and message in a bubble over other apps when a message arrives.";
-    return (React.createElement("div", { style: settingRow, "data-lc-bubble-row": "1" }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" } }, "Floating chat bubble"), React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12.5, color: needPerm ? "#FFB74D" : "#8891A0", marginTop: 2 } }, note), needPerm && React.createElement("button", { onClick: askPermission, style: { ...smallBtn, marginTop: 8 } }, "Allow display over other apps")), React.createElement(Toggle, { on: !!p && on, onChange: change, disabled: !p })));
+        : "Show the sender\u2019s photo and message in a floating chat head over other apps when a message arrives. Drag it to move it, drop it at the bottom to dismiss it.";
+    const main = React.createElement("div", { style: settingRow, "data-lc-bubble-row": "1" }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: title }, "Chat head (floating bubble)"), React.createElement("div", { style: sub() }, note)), React.createElement(Toggle, { on: !!p && on, onChange: change, disabled: !p }));
+    if (!p || !on)
+        return main;
+    const permRow = React.createElement("div", { style: settingRow }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: title }, "Display over other apps"), React.createElement("div", { style: sub(needPerm ? "#FFB74D" : "#35D0BA") }, perm === "granted" ? "Allowed" : perm === "missing" ? "Needed for the chat head to appear." : "Checking\u2026")), needPerm && React.createElement("button", { onClick: askPermission, style: smallBtn }, "Allow"));
+    const batRow = b && React.createElement("div", { style: settingRow }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: title }, "Stay connected in background"), React.createElement("div", { style: sub(bat === "restricted" ? "#FFB74D" : "#35D0BA") }, bat === "ok" ? "Allowed" : bat === "restricted" ? "Android may pause Letschat when it is closed. Allow it to keep chat heads working." : "Checking\u2026")), bat === "restricted" && React.createElement("button", { onClick: askBattery, style: smallBtn }, "Allow"));
+    const testRow = React.createElement("div", { style: { padding: "14px 16px", borderBottom: "1px solid #1B212B" } }, React.createElement("button", { onClick: test, style: smallBtn }, "Show test chat head"), msg && React.createElement("div", { style: sub() }, msg));
+    return React.createElement(React.Fragment, null, main, permRow, batRow, testRow);
 }
 function NotificationsScreen({ onBack }) {
     const [prefs, setPrefs] = useState(getNotifs);
