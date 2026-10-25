@@ -8,6 +8,7 @@
 //   or AI_API_KEY + AI_BASE_URL + AI_MODEL for any OpenAI-compatible service. Models can be changed with GROQ_MODEL / GEMINI_MODEL / OPENROUTER_MODEL.
 // Without any key it still answers, straight from the sources above (retrieval only).
 // Only the cleaned question text goes outside: phone numbers, emails, links and long digit strings are removed first.
+// Answers are very short by default (see briefen() below). AI_BREVITY=off in Render > Environment turns that off.
 const fs = require("fs");
 const path = require("path");
 
@@ -289,8 +290,29 @@ async function authFetch(p, url, init) {
   }
   return r;
 }
+// ---------- very short, accurate answers ----------
+// Every LetsChat AI answer (AI page, @ai, agent, robot chat) is told to be very short and correct. Only a prompt that introduces the assistant
+// ("You are LetsChat AI ...") gets the rule, so other AI jobs (JSON output, tools) are left alone, and a prompt that already has it is not changed twice.
+// Render > Environment: AI_BREVITY=off turns the rule off; AI_BREVITY_RULE="..." replaces its wording.
+const BRIEF_TAG = "ANSWER LENGTH";
+const BRIEF_RULE = BRIEF_TAG + " (this overrides every earlier instruction about length, detail or formatting): answer questions in 1 or 2 short sentences, about 40 words at most. " +
+  "Start with the direct answer and add one key detail only if it is really needed. No introduction, no repeating the question, no headings or lists, no filler, no closing offer or follow-up question. " +
+  "Be correct before you are short: for anything that changes with time (news, scores, prices, who holds an office, dates, rates) use only the live information you were given, and if you are not sure or could not confirm something, say so in a few words instead of guessing. " +
+  "Never invent facts, numbers, quotes or links. Go longer only when the person clearly asks for detail, an explanation or steps, or asks for a piece of work (writing, code, a translation, a summary, workings); then give exactly what the task needs and nothing extra.";
+const briefOn = () => !/^(off|0|false|no)$/i.test(String(E.AI_BREVITY || "").trim());
+function briefen(messages) {
+  if (!briefOn() || !Array.isArray(messages)) return messages;
+  const i = messages.findIndex((m) => m && m.role === "system" && typeof m.content === "string" && /lets\s?chat\s+ai/i.test(m.content));
+  if (i < 0) return messages;
+  const c = messages[i].content;
+  if (c.includes(BRIEF_TAG) || /\bjson\b/i.test(c)) return messages;
+  const out = messages.slice();
+  out[i] = { ...messages[i], content: c + "\n\n" + (E.AI_BREVITY_RULE || BRIEF_RULE) };
+  return out;
+}
 // OpenAI's gpt-5 / o-series models take max_completion_tokens, ignore a custom temperature, and spend part of the budget on reasoning
 function chatBody(p, model, messages, opt) {
+  messages = briefen(messages);
   const max = (opt && opt.max) || 300, temperature = opt && opt.temp != null ? opt.temp : 0.3;
   if (p.n === "openai" && /^(gpt-5|o\d)/.test(model)) return { model, messages, max_completion_tokens: Math.max(max * 4, 1000) };
   if (p.n === "openai") return { model, messages, max_completion_tokens: max, temperature };
@@ -433,6 +455,7 @@ async function chatStream(messages, opt) {
 // Real Gemini with Google Search grounding (the native Gemini API, not the compatibility endpoint): it searches the web by itself for every question and returns the sources it used.
 async function geminiSearch(messages, opt) {
   const key = KEY("GEMINI_API_KEY"); if (!key || (cooldown.get("gemini-search") || 0) > Date.now()) return null;
+  messages = briefen(messages);
   const model = E.GEMINI_MODEL || "gemini-2.5-flash";
   const sys = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
   const contents = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content) }] }));
@@ -485,7 +508,7 @@ async function answer(question, ctx) {
   }
   let out = null;
   if (llmReady()) {
-    const sys = "You are Letschat AI" + (ctx.persona ? ", the assistant of " + ctx.persona : "") + ", inside a chat app used mainly in Africa (Nigeria). Be kind, polite and humble. Answer in plain text, at most 3 short sentences, no markdown. " +
+    const sys = "You are Letschat AI" + (ctx.persona ? ", the assistant of " + ctx.persona : "") + ", inside a chat app used mainly in Africa (Nigeria). Be kind, polite and humble. Answer in plain text, at most 2 short sentences (about 40 words), no markdown. " +
       "Use the FACTS and WEB NOTES below. If they do not cover the question, say you are not fully sure" + (ctx.persona ? " and that " + ctx.persona + " will confirm" : "") + ". Never invent prices, availability, addresses or phone numbers. Never ask for or share passwords, codes or bank details." +
       ((ctx.instructions || []).length ? " Owner instructions: " + ctx.instructions.slice(0, 12).join(" | ") : "");
     const body = (mine.length ? "FACTS:\n- " + mine.join("\n- ") + "\n" : "") + (web ? "WEB NOTES (" + (web.sources || []).join(", ") + "): " + web.text + "\n" : "") + "QUESTION: " + scrub(q);
@@ -496,7 +519,7 @@ async function answer(question, ctx) {
   }
   if (!out) {
     if (mine.length) out = { text: clip(mine.slice(0, 2).map((x) => x.replace(/^(Item|Market item|About|Owner name|Learned online \([^)]*\)): /, "").replace(/ - price /, ", price ")).join(". ").replace(/\.\./g, "."), 360), sources: [], via: "knowledge" };
-    else if (web) out = { text: web.text, sources: web.sources || [], via: web.kind };
+    else if (web) out = { text: web.focus || web.text, sources: web.sources || [], via: web.kind };
   }
   if (!out) {
     remember(q, null);
@@ -538,4 +561,4 @@ function stats() {
     ai: providers().map((p) => p.n), top: Object.values(store.asked).sort((a, b) => b.n - a.n).slice(0, 10).map((x) => ({ q: x.q, n: x.n })),
   };
 }
-module.exports = { checkAll, pickSentence, geminiSearch, answer, lookup, lookupAll, loadNews, refresh, start, stats, llmReady, aiStatus, isQuestion, scrub, tokens, topFacts, chat, chatStream, _store: () => store };
+module.exports = { checkAll, pickSentence, geminiSearch, answer, lookup, lookupAll, loadNews, refresh, start, stats, llmReady, aiStatus, isQuestion, scrub, tokens, topFacts, chat, chatStream, briefen, _store: () => store };
