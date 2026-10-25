@@ -23,12 +23,23 @@ import java.nio.charset.StandardCharsets;
 public class ChatBubblePlugin extends Plugin {
 
     private static final String BRIDGE_ASSET = "letschat-native-bridge.js";
+    /** The chat head appears this long after Letschat leaves the screen (a short pause such as a file picker never shows it). */
+    private static final long HEAD_DELAY_MS = 700;
     private BubbleController controller;
     private String bridgeJs;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile boolean resumed = false;
     private volatile boolean rendererLost = false;
     private long lastRecover = 0;
+
+    /** Shows the floating chat head (just the Letschat photo, no message) once the app is minimized or closed. */
+    private final Runnable showHead = new Runnable() {
+        @Override
+        public void run() {
+            if (resumed || controller == null) return;
+            controller.show(0, "", "", "", "");
+        }
+    };
 
     @Override
     public void load() {
@@ -100,6 +111,9 @@ public class ChatBubblePlugin extends Plugin {
         super.handleOnPause();
         resumed = false;
         MessagePoller.setForeground(false);
+        // minimized or closed: put the chat head on screen by itself (nothing to switch on)
+        mainHandler.removeCallbacks(showHead);
+        mainHandler.postDelayed(showHead, HEAD_DELAY_MS);
         JSObject data = new JSObject();
         data.put("active", false);
         notifyListeners("appState", data);
@@ -109,6 +123,7 @@ public class ChatBubblePlugin extends Plugin {
     protected void handleOnResume() {
         super.handleOnResume();
         resumed = true;
+        mainHandler.removeCallbacks(showHead);
         MessagePoller.setForeground(true);
         if (rendererLost) mainHandler.post(this::recoverPage);
         controller.hide(); // the bubble and the message pop-up are only for when Letschat is not on screen
@@ -149,7 +164,7 @@ public class ChatBubblePlugin extends Plugin {
             return;
         }
         MessagePoller.noteSocketShow();
-        // the WhatsApp-style message pop-up (the old chat head stays available in BubbleController but is no longer used)
+        // the WhatsApp-style message pop-up (the chat head itself comes up by itself when the app is minimized or closed)
         MessagePopup.notifyMessage(
             getContext(),
             new MessagePopup.Item(

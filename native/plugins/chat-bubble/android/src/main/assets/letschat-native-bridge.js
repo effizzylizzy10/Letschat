@@ -1,8 +1,9 @@
 /* Letschat native glue. Injected by the ChatBubble plugin into the Letschat website inside the Android app only.
    It does four things:
    1. starts the background service once a person is signed in (and stops it on sign-out),
-   2. listens to the live chat connection and shows the floating bubble when a message arrives while the app is in the background,
-   3. asks, at most once a week each, for "display over other apps" and "ignore battery optimisation",
+   2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
+      (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
+   3. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
    4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble". */
 (function () {
@@ -37,12 +38,13 @@
   }
   function markAsked(k) { try { localStorage.setItem(ASK_KEY + k, String(Date.now())); } catch (e) {} }
 
+  // Opens Android's "Display over other apps" screen right away (one switch to turn on, no question first).
   function offerOverlay() {
     if (!BB || !bubbleOn() || askedRecently("overlay")) return;
     BB.checkOverlayPermission().then(function (r) {
       if (r && r.granted) return;
       markAsked("overlay");
-      if (window.confirm("Show a floating Letschat chat bubble over other apps when you get a message?")) BB.requestOverlayPermission().catch(noop);
+      BB.requestOverlayPermission().catch(noop);
     }).catch(noop);
   }
   function offerBattery() {
@@ -71,7 +73,7 @@
     if (li && !serviceOn) {
       serviceOn = true;
       BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }).then(function () {
-        setTimeout(offerOverlay, 4000);
+        setTimeout(offerOverlay, 1500);
         setTimeout(offerBattery, 40000);
       }).catch(function () { serviceOn = false; });
     } else if (!li && serviceOn) {
