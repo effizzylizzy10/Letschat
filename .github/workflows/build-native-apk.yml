@@ -34,11 +34,11 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx cap add android
-      - name: App permissions (camera, microphone, notifications, location)
+      - name: App permissions (camera, microphone, notifications, location, photos/videos/files, background service)
         working-directory: native
         run: |
           M=android/app/src/main/AndroidManifest.xml
-          for P in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS POST_NOTIFICATIONS ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION VIBRATE WAKE_LOCK; do
+          for P in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS POST_NOTIFICATIONS ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION VIBRATE WAKE_LOCK READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_AUDIO READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE FOREGROUND_SERVICE FOREGROUND_SERVICE_DATA_SYNC; do
             grep -q "android.permission.$P" $M || sed -i "s#</manifest>#    <uses-permission android:name=\"android.permission.$P\" />\n</manifest>#" $M
           done
           grep uses-permission $M
