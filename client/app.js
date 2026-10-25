@@ -11964,7 +11964,7 @@ function friendlyAuthError(e) {
     if (e && /already been rendered/i.test(e.message || ""))
         return "Please refresh the page and try again.";
     if (e && map[e.code])
-        return map[e.code];
+        return map[e.code] + (e.code === "auth/network-request-failed" || e.code === "auth/internal-error" ? " (" + e.code.replace("auth/", "") + ")" : "");
     if (e && /^auth\//.test(e.code || ""))
         return "Sign-in problem (" + e.code.replace("auth/", "") + "). Please try again.";
     return (e && e.message) || "Something went wrong. Please try again.";
@@ -12028,6 +12028,74 @@ function LoginScreen({ onContinue }) {
     const [emailName, setEmailName] = useState("");
     const [nickname, setNickname] = useState(""); // required when creating an account
     const [emailUser, setEmailUser] = useState(null);
+    const emailRef = useRef(null), passRef = useRef(null), emailNameRef = useRef(null), nickRef = useRef(null);
+    // true inside the Android app (Capacitor WebView): Google blocks sign-in there, and phone keyboards / autofill can fill a box without telling React
+    const IN_APP = /LetschatApp/i.test(navigator.userAgent || "") || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    useEffect(() => {
+        // Copy what is really in the boxes into the form state, so autofilled or pasted text enables the button (a filled box with a greyed-out button)
+        const t = setInterval(() => {
+            const e = emailRef.current, pw = passRef.current, nm = emailNameRef.current, nk = nickRef.current;
+            if (e && typeof e.value === "string") setEmail(prev => prev === e.value ? prev : e.value);
+            if (pw && typeof pw.value === "string") setPassword(prev => prev === pw.value ? prev : pw.value);
+            if (nm && typeof nm.value === "string") setEmailName(prev => prev === nm.value ? prev : nm.value);
+            if (nk && typeof nk.value === "string") setNickname(prev => { const v = nickClean(nk.value); return prev === v ? prev : v; });
+        }, 350);
+        return () => clearInterval(t);
+    }, []);
+    useEffect(() => {
+        // Links from Firebase emails (verify email, reset password) can open inside the app: finish them here instead of ignoring them
+        if (!FIREBASE_READY || window.__lcActionSeen)
+            return;
+        let q;
+        try {
+            q = new URLSearchParams(window.location.search);
+        }
+        catch (e) {
+            return;
+        }
+        const mode = q.get("mode"), code = q.get("oobCode");
+        if (!code || (mode !== "verifyEmail" && mode !== "resetPassword"))
+            return;
+        window.__lcActionSeen = true;
+        const clean = () => { try {
+            window.history.replaceState(null, "", window.location.origin + window.location.pathname);
+        }
+        catch (e) { } };
+        (async () => {
+            try {
+                const auth = firebase.auth();
+                if (mode === "verifyEmail") {
+                    await auth.applyActionCode(code);
+                    clean();
+                    setNotice("Your email is verified. Log in now.");
+                    try {
+                        if (auth.currentUser)
+                            await auth.currentUser.reload();
+                    }
+                    catch (e) { }
+                }
+                else {
+                    const em = await auth.verifyPasswordResetCode(code);
+                    let pw = "";
+                    while (pw.length < 6) {
+                        pw = window.prompt(pw ? "Use at least 6 characters.\nNew password for " + em + ":" : "Choose a new password for " + em + " (6 or more characters):") || "";
+                        if (!pw)
+                            break;
+                    }
+                    clean();
+                    if (pw.length >= 6) {
+                        await auth.confirmPasswordReset(code, pw);
+                        setEmail(em);
+                        setNotice("Password changed. Log in with your new password.");
+                    }
+                }
+            }
+            catch (e) {
+                clean();
+                setError(friendlyAuthError(e));
+            }
+        })();
+    }, []);
     const [notice, setNotice] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(FIREBASE_READY ? "" : "Firebase is not set up yet: paste your Firebase keys into index.html.");
@@ -12083,6 +12151,8 @@ function LoginScreen({ onContinue }) {
         await finish(await cred.user.getIdToken(), "");
     });
     const google = () => run(async () => {
+        if (IN_APP)
+            throw new Error("Google sign-in is not available inside the app (Google blocks it). Use your email and password, or \u201cSign in with email only\u201d.");
         const provider = new firebase.auth.GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" }); // always show Google's account chooser (never silently reuse the signed-in account)
         const cred = await firebase.auth().signInWithPopup(provider);
@@ -12096,8 +12166,12 @@ function LoginScreen({ onContinue }) {
     const submitEmail = () => run(async () => {
         setNotice("");
         const auth = firebase.auth();
+        const em = ((emailRef.current && emailRef.current.value) || email).trim().toLowerCase();
+        const pw = (passRef.current && passRef.current.value) || password;
+        if (!em || pw.length < 6)
+            throw new Error(!em ? "Type your email address first." : "Password needs at least 6 characters.");
         if (isNew) {
-            const cred = await auth.createUserWithEmailAndPassword(email.trim().toLowerCase(), password);
+            const cred = await auth.createUserWithEmailAndPassword(em, pw);
             try {
                 await cred.user.updateProfile({ displayName: emailName.trim() });
             }
@@ -12113,7 +12187,7 @@ function LoginScreen({ onContinue }) {
             }
             return;
         }
-        const cred = await auth.signInWithEmailAndPassword(email.trim().toLowerCase(), password);
+        const cred = await auth.signInWithEmailAndPassword(em, pw);
         if (!cred.user.emailVerified) {
             try {
                 await cred.user.sendEmailVerification();
@@ -12199,7 +12273,7 @@ function LoginScreen({ onContinue }) {
     const nicknameBox = () => React.createElement(React.Fragment, null,
         React.createElement("div", { style: box },
             React.createElement("span", { style: { color: "#35D0BA", fontFamily: "Sora", fontWeight: 700, fontSize: 16 } }, "@"),
-            React.createElement("input", { value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
+            React.createElement("input", { ref: nickRef, value: nickname, onChange: e => setNickname(nickClean(e.target.value)), placeholder: "Nickname (required)", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, "aria-label": "Nickname", style: inputStyle }),
             React.createElement("span", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", flexShrink: 0 } }, nickLen(nickname) + "/" + NICK_MAX)),
         React.createElement("div", { style: { fontFamily: "Inter", fontSize: 12, color: "#8891A0", margin: "-8px 4px 14px", lineHeight: 1.4 } }, "Up to " + NICK_MAX + " characters: letters, numbers or symbols. No emoji. Friends use it to find you. It can\u2019t be changed later."), React.createElement(SimilarNicks, { list: similarNicks }));
     const stage = pendingToken ? "name" : confirmation ? "code" : emailStage === "verify" ? "verify" : (emailStage === "link" || emailStage === "linksent" || emailStage === "linkconfirm") ? emailStage : emailStage === "form" || !PHONE_LOGIN ? "email" : "phone";
@@ -12250,12 +12324,12 @@ function LoginScreen({ onContinue }) {
         stage === "email" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: { display: "flex", gap: 8, counterIncrement: "lcgap-8", marginBottom: 14 } }, [["Log in", false], ["Create account", true]].map(([label, v]) => (React.createElement("button", { key: label, onClick: () => { setIsNew(v); setError(""); setNotice(""); }, style: { flex: 1, padding: "10px", borderRadius: 12, border: "1px solid " + (isNew === v ? "#35D0BA" : "#262E3A"), background: isNew === v ? "#35D0BA22" : "none", color: isNew === v ? "#35D0BA" : "#8891A0", fontFamily: "Sora", fontWeight: 600, fontSize: 13, cursor: "pointer" } }, label)))),
             isNew && (React.createElement("div", { style: box },
-                React.createElement("input", { value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
+                React.createElement("input", { ref: emailNameRef, value: emailName, onChange: e => setEmailName(e.target.value), placeholder: "Your name", autoComplete: "name", style: inputStyle }))),
             isNew && nicknameBox(),
             React.createElement("div", { style: box },
-                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "Email address", autoComplete: "email", inputMode: "email", style: inputStyle })),
             React.createElement("div", { style: box },
-                    React.createElement("input", { type: showPassword ? "text" : "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password", autoComplete: isNew ? "new-password" : "current-password", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }),
+                    React.createElement("input", { ref: passRef, type: showPassword ? "text" : "password", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && emailReady && !busy && submitEmail(), placeholder: "Password", autoComplete: isNew ? "new-password" : "current-password", autoCapitalize: "none", autoCorrect: "off", spellCheck: false, style: inputStyle }),
                     React.createElement("button", { type: "button", onMouseDown: e => e.preventDefault(), onClick: () => setShowPassword(v => !v), "aria-label": showPassword ? "Hide password" : "Show password", "aria-pressed": showPassword, style: { background: "none", border: "none", padding: 0, margin: "-6px -6px -6px 0", cursor: "pointer", color: showPassword ? "#35D0BA" : "#8891A0", display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto", width: 36, height: 36, minWidth: 36, lineHeight: 0, WebkitAppearance: "none", MozAppearance: "none", appearance: "none" } },
                         React.createElement("svg", { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, showPassword ? (React.createElement(React.Fragment, null,
                             React.createElement("path", { d: "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" }),
@@ -12270,12 +12344,12 @@ function LoginScreen({ onContinue }) {
             React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: { ...linkBtn, color: "#35D0BA", marginTop: 8 } }, "Sign in with email only (no password)"),
             PHONE_LOGIN
                 ? React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead")
-                : React.createElement(React.Fragment, null,
+                : IN_APP ? null : React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { textAlign: "center", color: "#8A96A5", fontFamily: "Inter", fontSize: 12, margin: "16px 0" } }, "or"),
                     React.createElement("button", { disabled: busy || !FIREBASE_READY, onClick: google, style: { ...btn(false), background: "#F5F7FA", color: "#0E1116" } }, "Continue with Google")))),
         stage === "link" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: box },
-                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && sendLink(), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && sendLink(), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
             React.createElement("button", { disabled: busy || !emailOk || !FIREBASE_READY, onClick: sendLink, style: btn(emailOk && FIREBASE_READY) }, busy ? "Please wait…" : "Email me a sign-in link"),
             React.createElement("button", { onClick: () => { setEmailStage("form"); setError(""); setNotice(""); }, style: linkBtn }, "Use a password instead"),
             PHONE_LOGIN && React.createElement("button", { onClick: () => { setEmailStage(null); setError(""); setNotice(""); }, style: linkBtn }, "Use phone or Google instead"))),
@@ -12284,7 +12358,7 @@ function LoginScreen({ onContinue }) {
             React.createElement("button", { onClick: () => { setEmailStage("link"); setError(""); setNotice(""); }, style: linkBtn }, "Use a different email"))),
         stage === "linkconfirm" && (React.createElement(React.Fragment, null,
             React.createElement("div", { style: box },
-                React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && completeLink(email), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
+                React.createElement("input", { ref: emailRef, type: "email", value: email, onChange: e => setEmail(e.target.value), onKeyDown: e => e.key === "Enter" && emailOk && !busy && completeLink(email), placeholder: "Email address", autoComplete: "email", inputMode: "email", autoFocus: true, style: inputStyle })),
             React.createElement("button", { disabled: busy || !emailOk, onClick: () => completeLink(email), style: btn(emailOk) }, busy ? "Please wait…" : "Sign in"),
             React.createElement("button", { onClick: () => { try { window.history.replaceState(null, "", window.location.origin + window.location.pathname); } catch (e) { } setEmailStage("link"); setError(""); }, style: linkBtn }, "Send me a new link"))),
         stage === "verify" && (React.createElement(React.Fragment, null,
