@@ -8638,7 +8638,7 @@ function BubbleRow() {
     const title = { fontFamily: "Sora", fontWeight: 600, fontSize: 15, color: "#F5F7FA" };
     const sub = (c) => ({ fontFamily: "Inter", fontSize: 12.5, color: c || "#8891A0", marginTop: 2 });
     const note = !p ? "Not available in this version of the app. Install the latest Letschat Android app to use it."
-        : "Show the sender\u2019s photo and message in a floating chat head over other apps when a message arrives. Drag it to move it, drop it at the bottom to dismiss it.";
+        : "Show the sender\u2019s photo and message in a floating chat head over other apps when a message arrives, even when Letschat is closed. Press Back 3 times on the first screen to minimise Letschat into the chat head. Drag the head onto the \u2715 at the bottom to hide it.";
     const main = React.createElement("div", { style: settingRow, "data-lc-bubble-row": "1" }, React.createElement("div", { style: { flex: 1 } }, React.createElement("div", { style: title }, "Chat head (floating bubble)"), React.createElement("div", { style: sub() }, note)), React.createElement(Toggle, { on: !!p && on, onChange: change, disabled: !p }));
     if (!p || !on)
         return main;
