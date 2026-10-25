@@ -9,6 +9,11 @@ export interface ShowOptions {
   chatId?: string;
   /** Full address of the sender's profile photo (a coloured circle with their first letter is shown until it loads, or when there is none). */
   avatar?: string;
+  /** Message id (a message shown twice is only listed once). */
+  messageId?: string;
+  /** When the message is a reply: who wrote the quoted message ("You" for your own) and its text. */
+  replyName?: string;
+  replyText?: string;
 }
 
 export interface PluginListenerHandle {

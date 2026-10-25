@@ -4,7 +4,7 @@
    2. listens to the live chat connection and shows the floating bubble when a message arrives while the app is in the background,
    3. asks, at most once a week each, for "display over other apps" and "ignore battery optimisation",
    4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
-      and a blue speech bubble with the message). On by default; the choice is kept in localStorage "letschat-native:bubble". */
+      and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble". */
 (function () {
   if (window.__lcNativeBridge) return;
   if (!/(^|\.)(letschat-taupe\.vercel\.app|letschatafric\.netlify\.app)$/.test(location.hostname)) return;
@@ -99,8 +99,13 @@
     var title = field(m, ["senderName", "fromName"]) || (sender && typeof sender === "object" ? field(sender, ["name", "displayName", "username"]) : null) || "Letschat";
     var text = field(m, ["text", "body", "content", "caption"]) || (m.type && m.type !== "text" ? "[" + m.type + "]" : "New message");
     var chat = field(m, ["conversationId", "convoId", "convId", "chatId"]) || (m.conversation && field(m.conversation, ["id", "_id"])) || "";
+    var rt = m.replyTo && typeof m.replyTo === "object" ? m.replyTo : null;
+    var replyName = rt ? (me && rt.senderId && String(rt.senderId) === String(me) ? "You" : (rt.name || "")) : "";
     unread++;
-    BB.show({ count: unread, title: String(title), text: String(text).slice(0, 120), chatId: String(chat), avatar: photoUrl(photo) }).catch(noop);
+    BB.show({
+      count: unread, title: String(title), text: String(text).slice(0, 500), chatId: String(chat), avatar: photoUrl(photo),
+      messageId: m.id ? String(m.id) : "", replyName: String(replyName), replyText: rt && rt.text ? String(rt.text).slice(0, 140) : ""
+    }).catch(noop);
   }
 
   // The app keeps its Socket.IO connections in io.managers: attach to each one once.
@@ -187,7 +192,12 @@
   try { if (APP && APP.addListener) APP.addListener("appStateChange", function (s) { setActive(!!(s && s.isActive)); }); } catch (e) {}
   try { if (BB && BB.addListener) {
     BB.addListener("appState", function (s) { setActive(!!(s && s.active)); });
-    BB.addListener("bubbleTapped", function () { unread = 0; });
+    // "View" in the message pop-up: open that chat (the app reads ?open=<conversation id> after the page loads)
+    BB.addListener("bubbleTapped", function (d) {
+      unread = 0;
+      var id = d && d.chatId ? String(d.chatId) : "";
+      if (id) { try { location.assign(location.origin + "/?open=" + encodeURIComponent(id)); } catch (e) {} }
+    });
   } } catch (e) {}
   document.addEventListener("visibilitychange", function () { if (!document.hidden) setActive(true); });
 })();

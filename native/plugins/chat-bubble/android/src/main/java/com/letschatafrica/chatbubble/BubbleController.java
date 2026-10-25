@@ -134,7 +134,16 @@ final class BubbleController {
     }
 
     void hide() {
+        MessagePopup.get(ctx).dismiss(); // the message pop-up goes away together with the chat head
         ui.post(this::removeView);
+    }
+
+    /** "View" in the message pop-up: opens Letschat and tells the page which chat to show. */
+    void openChat(final String id) {
+        ui.post(() -> {
+            chatId = id == null ? "" : id;
+            openApp();
+        });
     }
 
     // ---- view building ----

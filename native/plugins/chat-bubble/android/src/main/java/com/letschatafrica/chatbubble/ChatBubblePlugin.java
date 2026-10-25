@@ -73,7 +73,7 @@ public class ChatBubblePlugin extends Plugin {
     protected void handleOnResume() {
         super.handleOnResume();
         MessagePoller.setForeground(true);
-        controller.hide(); // the bubble is only for when Letschat is not on screen
+        controller.hide(); // the bubble and the message pop-up are only for when Letschat is not on screen
         JSObject data = new JSObject();
         data.put("active", true);
         notifyListeners("appState", data);
@@ -111,7 +111,19 @@ public class ChatBubblePlugin extends Plugin {
             return;
         }
         MessagePoller.noteSocketShow();
-        controller.show(call.getInt("count", 0), call.getString("title", ""), call.getString("text", ""), call.getString("chatId", ""), call.getString("avatar", ""));
+        // the WhatsApp-style message pop-up (the old chat head stays available in BubbleController but is no longer used)
+        MessagePopup.notifyMessage(
+            getContext(),
+            new MessagePopup.Item(
+                call.getString("messageId", ""),
+                call.getString("chatId", ""),
+                call.getString("title", ""),
+                call.getString("avatar", ""),
+                call.getString("text", ""),
+                call.getString("replyName", ""),
+                call.getString("replyText", "")
+            )
+        );
         call.resolve();
     }
 
