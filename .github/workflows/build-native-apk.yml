@@ -1,11 +1,12 @@
-name: Build native Android APK (Capacitor)
-# Tap Actions > "Build native Android APK (Capacitor)" > Run workflow.
+name: Build native Android APK (Capacitor 8)
+# Tap Actions > "Build native Android APK (Capacitor 8)" > Run workflow.
 # About 10 minutes later the finished Letschat.apk is under "Artifacts".
 # It is signed with YOUR letschat key (from the two secrets below), so it installs over the old Letschat app.
 # Secrets needed: Settings > Secrets and variables > Actions >
 #   ANDROID_KEYSTORE_B64      = the text inside keystore.base64.txt
 #   ANDROID_KEYSTORE_PASSWORD = the key password from signing-info.txt
 # If the secrets are missing, it still builds a debug-signed APK so you always get a file.
+# Capacitor 8 needs Node 22+, JDK 21 and Android SDK 36.
 on:
   workflow_dispatch:
 jobs:
@@ -18,54 +19,26 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
-      - name: Android SDK (already installed on the runner)
+          java-version: 21
+      - name: Android SDK 36 (already installed on the runner)
         run: |
           SDKM=$(ls $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -1)
           echo "Using $SDKM"
           yes | $SDKM --licenses > /dev/null || true
-          $SDKM "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-      - name: Install Capacitor and create the Android project
+          $SDKM "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - name: Install Capacitor 8 and the Letschat plugins, create the Android project
         working-directory: native
         run: |
           npm install --no-audit --no-fund
+          npx cap --version
           npx cap add android
-      - name: App permissions (camera, microphone, notifications, location)
+      - name: Add the Letschat Android sources (permissions, sign-in links, icons)
         working-directory: native
-        run: |
-          M=android/app/src/main/AndroidManifest.xml
-          for P in CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS POST_NOTIFICATIONS ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION VIBRATE WAKE_LOCK; do
-            grep -q "android.permission.$P" $M || sed -i "s#</manifest>#    <uses-permission android:name=\"android.permission.$P\" />\n</manifest>#" $M
-          done
-          grep uses-permission $M
-      - name: Let the app open sign-in links from emails
-        working-directory: native
-        run: |
-          python3 - <<'PY'
-          p = "android/app/src/main/AndroidManifest.xml"
-          s = open(p).read()
-          f = """
-                  <intent-filter>
-                      <action android:name="android.intent.action.VIEW" />
-                      <category android:name="android.intent.category.DEFAULT" />
-                      <category android:name="android.intent.category.BROWSABLE" />
-                      <data android:scheme="https" android:host="letschatafrica-1df0c.firebaseapp.com" android:pathPrefix="/__/auth/" />
-                  </intent-filter>
-                  <intent-filter>
-                      <action android:name="android.intent.action.VIEW" />
-                      <category android:name="android.intent.category.DEFAULT" />
-                      <category android:name="android.intent.category.BROWSABLE" />
-                      <data android:scheme="https" android:host="letschat-taupe.vercel.app" />
-                  </intent-filter>
-          """
-          assert "</activity>" in s
-          open(p, "w").write(s.replace("</activity>", f + "</activity>", 1))
-          PY
-          grep -c "intent-filter" android/app/src/main/AndroidManifest.xml
+        run: bash android-src/apply.sh
       - name: App icon from the Letschat logo
         working-directory: native
         continue-on-error: true
@@ -73,10 +46,13 @@ jobs:
           mkdir -p resources
           cp ../client/icons/icon-512.png resources/icon.png
           npx --yes @capacitor/assets generate --android --iconBackgroundColor '#0E1116' --iconBackgroundColorDark '#0E1116' --splashBackgroundColor '#05070A' --splashBackgroundColorDark '#05070A'
+      - name: Sync plugins into the Android project
+        working-directory: native
+        run: npx cap sync android
       - name: Build, then sign with the Letschat key
         working-directory: native/android
         run: |
-          BT=$ANDROID_HOME/build-tools/34.0.0
+          BT=$ANDROID_HOME/build-tools/36.0.0
           if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASS" ]; then
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/letschat.keystore"
             ./gradlew assembleRelease --no-daemon
