@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://letschatafric.netlify.app/sitemap.xml
+Sitemap: https://letschat-taupe.vercel.app/sitemap.xml
