@@ -12,5 +12,12 @@
       "letschat-9tw4.onrender.com"
     ]
   },
-  "android": { "allowMixedContent": false, "appendUserAgent": "LetschatApp" }
+  "android": {
+    "allowMixedContent": false,
+    "appendUserAgent": "LetschatApp",
+    "backgroundColor": "#05070A",
+    "webContentsDebuggingEnabled": false,
+    "captureInput": true,
+    "loggingBehavior": "none"
+  }
 }

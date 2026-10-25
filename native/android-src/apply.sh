@@ -15,3 +15,10 @@ python3 android-src/patch_manifest.py "$MANIFEST"
 
 echo "Done. Permissions and filters now in the manifest:"
 grep -E "uses-permission|<data " "$MANIFEST" || true
+
+# Faster, steadier Gradle builds (only added once)
+GP=android/gradle.properties
+if [ -f "$GP" ] && ! grep -q "letschat-build-tuning" "$GP"; then
+  printf '\n# letschat-build-tuning\norg.gradle.parallel=true\norg.gradle.caching=true\norg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8\n' >> "$GP"
+  echo "Gradle build tuning added"
+fi
