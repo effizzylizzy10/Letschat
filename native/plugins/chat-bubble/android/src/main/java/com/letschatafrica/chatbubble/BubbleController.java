@@ -72,6 +72,8 @@ final class BubbleController {
     private String chatId = "";
     private FrameLayout xTarget;
     private GradientDrawable xBg;
+    /** True while a finger is on the chat head: nothing may restyle, dim or animate it meanwhile. */
+    private boolean dragging = false;
 
     private final Runnable hidePreviewTask = new Runnable() {
         @Override
@@ -124,6 +126,7 @@ final class BubbleController {
                 badge.setVisibility(View.GONE);
             }
             setAvatar(avatar, title);
+            if (dragging) return; // the person is moving the head right now: never shrink, fade or re-pop it under their finger
             // the speech bubble shows the message itself (the sender is the photo next to it)
             String line = (text == null || text.isEmpty()) ? (title == null ? "" : title) : text;
             ui.removeCallbacks(hidePreviewTask);
@@ -237,6 +240,7 @@ final class BubbleController {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         );
+        lp.alpha = 1f; // the whole window is always fully opaque
         lp.gravity = Gravity.TOP | (onRight ? Gravity.END : Gravity.START);
         lp.x = 0;
         lp.y = clampY(y);
@@ -274,6 +278,7 @@ final class BubbleController {
     private void removeView() {
         ui.removeCallbacks(hidePreviewTask);
         hideTarget();
+        dragging = false;
         if (row != null) {
             try {
                 wm.removeView(row);
@@ -316,6 +321,14 @@ final class BubbleController {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     ui.removeCallbacks(hidePreviewTask);
+                    dragging = true;
+                    // an arrival animation (fade-in or pop) that is still running must not fight the finger
+                    holder.animate().cancel();
+                    if (preview != null) preview.animate().cancel();
+                    holder.setAlpha(1f);
+                    holder.setScaleX(1f);
+                    holder.setScaleY(1f);
+                    row.setAlpha(1f);
                     setPreviewVisible(false);
                     // from here the position is measured from the left edge while dragging
                     lp.gravity = Gravity.TOP | Gravity.START;
@@ -345,6 +358,7 @@ final class BubbleController {
                     return true;
                 }
                 case MotionEvent.ACTION_UP:
+                    dragging = false;
                     hideTarget();
                     holder.setAlpha(1f);
                     holder.setScaleX(1f);
@@ -358,6 +372,7 @@ final class BubbleController {
                     }
                     return true;
                 case MotionEvent.ACTION_CANCEL:
+                    dragging = false;
                     hideTarget();
                     holder.setAlpha(1f);
                     holder.setScaleX(1f);
@@ -437,7 +452,7 @@ final class BubbleController {
         xBg = null;
     }
 
-    /** True while the finger is over the X; the X turns red and grows. */
+    /** True while the finger is over the X itself (a little wider than the circle); the X turns red and grows. */
     private boolean overTarget(float rawX, float rawY) {
         if (xTarget == null || xTarget.getWidth() == 0) return false;
         int[] loc = new int[2];
@@ -446,7 +461,7 @@ final class BubbleController {
         float cy = loc[1] + xTarget.getHeight() / 2f;
         float dx = rawX - cx;
         float dy = rawY - cy;
-        float reach = dp(56);
+        float reach = dp(40); // the X circle is 32 dp in radius: only a drop right on it dismisses the head
         boolean hit = dx * dx + dy * dy < reach * reach;
         if (xBg != null) xBg.setColor(hit ? 0xFFE53935 : 0xCC1B1F27);
         xTarget.setScaleX(hit ? 1.25f : 1f);
