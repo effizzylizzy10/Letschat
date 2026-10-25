@@ -1,8 +1,10 @@
 /* Letschat native glue. Injected by the ChatBubble plugin into the Letschat website inside the Android app only.
-   It does three things:
+   It does four things:
    1. starts the background service once a person is signed in (and stops it on sign-out),
    2. listens to the live chat connection and shows the floating bubble when a message arrives while the app is in the background,
-   3. asks, at most once a week each, for "display over other apps" and "ignore battery optimisation". */
+   3. asks, at most once a week each, for "display over other apps" and "ignore battery optimisation",
+   4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
+      and a blue speech bubble with the message). On by default; the choice is kept in localStorage "letschat-native:bubble". */
 (function () {
   if (window.__lcNativeBridge) return;
   if (!/(^|\.)(letschat-taupe\.vercel\.app|letschatafric\.netlify\.app)$/.test(location.hostname)) return;
@@ -15,7 +17,13 @@
   var SESSION_KEY = "letschat-africa:session";
   var ASK_KEY = "letschat-native:asked:";
   var unread = 0, background = false, serviceOn = false;
+  var BUBBLE_KEY = "letschat-native:bubble";
   function noop() {}
+
+  function bubbleOn() { try { return localStorage.getItem(BUBBLE_KEY) !== "0"; } catch (e) { return true; } }
+  function apiBase() { return String((window.LETSCHAT_CONFIG && window.LETSCHAT_CONFIG.API_URL) || "").replace(/\/+$/, ""); }
+  function photoUrl(p) { return p && String(p).charAt(0) === "/" ? apiBase() + p : (p || ""); }
+  if (BB && BB.setEnabled) BB.setEnabled({ enabled: bubbleOn() }).catch(noop);
 
   function session() { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (e) { return null; } }
   function loggedIn() { var s = session(); return !!(s && s.token); }
@@ -30,7 +38,7 @@
   function markAsked(k) { try { localStorage.setItem(ASK_KEY + k, String(Date.now())); } catch (e) {} }
 
   function offerOverlay() {
-    if (!BB || askedRecently("overlay")) return;
+    if (!BB || !bubbleOn() || askedRecently("overlay")) return;
     BB.checkOverlayPermission().then(function (r) {
       if (r && r.granted) return;
       markAsked("overlay");
@@ -70,16 +78,18 @@
     return null;
   }
   function onEvent(name, m) {
-    if (name !== "message:new" || !m || typeof m !== "object" || !background || !BB) return;
+    if (name !== "message:new" || !m || typeof m !== "object" || !background || !BB || !bubbleOn()) return;
     var sender = field(m, ["sender", "from", "user"]);
     var sid = field(m, ["senderId", "sender_id", "fromId", "userId"]) || (sender && typeof sender === "object" ? field(sender, ["id", "_id"]) : sender);
     var me = myId();
     if (me && sid && String(sid) === String(me)) return; // my own message
+    var photo = (sender && typeof sender === "object" ? field(sender, ["avatar", "photo", "picture", "image"]) : null) || field(m, ["senderAvatar", "avatar"]);
+    if (!photo && sid && apiBase()) photo = "/api/v1/users/" + encodeURIComponent(String(sid)) + "/avatar";
     var title = field(m, ["senderName", "fromName"]) || (sender && typeof sender === "object" ? field(sender, ["name", "displayName", "username"]) : null) || "Letschat";
     var text = field(m, ["text", "body", "content", "caption"]) || (m.type && m.type !== "text" ? "[" + m.type + "]" : "New message");
     var chat = field(m, ["conversationId", "convoId", "convId", "chatId"]) || (m.conversation && field(m.conversation, ["id", "_id"])) || "";
     unread++;
-    BB.show({ count: unread, title: String(title), text: String(text).slice(0, 120), chatId: String(chat) }).catch(noop);
+    BB.show({ count: unread, title: String(title), text: String(text).slice(0, 120), chatId: String(chat), avatar: photoUrl(photo) }).catch(noop);
   }
 
   // The app keeps its Socket.IO connections in io.managers: attach to each one once.
@@ -101,6 +111,60 @@
   }
   setInterval(hookSockets, 2500);
   hookSockets();
+
+  // ---- "Floating chat bubble" switch in Settings > Notifications ----
+  // The page is a React app we do not edit, so the row is added next to "Show message preview" with the same look.
+  function findRow() {
+    try {
+      var t = document.evaluate("//div[normalize-space(text())='Show message preview']", document, null, 9, null).singleNodeValue;
+      var row = t && t.parentElement && t.parentElement.parentElement;
+      return row && row.querySelector("button[role=switch]") ? row : null;
+    } catch (e) { return null; }
+  }
+  function paintSwitch(btn, on) {
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+    btn.style.background = on ? "#35D0BA" : "#2B3544";
+    var knob = btn.querySelector("span");
+    if (knob) knob.style.left = on ? "22px" : "3px";
+  }
+  function addSettingRow() {
+    if (!BB || document.querySelector("[data-lc-bubble-row]")) return;
+    var src = findRow();
+    if (!src) return;
+    var row = src.cloneNode(true);
+    row.setAttribute("data-lc-bubble-row", "1");
+    var box = row.firstElementChild;
+    if (box && box.children.length > 1) {
+      box.children[0].textContent = "Floating chat bubble";
+      box.children[1].textContent = "Show the sender's photo and message in a bubble over other apps when a message arrives.";
+    }
+    var btn = row.querySelector("button[role=switch]");
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.style.cursor = "pointer";
+    paintSwitch(btn, bubbleOn());
+    btn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var on = !bubbleOn();
+      try { localStorage.setItem(BUBBLE_KEY, on ? "1" : "0"); } catch (e) {}
+      paintSwitch(btn, on);
+      BB.setEnabled({ enabled: on }).catch(noop);
+      if (!on) { unread = 0; BB.hide().catch(noop); return; }
+      BB.checkOverlayPermission().then(function (r) {
+        if (!r || !r.granted) BB.requestOverlayPermission().catch(noop); // opens Android's "Display over other apps" screen
+      }).catch(noop);
+    });
+    src.parentNode.insertBefore(row, src.nextSibling);
+  }
+  var settingsTimer = null;
+  try {
+    new MutationObserver(function () {
+      if (settingsTimer) return;
+      settingsTimer = setTimeout(function () { settingsTimer = null; addSettingRow(); }, 300);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) {}
+  addSettingRow();
 
   function setActive(active) {
     background = !active;
