@@ -7,6 +7,8 @@ export interface ShowOptions {
   text?: string;
   /** Passed back in the bubbleTapped event. */
   chatId?: string;
+  /** Full address of the sender's profile photo (a coloured circle with their first letter is shown until it loads, or when there is none). */
+  avatar?: string;
 }
 
 export interface PluginListenerHandle {
@@ -21,6 +23,9 @@ export interface ChatBubblePlugin {
   /** Shows the bubble, or updates it when it is already on screen. Rejects when the overlay permission is missing. */
   show(options: ShowOptions): Promise<void>;
   hide(): Promise<void>;
+  /** Turns the bubble on or off (the "Floating chat bubble" setting). On by default. */
+  setEnabled(options: { enabled: boolean }): Promise<void>;
+  isEnabled(): Promise<{ enabled: boolean }>;
   addListener(eventName: 'bubbleTapped', listener: (data: { chatId: string }) => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'appState', listener: (data: { active: boolean }) => void): Promise<PluginListenerHandle>;
 }

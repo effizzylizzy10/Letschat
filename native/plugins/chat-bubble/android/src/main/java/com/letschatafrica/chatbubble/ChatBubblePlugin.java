@@ -107,8 +107,22 @@ public class ChatBubblePlugin extends Plugin {
             call.reject("Overlay permission not granted");
             return;
         }
-        controller.show(call.getInt("count", 0), call.getString("title", ""), call.getString("text", ""), call.getString("chatId", ""));
+        controller.show(call.getInt("count", 0), call.getString("title", ""), call.getString("text", ""), call.getString("chatId", ""), call.getString("avatar", ""));
         call.resolve();
+    }
+
+    /** The in-app setting "Floating chat bubble": turns the bubble on or off (on by default). */
+    @PluginMethod
+    public void setEnabled(PluginCall call) {
+        controller.setEnabled(Boolean.TRUE.equals(call.getBoolean("enabled", true)));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void isEnabled(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("enabled", controller.isEnabled());
+        call.resolve(ret);
     }
 
     @PluginMethod

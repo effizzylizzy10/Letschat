@@ -3,7 +3,11 @@ package com.letschatafrica.chatbubble;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -12,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -21,10 +26,15 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.view.animation.OvershootInterpolator;
 import android.widget.TextView;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 /**
- * Draws the floating Letschat bubble in its own overlay window (no extra service needed: the background
+ * Draws the floating Letschat chat head in its own overlay window: the sender's round photo with a red unread badge and a
+ * blue speech bubble showing the message (like Messenger). It is drawn in its own overlay window (no extra service needed: the background
  * service keeps the process alive). Drag to move, it snaps to the left or right edge, tap opens the app,
  * drop it in the bottom part of the screen to dismiss it until the next message.
  */
@@ -35,6 +45,7 @@ final class BubbleController {
     }
 
     private static final String PREFS = "letschat_chat_bubble";
+    private static final int BUBBLE_BLUE = 0xFF1B8CF5;
     private static BubbleController instance;
 
     static synchronized BubbleController get(Context context) {
@@ -52,6 +63,10 @@ final class BubbleController {
     private FrameLayout holder;
     private TextView badge;
     private TextView preview;
+    private View tail;
+    private ImageView avatarView;
+    private String avatarUrl = "";
+    private final LruCache<String, Bitmap> avatars = new LruCache<>(12);
     private WindowManager.LayoutParams lp;
     private boolean onRight = true;
     private String chatId = "";
@@ -59,7 +74,7 @@ final class BubbleController {
     private final Runnable hidePreviewTask = new Runnable() {
         @Override
         public void run() {
-            if (preview != null) preview.setVisibility(View.GONE);
+            setPreviewVisible(false);
         }
     };
 
@@ -73,9 +88,18 @@ final class BubbleController {
         listener = l;
     }
 
-    void show(final int count, final String title, final String text, final String id) {
+    boolean isEnabled() {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", true);
+    }
+
+    void setEnabled(boolean enabled) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply();
+        if (!enabled) hide();
+    }
+
+    void show(final int count, final String title, final String text, final String id, final String avatar) {
         ui.post(() -> {
-            if (!Settings.canDrawOverlays(ctx)) return;
+            if (!isEnabled() || !Settings.canDrawOverlays(ctx)) return;
             ensureView();
             if (row == null) return;
             chatId = id == null ? "" : id;
@@ -85,14 +109,24 @@ final class BubbleController {
             } else {
                 badge.setVisibility(View.GONE);
             }
-            String line = (title == null || title.isEmpty()) ? (text == null ? "" : text) : (text == null || text.isEmpty() ? title : title + ": " + text);
+            setAvatar(avatar, title);
+            // the speech bubble shows the message itself (the sender is the photo next to it)
+            String line = (text == null || text.isEmpty()) ? (title == null ? "" : title) : text;
             ui.removeCallbacks(hidePreviewTask);
             if (!line.isEmpty()) {
                 preview.setText(line);
-                preview.setVisibility(View.VISIBLE);
-                ui.postDelayed(hidePreviewTask, 5000);
+                boolean wasHidden = preview.getVisibility() != View.VISIBLE;
+                setPreviewVisible(true);
+                if (wasHidden) {
+                    preview.setAlpha(0f);
+                    preview.animate().alpha(1f).setDuration(180).start();
+                }
+                holder.setScaleX(0.7f);
+                holder.setScaleY(0.7f);
+                holder.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(new OvershootInterpolator(2f)).start();
+                ui.postDelayed(hidePreviewTask, 6000);
             } else {
-                preview.setVisibility(View.GONE);
+                setPreviewVisible(false);
             }
         });
     }
@@ -112,6 +146,8 @@ final class BubbleController {
         int size = dp(56);
 
         ImageView icon = new ImageView(ctx);
+        avatarView = icon;
+        avatarUrl = "";
         try {
             icon.setImageDrawable(ctx.getPackageManager().getApplicationIcon(ctx.getPackageName()));
         } catch (Exception ignored) {}
@@ -119,7 +155,7 @@ final class BubbleController {
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
         ring.setColor(0xFF0E1116);
-        ring.setStroke(dp(2), 0xFF35D0BA);
+        ring.setStroke(dp(2), Color.WHITE);
         icon.setBackground(ring);
         icon.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
         icon.setClipToOutline(true);
@@ -143,16 +179,26 @@ final class BubbleController {
 
         preview = new TextView(ctx);
         preview.setTextColor(Color.WHITE);
-        preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        preview.setMaxLines(2);
+        preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        preview.setTypeface(Typeface.DEFAULT_BOLD);
+        preview.setMaxLines(3);
         preview.setEllipsize(TextUtils.TruncateAt.END);
-        preview.setMaxWidth(dp(200));
-        preview.setPadding(dp(12), dp(8), dp(12), dp(8));
+        preview.setMaxWidth(dp(220));
+        preview.setPadding(dp(14), dp(9), dp(14), dp(9));
         GradientDrawable previewBg = new GradientDrawable();
-        previewBg.setColor(0xF01B2B33);
-        previewBg.setCornerRadius(dp(16));
+        previewBg.setColor(BUBBLE_BLUE);
+        previewBg.setCornerRadius(dp(18));
         preview.setBackground(previewBg);
         preview.setVisibility(View.GONE);
+
+        // small diamond that makes the speech bubble point at the photo
+        tail = new View(ctx);
+        GradientDrawable tailBg = new GradientDrawable();
+        tailBg.setColor(BUBBLE_BLUE);
+        tailBg.setCornerRadius(dp(2));
+        tail.setBackground(tailBg);
+        tail.setRotation(45f);
+        tail.setVisibility(View.GONE);
 
         row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -186,13 +232,18 @@ final class BubbleController {
         int gap = dp(8);
         LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(dp(12), dp(12));
         if (onRight) {
-            pl.rightMargin = gap;
+            tl.leftMargin = -dp(8);
+            tl.rightMargin = gap - dp(2);
             row.addView(preview, pl);
+            row.addView(tail, tl);
             row.addView(holder, hl);
         } else {
-            pl.leftMargin = gap;
+            tl.rightMargin = -dp(8);
+            tl.leftMargin = gap - dp(2);
             row.addView(holder, hl);
+            row.addView(tail, tl);
             row.addView(preview, pl);
         }
     }
@@ -208,6 +259,9 @@ final class BubbleController {
         holder = null;
         badge = null;
         preview = null;
+        tail = null;
+        avatarView = null;
+        avatarUrl = "";
     }
 
     private void openApp() {
@@ -238,7 +292,7 @@ final class BubbleController {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     ui.removeCallbacks(hidePreviewTask);
-                    preview.setVisibility(View.GONE);
+                    setPreviewVisible(false);
                     // from here the position is measured from the left edge while dragging
                     lp.gravity = Gravity.TOP | Gravity.START;
                     lp.x = onRight ? screenW() - dp(56) : 0;
@@ -302,6 +356,67 @@ final class BubbleController {
     }
 
     // ---- helpers ----
+
+    private void setPreviewVisible(boolean visible) {
+        int v = visible ? View.VISIBLE : View.GONE;
+        if (preview != null) preview.setVisibility(v);
+        if (tail != null) tail.setVisibility(v);
+    }
+
+    /** Shows the sender's photo; until it is downloaded (or when there is none) a coloured circle with their first letter. */
+    private void setAvatar(final String url, String name) {
+        if (avatarView == null) return;
+        final String u = url == null ? "" : url;
+        if (u.equals(avatarUrl) && !u.isEmpty()) return; // same person: keep their photo
+        avatarUrl = u;
+        Bitmap cached = u.isEmpty() ? null : avatars.get(u);
+        if (cached != null) {
+            avatarView.setImageBitmap(cached);
+            return;
+        }
+        if (name != null && !name.trim().isEmpty()) {
+            avatarView.setImageBitmap(letterBitmap(name.trim()));
+        }
+        if (u.isEmpty()) return;
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(u).openConnection();
+                c.setConnectTimeout(6000);
+                c.setReadTimeout(6000);
+                if (c.getResponseCode() != 200) return;
+                try (InputStream in = c.getInputStream()) {
+                    final Bitmap b = BitmapFactory.decodeStream(in);
+                    if (b == null) return;
+                    ui.post(() -> {
+                        avatars.put(u, b);
+                        if (avatarView != null && u.equals(avatarUrl)) avatarView.setImageBitmap(b);
+                    });
+                }
+            } catch (Exception ignored) {
+                // keep the letter circle
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
+    }
+
+    private Bitmap letterBitmap(String name) {
+        int size = dp(112);
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(bmp);
+        int[] palette = { 0xFF35D0BA, 0xFF7C6CF0, 0xFFF2B84B, 0xFFE8618C, 0xFF3FA9F5, 0xFF21C063 };
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(palette[(name.hashCode() & 0x7fffffff) % palette.length]);
+        cv.drawRect(0, 0, size, size, p);
+        p.setColor(Color.WHITE);
+        p.setTypeface(Typeface.DEFAULT_BOLD);
+        p.setTextSize(size * 0.46f);
+        p.setTextAlign(Paint.Align.CENTER);
+        String letter = name.substring(0, name.offsetByCodePoints(0, 1)).toUpperCase();
+        cv.drawText(letter, size / 2f, size / 2f - (p.descent() + p.ascent()) / 2f, p);
+        return bmp;
+    }
 
     private int clampY(int y) {
         return Math.max(0, Math.min(screenH() - dp(56) - dp(96), y));
