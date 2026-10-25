@@ -165,18 +165,38 @@
     if (A.getLaunchUrl) A.getLaunchUrl().then(function (r) { if (r && r.url) go(r.url); }, function () {});
   })();
   </script>
-  <script>/* Native Letschat app only: pressing Back on the very first screen minimises Letschat into a floating chat head (like Messenger) instead of closing it. It needs the "Chat head" switch (Settings > Notifications, on by default) and Android's "Display over other apps" permission; without them Back closes the app as before. Tapping the chat head opens Letschat again. */
+  <script>/* Native Letschat app only: pressing Back 3 times on the very first screen minimises Letschat into a floating chat head (like Messenger) instead of closing it. Back still closes chats and screens one step at a time. It needs the "Chat head" switch (Settings > Notifications, on by default) and Android's "Display over other apps" permission; without them Back closes the app as before. Tapping the chat head opens Letschat again. */
   (function () {
     var A = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
     if (!A || !A.addListener) return;
+    var taps = 0, tapTimer = null, toastEl = null, toastTimer = null;
     function signedIn() { try { var s = JSON.parse(localStorage.getItem("letschat-africa:session")); return !!(s && s.token); } catch (e) { return false; } }
     function headOn() { try { return localStorage.getItem("letschat-native:bubble") !== "0"; } catch (e) { return true; } }
     function leave() { try { if (A.exitApp) A.exitApp(); } catch (e) {} }
     function minimise() { try { if (A.minimizeApp) A.minimizeApp(); else leave(); } catch (e) { leave(); } }
+    function toast(t) {
+      try {
+        if (!toastEl) {
+          toastEl = document.createElement("div");
+          toastEl.style.cssText = "position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#1E2530;color:#F5F7FA;border:1px solid #262E3A;border-radius:18px;padding:9px 16px;font:600 13px Inter,sans-serif;z-index:99999;pointer-events:none;opacity:0;transition:opacity .15s;max-width:80%;text-align:center";
+          document.body.appendChild(toastEl);
+        }
+        toastEl.textContent = t; toastEl.style.opacity = "1";
+        clearTimeout(toastTimer); toastTimer = setTimeout(function () { toastEl.style.opacity = "0"; }, 1800);
+      } catch (e) {}
+    }
     A.addListener("backButton", function (ev) {
-      if (ev && ev.canGoBack) { try { history.back(); } catch (e) {} return; }
+      if (ev && ev.canGoBack) { taps = 0; try { history.back(); } catch (e) {} return; }
       var BB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ChatBubble;
       if (!BB || !BB.show || !headOn() || !signedIn()) { leave(); return; }
+      taps++;
+      clearTimeout(tapTimer);
+      if (taps < 3) {
+        toast(taps === 1 ? "Press Back 2 more times to minimise" : "Press Back once more to minimise");
+        tapTimer = setTimeout(function () { taps = 0; }, 2500);
+        return;
+      }
+      taps = 0;
       BB.show({ count: 0, title: "", text: "", chatId: "", avatar: "" }).then(minimise, leave);
     });
   })();
