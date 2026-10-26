@@ -16,6 +16,23 @@ python3 android-src/patch_manifest.py "$MANIFEST"
 echo "Done. Permissions and filters now in the manifest:"
 grep -E "uses-permission|<data " "$MANIFEST" || true
 
+# Version number that goes up with every build, so Android installs the new APK as an UPDATE over the installed app
+# (same package + same signing key + higher versionCode = chats and settings are kept; a lower or equal code is refused).
+# In GitHub Actions the run number counts up by itself; elsewhere the current time in minutes does.
+GRADLE=android/app/build.gradle
+if [ -f "$GRADLE" ]; then
+  if [ -n "${GITHUB_RUN_NUMBER:-}" ]; then
+    CODE=$((100 + GITHUB_RUN_NUMBER))
+    NAME="1.0.${GITHUB_RUN_NUMBER}"
+  else
+    CODE=$(( $(date +%s) / 60 - 29000000 ))
+    NAME="1.0.${CODE}"
+  fi
+  sed -i -E "s/versionCode[ =]+[0-9]+/versionCode ${CODE}/; s/versionName[ =]+\"[^\"]*\"/versionName \"${NAME}\"/" "$GRADLE"
+  grep -q "versionCode ${CODE}" "$GRADLE" || { echo "Could not set versionCode in $GRADLE"; exit 1; }
+  echo "App version set to ${NAME} (versionCode ${CODE})"
+fi
+
 # Faster, steadier Gradle builds (only added once)
 GP=android/gradle.properties
 if [ -f "$GP" ] && ! grep -q "letschat-build-tuning" "$GP"; then
