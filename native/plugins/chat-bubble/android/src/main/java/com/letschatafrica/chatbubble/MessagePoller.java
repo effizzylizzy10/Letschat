@@ -21,7 +21,8 @@ import org.json.JSONObject;
 /**
  * Looks for new messages from inside the Android process, without the web page, so the chat head can pop up while Letschat is
  * minimised or closed (the foreground service keeps this process alive). It asks the Letschat server for the conversation list
- * every few seconds while the app is not on screen and pops the chat head up when an unread count goes up.
+ * every few seconds while the app is not on screen and shows the toast when a chat's LAST MESSAGE changes and is not mine.
+ * (It does not use the unread counter: the page, still alive in the background, can mark a message read at once, which would hide it.)
  * The web page hands over the sign-in token with ChatBubble.setSession (see letschat-native-bridge.js).
  *
  * The /api/v1 routes answer with an envelope {"success":true,"data":{...}}; unwrap() reads both that and a bare body.
@@ -127,14 +128,17 @@ public final class MessagePoller {
 
     private static void loop() {
         final Thread self = Thread.currentThread();
-        Map<String, Integer> seen = null;
+        // what each chat's last message was at the previous check (null = not counting yet)
+        Map<String, String> lastIds = null;
+        Map<String, Long> lastTimes = null;
         long wait = FIRST_WAIT_MS;
         while (worker == self) {
             if (!pause(wait)) return;
             wait = INTERVAL_MS;
             if (worker != self) return;
             if (foreground) {
-                seen = null; // when the app goes to the background again, start counting from then
+                lastIds = null; // when the app goes to the background again, start counting from then
+                lastTimes = null;
                 continue;
             }
             try {
@@ -145,15 +149,18 @@ public final class MessagePoller {
                 String api = sp.getString("apiUrl", "");
                 if (token.isEmpty() || api.isEmpty()) return;
                 if (!sp.getBoolean("enabled", true)) {
-                    seen = null;
+                    lastIds = null;
+                    lastTimes = null;
                     continue;
                 }
+                String myId = sp.getString("userId", "");
                 while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
                 String body = get(api + "/api/v1/conversations", token);
                 if (body == null) continue; // no network right now: try again next time
                 if (body.isEmpty()) {
                     // the server refused the token: keep the thread alive and look again slowly (a fresh token is read from storage each time)
-                    seen = null;
+                    lastIds = null;
+                    lastTimes = null;
                     wait = REFUSED_WAIT_MS;
                     continue;
                 }
@@ -162,32 +169,33 @@ public final class MessagePoller {
                     Log.w(TAG, "no conversations array in the answer");
                     continue;
                 }
-                Map<String, Integer> now = new HashMap<>();
-                int total = 0;
-                int bestGain = 0;
-                JSONObject best = null;
+                Map<String, String> nowIds = new HashMap<>();
+                Map<String, Long> nowTimes = new HashMap<>();
+                List<JSONObject> fresh = new ArrayList<>();
+                List<Long> since = new ArrayList<>();
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject c = list.optJSONObject(i);
                     if (c == null) continue;
                     String id = str(c, "id");
                     if (id.isEmpty()) continue;
-                    int unread = c.optInt("unread", 0);
-                    boolean muted = c.optBoolean("muted", false);
-                    now.put(id, unread);
-                    if (muted) continue;
-                    total += unread;
-                    if (seen != null) {
-                        Integer before = seen.get(id);
-                        int gain = unread - (before == null ? 0 : before);
-                        if (gain > bestGain) {
-                            bestGain = gain;
-                            best = c;
-                        }
-                    }
+                    JSONObject lm = c.optJSONObject("lastMessage");
+                    String lmId = str(lm, "id");
+                    long lmTime = lm == null ? 0L : lm.optLong("time", 0L);
+                    nowIds.put(id, lmId);
+                    nowTimes.put(id, lmTime);
+                    if (lastIds == null || lm == null || lmId.isEmpty()) continue;
+                    if (c.optBoolean("muted", false)) continue;
+                    if (lmId.equals(lastIds.get(id))) continue; // nothing new in this chat
+                    if (!myId.isEmpty() && myId.equals(str(lm, "senderId"))) continue; // my own message
+                    if (lm.optBoolean("deleted", false)) continue;
+                    Long before = lastTimes == null ? null : lastTimes.get(id);
+                    fresh.add(c);
+                    since.add(before == null ? 0L : before);
                 }
-                seen = now;
-                if (best != null && total > 0) {
-                    present(ctx, api, token, best, bestGain, sp.getString("userId", ""));
+                lastIds = nowIds;
+                lastTimes = nowTimes;
+                for (int i = 0; i < fresh.size(); i++) {
+                    present(ctx, api, token, fresh.get(i), since.get(i), myId);
                 }
             } catch (Throwable e) {
                 // a bad answer from the server (or any other failure): try again next time, never crash the app
@@ -197,7 +205,7 @@ public final class MessagePoller {
     }
 
     /** Shows the new messages of one chat in the WhatsApp-style pop-up (one page per message, "1 of N"). */
-    private static void present(Context ctx, String api, String token, JSONObject c, int gain, String myId) {
+    private static void present(Context ctx, String api, String token, JSONObject c, long sinceTime, String myId) {
         String chatId = str(c, "id");
         JSONObject other = c.optJSONObject("other");
         boolean group = c.optBoolean("isGroup", false);
@@ -208,16 +216,18 @@ public final class MessagePoller {
 
         List<MessagePopup.Item> items = new ArrayList<>();
         try {
-            int want = Math.max(1, Math.min(gain, 15));
-            String body = get(api + "/api/v1/conversations/" + URLEncoder.encode(chatId, "UTF-8") + "/messages?peek=1&limit=" + (want + 4), token);
+            String body = get(api + "/api/v1/conversations/" + URLEncoder.encode(chatId, "UTF-8") + "/messages?peek=1&limit=15", token);
             if (body != null && !body.isEmpty()) {
                 JSONArray arr = unwrap(body).optJSONArray("messages");
                 List<JSONObject> picked = new ArrayList<>();
                 if (arr != null) {
-                    for (int i = arr.length() - 1; i >= 0 && picked.size() < want; i--) {
+                    for (int i = arr.length() - 1; i >= 0 && picked.size() < 15; i--) {
                         JSONObject m = arr.optJSONObject(i);
                         if (m == null) continue;
                         if (!myId.isEmpty() && myId.equals(str(m, "senderId"))) continue; // my own message
+                        if (m.optBoolean("deleted", false)) continue;
+                        long t = m.optLong("time", 0L);
+                        if (sinceTime > 0 && t > 0 && t <= sinceTime) break; // older than what was already there
                         picked.add(0, m);
                     }
                 }
