@@ -2,6 +2,7 @@ package com.letschatafrica.chatbubble;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -22,18 +23,21 @@ import org.json.JSONObject;
  * minimised or closed (the foreground service keeps this process alive). It asks the Letschat server for the conversation list
  * every few seconds while the app is not on screen and pops the chat head up when an unread count goes up.
  * The web page hands over the sign-in token with ChatBubble.setSession (see letschat-native-bridge.js).
+ *
+ * The /api/v1 routes answer with an envelope {"success":true,"data":{...}}; unwrap() reads both that and a bare body.
  */
 public final class MessagePoller {
 
+    private static final String TAG = "LetschatPoller";
     private static final String PREFS = "letschat_chat_bubble";
     private static final long FIRST_WAIT_MS = 2500;
-    private static final long INTERVAL_MS = 15000;
-    /** A message the live connection already showed a moment ago is not shown a second time. */
-    private static final long SOCKET_QUIET_MS = 45000;
+    private static final long INTERVAL_MS = 8000;
+
+    private static final Object LOCK = new Object();
+    private static boolean wake = false;
 
     private static volatile Thread worker;
     private static volatile boolean foreground = false;
-    private static volatile long lastSocketShow = 0;
     private static Context appCtx;
 
     private MessagePoller() {}
@@ -63,7 +67,9 @@ public final class MessagePoller {
             public void run() {
                 try {
                     loop();
-                } catch (Throwable ignored) {}
+                } catch (Throwable e) {
+                    Log.w(TAG, "poller stopped: " + e);
+                }
             }
         }, "letschat-message-poller");
         t.setDaemon(true);
@@ -77,14 +83,44 @@ public final class MessagePoller {
         if (w != null) w.interrupt();
     }
 
-    /** True while Letschat is on screen (the page itself shows messages then). */
+    /** True while Letschat is on screen (the page itself shows messages then). Leaving the screen starts counting at once. */
     static void setForeground(boolean on) {
+        boolean was = foreground;
         foreground = on;
+        if (was && !on) {
+            synchronized (LOCK) {
+                wake = true;
+                LOCK.notifyAll();
+            }
+        }
     }
 
-    /** The live connection just showed the chat head for a message. */
-    static void noteSocketShow() {
-        lastSocketShow = System.currentTimeMillis();
+    /** The live connection just showed the chat head for a message. (Kept for the plugin; duplicates are removed by message id in MessagePopup.) */
+    static void noteSocketShow() {}
+
+    /** Sleeps up to ms, or less when setForeground(false) wakes the loop. Returns false when interrupted. */
+    private static boolean pause(long ms) {
+        try {
+            synchronized (LOCK) {
+                long end = System.currentTimeMillis() + ms;
+                while (!wake) {
+                    long left = end - System.currentTimeMillis();
+                    if (left <= 0) break;
+                    LOCK.wait(left);
+                }
+                wake = false;
+            }
+            return true;
+        } catch (InterruptedException e) {
+            return false;
+        }
+    }
+
+    /** The server's /api/v1 answers are {"success":true,"data":{...}}; older routes answer with the bare body. */
+    private static JSONObject unwrap(String body) throws Exception {
+        JSONObject root = new JSONObject(body);
+        JSONObject data = root.optJSONObject("data");
+        return data != null ? data : root;
     }
 
     private static void loop() {
@@ -92,11 +128,7 @@ public final class MessagePoller {
         Map<String, Integer> seen = null;
         long wait = FIRST_WAIT_MS;
         while (worker == self) {
-            try {
-                Thread.sleep(wait);
-            } catch (InterruptedException e) {
-                return;
-            }
+            if (!pause(wait)) return;
             wait = INTERVAL_MS;
             if (worker != self) return;
             if (foreground) {
@@ -118,8 +150,11 @@ public final class MessagePoller {
                 String body = get(api + "/api/v1/conversations", token);
                 if (body == null) continue; // no network right now: try again next time
                 if (body.isEmpty()) return; // sign-in expired: wait for the page to send a new token
-                JSONArray list = new JSONObject(body).optJSONArray("conversations");
-                if (list == null) continue;
+                JSONArray list = unwrap(body).optJSONArray("conversations");
+                if (list == null) {
+                    Log.w(TAG, "no conversations array in the answer");
+                    continue;
+                }
                 Map<String, Integer> now = new HashMap<>();
                 int total = 0;
                 int bestGain = 0;
@@ -144,11 +179,12 @@ public final class MessagePoller {
                     }
                 }
                 seen = now;
-                if (best != null && total > 0 && System.currentTimeMillis() - lastSocketShow > SOCKET_QUIET_MS) {
+                if (best != null && total > 0) {
                     present(ctx, api, token, best, bestGain, sp.getString("userId", ""));
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable e) {
                 // a bad answer from the server (or any other failure): try again next time, never crash the app
+                Log.w(TAG, "check failed: " + e);
             }
         }
     }
@@ -168,7 +204,7 @@ public final class MessagePoller {
             int want = Math.max(1, Math.min(gain, 15));
             String body = get(api + "/api/v1/conversations/" + URLEncoder.encode(chatId, "UTF-8") + "/messages?peek=1&limit=" + (want + 4), token);
             if (body != null && !body.isEmpty()) {
-                JSONArray arr = new JSONObject(body).optJSONArray("messages");
+                JSONArray arr = unwrap(body).optJSONArray("messages");
                 List<JSONObject> picked = new ArrayList<>();
                 if (arr != null) {
                     for (int i = arr.length() - 1; i >= 0 && picked.size() < want; i--) {
@@ -180,12 +216,17 @@ public final class MessagePoller {
                 }
                 for (JSONObject m : picked) items.add(toItem(m, chatId, title, photo, group, myId));
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Log.w(TAG, "could not read the new messages: " + e);
             // fall back to the last message below
         }
         if (items.isEmpty()) {
             JSONObject last = c.optJSONObject("lastMessage");
             if (last != null) items.add(toItem(last, chatId, title, photo, group, myId));
+        }
+        if (items.isEmpty()) {
+            // the server said there is something new but we could not read it: still show the toast so the person knows
+            items.add(new MessagePopup.Item("", chatId, title, photo, "New message", "", ""));
         }
         for (MessagePopup.Item it : items) MessagePopup.notifyMessage(ctx, it);
     }
@@ -263,7 +304,10 @@ public final class MessagePoller {
             c.setRequestProperty("Accept", "application/json");
             int code = c.getResponseCode();
             if (code == 401 || code == 403) return "";
-            if (code != 200) return null;
+            if (code != 200) {
+                Log.w(TAG, "HTTP " + code + " for " + url);
+                return null;
+            }
             InputStream in = c.getInputStream();
             BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
