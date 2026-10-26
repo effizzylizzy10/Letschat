@@ -32,6 +32,8 @@ public final class MessagePoller {
     private static final String PREFS = "letschat_chat_bubble";
     private static final long FIRST_WAIT_MS = 2500;
     private static final long INTERVAL_MS = 8000;
+    /** After the server refuses the token, check again only this rarely (the page may send a fresh token meanwhile). */
+    private static final long REFUSED_WAIT_MS = 60000;
 
     private static final Object LOCK = new Object();
     private static boolean wake = false;
@@ -149,7 +151,12 @@ public final class MessagePoller {
                 while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
                 String body = get(api + "/api/v1/conversations", token);
                 if (body == null) continue; // no network right now: try again next time
-                if (body.isEmpty()) return; // sign-in expired: wait for the page to send a new token
+                if (body.isEmpty()) {
+                    // the server refused the token: keep the thread alive and look again slowly (a fresh token is read from storage each time)
+                    seen = null;
+                    wait = REFUSED_WAIT_MS;
+                    continue;
+                }
                 JSONArray list = unwrap(body).optJSONArray("conversations");
                 if (list == null) {
                     Log.w(TAG, "no conversations array in the answer");
