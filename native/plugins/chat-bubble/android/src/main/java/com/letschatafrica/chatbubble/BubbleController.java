@@ -213,6 +213,7 @@ final class BubbleController {
 
     /** A tap on the head or on its toast: with waiting messages the head grows into the message card, otherwise Letschat opens. */
     private void onHeadTapped() {
+        if (expanded) return; // the card is already opening: a quick second tap must not rebuild it
         ui.removeCallbacks(hidePreviewTask);
         MessagePopup popup = MessagePopup.get(ctx);
         int[] c = headCenter();
@@ -258,6 +259,10 @@ final class BubbleController {
         expanded = false;
         if (row == null || holder == null || lp == null) return;
         lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        // A tap leaves the window measured from the left edge (see DragListener). Put it back on its own side so the next toast
+        // opens inward next to the head instead of running off the screen.
+        lp.gravity = Gravity.TOP | (onRight ? Gravity.END : Gravity.START);
+        lp.x = 0;
         updateLayoutSafe();
         holder.animate().cancel();
         if (pop) {
