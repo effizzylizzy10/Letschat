@@ -1,7 +1,14 @@
 package com.letschatafrica.chatbubble;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
+import android.provider.Settings;
 import android.util.Log;
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -26,11 +33,14 @@ import org.json.JSONObject;
  * The web page hands over the sign-in token with ChatBubble.setSession (see letschat-native-bridge.js).
  *
  * The /api/v1 routes answer with an envelope {"success":true,"data":{...}}; unwrap() reads both that and a bare body.
+ * When "Display over other apps" is not allowed, a normal Android notification is posted instead, so a new message is never silent.
+ * Everything it decides is written to the Android log under the tag LetschatPoller (adb logcat -s LetschatPoller).
  */
 public final class MessagePoller {
 
     private static final String TAG = "LetschatPoller";
     private static final String PREFS = "letschat_chat_bubble";
+    private static final String NOTICE_CHANNEL = "letschat_new_message";
     private static final long FIRST_WAIT_MS = 2500;
     private static final long INTERVAL_MS = 8000;
     /** After the server refuses the token, check again only this rarely (the page may send a fresh token meanwhile). */
@@ -50,10 +60,12 @@ public final class MessagePoller {
         Context app = ctx.getApplicationContext();
         SharedPreferences.Editor ed = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
         if (token == null || token.isEmpty()) {
+            Log.i(TAG, "signed out: poller stops");
             ed.remove("token").remove("apiUrl").remove("userId").apply();
             stop();
             return;
         }
+        Log.i(TAG, "session received (api=" + apiUrl + ", userId " + (userId == null || userId.isEmpty() ? "MISSING" : "ok") + ")");
         ed.putString("token", token).putString("apiUrl", apiUrl == null ? "" : apiUrl).putString("userId", userId == null ? "" : userId).apply();
         ensureRunning(app);
     }
@@ -78,6 +90,7 @@ public final class MessagePoller {
         t.setDaemon(true);
         worker = t;
         t.start();
+        Log.i(TAG, "poller started");
     }
 
     static synchronized void stop() {
@@ -159,6 +172,7 @@ public final class MessagePoller {
                 if (body == null) continue; // no network right now: try again next time
                 if (body.isEmpty()) {
                     // the server refused the token: keep the thread alive and look again slowly (a fresh token is read from storage each time)
+                    Log.w(TAG, "server refused the sign-in token");
                     lastIds = null;
                     lastTimes = null;
                     wait = REFUSED_WAIT_MS;
@@ -173,6 +187,7 @@ public final class MessagePoller {
                 Map<String, Long> nowTimes = new HashMap<>();
                 List<JSONObject> fresh = new ArrayList<>();
                 List<Long> since = new ArrayList<>();
+                int fromMe = 0;
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject c = list.optJSONObject(i);
                     if (c == null) continue;
@@ -186,12 +201,17 @@ public final class MessagePoller {
                     if (lastIds == null || lm == null || lmId.isEmpty()) continue;
                     if (c.optBoolean("muted", false)) continue;
                     if (lmId.equals(lastIds.get(id))) continue; // nothing new in this chat
-                    if (!myId.isEmpty() && myId.equals(str(lm, "senderId"))) continue; // my own message
+                    if (!myId.isEmpty() && myId.equals(str(lm, "senderId"))) { // my own message (sent from another device)
+                        fromMe++;
+                        continue;
+                    }
                     if (lm.optBoolean("deleted", false)) continue;
                     Long before = lastTimes == null ? null : lastTimes.get(id);
                     fresh.add(c);
                     since.add(before == null ? 0L : before);
                 }
+                if (lastIds == null) Log.i(TAG, "started counting: " + nowIds.size() + " chats");
+                else if (!fresh.isEmpty() || fromMe > 0) Log.i(TAG, "new: " + fresh.size() + " chats, ignored " + fromMe + " sent by me (userId " + (myId.isEmpty() ? "MISSING" : "ok") + ")");
                 lastIds = nowIds;
                 lastTimes = nowTimes;
                 for (int i = 0; i < fresh.size(); i++) {
@@ -245,7 +265,32 @@ public final class MessagePoller {
             // the server said there is something new but we could not read it: still show the toast so the person knows
             items.add(new MessagePopup.Item("", chatId, title, photo, "New message", "", ""));
         }
-        for (MessagePopup.Item it : items) MessagePopup.notifyMessage(ctx, it);
+        boolean canOverlay = Settings.canDrawOverlays(ctx);
+        Log.i(TAG, "showing " + items.size() + " message(s) from " + title + (canOverlay ? " on the chat head" : " as a notification (Display over other apps is OFF)"));
+        if (canOverlay) {
+            for (MessagePopup.Item it : items) MessagePopup.notifyMessage(ctx, it);
+        } else {
+            postNotice(ctx, title, items.get(items.size() - 1).text, chatId);
+        }
+    }
+
+    /** "Display over other apps" is off, so the chat head cannot be drawn: tell the person with a normal notification instead. */
+    private static void postNotice(Context ctx, String title, String text, String chatId) {
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(new NotificationChannel(NOTICE_CHANNEL, "New messages", NotificationManager.IMPORTANCE_HIGH));
+            }
+            Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            PendingIntent pi = open == null ? null : PendingIntent.getActivity(ctx, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(ctx, NOTICE_CHANNEL) : new Notification.Builder(ctx);
+            b.setSmallIcon(ctx.getApplicationInfo().icon).setContentTitle(title).setContentText(text).setAutoCancel(true);
+            if (pi != null) b.setContentIntent(pi);
+            nm.notify(chatId.hashCode(), b.build());
+        } catch (Throwable e) {
+            Log.w(TAG, "could not post the notification: " + e);
+        }
     }
 
     private static MessagePopup.Item toItem(JSONObject m, String chatId, String title, String photo, boolean group, String myId) {
@@ -333,6 +378,7 @@ public final class MessagePoller {
             r.close();
             return sb.toString();
         } catch (Exception e) {
+            Log.w(TAG, "network error for " + url + ": " + e);
             return null;
         } finally {
             if (c != null) c.disconnect();
