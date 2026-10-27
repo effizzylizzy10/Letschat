@@ -5,7 +5,8 @@ name: Build native Android APK (Capacitor 8)
 # Secrets needed: Settings > Secrets and variables > Actions >
 #   ANDROID_KEYSTORE_B64      = the text inside keystore.base64.txt
 #   ANDROID_KEYSTORE_PASSWORD = the key password from signing-info.txt
-# If the secrets are missing, it still builds a debug-signed APK so you always get a file.
+# The very first step checks the key. If a secret is missing or is not the Letschat key, the run stops there
+# with a plain explanation, instead of building an APK that Android refuses to install over the app you have.
 # Capacitor 8 needs Node 22+, JDK 21 and Android SDK 36.
 on:
   workflow_dispatch:
@@ -15,8 +16,11 @@ jobs:
     env:
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      EXPECTED_SHA256: F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8
     steps:
       - uses: actions/checkout@v4
+      - name: Check the Letschat signing key (stops here with an explanation if it is missing or wrong)
+        run: bash tools/check-signing.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -53,22 +57,21 @@ jobs:
         working-directory: native/android
         run: |
           BT=$ANDROID_HOME/build-tools/36.0.0
-          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASS" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/letschat.keystore"
-            ./gradlew assembleRelease --no-daemon
-            $BT/zipalign -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
-            $BT/apksigner sign --ks "$RUNNER_TEMP/letschat.keystore" --ks-key-alias letschat \
-              --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS \
-              --out "$GITHUB_WORKSPACE/Letschat.apk" "$RUNNER_TEMP/aligned.apk"
-            rm -f "$RUNNER_TEMP/letschat.keystore"
-            echo "Signed with the Letschat key. Certificate fingerprint:"
-            $BT/apksigner verify --print-certs "$GITHUB_WORKSPACE/Letschat.apk" | grep -i "SHA-256"
-            echo "Expected: F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8 (compare without colons/case)"
-          else
-            echo "WARNING: signing secrets missing, building a debug-signed APK instead."
-            ./gradlew assembleDebug --no-daemon
-            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Letschat.apk"
+          KS="$RUNNER_TEMP/letschat.keystore"
+          ./gradlew assembleRelease --no-daemon
+          $BT/zipalign -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          $BT/apksigner sign --ks "$KS" --ks-key-alias letschat \
+            --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS \
+            --out "$GITHUB_WORKSPACE/Letschat.apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$KS"
+          GOT=$($BT/apksigner verify --print-certs "$GITHUB_WORKSPACE/Letschat.apk" | grep -i "SHA-256" | head -1 | sed 's/.*digest:[[:space:]]*//')
+          norm() { printf '%s' "$1" | tr -d ': \r\n' | tr 'a-f' 'A-F'; }
+          echo "APK certificate SHA-256: $GOT"
+          if [ "$(norm "$GOT")" != "$(norm "$EXPECTED_SHA256")" ]; then
+            echo "::error title=Wrong signature::The finished APK is not signed with the Letschat key, so it would not install over the app you have."
+            exit 1
           fi
+          echo "Signed with the Letschat key: it installs over the existing app."
       - uses: actions/upload-artifact@v4
         with:
           name: Letschat-apk
