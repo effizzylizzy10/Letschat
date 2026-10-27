@@ -18,6 +18,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
+import org.json.JSONTokener;
 
 @CapacitorPlugin(name = "ChatBubble")
 public class ChatBubblePlugin extends Plugin {
@@ -25,6 +27,18 @@ public class ChatBubblePlugin extends Plugin {
     private static final String BRIDGE_ASSET = "letschat-native-bridge.js";
     /** The chat head appears this long after Letschat leaves the screen (a short pause such as a file picker never shows it). */
     private static final long HEAD_DELAY_MS = 700;
+    /** Used when the page does not report its server address. */
+    private static final String DEFAULT_API = "https://letschat-9tw4.onrender.com";
+    /**
+     * Reads the sign-in straight out of the page's own storage (no help from the page's scripts needed) and answers it as a small JSON text.
+     * An empty answer means nobody is signed in.
+     */
+    private static final String READ_SESSION_JS =
+        "(function(){try{var s=JSON.parse(localStorage.getItem('letschat-africa:session'));"
+            + "var t=s&&s.token?String(s.token):'';if(!t)return '';"
+            + "var u=(s.user&&(s.user.id||s.user._id))||s.userId||s.id||'';"
+            + "var a=(window.LETSCHAT_CONFIG&&window.LETSCHAT_CONFIG.API_URL)||'';"
+            + "return JSON.stringify({t:t,a:String(a),u:String(u)});}catch(e){return '';}})()";
     private BubbleController controller;
     private String bridgeJs;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -38,6 +52,14 @@ public class ChatBubblePlugin extends Plugin {
         public void run() {
             if (resumed || controller == null) return;
             controller.show(0, "", "", "", "");
+        }
+    };
+
+    /** Hands the page's sign-in to the background checker (see pushSessionFromPage). */
+    private final Runnable pushSession = new Runnable() {
+        @Override
+        public void run() {
+            pushSessionFromPage();
         }
     };
 
@@ -57,6 +79,8 @@ public class ChatBubblePlugin extends Plugin {
                     @Override
                     public void onPageLoaded(WebView webView) {
                         injectBridge(webView);
+                        // the page has just loaded: a few seconds later (when it has restored the sign-in) hand it to the checker
+                        mainHandler.postDelayed(pushSession, 3000);
                     }
 
                     /**
@@ -92,6 +116,36 @@ public class ChatBubblePlugin extends Plugin {
         } catch (Exception ignored) {}
     }
 
+    /**
+     * "Letschat check: not running (no sign-in received yet)" fix. The checker that finds new messages while the app is minimised can
+     * only run when it has the sign-in token. Until now the page's own script had to pass it over, and when that script did not run (or
+     * ran before the sign-in was saved) the checker never started. Here the app itself asks the page for the saved sign-in and
+     * hands it to the checker, so it starts whenever a person is signed in: after the page loads, when Letschat is opened again,
+     * and the moment it is minimised. Nothing happens when nobody is signed in.
+     */
+    private void pushSessionFromPage() {
+        try {
+            if (getBridge() == null) return;
+            final WebView wv = getBridge().getWebView();
+            if (wv == null) return;
+            wv.evaluateJavascript(READ_SESSION_JS, value -> {
+                try {
+                    if (value == null || value.equals("null")) return;
+                    Object o = new JSONTokener(value).nextValue(); // the answer arrives as a quoted text
+                    if (!(o instanceof String)) return;
+                    String text = (String) o;
+                    if (text.isEmpty()) return; // nobody is signed in
+                    JSONObject j = new JSONObject(text);
+                    String token = j.optString("t", "");
+                    if (token.isEmpty()) return;
+                    String api = j.optString("a", "");
+                    if (api.isEmpty()) api = DEFAULT_API;
+                    MessagePoller.setSession(getContext(), token, api, j.optString("u", ""));
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
     /** Rebuilds the page after its renderer process was lost (the old WebView can no longer be used). */
     private void recoverPage() {
         if (!rendererLost) return;
@@ -110,6 +164,7 @@ public class ChatBubblePlugin extends Plugin {
     protected void handleOnPause() {
         super.handleOnPause();
         resumed = false;
+        pushSessionFromPage(); // the page is still alive right now: make sure the checker has the sign-in before it is needed
         MessagePoller.setForeground(false);
         // minimized or closed: put the chat head on screen by itself (nothing to switch on)
         mainHandler.removeCallbacks(showHead);
@@ -127,6 +182,10 @@ public class ChatBubblePlugin extends Plugin {
         MessagePoller.setForeground(true);
         if (rendererLost) mainHandler.post(this::recoverPage);
         controller.hide(); // the bubble and the message pop-up are only for when Letschat is not on screen
+        // the person is looking at Letschat (signed in or just signed in): hand the sign-in to the checker
+        mainHandler.removeCallbacks(pushSession);
+        mainHandler.postDelayed(pushSession, 1500);
+        mainHandler.postDelayed(pushSession, 8000);
         JSObject data = new JSObject();
         data.put("active", true);
         notifyListeners("appState", data);
