@@ -1,0 +1,78 @@
+name: Build native Android APK (Capacitor 8)
+# Tap Actions > "Build native Android APK (Capacitor 8)" > Run workflow.
+# About 10 minutes later the finished Letschat.apk is under "Artifacts".
+# It is signed with YOUR letschat key (from the two secrets below), so it installs over the old Letschat app.
+# Secrets needed: Settings > Secrets and variables > Actions >
+#   ANDROID_KEYSTORE_B64      = the text inside keystore.base64.txt
+#   ANDROID_KEYSTORE_PASSWORD = the key password from signing-info.txt
+# The very first step checks the key. If a secret is missing or is not the Letschat key, the run stops there
+# with a plain explanation, instead of building an APK that Android refuses to install over the app you have.
+# Capacitor 8 needs Node 22+, JDK 21 and Android SDK 36.
+on:
+  workflow_dispatch:
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      EXPECTED_SHA256: F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Letschat signing key (stops here with an explanation if it is missing or wrong)
+        run: bash tools/check-signing.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Android SDK 36 (already installed on the runner)
+        run: |
+          SDKM=$(ls $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -1)
+          echo "Using $SDKM"
+          yes | $SDKM --licenses > /dev/null || true
+          $SDKM "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - name: Install Capacitor 8 and the Letschat plugins, create the Android project
+        working-directory: native
+        run: |
+          npm install --no-audit --no-fund
+          npx cap --version
+          npx cap add android
+      - name: Add the Letschat Android sources (permissions, sign-in links, icons)
+        working-directory: native
+        run: bash android-src/apply.sh
+      - name: App icon from the Letschat logo
+        working-directory: native
+        continue-on-error: true
+        run: |
+          mkdir -p resources
+          cp ../client/icons/icon-512.png resources/icon.png
+          npx --yes @capacitor/assets generate --android --iconBackgroundColor '#0E1116' --iconBackgroundColorDark '#0E1116' --splashBackgroundColor '#05070A' --splashBackgroundColorDark '#05070A'
+      - name: Sync plugins into the Android project
+        working-directory: native
+        run: npx cap sync android
+      - name: Build, then sign with the Letschat key
+        working-directory: native/android
+        run: |
+          BT=$ANDROID_HOME/build-tools/36.0.0
+          KS="$RUNNER_TEMP/letschat.keystore"
+          ./gradlew assembleRelease --no-daemon
+          $BT/zipalign -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          $BT/apksigner sign --ks "$KS" --ks-key-alias letschat \
+            --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS \
+            --out "$GITHUB_WORKSPACE/Letschat.apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$KS"
+          GOT=$($BT/apksigner verify --print-certs "$GITHUB_WORKSPACE/Letschat.apk" | grep -i "SHA-256" | head -1 | sed 's/.*digest:[[:space:]]*//')
+          norm() { printf '%s' "$1" | tr -d ': \r\n' | tr 'a-f' 'A-F'; }
+          echo "APK certificate SHA-256: $GOT"
+          if [ "$(norm "$GOT")" != "$(norm "$EXPECTED_SHA256")" ]; then
+            echo "::error title=Wrong signature::The finished APK is not signed with the Letschat key, so it would not install over the app you have."
+            exit 1
+          fi
+          echo "Signed with the Letschat key: it installs over the existing app."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Letschat-apk
+          path: Letschat.apk
