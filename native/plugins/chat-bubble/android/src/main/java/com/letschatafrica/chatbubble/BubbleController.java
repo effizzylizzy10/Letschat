@@ -13,6 +13,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
@@ -51,9 +52,9 @@ import java.net.URL;
  * A tap on the head (or on its toast) makes it grow into the WhatsApp-style message card (see MessagePopup) when messages are
  * waiting; the head is tucked away while the card is open and pops back when the card closes. With nothing waiting, a tap opens the app.
  *
- * ONE LOOK: the head never switches between the round "L" letter bubble and the "LA" app logo. The letter bubble is the default,
- * and whatever the head last showed (a sender's photo or letter) is remembered, so when the head is rebuilt after Letschat is
- * minimised again it comes back looking exactly the same instead of falling back to the app icon.
+ * ONE LOOK: the head shows the Letschat logo (the "LA" app icon) by default and for Letschat's own messages (no yellow "L" letter
+ * any more). A real sender's photo (or their coloured first letter) replaces it when a message from them arrives. Whatever the head
+ * last showed is remembered, so when the head is rebuilt after Letschat is minimised again it comes back looking exactly the same.
  */
 final class BubbleController {
 
@@ -63,8 +64,6 @@ final class BubbleController {
 
     private static final String PREFS = "letschat_chat_bubble";
     private static final int BUBBLE_BLUE = 0xFF1B8CF5;
-    /** The yellow of the round "L" Letschat letter bubble. */
-    private static final int LETSCHAT_YELLOW = 0xFFF2B84B;
     private static BubbleController instance;
 
     static synchronized BubbleController get(Context context) {
@@ -85,8 +84,10 @@ final class BubbleController {
     private View tail;
     private ImageView avatarView;
     private String avatarUrl = "";
-    /** What the head showed last (a photo or a letter circle). Kept when the window is removed so the head never reverts to the app logo. */
+    /** What the head showed last (the logo, a photo or a letter circle). Kept when the window is removed so the head keeps one look. */
     private Bitmap currentAvatar;
+    /** The Letschat logo (the app icon) drawn once as a picture. */
+    private Bitmap logoBmp;
     private final LruCache<String, Bitmap> avatars = new LruCache<>(12);
     private WindowManager.LayoutParams lp;
     private boolean onRight = true;
@@ -295,8 +296,8 @@ final class BubbleController {
 
         ImageView icon = new ImageView(ctx);
         avatarView = icon;
-        // Always the round "L" letter bubble (or the last photo/letter shown), never the "LA" app logo: the head keeps ONE look.
-        if (currentAvatar == null) currentAvatar = letterBitmap("Letschat");
+        // The Letschat logo by default (or the last photo/letter shown): the head keeps ONE look when it is rebuilt.
+        if (currentAvatar == null) currentAvatar = ownLogo();
         icon.setImageBitmap(currentAvatar);
         icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
         GradientDrawable ring = new GradientDrawable();
@@ -423,7 +424,7 @@ final class BubbleController {
         preview = null;
         tail = null;
         avatarView = null;
-        // avatarUrl and currentAvatar are kept on purpose: the next head looks exactly like this one (no fall-back to the app logo)
+        // avatarUrl and currentAvatar are kept on purpose: the next head looks exactly like this one
     }
 
     private void openApp() {
@@ -754,15 +755,43 @@ final class BubbleController {
         if (avatarView != null) avatarView.setImageBitmap(b);
     }
 
+    /** True for Letschat's own sender names ("Letschat", "Letschat check", ...): these show the Letschat logo. */
+    private boolean isOwnName(String name) {
+        return name != null && name.trim().toLowerCase().startsWith("letschat");
+    }
+
+    /** The Letschat logo (the app icon, "LA" in the gradient square) drawn as a picture. Falls back to a letter circle if it cannot be read. */
+    private Bitmap ownLogo() {
+        if (logoBmp != null) return logoBmp;
+        try {
+            int size = dp(112);
+            Drawable d = ctx.getPackageManager().getApplicationIcon(ctx.getPackageName());
+            Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas cv = new Canvas(bmp);
+            d.setBounds(0, 0, size, size);
+            d.draw(cv);
+            logoBmp = bmp;
+        } catch (Throwable t) {
+            logoBmp = letterBitmap("Letschat");
+        }
+        return logoBmp;
+    }
+
     /**
      * Shows the sender's photo; until it is downloaded (or when there is none) a coloured circle with their first letter.
-     * With no name and no photo (the plain head after minimising) nothing changes: the head keeps what it showed before.
+     * Letschat's own messages show the Letschat logo. With no name and no photo (the plain head after minimising) nothing changes:
+     * the head keeps what it showed before.
      */
     private void setAvatar(final String url, String name) {
         if (avatarView == null) return;
         final String u = url == null ? "" : url;
         boolean hasName = name != null && !name.trim().isEmpty();
-        if (u.isEmpty() && !hasName) return; // nothing to say: keep the current look (never fall back to the app logo)
+        if (u.isEmpty() && !hasName) return; // nothing to say: keep the current look
+        if (u.isEmpty() && isOwnName(name)) { // Letschat itself (status messages): the Letschat logo, not a letter
+            avatarUrl = "";
+            applyAvatar(ownLogo());
+            return;
+        }
         if (u.equals(avatarUrl) && !u.isEmpty()) return; // same person: keep their photo
         avatarUrl = u;
         Bitmap cached = u.isEmpty() ? null : avatars.get(u);
@@ -803,9 +832,7 @@ final class BubbleController {
         Canvas cv = new Canvas(bmp);
         int[] palette = { 0xFF35D0BA, 0xFF7C6CF0, 0xFFF2B84B, 0xFFE8618C, 0xFF3FA9F5, 0xFF21C063 };
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        // Letschat's own bubble ("Letschat", "Letschat check", ...) is always the same yellow "L"
-        boolean own = name.toLowerCase().startsWith("letschat");
-        p.setColor(own ? LETSCHAT_YELLOW : palette[(name.hashCode() & 0x7fffffff) % palette.length]);
+        p.setColor(palette[(name.hashCode() & 0x7fffffff) % palette.length]);
         cv.drawRect(0, 0, size, size, p);
         p.setColor(Color.WHITE);
         p.setTypeface(Typeface.DEFAULT_BOLD);
