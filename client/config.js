@@ -105,3 +105,82 @@ window.LETSCHAT_CONFIG = {
     } catch (e) {}
   }, 1000);
 })(window.LETSCHAT_CONFIG);
+
+// ---- Tab icon morph (fabmorph1) ----
+// Switching to the Updates tab: the pencil button turns into the green camera button (the pencil spins away, the camera spins in).
+// Switching back to the Chats tab: the camera turns back into the pencil. Uses the Web Animations API, so it stays visible even when the
+// phone has "remove animations" on, and it only plays right after a tab tap (never on app start, search or scrolling).
+(function () {
+  var clickAt = 0;
+  var PENCIL = '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>';
+  var CAMERA = '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>';
+  function icon(inner, color, size) {
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">' + inner + '</svg>';
+  }
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (t && t.closest && t.closest(".lc-tab")) clickAt = Date.now();
+  }, true);
+
+  // btn: the round button. ghost: the old icon that spins away. The button's own icon spins in. glow: colour of the ring that pulses out.
+  function morph(btn, ghostHtml, bgFrom, bgTo, glow) {
+    if (!btn.animate || btn.__lcMorphing) return;
+    btn.__lcMorphing = true;
+    var ms = 1000, ease = "cubic-bezier(.2,.8,.2,1)";
+    var prevPos = btn.style.position;
+    if (getComputedStyle(btn).position === "static") btn.style.position = "relative";
+    var ghost = document.createElement("span");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.style.cssText = "position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;pointer-events:none";
+    ghost.innerHTML = ghostHtml;
+    btn.appendChild(ghost);
+    var kids = [].slice.call(btn.children).filter(function (k) { return k !== ghost; });
+    // new icon: hidden for the first part, then spins in and overshoots
+    kids.forEach(function (k) {
+      k.animate([
+        { transform: "rotate(-220deg) scale(0)", opacity: 0, offset: 0 },
+        { transform: "rotate(-220deg) scale(0)", opacity: 0, offset: 0.35 },
+        { transform: "rotate(10deg) scale(1.3)", opacity: 1, offset: 0.75 },
+        { transform: "rotate(0deg) scale(1)", opacity: 1, offset: 1 }
+      ], { duration: ms, easing: ease });
+    });
+    // old icon: spins away and shrinks
+    var a = ghost.animate([
+      { transform: "rotate(0deg) scale(1)", opacity: 1, offset: 0 },
+      { transform: "rotate(220deg) scale(1.2)", opacity: 1, offset: 0.3 },
+      { transform: "rotate(260deg) scale(0)", opacity: 0, offset: 0.55 },
+      { transform: "rotate(260deg) scale(0)", opacity: 0, offset: 1 }
+    ], { duration: ms, easing: "ease-in-out", fill: "forwards" });
+    // the button: squeezes, grows, changes colour and sends out a ring
+    btn.animate([
+      { backgroundColor: bgFrom, transform: "scale(.82)", offset: 0 },
+      { backgroundColor: bgFrom, transform: "scale(1.2)", offset: 0.45 },
+      { backgroundColor: bgTo, transform: "scale(1)", offset: 1 }
+    ], { duration: ms, easing: ease });
+    btn.animate([
+      { boxShadow: "0 0 0 0 " + glow, offset: 0 },
+      { boxShadow: "0 0 0 22px rgba(0,0,0,0)", offset: 1 }
+    ], { duration: ms * 0.8, delay: ms * 0.3, easing: "ease-out" });
+    a.onfinish = a.oncancel = function () {
+      if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+      btn.style.position = prevPos;
+      btn.__lcMorphing = false;
+    };
+  }
+
+  function check(el) {
+    if (el.nodeType !== 1 || Date.now() - clickAt > 1500) return;
+    if (document.documentElement.classList.contains("lc-small")) return; // small keypad phones: no effects
+    var q = el.matches && el.matches('button[aria-label="Add status"]') ? el : el.querySelector && el.querySelector('button[aria-label="Add status"]');
+    if (q && !q.__lcSeen) { q.__lcSeen = true; morph(q, icon(PENCIL, "#06210F", 28), "#35D0BA", "#21C063", "rgba(33,192,99,.55)"); }
+    var p = el.querySelector && el.querySelector('button > svg > path[d="M12 20h9"]');
+    var b = p && p.closest("button");
+    if (b && b.style.bottom === "78px" && !b.__lcSeen) { b.__lcSeen = true; morph(b, icon(CAMERA, "#0E1116", 24), "#21C063", "#35D0BA", "rgba(53,208,186,.55)"); }
+  }
+  function start() {
+    new MutationObserver(function (ms) {
+      for (var i = 0; i < ms.length; i++) for (var j = 0; j < ms[i].addedNodes.length; j++) check(ms[i].addedNodes[j]);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+})();
