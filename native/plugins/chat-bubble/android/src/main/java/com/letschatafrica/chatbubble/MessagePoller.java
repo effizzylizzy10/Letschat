@@ -16,24 +16,31 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Looks for new messages from inside the Android process, without the web page, so the chat head can pop up while Letschat is
+ * Looks for new messages from inside the Android process, without the web page, so a new message can be announced while Letschat is
  * minimised or closed (the foreground service keeps this process alive). It asks the Letschat server for the conversation list
- * every few seconds while the app is not on screen and shows the toast when a chat's LAST MESSAGE changes and is not mine.
+ * every few seconds while the app is not on screen and reacts when a chat's LAST MESSAGE changes and is not mine.
  * (It does not use the unread counter: the page, still alive in the background, can mark a message read at once, which would hide it.)
  * The app hands this checker the sign-in token (see ChatBubblePlugin.pushSessionFromPage and letschat-native-bridge.js).
  *
+ * BACKGROUND ALERT: every new message in a chat that is not muted is announced with a normal Android notification (sound, vibration,
+ * pops up on screen, shows on the lock screen without the text). It does not depend on "Display over other apps" or on the
+ * Floating chat bubble setting. Tapping it opens Letschat on that chat. The notifications are removed again when Letschat is opened.
+ * When the bubble is switched on and "Display over other apps" is allowed, the chat head pop-up is shown as well.
+ *
  * The /api/v1 routes answer with an envelope {"success":true,"data":{...}}; unwrap() reads both that and a bare body.
- * When "Display over other apps" is not allowed, a normal Android notification is posted instead, so a new message is never silent.
  * Everything it decides is written to the Android log under the tag LetschatPoller (adb logcat -s LetschatPoller).
  *
  * The old "Letschat check: ..." status toasts on the chat head are gone: the chat head now only ever shows real messages. Problems
@@ -44,6 +51,8 @@ public final class MessagePoller {
     private static final String TAG = "LetschatPoller";
     private static final String PREFS = "letschat_chat_bubble";
     private static final String NOTICE_CHANNEL = "letschat_new_message";
+    /** Extra on the notification's intent: the chat to open (read again by ChatBubblePlugin). */
+    static final String EXTRA_CHAT_ID = "letschat_chat_id";
     private static final long FIRST_WAIT_MS = 2500;
     private static final long INTERVAL_MS = 8000;
     /** After the server refuses the token, check again only this rarely (the page may send a fresh token meanwhile). */
@@ -57,6 +66,8 @@ public final class MessagePoller {
     private static Context appCtx;
     private static String lastStatus = "";
     private static long lastStatusAt = 0;
+    /** Ids of the message notifications on screen (removed when Letschat is opened). */
+    private static final Set<Integer> postedNotices = new HashSet<>();
 
     private MessagePoller() {}
 
@@ -68,6 +79,7 @@ public final class MessagePoller {
             Log.i(TAG, "signed out: poller stops");
             ed.remove("token").remove("apiUrl").remove("userId").apply();
             stop();
+            clearNotices(app);
             return;
         }
         Log.i(TAG, "session received (api=" + apiUrl + ", userId " + (userId == null || userId.isEmpty() ? "MISSING" : "ok") + ")");
@@ -108,6 +120,10 @@ public final class MessagePoller {
     static void setForeground(boolean on) {
         boolean was = foreground;
         foreground = on;
+        if (on) {
+            Context c = appCtx;
+            if (c != null) clearNotices(c); // the person is looking at Letschat: the message notifications are no longer needed
+        }
         if (was && !on) {
             synchronized (LOCK) {
                 wake = true;
@@ -117,6 +133,21 @@ public final class MessagePoller {
             Context ctx = appCtx;
             if (ctx != null) ensureRunning(ctx);
         }
+    }
+
+    /** Removes the message notifications this class posted (never the "Connected" notification of the background service). */
+    private static void clearNotices(Context ctx) {
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            synchronized (postedNotices) {
+                Iterator<Integer> it = postedNotices.iterator();
+                while (it.hasNext()) {
+                    nm.cancel(it.next());
+                    it.remove();
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     /** The live connection just showed the chat head for a message. (Kept for the plugin; duplicates are removed by message id in MessagePopup.) */
@@ -181,12 +212,7 @@ public final class MessagePoller {
                     status(ctx, "not signed in.");
                     return;
                 }
-                if (!sp.getBoolean("enabled", true)) {
-                    lastIds = null;
-                    lastTimes = null;
-                    status(ctx, "the Floating chat bubble setting is OFF.");
-                    continue;
-                }
+                // (the Floating chat bubble setting no longer stops the checker: the notification alert works with the bubble switched off)
                 String myId = sp.getString("userId", "");
                 while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
                 String body = get(api + "/api/v1/conversations", token);
@@ -255,7 +281,7 @@ public final class MessagePoller {
         }
     }
 
-    /** Shows the new messages of one chat in the WhatsApp-style pop-up (one page per message, "1 of N"). */
+    /** Announces the new messages of one chat: a notification always, plus the WhatsApp-style pop-up ("1 of N") when the bubble can be drawn. */
     private static void present(Context ctx, String api, String token, JSONObject c, long sinceTime, String myId) {
         String chatId = str(c, "id");
         JSONObject other = c.optJSONObject("other");
@@ -293,32 +319,71 @@ public final class MessagePoller {
             if (last != null) items.add(toItem(last, chatId, title, photo, group, myId));
         }
         if (items.isEmpty()) {
-            // the server said there is something new but we could not read it: still show the toast so the person knows
+            // the server said there is something new but we could not read it: still announce it so the person knows
             items.add(new MessagePopup.Item("", chatId, title, photo, "New message", "", ""));
         }
+        boolean bubbleOn = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", true);
         boolean canOverlay = Settings.canDrawOverlays(ctx);
-        Log.i(TAG, "showing " + items.size() + " message(s) from " + title + (canOverlay ? " on the chat head" : " as a notification (Display over other apps is OFF)"));
-        if (canOverlay) {
+        Log.i(TAG, "announcing " + items.size() + " message(s) from " + title + " (notification" + (bubbleOn && canOverlay ? " + chat head" : "") + ")");
+        postNotice(ctx, title, items, chatId); // the background alert: always
+        if (bubbleOn && canOverlay) {
             for (MessagePopup.Item it : items) MessagePopup.notifyMessage(ctx, it);
-        } else {
-            postNotice(ctx, title, items.get(items.size() - 1).text, chatId);
         }
     }
 
-    /** "Display over other apps" is off, so the chat head cannot be drawn: tell the person with a normal notification instead. */
-    private static void postNotice(Context ctx, String title, String text, String chatId) {
+    /**
+     * The background alert: a normal Android notification for the new message(s) of one chat (one notification per chat, updated when more
+     * arrive). Sound and vibration come from the "New messages" channel; the person can change them in the phone's notification settings.
+     * Tapping it opens Letschat on that chat.
+     */
+    private static void postNotice(Context ctx, String title, List<MessagePopup.Item> items, String chatId) {
         try {
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
+            if (!nm.areNotificationsEnabled()) {
+                Log.i(TAG, "notifications are switched off for Letschat in the phone settings");
+                return;
+            }
             if (Build.VERSION.SDK_INT >= 26) {
-                nm.createNotificationChannel(new NotificationChannel(NOTICE_CHANNEL, "New messages", NotificationManager.IMPORTANCE_HIGH));
+                NotificationChannel ch = new NotificationChannel(NOTICE_CHANNEL, "New messages", NotificationManager.IMPORTANCE_HIGH);
+                ch.setDescription("Alerts for new Letschat messages while the app is closed or in the background");
+                ch.enableVibration(true);
+                ch.enableLights(true);
+                ch.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+                nm.createNotificationChannel(ch);
             }
             Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
-            PendingIntent pi = open == null ? null : PendingIntent.getActivity(ctx, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            PendingIntent pi = null;
+            if (open != null) {
+                open.putExtra(EXTRA_CHAT_ID, chatId);
+                open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                pi = PendingIntent.getActivity(ctx, chatId.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            }
+            int small = ctx.getResources().getIdentifier("ic_stat_letschat", "drawable", ctx.getPackageName());
+            if (small == 0) small = ctx.getApplicationInfo().icon;
+            String last = items.get(items.size() - 1).text;
+            StringBuilder lines = new StringBuilder();
+            for (int i = Math.max(0, items.size() - 5); i < items.size(); i++) {
+                if (lines.length() > 0) lines.append('\n');
+                lines.append(items.get(i).text);
+            }
             Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(ctx, NOTICE_CHANNEL) : new Notification.Builder(ctx);
-            b.setSmallIcon(ctx.getApplicationInfo().icon).setContentTitle(title).setContentText(text).setAutoCancel(true);
+            b.setSmallIcon(small)
+                .setContentTitle(title)
+                .setContentText(last)
+                .setStyle(new Notification.BigTextStyle().bigText(lines.toString()))
+                .setCategory(Notification.CATEGORY_MESSAGE)
+                .setAutoCancel(true);
+            if (Build.VERSION.SDK_INT < 26) {
+                b.setPriority(Notification.PRIORITY_HIGH);
+                b.setDefaults(Notification.DEFAULT_ALL);
+            }
             if (pi != null) b.setContentIntent(pi);
-            nm.notify(chatId.hashCode(), b.build());
+            int id = chatId.hashCode();
+            nm.notify(id, b.build());
+            synchronized (postedNotices) {
+                postedNotices.add(id);
+            }
         } catch (Throwable e) {
             Log.w(TAG, "could not post the notification: " + e);
         }
