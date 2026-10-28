@@ -6,7 +6,10 @@
    3. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
    4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble".
-   Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab). */
+   Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab).
+   The pop-up follows the same rules as the website's own alerts and the server's push alerts: no pop-up for "X joined the group" notices,
+   muted chats, people you blocked, groups when "Group messages" is off, or the big Chat Room unless the message @mentions or replies to you;
+   "Show message preview" off hides the message text. If anything needed for those rules cannot be read, the pop-up is shown (a pop-up too many beats a missed message). */
 (function () {
   if (window.__lcNativeBridge) return;
   if (!/(^|\.)(letschat-taupe\.vercel\.app|letschatafric\.netlify\.app)$/.test(location.hostname)) return;
@@ -17,6 +20,8 @@
   window.__lcNativeBridge = true;
 
   var SESSION_KEY = "letschat-africa:session";
+  var NOTIFS_KEY = "letschat-africa:notifs";   // Settings > Notifications of the website (this device)
+  var CONVS_KEY = "letschat-africa:convCache"; // the chat list the website saved last time
   var ASK_KEY = "letschat-native:asked:";
   var unread = 0, background = false, serviceOn = false;
   var BUBBLE_KEY = "letschat-native:bubble";
@@ -62,9 +67,10 @@
   function sendSession() {
     if (!BB || !BB.setSession) return;
     var s = session(), tok = s && s.token ? String(s.token) : "";
-    if (tok === sentTok) return;
-    sentTok = tok;
-    BB.setSession({ token: tok, apiUrl: apiBase(), userId: String(myId() || "") }).catch(function () { sentTok = null; });
+    var p = notifPrefs(), sig = tok + "|" + p.preview + "|" + p.groups; // sent again when "Show message preview" or "Group messages" is changed
+    if (sig === sentTok) return;
+    sentTok = sig;
+    BB.setSession({ token: tok, apiUrl: apiBase(), userId: String(myId() || ""), preview: p.preview, groups: p.groups }).catch(function () { sentTok = null; });
   }
 
   function syncService() {
@@ -91,24 +97,107 @@
     for (var i = 0; i < names.length; i++) if (o && o[names[i]] != null && o[names[i]] !== "") return o[names[i]];
     return null;
   }
+  // ---- the rules (same as the website's own alerts and the server's push alerts) ----
+  // "Settings > Notifications" of the website: both switches are on unless the person turned them off.
+  function notifPrefs() {
+    var o = null;
+    try { o = JSON.parse(localStorage.getItem(NOTIFS_KEY)); } catch (e) {}
+    return { preview: !(o && o.preview === false), groups: !(o && o.groups === false) };
+  }
+  // What the website's saved chat list says about a chat: group or not, the Chat Room or not, its name and photo, who the members are.
+  function chatInfo(id) {
+    try {
+      var c = JSON.parse(localStorage.getItem(CONVS_KEY)), list = c && c.list;
+      for (var i = 0; list && i < list.length; i++) {
+        var x = list[i];
+        if (!x || String(x.id) !== id) continue;
+        var info = { group: !!x.isGroup, room: !!x.chatRoom, title: "", photo: "", names: {} };
+        if (x.isGroup) {
+          info.title = x.name || "";
+          (x.members || []).forEach(function (u) { if (u && u.id) info.names[u.id] = u.name || ""; });
+        } else if (x.other) {
+          info.title = x.other.name || "";
+          info.photo = x.other.avatar || "";
+        }
+        return info;
+      }
+    } catch (e) {}
+    return { group: false, room: false, title: "", photo: "", names: {} };
+  }
+  // "mention" when the message @mentions me, "reply" when it replies to one of mine, else "".
+  function addressedTo(m, me) {
+    if (!me) return "";
+    var men = m.mentions;
+    if (men && men.length) for (var i = 0; i < men.length; i++) if (String(men[i]) === String(me)) return "mention";
+    var rt = m.replyTo;
+    return rt && typeof rt === "object" && rt.senderId && String(rt.senderId) === String(me) ? "reply" : "";
+  }
+  // Muted chats and blocked people are kept on the server (per account). Read at most once a minute; when that fails, nothing is hidden.
+  var quiet = { at: 0, muted: {}, blocked: {}, waiting: null };
+  function isQuiet(chat, sid) {
+    var until = quiet.muted[chat];
+    if (until !== undefined && (until === 0 || until > Date.now())) return true;
+    return !!(sid && quiet.blocked[sid]);
+  }
+  function quietCheck(chat, sid, cb) {
+    var s = session();
+    if (!s || !s.token || typeof fetch !== "function") return cb(true);
+    if (Date.now() - quiet.at < 60000) return cb(!isQuiet(chat, sid));
+    var queued = function () { cb(!isQuiet(chat, sid)); };
+    if (quiet.waiting) { quiet.waiting.push(queued); return; }
+    quiet.waiting = [queued];
+    var finish = function () {
+      var w = quiet.waiting;
+      if (!w) return;
+      quiet.waiting = null;
+      for (var i = 0; i < w.length; i++) { try { w[i](); } catch (e) {} }
+    };
+    setTimeout(finish, 4000); // a slow or hung request must never swallow messages
+    try {
+      fetch(apiBase() + "/api/v1/me/settings", { headers: { Authorization: "Bearer " + s.token } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var d = j && (j.data || j);
+          if (!d) return;
+          quiet.muted = d.muted || {};
+          quiet.blocked = {};
+          (d.blocked || []).forEach(function (u) { if (u && u.id) quiet.blocked[u.id] = 1; });
+          quiet.at = Date.now();
+        })
+        .catch(noop)
+        .then(finish);
+    } catch (e) { finish(); }
+  }
+
   function onEvent(name, m) {
     if (name !== "message:new" || !m || typeof m !== "object" || !background || !BB || !bubbleOn()) return;
+    if (m.system) return; // "Amaka joined the group" and the like: the website gives no alert for these either
     var sender = field(m, ["sender", "from", "user"]);
     var sid = field(m, ["senderId", "sender_id", "fromId", "userId"]) || (sender && typeof sender === "object" ? field(sender, ["id", "_id"]) : sender);
     var me = myId();
     if (me && sid && String(sid) === String(me)) return; // my own message
-    var photo = (sender && typeof sender === "object" ? field(sender, ["avatar", "photo", "picture", "image"]) : null) || field(m, ["senderAvatar", "avatar"]);
-    if (!photo && sid && apiBase()) photo = "/api/v1/users/" + encodeURIComponent(String(sid)) + "/avatar";
-    var title = field(m, ["senderName", "fromName"]) || (sender && typeof sender === "object" ? field(sender, ["name", "displayName", "username"]) : null) || "Letschat";
-    var text = field(m, ["text", "body", "content", "caption"]) || (m.type && m.type !== "text" ? "[" + m.type + "]" : "New message");
-    var chat = field(m, ["conversationId", "convoId", "convId", "chatId"]) || (m.conversation && field(m.conversation, ["id", "_id"])) || "";
-    var rt = m.replyTo && typeof m.replyTo === "object" ? m.replyTo : null;
-    var replyName = rt ? (me && rt.senderId && String(rt.senderId) === String(me) ? "You" : (rt.name || "")) : "";
-    unread++;
-    BB.show({
-      count: unread, title: String(title), text: String(text).slice(0, 500), chatId: String(chat), avatar: photoUrl(photo),
-      messageId: m.id ? String(m.id) : "", replyName: String(replyName), replyText: rt && rt.text ? String(rt.text).slice(0, 140) : ""
-    }).catch(noop);
+    var chat = String(field(m, ["conversationId", "convoId", "convId", "chatId"]) || (m.conversation && field(m.conversation, ["id", "_id"])) || "");
+    var info = chatInfo(chat), prefs = notifPrefs(), toMe = addressedTo(m, me);
+    if (info.group && !prefs.groups) return; // "Group messages" is switched off
+    if (info.room && !toMe) return;          // the big Chat Room: only messages that @mention or reply to me
+    quietCheck(chat, sid ? String(sid) : "", function (ok) {
+      if (!ok || !background) return; // a muted chat, a blocked person, or Letschat is back on screen already
+      var photo = (sender && typeof sender === "object" ? field(sender, ["avatar", "photo", "picture", "image"]) : null) || field(m, ["senderAvatar", "avatar"]) || info.photo;
+      if (!photo && sid && apiBase()) photo = "/api/v1/users/" + encodeURIComponent(String(sid)) + "/avatar";
+      var title = field(m, ["senderName", "fromName"]) || (sender && typeof sender === "object" ? field(sender, ["name", "displayName", "username"]) : null) || info.title || "Letschat";
+      var text = prefs.preview
+        ? field(m, ["text", "body", "content", "caption"]) || (m.type && m.type !== "text" ? "[" + m.type + "]" : "New message")
+        : (toMe === "mention" ? "Mentioned you" : toMe === "reply" ? "Replied to you" : "New message");
+      var who = info.group && sid ? info.names[String(sid)] : "";
+      if (who && title !== who) text = who + ": " + text; // in a group: who wrote it
+      var rt = prefs.preview && m.replyTo && typeof m.replyTo === "object" ? m.replyTo : null;
+      var replyName = rt ? (me && rt.senderId && String(rt.senderId) === String(me) ? "You" : (rt.name || "")) : "";
+      unread++;
+      BB.show({
+        count: unread, title: String(title), text: String(text).slice(0, 500), chatId: String(chat), avatar: photoUrl(photo),
+        messageId: m.id ? String(m.id) : "", replyName: String(replyName), replyText: rt && rt.text ? String(rt.text).slice(0, 140) : ""
+      }).catch(noop);
+    });
   }
 
   // The app keeps its Socket.IO connections in io.managers: attach to each one once.
