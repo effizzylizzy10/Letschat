@@ -31,14 +31,17 @@ public class ChatBubblePlugin extends Plugin {
     private static final String DEFAULT_API = "https://letschat-9tw4.onrender.com";
     /**
      * Reads the sign-in straight out of the page's own storage (no help from the page's scripts needed) and answers it as a small JSON text.
-     * An empty answer means nobody is signed in.
+     * An empty answer means nobody is signed in. It also reports the two switches of Settings > Notifications ("Show message preview" = p,
+     * "Group messages" = g; both on unless the person turned them off), which the checker needs to follow the same rules as the website.
      */
     private static final String READ_SESSION_JS =
         "(function(){try{var s=JSON.parse(localStorage.getItem('letschat-africa:session'));"
             + "var t=s&&s.token?String(s.token):'';if(!t)return '';"
             + "var u=(s.user&&(s.user.id||s.user._id))||s.userId||s.id||'';"
             + "var a=(window.LETSCHAT_CONFIG&&window.LETSCHAT_CONFIG.API_URL)||'';"
-            + "return JSON.stringify({t:t,a:String(a),u:String(u)});}catch(e){return '';}})()";
+            + "var p=true,g=true;try{var n=JSON.parse(localStorage.getItem('letschat-africa:notifs'));"
+            + "if(n){p=n.preview!==false;g=n.groups!==false;}}catch(e2){}"
+            + "return JSON.stringify({t:t,a:String(a),u:String(u),p:p,g:g});}catch(e){return '';}})()";
     private BubbleController controller;
     private String bridgeJs;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -140,6 +143,7 @@ public class ChatBubblePlugin extends Plugin {
                     if (token.isEmpty()) return;
                     String api = j.optString("a", "");
                     if (api.isEmpty()) api = DEFAULT_API;
+                    MessagePoller.setPrefs(getContext(), j.optBoolean("p", true), j.optBoolean("g", true));
                     MessagePoller.setSession(getContext(), token, api, j.optString("u", ""));
                 } catch (Throwable ignored) {}
             });
@@ -256,6 +260,9 @@ public class ChatBubblePlugin extends Plugin {
     /** The page hands over the sign-in so new messages can be found while the app is closed. An empty token (sign-out) stops it. */
     @PluginMethod
     public void setSession(PluginCall call) {
+        MessagePoller.setPrefs(getContext(),
+            !Boolean.FALSE.equals(call.getBoolean("preview", true)),
+            !Boolean.FALSE.equals(call.getBoolean("groups", true)));
         MessagePoller.setSession(getContext(), call.getString("token", ""), call.getString("apiUrl", ""), call.getString("userId", ""));
         call.resolve();
     }
