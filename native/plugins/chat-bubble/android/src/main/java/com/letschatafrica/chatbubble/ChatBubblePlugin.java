@@ -67,9 +67,11 @@ public class ChatBubblePlugin extends Plugin {
     public void load() {
         controller = BubbleController.get(getContext());
         MessagePoller.ensureRunning(getContext()); // the sign-in token from last time may already be stored
-        controller.setListener(chatId -> {
+        controller.setListener((chatId, tab) -> {
             JSObject data = new JSObject();
             data.put("chatId", chatId == null ? "" : chatId);
+            // "calls": the head was tapped with no message waiting, so the page opens its Calls tab
+            data.put("tab", tab == null ? "" : tab);
             notifyListeners("bubbleTapped", data, true);
         });
         // Add the native glue script (starts the service after login, shows the bubble) to every page the app loads.
