@@ -6,7 +6,8 @@
    3. ONE TIME after the first sign-in: "Allow permissions" set-up. One question, then Android's allow dialogs for camera, microphone,
       contacts, notifications, location, photos/files and nearby devices come one after another, then "display over other apps" and
       "ignore battery optimisation", and at the end (only if something is still off) the phone's own app-permission settings page for Letschat.
-      After that it never asks again as a set-up; the old weekly reminders below only remain as a safety net for the two special switches,
+      After that it never asks again as a set-up; the old weekly reminders below only remain as a safety net for the two special switches.
+      People who finished the set-up before contacts was added are asked for contacts once, on their next sign-in (offerContacts),
    4. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
    5. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble". */
@@ -22,6 +23,7 @@
   var SESSION_KEY = "letschat-africa:session";
   var ASK_KEY = "letschat-native:asked:";
   var SETUP_KEY = "letschat-native:perm-setup-done";
+  var CONTACTS_KEY = "letschat-native:contacts-asked";
   var unread = 0, background = false, serviceOn = false;
   var setupRunning = false, waiters = [];
   var BUBBLE_KEY = "letschat-native:bubble";
@@ -65,6 +67,8 @@
   // ---- ONE-TIME "allow all permissions" set-up ----
   function setupDone() { try { return localStorage.getItem(SETUP_KEY) === "1"; } catch (e) { return false; } }
   function markSetupDone() { try { localStorage.setItem(SETUP_KEY, "1"); } catch (e) {} }
+  function contactsAsked() { try { return localStorage.getItem(CONTACTS_KEY) === "1"; } catch (e) { return false; } }
+  function markContactsAsked() { try { localStorage.setItem(CONTACTS_KEY, "1"); } catch (e) {} }
   // Everything Letschat needs is on (the overlay only counts while the floating bubble is switched on).
   function allOk(s) { return !!(s && s.runtimeGranted && (s.overlay || !bubbleOn()) && s.battery); }
 
@@ -100,12 +104,13 @@
     if (setupRunning || setupDone() || askedRecently("setup") || !BB || !BB.checkAllPermissions || !BB.requestRuntimePermissions) return Promise.resolve(false);
     setupRunning = true;
     return BB.checkAllPermissions().then(function (s) {
-      if (allOk(s)) { markSetupDone(); return true; }
+      if (allOk(s)) { markSetupDone(); markContactsAsked(); return true; }
       var ok = window.confirm(
         "Letschat needs a few permissions to work fully: camera, microphone, contacts, notifications, location, photos and files, nearby devices, " +
         "display over other apps and staying connected in the background.\n\nAllow them now? You only do this once."
       );
       if (!ok) { markAsked("setup"); markAsked("overlay"); markAsked("battery"); return false; }
+      markContactsAsked(); // contacts is part of this set-up, so no separate question afterwards
       return BB.requestRuntimePermissions().catch(noop)
         .then(function () { return BB.checkOverlayPermission().catch(function () { return {}; }); })
         .then(function (o) {
@@ -133,6 +138,19 @@
     }).catch(function () { return false; }).then(function (v) { setupRunning = false; return v; });
   }
 
+  // People who already finished the set-up before contacts existed: ask for contacts ONCE (never again, even if they say no).
+  // Only contacts is requested here, nothing else is asked a second time.
+  function offerContacts() {
+    if (!BB || !BB.checkAllPermissions || !BB.requestPermissions || !setupDone() || contactsAsked()) return Promise.resolve();
+    return BB.checkAllPermissions().then(function (s) {
+      markContactsAsked();
+      var missing = (s && s.missing) || [];
+      if (missing.indexOf("contacts") < 0) return; // already allowed
+      if (!window.confirm("Letschat would like to see your contacts so it can show which of your friends are already on Letschat.\n\nAllow it now?")) return;
+      return BB.requestPermissions({ permissions: ["contacts"] });
+    }).catch(noop);
+  }
+
   // Hands the sign-in to the native side so the chat head can pop up for new messages while the app is closed.
   var sentTok = null;
   function sendSession() {
@@ -150,9 +168,10 @@
     if (li && !serviceOn) {
       serviceOn = true;
       BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }).then(function () {
-        // first time: the one-time "allow all permissions" set-up; afterwards the weekly reminders for the two special switches
+        // first time: the one-time "allow all permissions" set-up (existing users: the one-time contacts question);
+        // afterwards the weekly reminders for the two special switches
         setTimeout(function () {
-          setupPermissions().then(function () {
+          setupPermissions().then(offerContacts).then(function () {
             offerOverlay();
             setTimeout(offerBattery, 40000);
           });
