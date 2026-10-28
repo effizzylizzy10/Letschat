@@ -30,10 +30,13 @@ GOT=$(grep -i "SHA-256" "$TMP/verify.txt" | head -1 | sed 's/.*digest:[[:space:]
 [ "$(norm "$GOT")" = "$(norm "$EXPECTED")" ] || fail "Certificate fingerprint does not match the Letschat key."
 
 # 2. Identity, version, SDK levels (read from the APK itself)
+# The "package:" line looks like: package: name='...' versionCode='..' versionName='..' compileSdkVersionCodename='..'
+# so every value is read with a pattern anchored to its own field (a loose pattern picked up compileSdkVersionCodename).
 "$BT/aapt" dump badging "$APK" > "$TMP/badging.txt"
-PKG=$(grep -m1 '^package:' "$TMP/badging.txt" | sed -E "s/.*name='([^']*)'.*/\1/")
-VCODE=$(grep -m1 '^package:' "$TMP/badging.txt" | sed -E "s/.*versionCode='([0-9]+)'.*/\1/")
-VNAME=$(grep -m1 '^package:' "$TMP/badging.txt" | sed -E "s/.*versionName='([^']*)'.*/\1/")
+PKGLINE=$(grep -m1 '^package:' "$TMP/badging.txt")
+PKG=$(printf '%s\n' "$PKGLINE" | sed -E "s/^package: name='([^']*)'.*/\1/")
+VCODE=$(printf '%s\n' "$PKGLINE" | sed -E "s/.* versionCode='([0-9]+)'.*/\1/")
+VNAME=$(printf '%s\n' "$PKGLINE" | sed -E "s/.* versionName='([^']*)'.*/\1/")
 MINSDK=$(grep -m1 '^sdkVersion:' "$TMP/badging.txt" | sed -E "s/.*'([0-9]+)'.*/\1/")
 TARGET=$(grep -m1 '^targetSdkVersion:' "$TMP/badging.txt" | sed -E "s/.*'([0-9]+)'.*/\1/")
 echo "package=$PKG versionCode=$VCODE versionName=$VNAME minSdk=$MINSDK targetSdk=$TARGET"
