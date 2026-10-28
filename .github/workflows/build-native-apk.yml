@@ -72,6 +72,8 @@ jobs:
             exit 1
           fi
           echo "Signed with the Letschat key: it installs over the existing app."
+      - name: Validate the finished APK
+        run: bash tools/validate-apk.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Letschat-apk
