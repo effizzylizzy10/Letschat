@@ -35,6 +35,7 @@ import org.json.JSONTokener;
     permissions = {
         @Permission(alias = "camera", strings = { Manifest.permission.CAMERA }),
         @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO }),
+        @Permission(alias = "contacts", strings = { Manifest.permission.READ_CONTACTS }),
         @Permission(alias = "location", strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }),
         @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" }),
         @Permission(
@@ -267,6 +268,7 @@ public class ChatBubblePlugin extends Plugin {
         int sdk = Build.VERSION.SDK_INT;
         if (!has(Manifest.permission.CAMERA)) a.add("camera");
         if (!has(Manifest.permission.RECORD_AUDIO)) a.add("microphone");
+        if (!has(Manifest.permission.READ_CONTACTS)) a.add("contacts");
         if (!has(Manifest.permission.ACCESS_FINE_LOCATION) && !has(Manifest.permission.ACCESS_COARSE_LOCATION)) a.add("location");
         if (sdk >= 33) {
             if (!has("android.permission.POST_NOTIFICATIONS")) a.add("notifications");
@@ -296,7 +298,7 @@ public class ChatBubblePlugin extends Plugin {
         return ret;
     }
 
-    /** Which of everything Letschat needs is already allowed: camera, microphone, location, notifications, photos, nearby devices, overlay, battery. */
+    /** Which of everything Letschat needs is already allowed: camera, microphone, contacts, location, notifications, photos, nearby devices, overlay, battery. */
     @PluginMethod
     public void checkAllPermissions(PluginCall call) {
         call.resolve(permissionStatus());
