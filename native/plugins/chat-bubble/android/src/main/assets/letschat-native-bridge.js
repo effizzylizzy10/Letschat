@@ -1,10 +1,14 @@
 /* Letschat native glue. Injected by the ChatBubble plugin into the Letschat website inside the Android app only.
-   It does four things:
+   It does five things:
    1. starts the background service once a person is signed in (and stops it on sign-out),
    2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
-   3. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
-   4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
+   3. ONE TIME after the first sign-in: "Allow permissions" set-up. One question, then Android's allow dialogs for camera, microphone,
+      notifications, location, photos/files and nearby devices come one after another, then "display over other apps" and
+      "ignore battery optimisation", and at the end (only if something is still off) the phone's own app-permission settings page for Letschat.
+      After that it never asks again as a set-up; the old weekly reminders below only remain as a safety net for the two special switches,
+   4. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
+   5. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble". */
 (function () {
   if (window.__lcNativeBridge) return;
@@ -17,7 +21,9 @@
 
   var SESSION_KEY = "letschat-africa:session";
   var ASK_KEY = "letschat-native:asked:";
+  var SETUP_KEY = "letschat-native:perm-setup-done";
   var unread = 0, background = false, serviceOn = false;
+  var setupRunning = false, waiters = [];
   var BUBBLE_KEY = "letschat-native:bubble";
   function noop() {}
 
@@ -56,6 +62,77 @@
     }).catch(noop);
   }
 
+  // ---- ONE-TIME "allow all permissions" set-up ----
+  function setupDone() { try { return localStorage.getItem(SETUP_KEY) === "1"; } catch (e) { return false; } }
+  function markSetupDone() { try { localStorage.setItem(SETUP_KEY, "1"); } catch (e) {} }
+  // Everything Letschat needs is on (the overlay only counts while the floating bubble is switched on).
+  function allOk(s) { return !!(s && s.runtimeGranted && (s.overlay || !bubbleOn()) && s.battery); }
+
+  // Resolves once the person has gone to a phone settings screen and come back (or after 3 seconds if no screen opened).
+  // It must be created BEFORE the screen is opened, so the "left the app" event cannot be missed.
+  function waitForReturn() {
+    return new Promise(function (resolve) {
+      var left = false, finished = false;
+      function finish() {
+        if (finished) return;
+        finished = true;
+        var i = waiters.indexOf(w);
+        if (i >= 0) waiters.splice(i, 1);
+        resolve();
+      }
+      function w(active) {
+        if (!active) left = true;
+        else if (left) setTimeout(finish, 400);
+      }
+      waiters.push(w);
+      setTimeout(function () { if (!left) finish(); }, 3000);
+      setTimeout(finish, 180000);
+    });
+  }
+  function openAndWait(open) {
+    var wait = waitForReturn();
+    return Promise.resolve().then(open).then(function () { return wait; }, function () { return wait; });
+  }
+
+  // Order: one question -> Android's allow dialogs (camera, microphone, notifications, location, photos, nearby devices)
+  // -> "display over other apps" switch -> battery question -> if anything is still off, the phone's app-permission page.
+  function setupPermissions() {
+    if (setupRunning || setupDone() || askedRecently("setup") || !BB || !BB.checkAllPermissions || !BB.requestRuntimePermissions) return Promise.resolve(false);
+    setupRunning = true;
+    return BB.checkAllPermissions().then(function (s) {
+      if (allOk(s)) { markSetupDone(); return true; }
+      var ok = window.confirm(
+        "Letschat needs a few permissions to work fully: camera, microphone, notifications, location, photos and files, nearby devices, " +
+        "display over other apps and staying connected in the background.\n\nAllow them now? You only do this once."
+      );
+      if (!ok) { markAsked("setup"); markAsked("overlay"); markAsked("battery"); return false; }
+      return BB.requestRuntimePermissions().catch(noop)
+        .then(function () { return BB.checkOverlayPermission().catch(function () { return {}; }); })
+        .then(function (o) {
+          if (!bubbleOn() || (o && o.granted)) return;
+          return openAndWait(function () { return BB.requestOverlayPermission(); });
+        })
+        .then(function () {
+          if (!BG) return;
+          return BG.isIgnoringBatteryOptimizations().then(function (r) {
+            if (r && r.ignoring) return;
+            return openAndWait(function () { return BG.requestIgnoreBatteryOptimizations(); });
+          }, noop);
+        })
+        .then(function () { return BB.checkAllPermissions(); })
+        .then(function (after) {
+          markSetupDone();
+          markAsked("overlay");
+          markAsked("battery");
+          if (allOk(after)) return true;
+          if (window.confirm("Some permissions are still switched off. Open your phone's app permission settings for Letschat so you can switch them on?")) {
+            return BB.openAppPermissionSettings().then(function () { return true; }, function () { return true; });
+          }
+          return true;
+        });
+    }).catch(function () { return false; }).then(function (v) { setupRunning = false; return v; });
+  }
+
   // Hands the sign-in to the native side so the chat head can pop up for new messages while the app is closed.
   var sentTok = null;
   function sendSession() {
@@ -73,8 +150,13 @@
     if (li && !serviceOn) {
       serviceOn = true;
       BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }).then(function () {
-        setTimeout(offerOverlay, 1500);
-        setTimeout(offerBattery, 40000);
+        // first time: the one-time "allow all permissions" set-up; afterwards the weekly reminders for the two special switches
+        setTimeout(function () {
+          setupPermissions().then(function () {
+            offerOverlay();
+            setTimeout(offerBattery, 40000);
+          });
+        }, 1500);
       }).catch(function () { serviceOn = false; });
     } else if (!li && serviceOn) {
       serviceOn = false;
@@ -186,6 +268,7 @@
 
   function setActive(active) {
     background = !active;
+    if (waiters.length) waiters.slice().forEach(function (w) { try { w(active); } catch (e) {} }); // lets the permission set-up know the person came back
     if (active) {
       unread = 0;
       if (BB) BB.hide().catch(noop);
