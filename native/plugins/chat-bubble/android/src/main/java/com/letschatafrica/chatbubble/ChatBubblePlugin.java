@@ -101,6 +101,11 @@ public class ChatBubblePlugin extends Plugin {
             data.put("chatId", chatId == null ? "" : chatId);
             notifyListeners("bubbleTapped", data, true);
         });
+        // the app was started by tapping a message notification: open that chat once the page is up
+        try {
+            Activity a = getActivity();
+            if (a != null) openChatFromIntent(a.getIntent());
+        } catch (Throwable ignored) {}
         // Add the native glue script (starts the service after login, shows the bubble) to every page the app loads.
         try {
             getBridge().addWebViewListener(
@@ -129,6 +134,26 @@ public class ChatBubblePlugin extends Plugin {
         } catch (Throwable ignored) {
             // the bubble still works when the website calls the plugin itself
         }
+    }
+
+    /** Letschat was already running and a message notification was tapped: open that chat. */
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        super.handleOnNewIntent(intent);
+        openChatFromIntent(intent);
+    }
+
+    /** A tapped message notification carries the chat id; it goes to the page the same way a tap on "View" in the pop-up does. */
+    private void openChatFromIntent(Intent intent) {
+        try {
+            if (intent == null) return;
+            String id = intent.getStringExtra(MessagePoller.EXTRA_CHAT_ID);
+            if (id == null || id.isEmpty()) return;
+            intent.removeExtra(MessagePoller.EXTRA_CHAT_ID); // only once
+            JSObject data = new JSObject();
+            data.put("chatId", id);
+            notifyListeners("bubbleTapped", data, true);
+        } catch (Throwable ignored) {}
     }
 
     private void injectBridge(WebView webView) {
