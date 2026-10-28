@@ -1,11 +1,19 @@
 /* Letschat native glue. Injected by the ChatBubble plugin into the Letschat website inside the Android app only.
-   It does four things:
+   It does five things:
    1. starts the background service once a person is signed in (and stops it on sign-out),
    2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
-   3. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
-   4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
+   3. ONE TIME after the first sign-in: "Allow permissions" set-up. One question, then Android's allow dialogs for camera, microphone,
+      contacts, notifications, location, photos/files and nearby devices come one after another, then "display over other apps" and
+      "ignore battery optimisation", and at the end (only if something is still off) the phone's own app-permission settings page for Letschat.
+      After that it never asks again as a set-up; the old weekly reminders below only remain as a safety net for the two special switches.
+      People who finished the set-up before contacts was added are asked for contacts once, on their next sign-in (offerContacts),
+   4. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
+   5. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble".
+   The pop-up follows the same rules as the website's own alerts and the server's push alerts: no pop-up for "X joined the group" notices,
+   muted chats, people you blocked, groups when "Group messages" is off, or the big Chat Room unless the message @mentions or replies to you;
+   "Show message preview" off hides the message text. If anything needed for those rules cannot be read, the pop-up is shown (a pop-up too many beats a missed message).
    Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab). */
 (function () {
   if (window.__lcNativeBridge) return;
@@ -17,8 +25,13 @@
   window.__lcNativeBridge = true;
 
   var SESSION_KEY = "letschat-africa:session";
+  var NOTIFS_KEY = "letschat-africa:notifs";   // Settings > Notifications of the website (this device)
+  var CONVS_KEY = "letschat-africa:convCache"; // the chat list the website saved last time
   var ASK_KEY = "letschat-native:asked:";
+  var SETUP_KEY = "letschat-native:perm-setup-done";
+  var CONTACTS_KEY = "letschat-native:contacts-asked";
   var unread = 0, background = false, serviceOn = false;
+  var setupRunning = false, waiters = [];
   var BUBBLE_KEY = "letschat-native:bubble";
   function noop() {}
 
@@ -57,14 +70,102 @@
     }).catch(noop);
   }
 
+  // ---- ONE-TIME "allow all permissions" set-up ----
+  function setupDone() { try { return localStorage.getItem(SETUP_KEY) === "1"; } catch (e) { return false; } }
+  function markSetupDone() { try { localStorage.setItem(SETUP_KEY, "1"); } catch (e) {} }
+  function contactsAsked() { try { return localStorage.getItem(CONTACTS_KEY) === "1"; } catch (e) { return false; } }
+  function markContactsAsked() { try { localStorage.setItem(CONTACTS_KEY, "1"); } catch (e) {} }
+  // Everything Letschat needs is on (the overlay only counts while the floating bubble is switched on).
+  function allOk(s) { return !!(s && s.runtimeGranted && (s.overlay || !bubbleOn()) && s.battery); }
+
+  // Resolves once the person has gone to a phone settings screen and come back (or after 3 seconds if no screen opened).
+  // It must be created BEFORE the screen is opened, so the "left the app" event cannot be missed.
+  function waitForReturn() {
+    return new Promise(function (resolve) {
+      var left = false, finished = false;
+      function finish() {
+        if (finished) return;
+        finished = true;
+        var i = waiters.indexOf(w);
+        if (i >= 0) waiters.splice(i, 1);
+        resolve();
+      }
+      function w(active) {
+        if (!active) left = true;
+        else if (left) setTimeout(finish, 400);
+      }
+      waiters.push(w);
+      setTimeout(function () { if (!left) finish(); }, 3000);
+      setTimeout(finish, 180000);
+    });
+  }
+  function openAndWait(open) {
+    var wait = waitForReturn();
+    return Promise.resolve().then(open).then(function () { return wait; }, function () { return wait; });
+  }
+
+  // Order: one question -> Android's allow dialogs (camera, microphone, contacts, notifications, location, photos, nearby devices)
+  // -> "display over other apps" switch -> battery question -> if anything is still off, the phone's app-permission page.
+  function setupPermissions() {
+    if (setupRunning || setupDone() || askedRecently("setup") || !BB || !BB.checkAllPermissions || !BB.requestRuntimePermissions) return Promise.resolve(false);
+    setupRunning = true;
+    return BB.checkAllPermissions().then(function (s) {
+      if (allOk(s)) { markSetupDone(); markContactsAsked(); return true; }
+      var ok = window.confirm(
+        "Letschat needs a few permissions to work fully: camera, microphone, contacts, notifications, location, photos and files, nearby devices, " +
+        "display over other apps and staying connected in the background.\n\nAllow them now? You only do this once."
+      );
+      if (!ok) { markAsked("setup"); markAsked("overlay"); markAsked("battery"); return false; }
+      markContactsAsked(); // contacts is part of this set-up, so no separate question afterwards
+      return BB.requestRuntimePermissions().catch(noop)
+        .then(function () { return BB.checkOverlayPermission().catch(function () { return {}; }); })
+        .then(function (o) {
+          if (!bubbleOn() || (o && o.granted)) return;
+          return openAndWait(function () { return BB.requestOverlayPermission(); });
+        })
+        .then(function () {
+          if (!BG) return;
+          return BG.isIgnoringBatteryOptimizations().then(function (r) {
+            if (r && r.ignoring) return;
+            return openAndWait(function () { return BG.requestIgnoreBatteryOptimizations(); });
+          }, noop);
+        })
+        .then(function () { return BB.checkAllPermissions(); })
+        .then(function (after) {
+          markSetupDone();
+          markAsked("overlay");
+          markAsked("battery");
+          if (allOk(after)) return true;
+          if (window.confirm("Some permissions are still switched off. Open your phone's app permission settings for Letschat so you can switch them on?")) {
+            return BB.openAppPermissionSettings().then(function () { return true; }, function () { return true; });
+          }
+          return true;
+        });
+    }).catch(function () { return false; }).then(function (v) { setupRunning = false; return v; });
+  }
+
+  // People who already finished the set-up before contacts existed: ask for contacts ONCE (never again, even if they say no).
+  // Only contacts is requested here, nothing else is asked a second time.
+  function offerContacts() {
+    if (!BB || !BB.checkAllPermissions || !BB.requestPermissions || !setupDone() || contactsAsked()) return Promise.resolve();
+    return BB.checkAllPermissions().then(function (s) {
+      markContactsAsked();
+      var missing = (s && s.missing) || [];
+      if (missing.indexOf("contacts") < 0) return; // already allowed
+      if (!window.confirm("Letschat would like to see your contacts so it can show which of your friends are already on Letschat.\n\nAllow it now?")) return;
+      return BB.requestPermissions({ permissions: ["contacts"] });
+    }).catch(noop);
+  }
+
   // Hands the sign-in to the native side so the chat head can pop up for new messages while the app is closed.
   var sentTok = null;
   function sendSession() {
     if (!BB || !BB.setSession) return;
     var s = session(), tok = s && s.token ? String(s.token) : "";
-    if (tok === sentTok) return;
-    sentTok = tok;
-    BB.setSession({ token: tok, apiUrl: apiBase(), userId: String(myId() || "") }).catch(function () { sentTok = null; });
+    var p = notifPrefs(), sig = tok + "|" + p.preview + "|" + p.groups; // sent again when "Show message preview" or "Group messages" is changed
+    if (sig === sentTok) return;
+    sentTok = sig;
+    BB.setSession({ token: tok, apiUrl: apiBase(), userId: String(myId() || ""), preview: p.preview, groups: p.groups }).catch(function () { sentTok = null; });
   }
 
   function syncService() {
@@ -74,8 +175,14 @@
     if (li && !serviceOn) {
       serviceOn = true;
       BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }).then(function () {
-        setTimeout(offerOverlay, 1500);
-        setTimeout(offerBattery, 40000);
+        // first time: the one-time "allow all permissions" set-up (existing users: the one-time contacts question);
+        // afterwards the weekly reminders for the two special switches
+        setTimeout(function () {
+          setupPermissions().then(offerContacts).then(function () {
+            offerOverlay();
+            setTimeout(offerBattery, 40000);
+          });
+        }, 1500);
       }).catch(function () { serviceOn = false; });
     } else if (!li && serviceOn) {
       serviceOn = false;
@@ -91,24 +198,107 @@
     for (var i = 0; i < names.length; i++) if (o && o[names[i]] != null && o[names[i]] !== "") return o[names[i]];
     return null;
   }
+  // ---- the rules (same as the website's own alerts and the server's push alerts) ----
+  // "Settings > Notifications" of the website: both switches are on unless the person turned them off.
+  function notifPrefs() {
+    var o = null;
+    try { o = JSON.parse(localStorage.getItem(NOTIFS_KEY)); } catch (e) {}
+    return { preview: !(o && o.preview === false), groups: !(o && o.groups === false) };
+  }
+  // What the website's saved chat list says about a chat: group or not, the Chat Room or not, its name and photo, who the members are.
+  function chatInfo(id) {
+    try {
+      var c = JSON.parse(localStorage.getItem(CONVS_KEY)), list = c && c.list;
+      for (var i = 0; list && i < list.length; i++) {
+        var x = list[i];
+        if (!x || String(x.id) !== id) continue;
+        var info = { group: !!x.isGroup, room: !!x.chatRoom, title: "", photo: "", names: {} };
+        if (x.isGroup) {
+          info.title = x.name || "";
+          (x.members || []).forEach(function (u) { if (u && u.id) info.names[u.id] = u.name || ""; });
+        } else if (x.other) {
+          info.title = x.other.name || "";
+          info.photo = x.other.avatar || "";
+        }
+        return info;
+      }
+    } catch (e) {}
+    return { group: false, room: false, title: "", photo: "", names: {} };
+  }
+  // "mention" when the message @mentions me, "reply" when it replies to one of mine, else "".
+  function addressedTo(m, me) {
+    if (!me) return "";
+    var men = m.mentions;
+    if (men && men.length) for (var i = 0; i < men.length; i++) if (String(men[i]) === String(me)) return "mention";
+    var rt = m.replyTo;
+    return rt && typeof rt === "object" && rt.senderId && String(rt.senderId) === String(me) ? "reply" : "";
+  }
+  // Muted chats and blocked people are kept on the server (per account). Read at most once a minute; when that fails, nothing is hidden.
+  var quiet = { at: 0, muted: {}, blocked: {}, waiting: null };
+  function isQuiet(chat, sid) {
+    var until = quiet.muted[chat];
+    if (until !== undefined && (until === 0 || until > Date.now())) return true;
+    return !!(sid && quiet.blocked[sid]);
+  }
+  function quietCheck(chat, sid, cb) {
+    var s = session();
+    if (!s || !s.token || typeof fetch !== "function") return cb(true);
+    if (Date.now() - quiet.at < 60000) return cb(!isQuiet(chat, sid));
+    var queued = function () { cb(!isQuiet(chat, sid)); };
+    if (quiet.waiting) { quiet.waiting.push(queued); return; }
+    quiet.waiting = [queued];
+    var finish = function () {
+      var w = quiet.waiting;
+      if (!w) return;
+      quiet.waiting = null;
+      for (var i = 0; i < w.length; i++) { try { w[i](); } catch (e) {} }
+    };
+    setTimeout(finish, 4000); // a slow or hung request must never swallow messages
+    try {
+      fetch(apiBase() + "/api/v1/me/settings", { headers: { Authorization: "Bearer " + s.token } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var d = j && (j.data || j);
+          if (!d) return;
+          quiet.muted = d.muted || {};
+          quiet.blocked = {};
+          (d.blocked || []).forEach(function (u) { if (u && u.id) quiet.blocked[u.id] = 1; });
+          quiet.at = Date.now();
+        })
+        .catch(noop)
+        .then(finish);
+    } catch (e) { finish(); }
+  }
+
   function onEvent(name, m) {
     if (name !== "message:new" || !m || typeof m !== "object" || !background || !BB || !bubbleOn()) return;
+    if (m.system) return; // "Amaka joined the group" and the like: the website gives no alert for these either
     var sender = field(m, ["sender", "from", "user"]);
     var sid = field(m, ["senderId", "sender_id", "fromId", "userId"]) || (sender && typeof sender === "object" ? field(sender, ["id", "_id"]) : sender);
     var me = myId();
     if (me && sid && String(sid) === String(me)) return; // my own message
-    var photo = (sender && typeof sender === "object" ? field(sender, ["avatar", "photo", "picture", "image"]) : null) || field(m, ["senderAvatar", "avatar"]);
-    if (!photo && sid && apiBase()) photo = "/api/v1/users/" + encodeURIComponent(String(sid)) + "/avatar";
-    var title = field(m, ["senderName", "fromName"]) || (sender && typeof sender === "object" ? field(sender, ["name", "displayName", "username"]) : null) || "Letschat";
-    var text = field(m, ["text", "body", "content", "caption"]) || (m.type && m.type !== "text" ? "[" + m.type + "]" : "New message");
-    var chat = field(m, ["conversationId", "convoId", "convId", "chatId"]) || (m.conversation && field(m.conversation, ["id", "_id"])) || "";
-    var rt = m.replyTo && typeof m.replyTo === "object" ? m.replyTo : null;
-    var replyName = rt ? (me && rt.senderId && String(rt.senderId) === String(me) ? "You" : (rt.name || "")) : "";
-    unread++;
-    BB.show({
-      count: unread, title: String(title), text: String(text).slice(0, 500), chatId: String(chat), avatar: photoUrl(photo),
-      messageId: m.id ? String(m.id) : "", replyName: String(replyName), replyText: rt && rt.text ? String(rt.text).slice(0, 140) : ""
-    }).catch(noop);
+    var chat = String(field(m, ["conversationId", "convoId", "convId", "chatId"]) || (m.conversation && field(m.conversation, ["id", "_id"])) || "");
+    var info = chatInfo(chat), prefs = notifPrefs(), toMe = addressedTo(m, me);
+    if (info.group && !prefs.groups) return; // "Group messages" is switched off
+    if (info.room && !toMe) return;          // the big Chat Room: only messages that @mention or reply to me
+    quietCheck(chat, sid ? String(sid) : "", function (ok) {
+      if (!ok || !background) return; // a muted chat, a blocked person, or Letschat is back on screen already
+      var photo = (sender && typeof sender === "object" ? field(sender, ["avatar", "photo", "picture", "image"]) : null) || field(m, ["senderAvatar", "avatar"]) || info.photo;
+      if (!photo && sid && apiBase()) photo = "/api/v1/users/" + encodeURIComponent(String(sid)) + "/avatar";
+      var title = field(m, ["senderName", "fromName"]) || (sender && typeof sender === "object" ? field(sender, ["name", "displayName", "username"]) : null) || info.title || "Letschat";
+      var text = prefs.preview
+        ? field(m, ["text", "body", "content", "caption"]) || (m.type && m.type !== "text" ? "[" + m.type + "]" : "New message")
+        : (toMe === "mention" ? "Mentioned you" : toMe === "reply" ? "Replied to you" : "New message");
+      var who = info.group && sid ? info.names[String(sid)] : "";
+      if (who && title !== who) text = who + ": " + text; // in a group: who wrote it
+      var rt = prefs.preview && m.replyTo && typeof m.replyTo === "object" ? m.replyTo : null;
+      var replyName = rt ? (me && rt.senderId && String(rt.senderId) === String(me) ? "You" : (rt.name || "")) : "";
+      unread++;
+      BB.show({
+        count: unread, title: String(title), text: String(text).slice(0, 500), chatId: String(chat), avatar: photoUrl(photo),
+        messageId: m.id ? String(m.id) : "", replyName: String(replyName), replyText: rt && rt.text ? String(rt.text).slice(0, 140) : ""
+      }).catch(noop);
+    });
   }
 
   // The app keeps its Socket.IO connections in io.managers: attach to each one once.
@@ -214,6 +404,7 @@
 
   function setActive(active) {
     background = !active;
+    if (waiters.length) waiters.slice().forEach(function (w) { try { w(active); } catch (e) {} }); // lets the permission set-up know the person came back
     if (active) {
       unread = 0;
       if (BB) BB.hide().catch(noop);
@@ -222,7 +413,7 @@
   try { if (APP && APP.addListener) APP.addListener("appStateChange", function (s) { setActive(!!(s && s.isActive)); }); } catch (e) {}
   try { if (BB && BB.addListener) {
     BB.addListener("appState", function (s) { setActive(!!(s && s.active)); });
-    // "View" in the message pop-up: open that chat (the app reads ?open=<conversation id> after the page loads).
+    // "View" in the message pop-up (and a tapped message notification): open that chat (the app reads ?open=<conversation id> after the page loads).
     // The head tapped with nothing waiting (no chat id, tab "calls"): open the Calls tab instead.
     BB.addListener("bubbleTapped", function (d) {
       unread = 0;
