@@ -1,11 +1,15 @@
 package com.letschatafrica.chatbubble;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
@@ -15,13 +19,38 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.WebViewListener;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
-@CapacitorPlugin(name = "ChatBubble")
+@CapacitorPlugin(
+    name = "ChatBubble",
+    permissions = {
+        @Permission(alias = "camera", strings = { Manifest.permission.CAMERA }),
+        @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO }),
+        @Permission(alias = "contacts", strings = { Manifest.permission.READ_CONTACTS }),
+        @Permission(alias = "location", strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }),
+        @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" }),
+        @Permission(
+            alias = "media",
+            strings = {
+                "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_MEDIA_VIDEO",
+                "android.permission.READ_MEDIA_AUDIO",
+                "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+            }
+        ),
+        @Permission(alias = "storage", strings = { Manifest.permission.READ_EXTERNAL_STORAGE }),
+        @Permission(alias = "nearby", strings = { "android.permission.BLUETOOTH_CONNECT" })
+    }
+)
 public class ChatBubblePlugin extends Plugin {
 
     private static final String BRIDGE_ASSET = "letschat-native-bridge.js";
@@ -74,6 +103,11 @@ public class ChatBubblePlugin extends Plugin {
             data.put("tab", tab == null ? "" : tab);
             notifyListeners("bubbleTapped", data, true);
         });
+        // the app was started by tapping a message notification: open that chat once the page is up
+        try {
+            Activity a = getActivity();
+            if (a != null) openChatFromIntent(a.getIntent());
+        } catch (Throwable ignored) {}
         // Add the native glue script (starts the service after login, shows the bubble) to every page the app loads.
         try {
             getBridge().addWebViewListener(
@@ -102,6 +136,27 @@ public class ChatBubblePlugin extends Plugin {
         } catch (Throwable ignored) {
             // the bubble still works when the website calls the plugin itself
         }
+    }
+
+    /** Letschat was already running and a message notification was tapped: open that chat. */
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        super.handleOnNewIntent(intent);
+        openChatFromIntent(intent);
+    }
+
+    /** A tapped message notification carries the chat id; it goes to the page the same way a tap on "View" in the pop-up does. */
+    private void openChatFromIntent(Intent intent) {
+        try {
+            if (intent == null) return;
+            String id = intent.getStringExtra(MessagePoller.EXTRA_CHAT_ID);
+            if (id == null || id.isEmpty()) return;
+            intent.removeExtra(MessagePoller.EXTRA_CHAT_ID); // only once
+            JSObject data = new JSObject();
+            data.put("chatId", id);
+            data.put("tab", "");
+            notifyListeners("bubbleTapped", data, true);
+        } catch (Throwable ignored) {}
     }
 
     private void injectBridge(WebView webView) {
@@ -216,6 +271,109 @@ public class ChatBubblePlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("granted", Settings.canDrawOverlays(ctx));
         call.resolve(ret);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // One-time "allow all permissions" setup (driven by letschat-native-bridge.js, see setupPermissions there)
+    // ------------------------------------------------------------------------------------------------------------------
+
+    private boolean has(String permission) {
+        return getContext().checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean ignoringBatteryOptimizations() {
+        try {
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            return pm != null && pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** The permission groups (aliases above) that still need to be allowed on this phone's Android version. */
+    private List<String> missingAliases() {
+        List<String> a = new ArrayList<>();
+        int sdk = Build.VERSION.SDK_INT;
+        if (!has(Manifest.permission.CAMERA)) a.add("camera");
+        if (!has(Manifest.permission.RECORD_AUDIO)) a.add("microphone");
+        if (!has(Manifest.permission.READ_CONTACTS)) a.add("contacts");
+        if (!has(Manifest.permission.ACCESS_FINE_LOCATION) && !has(Manifest.permission.ACCESS_COARSE_LOCATION)) a.add("location");
+        if (sdk >= 33) {
+            if (!has("android.permission.POST_NOTIFICATIONS")) a.add("notifications");
+            boolean visualOk =
+                (has("android.permission.READ_MEDIA_IMAGES") && has("android.permission.READ_MEDIA_VIDEO"))
+                    || (sdk >= 34 && has("android.permission.READ_MEDIA_VISUAL_USER_SELECTED")); // "select photos" choice
+            if (!(visualOk && has("android.permission.READ_MEDIA_AUDIO"))) a.add("media");
+        } else if (!has(Manifest.permission.READ_EXTERNAL_STORAGE)) {
+            a.add("storage");
+        }
+        if (sdk >= 31 && !has("android.permission.BLUETOOTH_CONNECT")) a.add("nearby");
+        return a;
+    }
+
+    private JSObject permissionStatus() {
+        List<String> missing = missingAliases();
+        boolean overlay = Settings.canDrawOverlays(getContext());
+        boolean battery = ignoringBatteryOptimizations();
+        JSONArray list = new JSONArray();
+        for (String m : missing) list.put(m);
+        JSObject ret = new JSObject();
+        ret.put("runtimeGranted", missing.isEmpty());
+        ret.put("missing", list);
+        ret.put("overlay", overlay);
+        ret.put("battery", battery);
+        ret.put("allGranted", missing.isEmpty() && overlay && battery);
+        return ret;
+    }
+
+    /** Which of everything Letschat needs is already allowed: camera, microphone, contacts, location, notifications, photos, nearby devices, overlay, battery. */
+    @PluginMethod
+    public void checkAllPermissions(PluginCall call) {
+        call.resolve(permissionStatus());
+    }
+
+    /** Asks for every missing runtime permission in one go (Android shows its allow dialogs one after another, nothing else to tap in between). */
+    @PluginMethod
+    public void requestRuntimePermissions(PluginCall call) {
+        List<String> missing = missingAliases();
+        if (missing.isEmpty()) {
+            call.resolve(permissionStatus());
+            return;
+        }
+        requestPermissionForAliases(missing.toArray(new String[0]), call, "runtimePermissionsDone");
+    }
+
+    @PermissionCallback
+    private void runtimePermissionsDone(PluginCall call) {
+        call.resolve(permissionStatus());
+    }
+
+    /**
+     * Opens the phone's own "App permissions" page for Letschat (Settings > Apps > Letschat > Permissions) so anything still switched off
+     * can be turned on there. Some phones open the permission list directly, the others open the app info page where "Permissions" is one tap.
+     */
+    @PluginMethod
+    public void openAppPermissionSettings(PluginCall call) {
+        Context ctx = getContext();
+        String pkg = ctx.getPackageName();
+        try {
+            Intent i = new Intent("android.intent.action.MANAGE_APP_PERMISSIONS");
+            i.putExtra("android.intent.extra.PACKAGE_NAME", pkg);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+            call.resolve();
+            return;
+        } catch (Throwable ignored) {
+            // this phone has no direct permission list: fall back to the app info page
+        }
+        try {
+            Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not open the app permission settings: " + e.getMessage());
+        }
     }
 
     @PluginMethod
