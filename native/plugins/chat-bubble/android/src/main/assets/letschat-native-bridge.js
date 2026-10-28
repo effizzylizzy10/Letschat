@@ -4,7 +4,7 @@
    2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
    3. ONE TIME after the first sign-in: "Allow permissions" set-up. One question, then Android's allow dialogs for camera, microphone,
-      notifications, location, photos/files and nearby devices come one after another, then "display over other apps" and
+      contacts, notifications, location, photos/files and nearby devices come one after another, then "display over other apps" and
       "ignore battery optimisation", and at the end (only if something is still off) the phone's own app-permission settings page for Letschat.
       After that it never asks again as a set-up; the old weekly reminders below only remain as a safety net for the two special switches,
    4. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
@@ -94,7 +94,7 @@
     return Promise.resolve().then(open).then(function () { return wait; }, function () { return wait; });
   }
 
-  // Order: one question -> Android's allow dialogs (camera, microphone, notifications, location, photos, nearby devices)
+  // Order: one question -> Android's allow dialogs (camera, microphone, contacts, notifications, location, photos, nearby devices)
   // -> "display over other apps" switch -> battery question -> if anything is still off, the phone's app-permission page.
   function setupPermissions() {
     if (setupRunning || setupDone() || askedRecently("setup") || !BB || !BB.checkAllPermissions || !BB.requestRuntimePermissions) return Promise.resolve(false);
@@ -102,7 +102,7 @@
     return BB.checkAllPermissions().then(function (s) {
       if (allOk(s)) { markSetupDone(); return true; }
       var ok = window.confirm(
-        "Letschat needs a few permissions to work fully: camera, microphone, notifications, location, photos and files, nearby devices, " +
+        "Letschat needs a few permissions to work fully: camera, microphone, contacts, notifications, location, photos and files, nearby devices, " +
         "display over other apps and staying connected in the background.\n\nAllow them now? You only do this once."
       );
       if (!ok) { markAsked("setup"); markAsked("overlay"); markAsked("battery"); return false; }
