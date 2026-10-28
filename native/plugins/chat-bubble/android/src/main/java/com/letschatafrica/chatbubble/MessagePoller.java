@@ -8,8 +8,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import java.io.BufferedReader;
@@ -32,14 +30,14 @@ import org.json.JSONObject;
  * minimised or closed (the foreground service keeps this process alive). It asks the Letschat server for the conversation list
  * every few seconds while the app is not on screen and shows the toast when a chat's LAST MESSAGE changes and is not mine.
  * (It does not use the unread counter: the page, still alive in the background, can mark a message read at once, which would hide it.)
- * The web page hands over the sign-in token with ChatBubble.setSession (see letschat-native-bridge.js).
+ * The app hands this checker the sign-in token (see ChatBubblePlugin.pushSessionFromPage and letschat-native-bridge.js).
  *
  * The /api/v1 routes answer with an envelope {"success":true,"data":{...}}; unwrap() reads both that and a bare body.
  * When "Display over other apps" is not allowed, a normal Android notification is posted instead, so a new message is never silent.
  * Everything it decides is written to the Android log under the tag LetschatPoller (adb logcat -s LetschatPoller).
  *
- * STATUS TOAST (temporary, for finding why a toast does not show): after the app is minimised, and whenever the checker has a problem
- * (not signed in, server refuses the token, no connection, odd answer), a toast on the chat head says so in plain words ("Letschat check: ...").
+ * The old "Letschat check: ..." status toasts on the chat head are gone: the chat head now only ever shows real messages. Problems
+ * (not signed in, server refuses the token, no connection) are only written to the log.
  */
 public final class MessagePoller {
 
@@ -50,8 +48,6 @@ public final class MessagePoller {
     private static final long INTERVAL_MS = 8000;
     /** After the server refuses the token, check again only this rarely (the page may send a fresh token meanwhile). */
     private static final long REFUSED_WAIT_MS = 60000;
-    /** The status toast waits this long so the chat head (which appears 0.7 s after minimising) does not wipe it. */
-    private static final long STATUS_DELAY_MS = 1800;
 
     private static final Object LOCK = new Object();
     private static boolean wake = false;
@@ -117,38 +113,22 @@ public final class MessagePoller {
                 wake = true;
                 LOCK.notifyAll();
             }
-            // nothing to tell the person when the poller is not running at all: say so (a few seconds after minimising)
+            // make sure the checker is running (it needs the stored sign-in); nothing is shown on screen about it
             Context ctx = appCtx;
-            Thread w = worker;
-            if (ctx != null && (w == null || !w.isAlive())) status(ctx, "not running (no sign-in received yet). Open Letschat and sign in once.");
+            if (ctx != null) ensureRunning(ctx);
         }
     }
 
     /** The live connection just showed the chat head for a message. (Kept for the plugin; duplicates are removed by message id in MessagePopup.) */
     static void noteSocketShow() {}
 
-    /**
-     * Temporary status toast on the chat head, plus a line in the log. The same text is not repeated within a minute.
-     * It waits a moment so the chat head (which comes up 0.7 s after minimising) does not hide it again.
-     */
+    /** Writes what the checker found to the Android log (the same text is not repeated within a minute). Nothing is shown on the chat head. */
     private static void status(final Context ctx, final String text) {
         long now = System.currentTimeMillis();
         if (text.equals(lastStatus) && now - lastStatusAt < 60000) return;
         lastStatus = text;
         lastStatusAt = now;
         Log.i(TAG, "status: " + text);
-        try {
-            if (!Settings.canDrawOverlays(ctx)) return;
-            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        if (foreground) return; // the app is on screen again
-                        BubbleController.get(ctx).show(0, "Letschat check", text, "", "");
-                    } catch (Throwable ignored) {}
-                }
-            }, STATUS_DELAY_MS);
-        } catch (Throwable ignored) {}
     }
 
     /** Sleeps up to ms, or less when setForeground(false) wakes the loop. Returns false when interrupted. */
@@ -198,7 +178,7 @@ public final class MessagePoller {
                 String token = sp.getString("token", "");
                 String api = sp.getString("apiUrl", "");
                 if (token.isEmpty() || api.isEmpty()) {
-                    status(ctx, "not signed in. Open Letschat and sign in.");
+                    status(ctx, "not signed in.");
                     return;
                 }
                 if (!sp.getBoolean("enabled", true)) {
@@ -217,7 +197,7 @@ public final class MessagePoller {
                 if (body.isEmpty()) {
                     // the server refused the token: keep the thread alive and look again slowly (a fresh token is read from storage each time)
                     Log.w(TAG, "server refused the sign-in token");
-                    status(ctx, "the server refused your sign-in. Open Letschat, sign out and in again.");
+                    status(ctx, "the server refused the sign-in.");
                     lastIds = null;
                     lastTimes = null;
                     wait = REFUSED_WAIT_MS;
@@ -259,12 +239,9 @@ public final class MessagePoller {
                     since.add(before == null ? 0L : before);
                 }
                 if (lastIds == null) {
-                    Log.i(TAG, "started counting: " + nowIds.size() + " chats");
-                    String extra = noId > 0 ? " (" + noId + " chats have a last message without an id!)" : "";
-                    status(ctx, "watching " + nowIds.size() + " chats for new messages" + extra + ".");
+                    Log.i(TAG, "started counting: " + nowIds.size() + " chats" + (noId > 0 ? " (" + noId + " chats have a last message without an id)" : ""));
                 } else if (!fresh.isEmpty() || fromMe > 0) {
                     Log.i(TAG, "new: " + fresh.size() + " chats, ignored " + fromMe + " sent by me (userId " + (myId.isEmpty() ? "MISSING" : "ok") + ")");
-                    if (fresh.isEmpty() && fromMe > 0) status(ctx, "new message ignored: it looks like it was sent by you.");
                 }
                 lastIds = nowIds;
                 lastTimes = nowTimes;
@@ -274,8 +251,6 @@ public final class MessagePoller {
             } catch (Throwable e) {
                 // a bad answer from the server (or any other failure): try again next time, never crash the app
                 Log.w(TAG, "check failed: " + e);
-                Context ctx = appCtx;
-                if (ctx != null) status(ctx, "check failed: " + e.getClass().getSimpleName() + ".");
             }
         }
     }
@@ -411,7 +386,7 @@ public final class MessagePoller {
         return o.optString(key, "");
     }
 
-    /** What went wrong the last time get() returned null (shown in the status toast). */
+    /** What went wrong the last time get() returned null (written to the log). */
     private static volatile String lastProblem = "no network";
 
     /** Returns the answer text, null when the network failed, or "" when the token is no longer accepted. */
