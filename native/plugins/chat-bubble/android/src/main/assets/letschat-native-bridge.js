@@ -5,7 +5,8 @@
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
    3. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
    4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
-      and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble". */
+      and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble".
+   Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab). */
 (function () {
   if (window.__lcNativeBridge) return;
   if (!/(^|\.)(letschat-taupe\.vercel\.app|letschatafric\.netlify\.app)$/.test(location.hostname)) return;
@@ -184,6 +185,33 @@
   } catch (e) {}
   addSettingRow();
 
+  // ---- chat head tapped with no message waiting: open the Calls tab ----
+  // The bottom bar belongs to the React app, so the tab is found by its name and tapped like a finger would. After a cold start the
+  // bar is not there yet, so it is looked for every 300 ms for up to 15 seconds (it never runs when nobody is signed in).
+  var callsTimer = null;
+  function findCallsTab() {
+    try {
+      var tabs = document.querySelectorAll(".lc-tab");
+      for (var i = 0; i < tabs.length; i++) {
+        if (/^\s*calls\s*$/i.test(tabs[i].textContent || "")) return tabs[i];
+      }
+      var n = document.evaluate("//*[normalize-space(text())='Calls']", document, null, 9, null).singleNodeValue;
+      return n ? (n.closest(".lc-tab, button, [role=tab], a") || n) : null;
+    } catch (e) { return null; }
+  }
+  function openCallsTab() {
+    if (callsTimer) clearInterval(callsTimer);
+    var tries = 0;
+    function attempt() {
+      var t = findCallsTab();
+      if (t) { clearInterval(callsTimer); callsTimer = null; try { t.click(); } catch (e) {} return true; }
+      if (++tries > 50) { clearInterval(callsTimer); callsTimer = null; }
+      return false;
+    }
+    if (attempt()) return;
+    callsTimer = setInterval(attempt, 300);
+  }
+
   function setActive(active) {
     background = !active;
     if (active) {
@@ -194,11 +222,13 @@
   try { if (APP && APP.addListener) APP.addListener("appStateChange", function (s) { setActive(!!(s && s.isActive)); }); } catch (e) {}
   try { if (BB && BB.addListener) {
     BB.addListener("appState", function (s) { setActive(!!(s && s.active)); });
-    // "View" in the message pop-up: open that chat (the app reads ?open=<conversation id> after the page loads)
+    // "View" in the message pop-up: open that chat (the app reads ?open=<conversation id> after the page loads).
+    // The head tapped with nothing waiting (no chat id, tab "calls"): open the Calls tab instead.
     BB.addListener("bubbleTapped", function (d) {
       unread = 0;
       var id = d && d.chatId ? String(d.chatId) : "";
-      if (id) { try { location.assign(location.origin + "/?open=" + encodeURIComponent(id)); } catch (e) {} }
+      if (id) { try { location.assign(location.origin + "/?open=" + encodeURIComponent(id)); } catch (e) {} return; }
+      if (d && d.tab === "calls") openCallsTab();
     });
   } } catch (e) {}
   document.addEventListener("visibilitychange", function () { if (!document.hidden) setActive(true); });
