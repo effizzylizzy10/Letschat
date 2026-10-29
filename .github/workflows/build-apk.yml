@@ -1,14 +1,10 @@
 name: Build legacy Android APK (Android 5-6, Trusted Web Activity)
-# STAGED COPY. To use it: copy this file over .github/workflows/build-apk.yml (GitHub web editor, or a push with workflow permission).
-# The connection that prepared this change cannot write inside .github/workflows, so it is kept here.
-#
-# This is the lightweight build for phones on Android 5.0 to 6.0.1 (API 21-23). Capacitor 8 needs Android 7 (API 24)
+# Lightweight build for phones on Android 5.0 to 6.0.1 (API 21-23). Capacitor 8 needs Android 7 (API 24)
 # or newer, so those older phones use this Trusted Web Activity (TWA) build instead. Android 7 and newer use
 # "Build native Android APK (Capacitor 8)".
 # Run it from the Actions tab (Run workflow), or it runs by itself when android/ or its tools change.
-# The finished Letschat-legacy.apk appears under "Artifacts" (name: Letschat-legacy-apk) about 10 minutes later.
+# The finished Letschat-legacy.apk appears under "Artifacts" (name: Letschat-legacy-apk).
 # Secrets needed (same two as the native build): ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD.
-# The first step checks the key; a missing or wrong key stops the run with a plain explanation.
 # Nothing is published or released by this workflow.
 on:
   workflow_dispatch:
@@ -80,6 +76,10 @@ jobs:
           bubblewrap --version || true
       - name: Bubblewrap settings
         run: |
+          SDKM=$(ls $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -1)
+          CMDT=$(dirname "$(dirname "$SDKM")")
+          [ -e "$ANDROID_HOME/tools" ] || sudo ln -s "$CMDT" "$ANDROID_HOME/tools"
+          ls "$ANDROID_HOME"
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
       - name: Build the APK
