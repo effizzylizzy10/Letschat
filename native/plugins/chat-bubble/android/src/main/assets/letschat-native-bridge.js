@@ -4,6 +4,7 @@
    2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
    3. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
+      and on Tecno / Infinix / itel phones, once, to open the phone's Auto-start screen (those phones close background apps unless allowed there),
    4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble".
    5. makes the "Push notifications" and "Background alerts" switches work inside the app. The website only knows browser web-push, which the
@@ -66,6 +67,24 @@
     }).catch(noop);
   }
 
+  // Tecno / Infinix / itel (HiOS, XOS): the phone closes apps in the background unless they are allowed in its Auto-start screen
+  // (Phone Master). Asked at most once a month until the person agrees; saying yes is remembered for good. Other phones never see this.
+  var OEM_DONE_KEY = "letschat-native:oem-done";
+  function offerOem() {
+    if (!BG || !BG.getOemInfo || !BG.openAutostartSettings) return;
+    try {
+      if (localStorage.getItem(OEM_DONE_KEY) === "1" || Date.now() - (+localStorage.getItem(ASK_KEY + "oem") || 0) < 30 * 864e5) return;
+    } catch (e) { return; }
+    BG.getOemInfo().then(function (r) {
+      if (!r || !r.transsion) return;
+      markAsked("oem");
+      if (window.confirm("Your phone may close Letschat in the background, so you could miss messages. Open the phone's Auto-start settings now and switch Letschat ON?")) {
+        try { localStorage.setItem(OEM_DONE_KEY, "1"); } catch (e) {}
+        BG.openAutostartSettings().catch(noop);
+      }
+    }).catch(noop);
+  }
+
   // Hands the sign-in to the native side so the chat head can pop up for new messages while the app is closed.
   var sentTok = null;
   function sendSession() {
@@ -85,6 +104,7 @@
       BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }).then(function () {
         setTimeout(offerOverlay, 1500);
         setTimeout(offerBattery, 40000);
+        setTimeout(offerOem, 70000);
       }).catch(function () { serviceOn = false; });
     } else if (!li && serviceOn) {
       serviceOn = false;
