@@ -19,12 +19,14 @@ The workflow has not been run yet, so the first run may need a small fix; PWABui
 ## Publish the APK
 Copy `Letschat.apk` into the `client/` folder (next to `index.html`) and redeploy the website. The file is then at `https://YOUR-SITE/Letschat.apk`, and on Android phones the app's "Install app" button (Tools, and the sign-in page) shows a Download app button. Until the file exists, Android phones only see the normal browser install steps.
 
+The "APK publish guard" workflow (`.github/workflows/apk-publish-guard.yml`, script `tools/check-published-apks.sh`) checks every `client/*.apk` on pull requests and pushes. It blocks a file that is signed with an "Android Debug" key or any key other than the Letschat key, has another package ID, is debuggable, or changed without a higher `versionCode` than the published one. Run it from the Actions tab (Run workflow) to check the APKs that are in the repository now.
+
 ## What people will see
 Android warns about any app installed from a file instead of Google Play: they may have to allow their browser to "install unknown apps", and Play Protect may show a warning. This is normal and cannot be removed in code; only publishing on Google Play (see PLAY-STORE.md) avoids it.
 
 ## If Android says "App not installed" (Infinix, Tecno, itel and every other phone)
-The two APK files in `client/` are fine: signed with the Letschat key (v1, v2 and v3 signatures), zip-aligned, no CPU-specific code, not debuggable. Android prints the same words for several problems that are outside the file:
-1. An older Letschat is still on the phone with another signing key, or with a HIGHER version number than the file being installed (Android never installs a lower `versionCode` over a higher one). Fix: hold the Letschat icon, App info, Uninstall, then open the file again. People may have to sign in again.
+Android prints the same words for several problems. Check the APK files first (run "APK publish guard"), then the phone:
+1. An older Letschat is still on the phone with another signing key, or with a HIGHER version number than the file being installed (Android never installs a lower `versionCode` over a higher one). The most common cause of a different key: early website APKs (24 and 25 Oct 2026) were signed with a throwaway "Android Debug" key, and Android never lets a different key update over an installed app. Fix: save the person's backup first, then hold the Letschat icon, App info, Uninstall, and open the file again. Uninstalling removes the app's local data, and people may have to sign in again.
 2. The download was cut short or handled badly by the browser (this happens with some data-saving and built-in browsers). Fix: download again in Chrome. `Letschat.apk` is about 4 MB; a file of a few KB is not the app.
 3. The phone is nearly out of storage, or "Install unknown apps" is not allowed for the browser that downloaded the file.
 
