@@ -232,7 +232,7 @@
       });
     } catch (e) {}
   }
-  // 5c. help cards: install the app (so it can run in the background) and start it with the computer
+  // 5c. help cards: start the app with the computer (installed desktop app only)
   function isDesktop() { return !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) && !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
   function infoCard(id, title, lines, buttons) {
     if (document.getElementById(id) || document.getElementById("lc-perm-card")) return;
@@ -252,18 +252,9 @@
   function snooze(k, days) { lsSet(k, String(Date.now() + days * 86400000)); }
   function keepRunningHelp() {
     if (!session()) return;
-    if (!standalone()) {
-      if (snoozed("lc-ka-install")) return;
-      if (window.__lcInstall) {
-        infoCard("lc-ka-card", "Install Letschat", ["Installed, Letschat opens like a normal app, keeps working in the background and keeps your message and call alerts coming."],
-          [{ label: "Not now", fn: function () { snooze("lc-ka-install", 3); } },
-           { label: "Install", primary: true, fn: function () { window.LetschatInstall.install(); } }]);
-      } else if (isIOS()) {
-        infoCard("lc-ka-card", "Install Letschat", ["Tap the Share button, then Add to Home Screen. The installed app runs in the background and gives you alerts."],
-          [{ label: "Later", fn: function () { snooze("lc-ka-install", 7); } }, { label: "Got it", primary: true, fn: function () { snooze("lc-ka-install", 60); } }]);
-      }
-      return;
-    }
+    // The automatic "Install Letschat" web (PWA) card is switched off: people are no longer prompted to install the web app.
+    // On Android the real app file comes from the "Letschat for Android" bar at the top of the page.
+    if (!standalone()) return;
     // installed on a computer (Chrome / Edge): the person turns on "start when I sign in" once
     if (isDesktop() && !ls("lc-ka-autostart") && !snoozed("lc-ka-autostart-later") && /chrome|edg/i.test(navigator.userAgent)) {
       infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose \u201cStart app when you sign in\u201d. Letschat then opens by itself every time you sign in to your computer."],
@@ -367,17 +358,17 @@
     installed: function () { return standalone(); },
     install: function () {
       if (standalone()) return toast("Letschat is already installed", 2500);
-      // Android: the real app (Letschat.apk, or Letschat-legacy.apk on Android 5-6) comes first. If the file is not on the site yet, fall back to Chrome's web install.
+      // Android: only the real app file (Letschat.apk, or Letschat-legacy.apk on Android 5-6). The web (PWA) install is no longer offered here.
       if (/android/i.test(navigator.userAgent) && !inAppBrowser()) {
         return apkAvailable().then(function (ok) {
-          if (!ok) return browserInstall();
+          if (!ok) return toast("The Android app file is not available yet. Please try again later.", 4500);
           infoCard("lc-install-guide", "Get the Letschat app for Android",
             ["Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
              "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway."],
-            [{ label: "Use web version instead", fn: browserInstall }, { label: "Download app", primary: true, fn: downloadApk }]);
+            [{ label: "Cancel" }, { label: "Download app", primary: true, fn: downloadApk }]);
         });
       }
-      // Other devices: Chrome's one-tap install when it offers it
+      // Other devices (computer, iPhone): the browser's own install, only when the person taps Install
       browserInstall();
     }
   };
