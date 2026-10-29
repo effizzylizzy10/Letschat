@@ -257,7 +257,7 @@
     if (!standalone()) return;
     // installed on a computer (Chrome / Edge): the person turns on "start when I sign in" once
     if (isDesktop() && !ls("lc-ka-autostart") && !snoozed("lc-ka-autostart-later") && /chrome|edg/i.test(navigator.userAgent)) {
-      infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose “Start app when you sign in”. Letschat then opens by itself every time you sign in to your computer."],
+      infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose \u201cStart app when you sign in\u201d. Letschat then opens by itself every time you sign in to your computer."],
         [{ label: "Later", fn: function () { snooze("lc-ka-autostart-later", 7); } }, { label: "Done", primary: true, fn: function () { lsSet("lc-ka-autostart", "1"); } }]);
     }
   }
@@ -288,7 +288,7 @@
     else if (isIOS()) {
       steps = b === "safari"
         ? ["1. Tap the Share button (the square with an arrow, at the bottom or top of the screen).", "2. Scroll down and tap Add to Home Screen.", "3. Tap Add. Letschat now opens like a normal app."]
-        : ["1. Tap the Share button (the square with an arrow) in the address bar, or open the ⋯ menu and choose Share.", "2. Tap Add to Home Screen, then Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
+        : ["1. Tap the Share button (the square with an arrow) in the address bar, or open the \u22EF menu and choose Share.", "2. Tap Add to Home Screen, then Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
       steps.push("iPhone and iPad do not use APK files: Add to Home Screen is the iPhone app.");
     } else if (android && b === "operamini") steps = ["Opera Mini saves data by not running full apps, so Letschat works best in Chrome, Firefox or the full Opera browser.", "Open this page in one of them and tap Install, or download the Letschat app file (APK) with the Download app button."];
     else if (android && b === "opera") steps = ["1. Tap the menu (three dots or the Opera icon).", "2. Tap Add to or Home screen, then Add.", "Or open this page in Chrome and tap Install."];
@@ -386,7 +386,7 @@
     logo.src = "icons/favicon-48.png?v=2"; logo.alt = "";
     var label = el("span", "flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", ios ? "Letschat for iPhone" : "Letschat for Android");
     var go = el("button", "flex:none;height:36px;padding:0 16px;border-radius:8px;border:1px solid #D0D7DE;background:#F6F8FA;color:#1F2328;font:600 15px Inter,Arial,sans-serif;cursor:pointer;", ios ? "Install" : "Download");
-    var x = el("button", "flex:none;width:36px;height:36px;border:0;background:transparent;color:#0969DA;font:400 26px/1 Arial,sans-serif;cursor:pointer;", "×");
+    var x = el("button", "flex:none;width:36px;height:36px;border:0;background:transparent;color:#0969DA;font:400 26px/1 Arial,sans-serif;cursor:pointer;", "\u00D7");
     x.setAttribute("aria-label", "Close");
     function hide() { bar.remove(); document.documentElement.style.removeProperty("--lc-bar"); }
     go.onclick = function () { hide(); snooze("lc-android-bar", 3); if (window.LetschatInstall) window.LetschatInstall.install(); };
