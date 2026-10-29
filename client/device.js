@@ -327,16 +327,31 @@
     Promise.all(pend).then(function () { infoCard("lc-install-debug", "Install check", out, [{ label: "Close", primary: true }]); });
   }, 6000);
   window.addEventListener("appinstalled", function () { toast("Letschat installed", 3000); });
-  // Android app file: put Letschat.apk next to index.html (see ANDROID-APK.md). The download button only shows when the file really exists.
+  // Android app files (see ANDROID-APK.md and ANDROID-COMPATIBILITY.md). The right file depends on the Android version:
+  //   Android 7 and newer (API 24+)  -> Letschat.apk         (native Capacitor 8 app)
+  //   Android 5 and 6 (API 21-23)    -> Letschat-legacy.apk  (Trusted Web Activity build, minSdk 21)
+  //   Android 4.4 and older          -> no APK, browser install only
+  // Android 5 and 6 phones run a Chrome that predates the frozen "Android 10" user agent, so the version in it is the real one.
+  // The download button only shows when the file really exists on the site.
+  function androidMajor() { var m = /Android[ \/](\d+)/i.exec(navigator.userAgent); return m ? parseInt(m[1], 10) : 0; }
+  function apkName() {
+    var v = androidMajor();
+    if (!v) return "Letschat.apk"; // version not shown in the user agent: assume a modern phone
+    if (v < 5) return "";
+    return v < 7 ? "Letschat-legacy.apk" : "Letschat.apk";
+  }
   function apkAvailable() {
+    var f = apkName();
+    if (!f) return Promise.resolve(false);
     try {
-      return fetch("./Letschat.apk", { method: "HEAD", cache: "no-store" }).then(function (r) {
+      return fetch("./" + f, { method: "HEAD", cache: "no-store" }).then(function (r) {
         return r.ok && !/text\/html/i.test(r.headers.get("content-type") || "");
       }).catch(function () { return false; });
     } catch (e) { return Promise.resolve(false); }
   }
   function downloadApk() {
-    var a = document.createElement("a"); a.href = "./Letschat.apk"; a.download = "Letschat.apk"; a.style.display = "none";
+    var f = apkName() || "Letschat.apk";
+    var a = document.createElement("a"); a.href = "./" + f; a.download = f; a.style.display = "none";
     document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 1500);
     toast("Downloading Letschat. Open the file when it finishes.", 6000);
   }
@@ -352,7 +367,7 @@
     installed: function () { return standalone(); },
     install: function () {
       if (standalone()) return toast("Letschat is already installed", 2500);
-      // Android: the real app (Letschat.apk) comes first. If the file is not on the site yet, fall back to Chrome's web install.
+      // Android: the real app (Letschat.apk, or Letschat-legacy.apk on Android 5-6) comes first. If the file is not on the site yet, fall back to Chrome's web install.
       if (/android/i.test(navigator.userAgent) && !inAppBrowser()) {
         return apkAvailable().then(function (ok) {
           if (!ok) return browserInstall();

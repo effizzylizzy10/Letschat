@@ -1,0 +1,108 @@
+name: Build legacy Android APK (Android 5-6, Trusted Web Activity)
+# STAGED COPY. To use it: copy this file over .github/workflows/build-apk.yml (GitHub web editor, or a push with workflow permission).
+# The connection that prepared this change cannot write inside .github/workflows, so it is kept here.
+#
+# This is the lightweight build for phones on Android 5.0 to 6.0.1 (API 21-23). Capacitor 8 needs Android 7 (API 24)
+# or newer, so those older phones use this Trusted Web Activity (TWA) build instead. Android 7 and newer use
+# "Build native Android APK (Capacitor 8)".
+# Run it from the Actions tab (Run workflow), or it runs by itself when android/ or its tools change.
+# The finished Letschat-legacy.apk appears under "Artifacts" (name: Letschat-legacy-apk) about 10 minutes later.
+# Secrets needed (same two as the native build): ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD.
+# The first step checks the key; a missing or wrong key stops the run with a plain explanation.
+# Nothing is published or released by this workflow.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "android/**"
+      - "tools/check-signing.sh"
+      - "tools/validate-legacy-apk.sh"
+      - ".github/workflows/build-apk.yml"
+concurrency:
+  group: legacy-apk-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      EXPECTED_SHA256: F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Letschat signing key (stops here with an explanation if it is missing or wrong)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_OUT: ${{ github.workspace }}/android/letschat.keystore
+        run: bash tools/check-signing.sh
+      - name: Check the TWA settings in the repository (package ID, minSdk 21, Custom Tabs fallback)
+        working-directory: android
+        run: |
+          jq -e '.packageId == "com.letschatafrica.app"' twa-manifest.json > /dev/null || { echo "::error::packageId changed"; exit 1; }
+          jq -e '.minSdkVersion == 21' twa-manifest.json > /dev/null || { echo "::error::minSdkVersion must stay 21 for Android 5"; exit 1; }
+          jq -e '.fallbackType == "customtabs"' twa-manifest.json > /dev/null || { echo "::error::fallbackType must stay customtabs"; exit 1; }
+          echo "twa-manifest.json: package ID, minSdk 21 and Custom Tabs fallback are in place."
+      - name: Check the Digital Asset Links file lists the Letschat key
+        run: |
+          F=client/.well-known/assetlinks.json
+          [ -f "$F" ] || { echo "::error::$F is missing"; exit 1; }
+          grep -q "com.letschatafrica.app" "$F" || { echo "::error::assetlinks.json does not list com.letschatafrica.app"; exit 1; }
+          grep -qi "$EXPECTED_SHA256" "$F" || { echo "::error::assetlinks.json does not contain the Letschat key fingerprint"; exit 1; }
+          echo "assetlinks.json lists the package and the signing key fingerprint."
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Android build tools
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "platforms;android-34" "build-tools;34.0.0"
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-legacy-${{ hashFiles('android/twa-manifest.json') }}
+          restore-keys: gradle-legacy-
+      # Not pinned yet: after the first green run, pin the version printed here (npm install -g @bubblewrap/cli@X.Y.Z).
+      - name: Install Bubblewrap
+        run: |
+          npm install -g @bubblewrap/cli
+          bubblewrap --version || true
+      - name: Bubblewrap settings
+        run: |
+          mkdir -p ~/.bubblewrap
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
+      - name: Build the APK
+        working-directory: android
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          # Version goes up with every run (same scheme as the native build), so Android installs it as an update.
+          # This only changes the copy of twa-manifest.json inside this run; nothing is committed.
+          CODE=$((100 + GITHUB_RUN_NUMBER))
+          jq --argjson c "$CODE" --arg n "1.0.${GITHUB_RUN_NUMBER}" '.appVersionCode = $c | .appVersion = $n' twa-manifest.json > twa-manifest.tmp
+          mv twa-manifest.tmp twa-manifest.json
+          bubblewrap update --skipVersionUpgrade
+          bubblewrap build --skipPwaValidation
+          cp app-release-signed.apk "$GITHUB_WORKSPACE/Letschat-legacy.apk"
+      - name: Validate the finished APK
+        run: bash tools/validate-legacy-apk.sh
+      - name: Remove the signing key from the runner
+        if: always()
+        run: rm -f android/letschat.keystore "$RUNNER_TEMP/letschat.keystore"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Letschat-legacy-apk
+          path: Letschat-legacy.apk
+          if-no-files-found: error
