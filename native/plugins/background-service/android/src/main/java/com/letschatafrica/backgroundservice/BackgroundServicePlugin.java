@@ -113,36 +113,59 @@ public class BackgroundServicePlugin extends Plugin {
         call.resolve(ret);
     }
 
-    // ---- Tecno / Infinix / itel (Transsion: HiOS, XOS) close background apps unless they are allowed in "Auto-start" (Phone Master) ----
+    // ---- Phones that close background apps unless the person allows them: Tecno / Infinix / itel, Xiaomi / Redmi / Poco, Vivo / iQOO, Samsung ----
 
-    private static boolean isTranssion() {
-        String m = (Build.MANUFACTURER == null ? "" : Build.MANUFACTURER).trim().toLowerCase(Locale.ROOT);
-        String b = (Build.BRAND == null ? "" : Build.BRAND).trim().toLowerCase(Locale.ROOT);
-        String[] names = { "tecno", "infinix", "itel" };
+    private static String lower(String s) {
+        return s == null ? "" : s.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean oneOf(String m, String b, String... names) {
         for (String n : names) {
             if (m.equals(n) || b.equals(n)) return true;
         }
-        return m.contains("transsion") || b.contains("transsion");
+        return false;
+    }
+
+    /** "transsion" (Tecno, Infinix, itel), "xiaomi" (Xiaomi, Redmi, Poco), "vivo" (Vivo, iQOO), "samsung", or "" for any other phone. */
+    private static String oemName() {
+        String m = lower(Build.MANUFACTURER);
+        String b = lower(Build.BRAND);
+        if (oneOf(m, b, "tecno", "infinix", "itel") || m.contains("transsion") || b.contains("transsion")) return "transsion";
+        if (oneOf(m, b, "xiaomi", "redmi", "poco")) return "xiaomi";
+        if (oneOf(m, b, "vivo", "iqoo")) return "vivo";
+        if (oneOf(m, b, "samsung")) return "samsung";
+        return "";
     }
 
     @PluginMethod
     public void getOemInfo(PluginCall call) {
+        String oem = oemName();
         JSObject ret = new JSObject();
         ret.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER);
         ret.put("brand", Build.BRAND == null ? "" : Build.BRAND);
-        ret.put("transsion", isTranssion());
+        ret.put("oem", oem);
+        ret.put("transsion", oem.equals("transsion"));
         call.resolve(ret);
     }
 
-    // Opens the phone maker's Auto-start screen when this phone has it; otherwise this app's own settings page (Battery / App launch live there).
-    // Every attempt is wrapped: a screen that does not exist on this firmware just moves on to the next choice and never crashes the app.
+    // Opens the phone maker's Auto-start screen when this phone has one (Tecno / Infinix / itel, Xiaomi / Redmi, Vivo); otherwise (Samsung has no
+    // Auto-start screen, and any screen that is missing on this firmware) this app's own settings page, where Battery lives.
+    // Every attempt is wrapped: a screen that does not exist just moves on to the next choice and never crashes the app.
     @PluginMethod
     public void openAutostartSettings(PluginCall call) {
         Context ctx = getContext();
         JSObject ret = new JSObject();
-        String[][] targets = isTranssion()
-            ? new String[][] { { "com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity" } }
-            : new String[][] {};
+        String oem = oemName();
+        String[][] targets;
+        if (oem.equals("transsion")) {
+            targets = new String[][] { { "com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity" } };
+        } else if (oem.equals("xiaomi")) {
+            targets = new String[][] { { "com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity" } };
+        } else if (oem.equals("vivo")) {
+            targets = new String[][] { { "com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity" } };
+        } else {
+            targets = new String[][] {};
+        }
         for (String[] t : targets) {
             try {
                 Intent i = new Intent();

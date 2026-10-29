@@ -4,7 +4,7 @@
    2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
    3. asks, at most once a week each, for "display over other apps" (straight to Android's switch, no extra question) and "ignore battery optimisation",
-      and on Tecno / Infinix / itel phones, once, to open the phone's Auto-start screen (those phones close background apps unless allowed there),
+      and on phones that close background apps (Tecno / Infinix / itel, Xiaomi / Redmi, Vivo, Samsung), once, to open the phone's Auto-start or app settings,
    4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble".
    5. makes the "Push notifications" and "Background alerts" switches work inside the app. The website only knows browser web-push, which the
@@ -67,18 +67,26 @@
     }).catch(noop);
   }
 
-  // Tecno / Infinix / itel (HiOS, XOS): the phone closes apps in the background unless they are allowed in its Auto-start screen
-  // (Phone Master). Asked at most once a month until the person agrees; saying yes is remembered for good. Other phones never see this.
+  // Phones that close apps in the background unless they are allowed in the phone's own screen: Tecno / Infinix / itel (Phone Master), Xiaomi /
+  // Redmi / Poco (Autostart), Vivo (Autostart), Samsung (Battery > Unrestricted). Asked at most once a month until the person agrees; saying yes
+  // is remembered for good. Any other phone never sees this.
   var OEM_DONE_KEY = "letschat-native:oem-done";
+  var OEM_TEXT = {
+    transsion: "Your phone may close Letschat in the background, so you could miss messages. Open the phone's Auto-start settings now and switch Letschat ON?",
+    xiaomi: "Your phone may close Letschat in the background, so you could miss messages. Open the phone's Autostart settings now and switch Letschat ON? (Also set Letschat's battery saver to No restrictions.)",
+    vivo: "Your phone may close Letschat in the background, so you could miss messages. Open the phone's Autostart settings now and switch Letschat ON? (Also allow Letschat under Battery > Background power consumption.)",
+    samsung: "Your phone may put Letschat to sleep in the background, so you could miss messages. Open Letschat's settings now? Then tap Battery and choose Unrestricted."
+  };
   function offerOem() {
     if (!BG || !BG.getOemInfo || !BG.openAutostartSettings) return;
     try {
       if (localStorage.getItem(OEM_DONE_KEY) === "1" || Date.now() - (+localStorage.getItem(ASK_KEY + "oem") || 0) < 30 * 864e5) return;
     } catch (e) { return; }
     BG.getOemInfo().then(function (r) {
-      if (!r || !r.transsion) return;
+      var oem = r && r.oem ? String(r.oem) : (r && r.transsion ? "transsion" : "");
+      if (!oem || !OEM_TEXT[oem]) return;
       markAsked("oem");
-      if (window.confirm("Your phone may close Letschat in the background, so you could miss messages. Open the phone's Auto-start settings now and switch Letschat ON?")) {
+      if (window.confirm(OEM_TEXT[oem])) {
         try { localStorage.setItem(OEM_DONE_KEY, "1"); } catch (e) {}
         BG.openAutostartSettings().catch(noop);
       }
