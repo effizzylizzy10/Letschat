@@ -236,7 +236,7 @@
   function isDesktop() { return !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) && !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
   function infoCard(id, title, lines, buttons) {
     if (document.getElementById(id) || document.getElementById("lc-perm-card")) return;
-    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
+    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;max-height:85vh;overflow-y:auto;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
     card.id = id; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", title);
     card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:6px", title));
     lines.forEach(function (t) { card.appendChild(el("div", "font-size:13.5px;line-height:1.45;color:#C5CEDA;margin-bottom:6px", t)); });
@@ -257,7 +257,7 @@
     if (!standalone()) return;
     // installed on a computer (Chrome / Edge): the person turns on "start when I sign in" once
     if (isDesktop() && !ls("lc-ka-autostart") && !snoozed("lc-ka-autostart-later") && /chrome|edg/i.test(navigator.userAgent)) {
-      infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose \u201cStart app when you sign in\u201d. Letschat then opens by itself every time you sign in to your computer."],
+      infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose “Start app when you sign in”. Letschat then opens by itself every time you sign in to your computer."],
         [{ label: "Later", fn: function () { snooze("lc-ka-autostart-later", 7); } }, { label: "Done", primary: true, fn: function () { lsSet("lc-ka-autostart", "1"); } }]);
     }
   }
@@ -288,7 +288,7 @@
     else if (isIOS()) {
       steps = b === "safari"
         ? ["1. Tap the Share button (the square with an arrow, at the bottom or top of the screen).", "2. Scroll down and tap Add to Home Screen.", "3. Tap Add. Letschat now opens like a normal app."]
-        : ["1. Tap the Share button (the square with an arrow) in the address bar, or open the \u22EF menu and choose Share.", "2. Tap Add to Home Screen, then Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
+        : ["1. Tap the Share button (the square with an arrow) in the address bar, or open the ⋯ menu and choose Share.", "2. Tap Add to Home Screen, then Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
       steps.push("iPhone and iPad do not use APK files: Add to Home Screen is the iPhone app.");
     } else if (android && b === "operamini") steps = ["Opera Mini saves data by not running full apps, so Letschat works best in Chrome, Firefox or the full Opera browser.", "Open this page in one of them and tap Install, or download the Letschat app file (APK) with the Download app button."];
     else if (android && b === "opera") steps = ["1. Tap the menu (three dots or the Opera icon).", "2. Tap Add to or Home screen, then Add.", "Or open this page in Chrome and tap Install."];
@@ -364,7 +364,9 @@
           if (!ok) return toast("The Android app file is not available yet. Please try again later.", 4500);
           infoCard("lc-install-guide", "Get the Letschat app for Android",
             ["Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
-             "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway."],
+             "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway.",
+             "If Android says App not installed, an older Letschat is usually still on the phone: hold the Letschat icon, tap App info, then Uninstall, and open the downloaded file again.",
+             "If the download fails or says Something went wrong, open this page in Chrome and try again."],
             [{ label: "Cancel" }, { label: "Download app", primary: true, fn: downloadApk }]);
         });
       }
@@ -384,7 +386,7 @@
     logo.src = "icons/favicon-48.png?v=2"; logo.alt = "";
     var label = el("span", "flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", ios ? "Letschat for iPhone" : "Letschat for Android");
     var go = el("button", "flex:none;height:36px;padding:0 16px;border-radius:8px;border:1px solid #D0D7DE;background:#F6F8FA;color:#1F2328;font:600 15px Inter,Arial,sans-serif;cursor:pointer;", ios ? "Install" : "Download");
-    var x = el("button", "flex:none;width:36px;height:36px;border:0;background:transparent;color:#0969DA;font:400 26px/1 Arial,sans-serif;cursor:pointer;", "\u00D7");
+    var x = el("button", "flex:none;width:36px;height:36px;border:0;background:transparent;color:#0969DA;font:400 26px/1 Arial,sans-serif;cursor:pointer;", "×");
     x.setAttribute("aria-label", "Close");
     function hide() { bar.remove(); document.documentElement.style.removeProperty("--lc-bar"); }
     go.onclick = function () { hide(); snooze("lc-android-bar", 3); if (window.LetschatInstall) window.LetschatInstall.install(); };
