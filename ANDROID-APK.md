@@ -1,6 +1,6 @@
 # Letschat for Android (APK)
 
-> **Current app:** the Android app is now built as a native Capacitor app by GitHub Actions (see `native/README.md`: build, signing, which messages give an alert, permissions, troubleshooting). It uses the same package name (`com.letschatafrica.app`) and must be signed with the same key as the older Trusted Web Activity described below, so it installs over it as an update. The PWABuilder steps below are the older way and stay as a fallback.
+> **Current app:** the Android app is now built as a native Capacitor app by GitHub Actions (see `native/README.md`: build, signing, which messages give a toast, troubleshooting). It uses the same package name (`com.letschatafrica.app`) and must be signed with the same key as the older Trusted Web Activity described below, so it installs over it as an update. The PWABuilder steps below are the older way and stay as a fallback.
 
 The older APK is a thin Android shell (a Trusted Web Activity) around the live website, so it always opens the newest Letschat and needs no updates from the Play Store for normal changes. It has no browser address bar, supports push notifications and location sharing (location delegation is switched on in `android/twa-manifest.json`).
 
