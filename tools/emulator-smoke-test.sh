@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # Smoke test on a RUNNING Android emulator: install the APK, open the app three ways (first start, return from Home,
 # start after force-stop) and fail if the app crashes, freezes (ANR) or is not running. Saves a screenshot and the log of each step.
-# Usage: bash tools/emulator-smoke-test.sh <apk> <api-level> [results-folder]
+# Usage: bash tools/emulator-smoke-test.sh <apk> <api-level> [results-folder] [previous-apk]
 # It cannot prove the app looks right: look at the screenshots. It does catch install failures and crashes on that Android version.
+#
+# Update check: when the APK under test is called Letschat.apk and client/Letschat.apk exists (the file people download today),
+# that older file is installed first and the new one is installed over it, the way a real phone updates. Android answers
+# "App not installed" when the new file has another signing key or a lower versionCode, so a build like that fails here, with
+# the reason, before any phone meets it. A fourth argument names a different previous APK.
 set -u
 APK="${1:?apk path}"
 API="${2:?api level}"
 OUT="${3:-emulator-results}"
+PREV="${4:-}"
+if [ -z "$PREV" ] && [ "$(basename "$APK")" = "Letschat.apk" ] && [ -s client/Letschat.apk ]; then PREV="client/Letschat.apk"; fi
 PKG=com.letschatafrica.app
 mkdir -p "$OUT"
 FAIL=0
@@ -29,11 +36,24 @@ sleep 3
 # ---- install ----
 FLAGS="-r"
 [ "$API" -ge 23 ] && FLAGS="-r -g"                      # -g grants the permissions up front (Android 6 and newer only)
+UPDATE=""
+if [ -n "$PREV" ] && [ -s "$PREV" ] && ! cmp -s "$PREV" "$APK"; then
+  # first put the APK people can download today on the phone, so the next install is a real update
+  if adb install $FLAGS "$PREV" > "$OUT/install-previous.txt" 2>&1 && grep -q Success "$OUT/install-previous.txt"; then
+    UPDATE=" over the published $PREV"
+  else
+    say "the published $PREV could not be installed first (update check skipped): $(tr -d '\r' < "$OUT/install-previous.txt" | tail -n 1)"
+  fi
+fi
 if adb install $FLAGS "$APK" > "$OUT/install.txt" 2>&1 && grep -q Success "$OUT/install.txt"; then
-  ok "APK installed"
+  ok "APK installed${UPDATE:+ as an update}${UPDATE}"
 else
   cat "$OUT/install.txt"
-  fail "APK did not install: $(tr -d '\r' < "$OUT/install.txt" | tail -n 2 | tr '\n' ' ')"
+  if [ -n "$UPDATE" ]; then
+    fail "the new APK would not install${UPDATE}, so phones that already have the published app would see \"App not installed\": $(tr -d '\r' < "$OUT/install.txt" | tail -n 2 | tr '\n' ' ')"
+  else
+    fail "APK did not install: $(tr -d '\r' < "$OUT/install.txt" | tail -n 2 | tr '\n' ' ')"
+  fi
   exit 1
 fi
 
