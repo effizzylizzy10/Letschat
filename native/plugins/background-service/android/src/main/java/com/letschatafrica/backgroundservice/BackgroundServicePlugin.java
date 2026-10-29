@@ -2,6 +2,7 @@ package com.letschatafrica.backgroundservice;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -95,20 +96,69 @@ public class BackgroundServicePlugin extends Plugin {
         call.resolve(ret);
     }
 
-    @PluginMethod
-    public void requestIgnoreBatteryOptimizations(PluginCall call) {
-        Context ctx = getContext();
-        if (!ignoring()) {
-            try {
-                Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + ctx.getPackageName()));
+    // Starts a screen from the app's own Activity so it opens on top of the app (in the same task) instead of
+    // in a separate Settings task the person cannot reach. Falls back to the application context if no Activity is available.
+    // Returns false when this phone has no such screen.
+    private boolean launch(Intent i) {
+        try {
+            Activity act = getActivity();
+            if (act != null) {
+                act.startActivity(i);
+            } else {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                ctx.startActivity(i);
-            } catch (Exception e) {
-                call.reject("Could not open the battery settings: " + e.getMessage());
-                return;
+                getContext().startActivity(i);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Opens the phone's own battery screen for this app, trying the most direct screen first.
+    // Every attempt is wrapped: a screen missing on this firmware just moves on to the next choice and never crashes the app.
+    // Returns which screen opened: "dialog", "battery-list", "samsung-battery", "app-settings" or "none".
+    private String openBatteryScreen() {
+        Context ctx = getContext();
+        String pkg = ctx.getPackageName();
+
+        // 1. The direct "Stop optimizing battery usage? Deny / Allow" dialog for this app.
+        if (Build.VERSION.SDK_INT >= 23) {
+            Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + pkg));
+            if (launch(i)) return "dialog";
+
+            // 2. The full "Battery optimization" list (find Letschat Africa and choose "Don't optimize").
+            if (launch(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))) return "battery-list";
+        }
+
+        // 3. Samsung's own battery / background usage limits screen.
+        String[][] samsung = {
+            { "com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryActivity" },
+            { "com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity" },
+        };
+        if ("samsung".equals((Build.MANUFACTURER == null ? "" : Build.MANUFACTURER).toLowerCase(Locale.ROOT))) {
+            for (String[] t : samsung) {
+                Intent i = new Intent();
+                i.setComponent(new ComponentName(t[0], t[1]));
+                if (launch(i)) return "samsung-battery";
             }
         }
+
+        // 4. This app's own settings page (Battery lives there).
+        Intent d = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
+        if (launch(d)) return "app-settings";
+        return "none";
+    }
+
+    @PluginMethod
+    public void requestIgnoreBatteryOptimizations(PluginCall call) {
         JSObject ret = new JSObject();
+        if (ignoring()) {
+            ret.put("ignoring", true);
+            ret.put("opened", "already");
+            call.resolve(ret);
+            return;
+        }
+        ret.put("opened", openBatteryScreen());
         ret.put("ignoring", ignoring());
         call.resolve(ret);
     }
