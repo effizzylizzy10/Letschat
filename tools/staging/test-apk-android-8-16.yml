@@ -1,0 +1,98 @@
+name: Test APK on Android 8 to 16
+# >>> STAGED COPY: GitHub only runs workflows that live in .github/workflows/. The connection used to prepare this change cannot write there,
+# >>> so copy this whole file to .github/workflows/test-apk-android-8-16.yml (GitHub website: Add file > Create new file, paste, Commit).
+# >>> Merge the pull request first: this workflow calls tools/emulator-smoke-test.sh, which has to be on main.
+#
+# Installs Letschat.apk on Android 8, 8.1, 9, 10, 11, 12, 13, 14, 15 and 16 emulators (free on GitHub), opens it, sends it to the
+# background and back, restarts it, and shows which Android versions work and which do not.
+# Screenshots and logs of every version are saved under "Artifacts" at the bottom of the run page.
+#
+# It starts by itself when client/Letschat.apk changes on main (for example after you upload a new APK).
+# To run it by hand: Actions > "Test APK on Android 8 to 16" > Run workflow (leave the box as it is to test client/Letschat.apk).
+#
+# A green tick on a version means: the APK installed, opened, stayed open, survived Home / Back / force-stop and did not crash.
+# It does NOT sign in or send messages, so it cannot prove that chats, calls or alerts work. Only a real phone can.
+# The emulators carry the WebView that shipped with each Android version (often old), which is a useful stress test for phones that never update.
+on:
+  workflow_dispatch:
+    inputs:
+      apk:
+        description: "APK file inside the repository"
+        default: client/Letschat.apk
+  push:
+    branches: [main]
+    paths: ["client/Letschat.apk"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APK_PATH: ${{ github.event.inputs.apk || 'client/Letschat.apk' }}
+
+jobs:
+  check-file:
+    name: Is the file a real APK?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the file
+        run: |
+          [ -s "$APK_PATH" ] || { echo "::error title=APK missing::$APK_PATH is missing or empty."; exit 1; }
+          if [ "$(head -c 2 "$APK_PATH")" != "PK" ]; then
+            echo "::error title=Not an APK::$APK_PATH is not an APK file (an APK is a zip file and starts with PK)."
+            exit 1
+          fi
+          echo "Size: $(stat -c %s "$APK_PATH") bytes"
+          AAPT=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$AAPT" ]; then
+            "$AAPT" dump badging "$APK_PATH" | grep -E "^(package|sdkVersion|targetSdkVersion|application-debuggable)" || true
+          fi
+
+  emulator:
+    name: Android ${{ matrix.name }} (API ${{ matrix.api }})
+    needs: check-file
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "8.0", api: 26, target: default }
+          - { name: "8.1", api: 27, target: default }
+          - { name: "9", api: 28, target: default }
+          - { name: "10", api: 29, target: google_apis }
+          - { name: "11", api: 30, target: google_apis }
+          - { name: "12", api: 31, target: google_apis }
+          - { name: "13", api: 33, target: google_apis }
+          - { name: "14", api: 34, target: google_apis }
+          - { name: "15", api: 35, target: google_apis }
+          - { name: "16", api: 36, target: google_apis }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Let the emulator use the CPU's hardware acceleration (KVM)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start Android ${{ matrix.name }} and test the APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          profile: pixel_5
+          ram-size: 3072M
+          emulator-boot-timeout: 900
+          disable-animations: true
+          script: bash tools/emulator-smoke-test.sh "${{ github.workspace }}/${{ env.APK_PATH }}" ${{ matrix.api }} "${{ matrix.name }}"
+      - name: Keep the screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.name }}-screenshots-and-logs
+          path: emulator-results/
+          if-no-files-found: ignore
