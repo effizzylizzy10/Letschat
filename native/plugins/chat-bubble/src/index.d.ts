@@ -28,12 +28,16 @@ export interface ChatBubblePlugin {
   /** Shows the bubble, or updates it when it is already on screen. Rejects when the overlay permission is missing. */
   show(options: ShowOptions): Promise<void>;
   hide(): Promise<void>;
-  /** Hands over the sign-in so new messages are found while the app is closed. An empty token (sign-out) stops it. */
-  setSession(options: { token: string; apiUrl?: string; userId?: string }): Promise<void>;
+  /**
+   * Hands over the sign-in so new messages are found while the app is closed. An empty token (sign-out) stops it.
+   * `preview` and `groups` are the two switches of Settings > Notifications ("Show message preview", "Group messages"); both count as on when left out.
+   */
+  setSession(options: { token: string; apiUrl?: string; userId?: string; preview?: boolean; groups?: boolean }): Promise<void>;
   /** Turns the bubble on or off (the "Floating chat bubble" setting). On by default. */
   setEnabled(options: { enabled: boolean }): Promise<void>;
   isEnabled(): Promise<{ enabled: boolean }>;
-  addListener(eventName: 'bubbleTapped', listener: (data: { chatId: string }) => void): Promise<PluginListenerHandle>;
+  /** chatId: the chat to open ("" for none). tab: "calls" when the head was tapped with no message waiting, otherwise "". */
+  addListener(eventName: 'bubbleTapped', listener: (data: { chatId: string; tab?: string }) => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'appState', listener: (data: { active: boolean }) => void): Promise<PluginListenerHandle>;
 }
 
