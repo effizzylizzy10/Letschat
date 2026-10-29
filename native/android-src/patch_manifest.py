@@ -52,7 +52,9 @@ if add:
     assert "</manifest>" in s, "no </manifest> in AndroidManifest.xml"
     s = s.replace("</manifest>", add + "</manifest>", 1)
 
-# Open email sign-in links (Firebase) and links to the website inside the app
+# Open email sign-in links (Firebase) and links to the website inside the app.
+# autoVerify="true" makes Android check https://letschat-taupe.vercel.app/.well-known/assetlinks.json at install time,
+# so Letschat links open straight in the app (verified App Links) instead of asking or opening Chrome.
 FILTERS = """
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -60,7 +62,7 @@ FILTERS = """
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="letschatafrica-1df0c.firebaseapp.com" android:pathPrefix="/__/auth/" />
             </intent-filter>
-            <intent-filter>
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
