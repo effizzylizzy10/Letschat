@@ -255,6 +255,20 @@ public class ChatBubblePlugin extends Plugin {
         call.resolve(ret);
     }
 
+    /** The in-app setting "Push notifications": phone alerts (sound + vibration) for new messages while the app is closed. On by default. */
+    @PluginMethod
+    public void setAlerts(PluginCall call) {
+        MessagePoller.setAlerts(getContext(), Boolean.TRUE.equals(call.getBoolean("enabled", true)));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getAlerts(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("enabled", MessagePoller.alertsOn(getContext()));
+        call.resolve(ret);
+    }
+
     /** The page hands over the sign-in so new messages can be found while the app is closed. An empty token (sign-out) stops it. */
     @PluginMethod
     public void setSession(PluginCall call) {
