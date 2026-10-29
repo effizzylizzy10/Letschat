@@ -193,7 +193,7 @@ const VERIFIED_LIST = (process.env.VERIFIED_USERS || "").split(",").map((x) => x
 // verified (e.g. Google sign-in) can ever match, so typing someone's email is never enough.
 const CREATOR_LIST = (process.env.CREATOR_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
 const isCreator = (u) => !!u && !!u.email && CREATOR_LIST.includes(String(u.email).toLowerCase());
-const YT_RE = /(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/i; // only the creator may share YouTube links
+const YT_RE = /(?!)/; // links are open to everyone now (YouTube included), so this never matches
 const YT_MSG = "Only the creator can share YouTube links";
 const isVerified = (u) => !!u && (isCreator(u) || !!u.verifiedByCreator || VERIFIED_LIST.some((v) => v === String(u.id).toLowerCase() || (u.email && v === String(u.email).toLowerCase()) || (!v.includes("@") && u.phone && v.replace(/\D/g, "") && v.replace(/\D/g, "") === normalizePhone(u.phone))));
 // Cover photo (the wide banner on a profile): stored separately from the profile photo, so each can be changed on its own.
@@ -576,7 +576,7 @@ app.post("/api/creator/announce", authMiddleware, creatorOnly, async (req, res) 
 
 
 // ---- Letschat Creator: broadcast, rules (added by creator-loader.js) ----
-const DEFAULT_RULES = "1. Be respectful to everyone.\n2. No hate speech, harassment or threats.\n3. No spam, scams or fake accounts.\n4. No adult or violent content.\n5. Only the creator may share YouTube links.\nBreaking these rules can get your account blocked.";
+const DEFAULT_RULES = "1. Be respectful to everyone.\n2. No hate speech, harassment or threats.\n3. No spam, scams or fake accounts.\n4. No adult or violent content.\nBreaking these rules can get your account blocked.";
 app.get("/api/rules", authMiddleware, (req, res) => {
   const c = readDB().users.find((u) => isCreator(u));
   res.json({ rules: (c && c.rulesText) || DEFAULT_RULES });
