@@ -41,6 +41,9 @@ import org.json.JSONObject;
  *    This now ALSO happens when the floating bubble is switched OFF (before, nothing was shown at all in that case).
  *  - both OFF: nothing is shown.
  *
+ * Instant push (Firebase) and this checker can both fire for the same message. The notification here uses the SAME tag as the
+ * server's push ("conv-<chat id>", id 0), so Android replaces one with the other instead of showing two.
+ *
  * The old "Letschat check: ..." status toasts on the chat head are gone: the chat head now only ever shows real messages. Problems
  * (not signed in, server refuses the token, no connection) are only written to the log.
  */
@@ -48,8 +51,8 @@ public final class MessagePoller {
 
     private static final String TAG = "LetschatPoller";
     private static final String PREFS = "letschat_chat_bubble";
-    /** New id: Android keeps the sound/importance of an existing channel, so the earlier channel could not be repaired. */
-    private static final String NOTICE_CHANNEL = "letschat_new_message_v2";
+    /** Same channel the app creates for Firebase pushes (letschat-native-bridge.js), so both look and sound the same. */
+    private static final String NOTICE_CHANNEL = "letschat_push";
     private static final long FIRST_WAIT_MS = 2500;
     private static final long INTERVAL_MS = 8000;
     /** After the server refuses the token, check again only this rarely (the page may send a fresh token meanwhile). */
@@ -335,7 +338,7 @@ public final class MessagePoller {
                 return;
             }
             if (Build.VERSION.SDK_INT >= 26) {
-                NotificationChannel ch = new NotificationChannel(NOTICE_CHANNEL, "New messages", NotificationManager.IMPORTANCE_HIGH);
+                NotificationChannel ch = new NotificationChannel(NOTICE_CHANNEL, "Letschat messages", NotificationManager.IMPORTANCE_HIGH);
                 ch.setDescription("Alerts for new Letschat messages");
                 ch.enableVibration(true);
                 ch.setShowBadge(true);
@@ -361,7 +364,8 @@ public final class MessagePoller {
                 b.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
             }
             if (pi != null) b.setContentIntent(pi);
-            nm.notify(chatId.hashCode(), b.build());
+            // same tag + id 0 as the Firebase push for this chat, so the two replace each other instead of showing twice
+            nm.notify("conv-" + chatId, 0, b.build());
         } catch (Throwable e) {
             Log.w(TAG, "could not post the notification: " + e);
         }

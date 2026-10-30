@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "94043215929",
+    "project_id": "letschatafrica-1df0c",
+    "storage_bucket": "letschatafrica-1df0c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:94043215929:android:cf2736856a95f6098f95e8",
+        "android_client_info": {
+          "package_name": "com.letschatafrica.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "94043215929-580ulh9uqulugdsvstuj7rhu5t6bd1lm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3pzT1QnvDRQbrsXAhvupN77zfmVNDG8Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "94043215929-580ulh9uqulugdsvstuj7rhu5t6bd1lm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
