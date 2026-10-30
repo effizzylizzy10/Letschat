@@ -20,6 +20,8 @@ PERMISSIONS = [
     "READ_MEDIA_VISUAL_USER_SELECTED",   # "select photos" choice on Android 14+
     ("READ_EXTERNAL_STORAGE", 32),        # older Android versions only
     ("WRITE_EXTERNAL_STORAGE", 28),       # saving files on Android 9 and older
+    # phonebook: finding which of the person's contacts are on Letschat
+    "READ_CONTACTS",
     # notifications, location sharing, haptics
     "POST_NOTIFICATIONS",
     "ACCESS_FINE_LOCATION",
@@ -52,9 +54,7 @@ if add:
     assert "</manifest>" in s, "no </manifest> in AndroidManifest.xml"
     s = s.replace("</manifest>", add + "</manifest>", 1)
 
-# Open email sign-in links (Firebase) and links to the website inside the app.
-# autoVerify="true" makes Android check https://letschat-taupe.vercel.app/.well-known/assetlinks.json at install time,
-# so Letschat links open straight in the app (verified App Links) instead of asking or opening Chrome.
+# Open email sign-in links (Firebase) and links to the website inside the app
 FILTERS = """
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -62,7 +62,7 @@ FILTERS = """
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="letschatafrica-1df0c.firebaseapp.com" android:pathPrefix="/__/auth/" />
             </intent-filter>
-            <intent-filter android:autoVerify="true">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
