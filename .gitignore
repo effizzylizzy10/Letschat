@@ -1,0 +1,8 @@
+# Never commit signing keys. The APK builds read them from GitHub Actions secrets instead.
+*.keystore
+*.jks
+*.p12
+*.pfx
+keystore.base64.txt
+signing-info.txt
+*KEEP-PRIVATE*
