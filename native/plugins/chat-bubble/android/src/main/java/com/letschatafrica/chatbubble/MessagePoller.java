@@ -16,40 +16,49 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Looks for new messages from inside the Android process, without the web page, so the chat head can pop up while Letschat is
+ * Looks for new messages from inside the Android process, without the web page, so a new message can be announced while Letschat is
  * minimised or closed (the foreground service keeps this process alive). It asks the Letschat server for the conversation list
- * every few seconds while the app is not on screen and shows the toast when a chat's LAST MESSAGE changes and is not mine.
+ * every few seconds while the app is not on screen and reacts when a chat's LAST MESSAGE changes and is not mine.
  * (It does not use the unread counter: the page, still alive in the background, can mark a message read at once, which would hide it.)
  * The app hands this checker the sign-in token (see ChatBubblePlugin.pushSessionFromPage and letschat-native-bridge.js).
  *
+ * BACKGROUND ALERT: every new message that passes the rules below is announced with a normal Android notification (sound, vibration,
+ * pops up on screen, shows on the lock screen without the text). It does not depend on "Display over other apps" or on the
+ * Floating chat bubble setting. Tapping it opens Letschat on that chat. The notifications are removed again when Letschat is opened.
+ * When the bubble is switched on and "Display over other apps" is allowed, the chat head pop-up is shown as well.
+ *
  * The /api/v1 routes answer with an envelope {"success":true,"data":{...}}; unwrap() reads both that and a bare body.
  * Everything it decides is written to the Android log under the tag LetschatPoller (adb logcat -s LetschatPoller).
- *
- * How a new message is shown (push notification fix):
- *  - "Floating chat bubble" ON and "Display over other apps" allowed: the WhatsApp-style pop-up on the chat head.
- *  - otherwise, when "Push notifications" (the alerts setting) is ON: a normal Android notification with sound and vibration.
- *    This now ALSO happens when the floating bubble is switched OFF (before, nothing was shown at all in that case).
- *  - both OFF: nothing is shown.
- *
- * The old "Letschat check: ..." status toasts on the chat head are gone: the chat head now only ever shows real messages. Problems
+ * The old "Letschat check: ..." status toasts on the chat head are gone: the chat head only ever shows real messages. Problems
  * (not signed in, server refuses the token, no connection) are only written to the log.
+ *
+ * It follows the same rules as the server's own background alerts, so it is never louder than they would be:
+ *  - a chat the person muted (GET /api/v1/me/settings, "muted") gives no alert;
+ *  - a message from someone the person blocked gives no alert;
+ *  - in the big Chat Room (every member is in it, many messages) only messages that @mention or reply to the person give an alert;
+ *  - groups are quiet while "Group messages" is off, and "Show message preview" off hides the message text.
+ * The mute/block list is read only at the moment something new is about to be shown, so it costs no extra requests otherwise.
  */
 public final class MessagePoller {
 
     private static final String TAG = "LetschatPoller";
     private static final String PREFS = "letschat_chat_bubble";
-    /** New id: Android keeps the sound/importance of an existing channel, so the earlier channel could not be repaired. */
-    private static final String NOTICE_CHANNEL = "letschat_new_message_v2";
+    private static final String NOTICE_CHANNEL = "letschat_new_message";
+    /** Extra on the notification's intent: the chat to open (read again by ChatBubblePlugin). */
+    static final String EXTRA_CHAT_ID = "letschat_chat_id";
     private static final long FIRST_WAIT_MS = 2500;
     private static final long INTERVAL_MS = 8000;
     /** After the server refuses the token, check again only this rarely (the page may send a fresh token meanwhile). */
@@ -63,16 +72,26 @@ public final class MessagePoller {
     private static Context appCtx;
     private static String lastStatus = "";
     private static long lastStatusAt = 0;
+    /** Ids of the message notifications on screen (removed when Letschat is opened). */
+    private static final Set<Integer> postedNotices = new HashSet<>();
 
     private MessagePoller() {}
 
-    /** The in-app "Push notifications" switch (phone alerts for new messages). On by default. */
-    static void setAlerts(Context ctx, boolean on) {
-        ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("alerts", on).apply();
+    /** What the person asked not to be bothered by. */
+    private static final class Quiet {
+        final Set<String> mutedChats = new HashSet<>();
+        final Set<String> blockedPeople = new HashSet<>();
+        /** "Show message preview" is off in Settings > Notifications: the alert says "New message" instead of showing the text. */
+        boolean hideText = false;
     }
 
-    static boolean alertsOn(Context ctx) {
-        return ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("alerts", true);
+    /**
+     * Called by the page with the two switches of Settings > Notifications ("Show message preview", "Group messages"),
+     * which only live in the page. Both are on unless the person turned them off.
+     */
+    public static void setPrefs(Context ctx, boolean preview, boolean groups) {
+        ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean("preview", preview).putBoolean("groups", groups).apply();
     }
 
     /** Called by the page after sign-in (token) and after sign-out (empty token). */
@@ -83,6 +102,7 @@ public final class MessagePoller {
             Log.i(TAG, "signed out: poller stops");
             ed.remove("token").remove("apiUrl").remove("userId").apply();
             stop();
+            clearNotices(app);
             return;
         }
         Log.i(TAG, "session received (api=" + apiUrl + ", userId " + (userId == null || userId.isEmpty() ? "MISSING" : "ok") + ")");
@@ -123,6 +143,10 @@ public final class MessagePoller {
     static void setForeground(boolean on) {
         boolean was = foreground;
         foreground = on;
+        if (on) {
+            Context c = appCtx;
+            if (c != null) clearNotices(c); // the person is looking at Letschat: the message notifications are no longer needed
+        }
         if (was && !on) {
             synchronized (LOCK) {
                 wake = true;
@@ -131,7 +155,24 @@ public final class MessagePoller {
             // make sure the checker is running (it needs the stored sign-in); nothing is shown on screen about it
             Context ctx = appCtx;
             if (ctx != null) ensureRunning(ctx);
+            Thread w = worker;
+            if (ctx != null && (w == null || !w.isAlive())) status(ctx, "not running (no sign-in received yet). Open Letschat and sign in.");
         }
+    }
+
+    /** Removes the message notifications this class posted (never the "Connected" notification of the background service). */
+    private static void clearNotices(Context ctx) {
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            synchronized (postedNotices) {
+                Iterator<Integer> it = postedNotices.iterator();
+                while (it.hasNext()) {
+                    nm.cancel(it.next());
+                    it.remove();
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     /** The live connection just showed the chat head for a message. (Kept for the plugin; duplicates are removed by message id in MessagePopup.) */
@@ -171,10 +212,49 @@ public final class MessagePoller {
         return data != null ? data : root;
     }
 
+    /**
+     * Tells one chat's last message apart from the next: its id (the server gives every message one). A server that sends no id
+     * is still handled, by time + sender + text. "" means the chat has no message yet.
+     */
+    private static String keyOf(JSONObject lm) {
+        if (lm == null) return "";
+        String id = str(lm, "id");
+        if (!id.isEmpty()) return id;
+        return lm.optLong("time", 0L) + "|" + str(lm, "senderId") + "|" + str(lm, "text").hashCode();
+    }
+
+    /** "mention" when the message @mentions the person, "reply" when it replies to one of theirs, else "". */
+    private static String addressedTo(JSONObject m, String myId) {
+        if (myId.isEmpty() || m == null) return "";
+        JSONArray mentions = m.optJSONArray("mentions");
+        if (mentions != null) {
+            for (int i = 0; i < mentions.length(); i++) {
+                if (myId.equals(mentions.optString(i, ""))) return "mention";
+            }
+        }
+        JSONObject rt = m.optJSONObject("replyTo");
+        return rt != null && myId.equals(str(rt, "senderId")) ? "reply" : "";
+    }
+
+    /** In the Chat Room only messages that @mention the person or reply to them are worth an alert (same rule as the server's alerts). */
+    private static boolean addressedToMe(JSONObject m, String myId) {
+        return !addressedTo(m, myId).isEmpty();
+    }
+
+    /** Whether one message should be shown to the person. */
+    private static boolean wanted(JSONObject m, boolean chatRoom, String myId, Quiet quiet) {
+        String sender = str(m, "senderId");
+        if (!myId.isEmpty() && myId.equals(sender)) return false; // my own message
+        if (m.optBoolean("deleted", false)) return false;
+        if (m.optBoolean("system", false)) return false; // "Amaka joined the group" and the like: the website gives no alert for these either
+        if (!sender.isEmpty() && quiet.blockedPeople.contains(sender)) return false; // someone I blocked
+        return !chatRoom || addressedToMe(m, myId);
+    }
+
     private static void loop() {
         final Thread self = Thread.currentThread();
         // what each chat's last message was at the previous check (null = not counting yet)
-        Map<String, String> lastIds = null;
+        Map<String, String> lastKeys = null;
         Map<String, Long> lastTimes = null;
         long wait = FIRST_WAIT_MS;
         while (worker == self) {
@@ -182,7 +262,7 @@ public final class MessagePoller {
             wait = INTERVAL_MS;
             if (worker != self) return;
             if (foreground) {
-                lastIds = null; // when the app goes to the background again, start counting from then
+                lastKeys = null; // when the app goes to the background again, start counting from then
                 lastTimes = null;
                 continue;
             }
@@ -193,17 +273,13 @@ public final class MessagePoller {
                 String token = sp.getString("token", "");
                 String api = sp.getString("apiUrl", "");
                 if (token.isEmpty() || api.isEmpty()) {
-                    status(ctx, "not signed in.");
+                    status(ctx, "not signed in. Open Letschat and sign in.");
                     return;
                 }
-                // the floating bubble and the phone alerts are separate switches: only when BOTH are off is there nothing to show
-                if (!sp.getBoolean("enabled", true) && !sp.getBoolean("alerts", true)) {
-                    lastIds = null;
-                    lastTimes = null;
-                    status(ctx, "the Floating chat bubble and Push notifications settings are both OFF.");
-                    continue;
-                }
+                // (the Floating chat bubble setting does not stop the checker: the notification alert works with the bubble switched off)
                 String myId = sp.getString("userId", "");
+                boolean groupsOn = sp.getBoolean("groups", true);       // "Group messages" in Settings > Notifications
+                boolean previewOn = sp.getBoolean("preview", true);     // "Show message preview"
                 while (api.endsWith("/")) api = api.substring(0, api.length() - 1);
                 String body = get(api + "/api/v1/conversations", token);
                 if (body == null) {
@@ -213,8 +289,8 @@ public final class MessagePoller {
                 if (body.isEmpty()) {
                     // the server refused the token: keep the thread alive and look again slowly (a fresh token is read from storage each time)
                     Log.w(TAG, "server refused the sign-in token");
-                    status(ctx, "the server refused the sign-in.");
-                    lastIds = null;
+                    status(ctx, "the server refused your sign-in. Open Letschat, sign out and in again.");
+                    lastKeys = null;
                     lastTimes = null;
                     wait = REFUSED_WAIT_MS;
                     continue;
@@ -225,11 +301,12 @@ public final class MessagePoller {
                     status(ctx, "the server answered, but not with a chat list.");
                     continue;
                 }
-                Map<String, String> nowIds = new HashMap<>();
+                Map<String, String> nowKeys = new HashMap<>();
                 Map<String, Long> nowTimes = new HashMap<>();
                 List<JSONObject> fresh = new ArrayList<>();
                 List<Long> since = new ArrayList<>();
                 int fromMe = 0;
+                int hushed = 0;
                 int noId = 0;
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject c = list.optJSONObject(i);
@@ -237,148 +314,243 @@ public final class MessagePoller {
                     String id = str(c, "id");
                     if (id.isEmpty()) continue;
                     JSONObject lm = c.optJSONObject("lastMessage");
-                    String lmId = str(lm, "id");
+                    String key = keyOf(lm);
                     long lmTime = lm == null ? 0L : lm.optLong("time", 0L);
-                    nowIds.put(id, lmId);
+                    nowKeys.put(id, key);
                     nowTimes.put(id, lmTime);
-                    if (lm != null && lmId.isEmpty()) noId++;
-                    if (lastIds == null || lm == null || lmId.isEmpty()) continue;
-                    if (c.optBoolean("muted", false)) continue;
-                    if (lmId.equals(lastIds.get(id))) continue; // nothing new in this chat
+                    if (lm != null && str(lm, "id").isEmpty()) noId++;
+                    if (lastKeys == null || lm == null || key.isEmpty()) continue;
+                    if (key.equals(lastKeys.get(id))) continue; // nothing new in this chat
+                    Long before = lastTimes == null ? null : lastTimes.get(id);
+                    // the newest message went away (it expired or was removed), so an OLDER one is last now: nothing new
+                    if (before != null && before > 0 && lmTime > 0 && lmTime < before) continue;
                     if (!myId.isEmpty() && myId.equals(str(lm, "senderId"))) { // my own message (sent from another device)
                         fromMe++;
                         continue;
                     }
                     if (lm.optBoolean("deleted", false)) continue;
-                    Long before = lastTimes == null ? null : lastTimes.get(id);
+                    if (!groupsOn && c.optBoolean("isGroup", false)) continue; // "Group messages" is switched off
+                    if (c.optBoolean("chatRoom", false) && !addressedToMe(lm, myId)) { // the Chat Room: only @mentions and replies
+                        hushed++;
+                        continue;
+                    }
                     fresh.add(c);
                     since.add(before == null ? 0L : before);
                 }
-                if (lastIds == null) {
-                    Log.i(TAG, "started counting: " + nowIds.size() + " chats" + (noId > 0 ? " (" + noId + " chats have a last message without an id)" : ""));
-                } else if (!fresh.isEmpty() || fromMe > 0) {
-                    Log.i(TAG, "new: " + fresh.size() + " chats, ignored " + fromMe + " sent by me (userId " + (myId.isEmpty() ? "MISSING" : "ok") + ")");
+                if (lastKeys == null) {
+                    Log.i(TAG, "started counting: " + nowKeys.size() + " chats");
+                    String extra = noId > 0 ? " (" + noId + " chats have a last message without an id: checked by time and text instead)" : "";
+                    status(ctx, "watching " + nowKeys.size() + " chats for new messages" + extra + ".");
+                } else if (!fresh.isEmpty() || fromMe > 0 || hushed > 0) {
+                    Log.i(TAG, "new: " + fresh.size() + " chats, ignored " + fromMe + " sent by me (userId " + (myId.isEmpty() ? "MISSING" : "ok") + "), " + hushed + " in the Chat Room");
+                    if (fresh.isEmpty() && fromMe > 0) status(ctx, "new message ignored: it looks like it was sent by you.");
                 }
-                lastIds = nowIds;
+                lastKeys = nowKeys;
                 lastTimes = nowTimes;
-                for (int i = 0; i < fresh.size(); i++) {
-                    present(ctx, api, token, fresh.get(i), since.get(i), myId);
+                if (!fresh.isEmpty()) {
+                    Quiet quiet = loadQuiet(api, token);
+                    quiet.hideText = !previewOn;
+                    for (int i = 0; i < fresh.size(); i++) {
+                        JSONObject c = fresh.get(i);
+                        if (quiet.mutedChats.contains(str(c, "id"))) {
+                            Log.i(TAG, "chat is muted: no alert");
+                            continue;
+                        }
+                        present(ctx, api, token, c, since.get(i), myId, quiet);
+                    }
                 }
             } catch (Throwable e) {
                 // a bad answer from the server (or any other failure): try again next time, never crash the app
                 Log.w(TAG, "check failed: " + e);
+                Context ctx = appCtx;
+                if (ctx != null) status(ctx, "check failed: " + e.getClass().getSimpleName() + ".");
             }
         }
     }
 
-    /** Shows the new messages of one chat in the WhatsApp-style pop-up (one page per message, "1 of N"), or as a phone notification. */
-    private static void present(Context ctx, String api, String token, JSONObject c, long sinceTime, String myId) {
+    /** The chats the person muted and the people they blocked. If that cannot be read, nothing is hidden (an alert too many beats a missed message). */
+    private static Quiet loadQuiet(String api, String token) {
+        Quiet q = new Quiet();
+        try {
+            String body = get(api + "/api/v1/me/settings", token);
+            if (body == null || body.isEmpty()) return q;
+            JSONObject s = unwrap(body);
+            JSONObject muted = s.optJSONObject("muted"); // { chatId: untilTimestamp or 0 }, the server already left out expired mutes
+            if (muted != null) {
+                Iterator<String> keys = muted.keys();
+                while (keys.hasNext()) q.mutedChats.add(keys.next());
+            }
+            JSONArray blocked = s.optJSONArray("blocked");
+            if (blocked != null) {
+                for (int i = 0; i < blocked.length(); i++) {
+                    String id = str(blocked.optJSONObject(i), "id");
+                    if (!id.isEmpty()) q.blockedPeople.add(id);
+                }
+            }
+        } catch (Throwable e) {
+            Log.w(TAG, "could not read the mute/block settings: " + e);
+        }
+        return q;
+    }
+
+    /** Announces the new messages of one chat: a notification always, plus the WhatsApp-style pop-up ("1 of N") when the bubble can be drawn. */
+    private static void present(Context ctx, String api, String token, JSONObject c, long sinceTime, String myId, Quiet quiet) {
         String chatId = str(c, "id");
         JSONObject other = c.optJSONObject("other");
         boolean group = c.optBoolean("isGroup", false);
+        boolean room = c.optBoolean("chatRoom", false);
         String title = group ? str(c, "name") : str(other, "name");
         if (title.isEmpty()) title = "Letschat";
         String photo = group ? str(c, "avatar") : str(other, "avatar");
         if (photo.startsWith("/")) photo = api + photo;
 
         List<MessagePopup.Item> items = new ArrayList<>();
+        boolean read = false;
         try {
             String body = get(api + "/api/v1/conversations/" + URLEncoder.encode(chatId, "UTF-8") + "/messages?peek=1&limit=15", token);
             if (body != null && !body.isEmpty()) {
                 JSONArray arr = unwrap(body).optJSONArray("messages");
+                read = arr != null;
                 List<JSONObject> picked = new ArrayList<>();
                 if (arr != null) {
                     for (int i = arr.length() - 1; i >= 0 && picked.size() < 15; i--) {
                         JSONObject m = arr.optJSONObject(i);
                         if (m == null) continue;
-                        if (!myId.isEmpty() && myId.equals(str(m, "senderId"))) continue; // my own message
-                        if (m.optBoolean("deleted", false)) continue;
                         long t = m.optLong("time", 0L);
                         if (sinceTime > 0 && t > 0 && t <= sinceTime) break; // older than what was already there
+                        if (!wanted(m, room, myId, quiet)) continue;
                         picked.add(0, m);
                     }
                 }
-                for (JSONObject m : picked) items.add(toItem(m, chatId, title, photo, group, myId));
+                for (JSONObject m : picked) items.add(toItem(m, c, chatId, title, photo, group, myId, quiet.hideText));
             }
         } catch (Exception e) {
             Log.w(TAG, "could not read the new messages: " + e);
             // fall back to the last message below
         }
-        if (items.isEmpty()) {
+        if (items.isEmpty() && !read) {
+            // the messages could not be read: show the chat's last message (when it is new and wanted) so the person still hears about it
             JSONObject last = c.optJSONObject("lastMessage");
-            if (last != null) items.add(toItem(last, chatId, title, photo, group, myId));
+            if (last != null && wanted(last, room, myId, quiet) && (sinceTime <= 0 || last.optLong("time", 0L) > sinceTime)) {
+                items.add(toItem(last, c, chatId, title, photo, group, myId, quiet.hideText));
+            }
         }
         if (items.isEmpty()) {
-            // the server said there is something new but we could not read it: still show it so the person knows
-            items.add(new MessagePopup.Item("", chatId, title, photo, "New message", "", ""));
+            Log.i(TAG, "nothing to show for " + title + " (blocked, deleted, mine or not addressed to me)");
+            return;
         }
-        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        boolean bubbleOn = sp.getBoolean("enabled", true);
-        boolean alertsOn = sp.getBoolean("alerts", true);
-        boolean canOverlay = bubbleOn && Settings.canDrawOverlays(ctx);
-        Log.i(TAG, "showing " + items.size() + " message(s) from " + title + (canOverlay ? " on the chat head" : alertsOn ? " as a notification" : " (nothing: bubble not available and Push notifications OFF)"));
-        if (canOverlay) {
+        boolean bubbleOn = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", true);
+        boolean canOverlay = Settings.canDrawOverlays(ctx);
+        Log.i(TAG, "announcing " + items.size() + " message(s) from " + title + " (notification" + (bubbleOn && canOverlay ? " + chat head" : "") + ")");
+        postNotice(ctx, title, items, chatId); // the background alert: always
+        if (bubbleOn && canOverlay) {
             for (MessagePopup.Item it : items) MessagePopup.notifyMessage(ctx, it);
-        } else if (alertsOn) {
-            postNotice(ctx, title, items.get(items.size() - 1).text, chatId, items.size());
         }
     }
 
-    /** A normal Android notification (sound + vibration) for a new message: used when the chat head cannot or should not be drawn. */
-    private static void postNotice(Context ctx, String title, String text, String chatId, int count) {
+    /** The small status-bar icon: the Letschat one from the build when there is one, else Android's chat icon (same as the background service). */
+    private static int smallIcon(Context ctx) {
+        try {
+            int icon = ctx.getResources().getIdentifier("ic_stat_letschat", "drawable", ctx.getPackageName());
+            if (icon != 0) return icon;
+        } catch (Throwable ignored) {
+            // fall through to the built-in icon
+        }
+        return android.R.drawable.stat_notify_chat;
+    }
+
+    /**
+     * The background alert: a normal Android notification for the new message(s) of one chat (one notification per chat, updated when more
+     * arrive). Sound and vibration come from the "New messages" channel; the person can change them in the phone's notification settings.
+     * Tapping it opens Letschat on that chat.
+     */
+    private static void postNotice(Context ctx, String title, List<MessagePopup.Item> items, String chatId) {
         try {
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
-            if (Build.VERSION.SDK_INT >= 24 && !nm.areNotificationsEnabled()) {
-                // Android 13+: the notification permission was refused (or notifications are off for Letschat in Android settings)
-                Log.w(TAG, "notifications are blocked for Letschat on this phone: cannot alert");
+            if (!nm.areNotificationsEnabled()) {
+                Log.i(TAG, "notifications are switched off for Letschat in the phone settings");
                 return;
             }
-            if (Build.VERSION.SDK_INT >= 26) {
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(NOTICE_CHANNEL) == null) {
                 NotificationChannel ch = new NotificationChannel(NOTICE_CHANNEL, "New messages", NotificationManager.IMPORTANCE_HIGH);
-                ch.setDescription("Alerts for new Letschat messages");
+                ch.setDescription("Alerts for new Letschat messages while the app is closed or in the background");
                 ch.enableVibration(true);
-                ch.setShowBadge(true);
-                nm.createNotificationChannel(ch); // creating it again is harmless
+                ch.enableLights(true);
+                ch.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+                nm.createNotificationChannel(ch);
             }
             Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
             PendingIntent pi = null;
             if (open != null) {
+                open.putExtra(EXTRA_CHAT_ID, chatId);
                 open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                 pi = PendingIntent.getActivity(ctx, chatId.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             }
-            int icon = ctx.getResources().getIdentifier("ic_stat_letschat", "drawable", ctx.getPackageName());
-            if (icon == 0) icon = ctx.getApplicationInfo().icon;
+            String text = items.get(items.size() - 1).text;
+            if (items.size() > 1) text = text + "  (+" + (items.size() - 1) + " more)";
+            StringBuilder lines = new StringBuilder();
+            for (int i = Math.max(0, items.size() - 5); i < items.size(); i++) {
+                if (lines.length() > 0) lines.append('\n');
+                lines.append(items.get(i).text);
+            }
             Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(ctx, NOTICE_CHANNEL) : new Notification.Builder(ctx);
-            b.setSmallIcon(icon)
-                .setContentTitle(title)
-                .setContentText(text)
-                .setStyle(new Notification.BigTextStyle().bigText(text))
-                .setCategory(Notification.CATEGORY_MESSAGE)
-                .setAutoCancel(true);
-            if (count > 1) b.setSubText(count + " new messages");
+            b.setSmallIcon(smallIcon(ctx)).setContentTitle(title).setContentText(text).setAutoCancel(true)
+                    .setStyle(new Notification.BigTextStyle().bigText(lines.toString())).setCategory(Notification.CATEGORY_MESSAGE);
             if (Build.VERSION.SDK_INT < 26) {
-                b.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
+                b.setPriority(Notification.PRIORITY_HIGH);
+                b.setDefaults(Notification.DEFAULT_ALL);
             }
             if (pi != null) b.setContentIntent(pi);
-            nm.notify(chatId.hashCode(), b.build());
+            int id = chatId.hashCode();
+            nm.notify(id, b.build());
+            synchronized (postedNotices) {
+                postedNotices.add(id);
+            }
         } catch (Throwable e) {
             Log.w(TAG, "could not post the notification: " + e);
         }
     }
 
-    private static MessagePopup.Item toItem(JSONObject m, String chatId, String title, String photo, boolean group, String myId) {
-        String text = str(m, "text");
-        if (text.isEmpty()) {
-            String type = str(m, "type");
-            text = (type.isEmpty() || "text".equals(type)) ? "New message" : "[" + type + "]";
+    /** The name to put before a message in a group ("Amaka: hello"): the page's list of members knows everyone in the group. */
+    private static String senderName(JSONObject m, JSONObject c) {
+        String name = str(m.optJSONObject("sender"), "name"); // Chat Room messages carry their sender
+        if (!name.isEmpty()) return name;
+        name = str(m, "senderName");
+        if (!name.isEmpty()) return name;
+        String sid = str(m, "senderId");
+        JSONArray members = c == null ? null : c.optJSONArray("members");
+        if (members != null && !sid.isEmpty()) {
+            for (int i = 0; i < members.length(); i++) {
+                JSONObject u = members.optJSONObject(i);
+                if (u != null && sid.equals(str(u, "id"))) return str(u, "name");
+            }
         }
-        String who = str(m, "senderName");
-        if (group && !who.isEmpty()) text = who + ": " + text;
+        return "";
+    }
+
+    private static MessagePopup.Item toItem(JSONObject m, JSONObject c, String chatId, String title, String photo, boolean group, String myId, boolean hideText) {
+        String text;
+        if (hideText) {
+            // "Show message preview" is off: no message text, like the server's own background alerts
+            String to = addressedTo(m, myId);
+            text = "mention".equals(to) ? "Mentioned you" : "reply".equals(to) ? "Replied to you" : "New message";
+        } else {
+            // the server always writes a readable text (a voice note is "🎤 Voice note", a photo "📷 Photo"), so this only covers odd messages
+            text = str(m, "text");
+            if (text.isEmpty()) {
+                String type = str(m, "type");
+                text = (type.isEmpty() || "text".equals(type)) ? "New message" : "[" + type + "]";
+            }
+        }
+        if (group) {
+            String who = senderName(m, c);
+            if (!who.isEmpty()) text = who + ": " + text;
+        }
         if (text.length() > 500) text = text.substring(0, 500);
         String replyName = "";
         String replyText = "";
-        JSONObject rt = m.optJSONObject("replyTo");
+        JSONObject rt = hideText ? null : m.optJSONObject("replyTo");
         if (rt != null) {
             replyText = str(rt, "text");
             if (replyText.length() > 140) replyText = replyText.substring(0, 140);
