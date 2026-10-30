@@ -1,5 +1,5 @@
 /* Letschat native glue. Injected by the ChatBubble plugin into the Letschat website inside the Android app only.
-   It does five things:
+   It does six things:
    1. starts the background service once a person is signed in (and stops it on sign-out),
    2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
@@ -9,22 +9,28 @@
    5. makes the "Push notifications" and "Background alerts" switches work inside the app. The website only knows browser web-push, which the
       Android WebView does not have (it showed "Not supported in this browser"), so here those two switches drive the phone's own
       notifications and the background service instead.
+   6. INSTANT PUSH: registers this phone with Firebase Cloud Messaging and gives the token to the Letschat server through the same
+      /push/subscribe route the website uses (endpoint = FCM_PREFIX + token; the server's web-push shim sends those through Firebase).
+      Messages then arrive within a second or two even when the app is closed. Needs google-services.json in the build; without it
+      registration fails quietly and the 8-second checker keeps working.
    Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab). */
 (function () {
   if (window.__lcNativeBridge) return;
   if (!/(^|\.)(letschat-taupe\.vercel\.app|letschatafric\.netlify\.app)$/.test(location.hostname)) return;
   var C = window.Capacitor;
   if (!C || !C.Plugins) return;
-  var BG = C.Plugins.BackgroundService, BB = C.Plugins.ChatBubble, APP = C.Plugins.App;
+  var BG = C.Plugins.BackgroundService, BB = C.Plugins.ChatBubble, APP = C.Plugins.App, PN = C.Plugins.PushNotifications;
   if (!BG && !BB) return;
   window.__lcNativeBridge = true;
 
   var SESSION_KEY = "letschat-africa:session";
   var ASK_KEY = "letschat-native:asked:";
-  var unread = 0, background = false, serviceOn = false;
+  var unread = 0, background = false, serviceOn = false, serviceStartedOnce = false;
   var BUBBLE_KEY = "letschat-native:bubble";
   var ALERTS_KEY = "letschat-native:alerts"; // "Push notifications" switch (phone alerts), on by default
   var BGSERVICE_KEY = "letschat-native:bgservice"; // "Background alerts" switch (keep connected when closed), on by default
+  var FCM_TOKEN_KEY = "letschat-native:fcmtoken";
+  var FCM_PREFIX = "https://fcm-token.letschat.invalid/"; // must match web-push-shim/index.js on the server
   function noop() {}
 
   function bubbleOn() { try { return localStorage.getItem(BUBBLE_KEY) !== "0"; } catch (e) { return true; } }
@@ -76,6 +82,73 @@
     BB.setSession({ token: tok, apiUrl: apiBase(), userId: String(myId() || "") }).catch(function () { sentTok = null; });
   }
 
+  // ---- Instant push (Firebase Cloud Messaging) ----
+  var fcmToken = null, fcmSentKey = "", fcmStarted = false;
+  try { fcmToken = localStorage.getItem(FCM_TOKEN_KEY) || null; } catch (e) {}
+  function pushApi(path, body) {
+    var s = session();
+    if (!s || !s.token || !apiBase()) return Promise.reject(new Error("not signed in"));
+    return fetch(apiBase() + "/api/v1" + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + s.token },
+      body: JSON.stringify(body)
+    });
+  }
+  function notifPrefs() { try { return JSON.parse(localStorage.getItem("letschat-africa:notifs")) || {}; } catch (e) { return {}; } }
+  // Gives the server this phone's Firebase token (again after every sign-in). The server then pushes new messages to it.
+  function sendFcm() {
+    if (!fcmToken || !loggedIn() || !alertsPref()) return;
+    var key = fcmToken + "|" + String((session() || {}).token || "").slice(-16);
+    if (fcmSentKey === key) return;
+    fcmSentKey = key;
+    var p = notifPrefs();
+    pushApi("/push/subscribe", {
+      subscription: { endpoint: FCM_PREFIX + fcmToken, keys: { p256dh: "fcm", auth: "fcm" } },
+      preview: p.preview !== false,
+      groups: p.groups !== false
+    }).then(function (r) { if (!r.ok) fcmSentKey = ""; }).catch(function () { fcmSentKey = ""; });
+  }
+  function unsubscribeFcm() {
+    fcmSentKey = "";
+    if (!fcmToken || !loggedIn()) return;
+    pushApi("/push/unsubscribe", { endpoint: FCM_PREFIX + fcmToken }).catch(noop);
+  }
+  // Creates the sound + vibration channel, asks for the notification permission when needed, then registers with Firebase.
+  function setupFcm() {
+    if (!PN || fcmStarted || !alertsPref() || !loggedIn()) return;
+    fcmStarted = true;
+    function go() { PN.register().catch(function () { fcmStarted = false; }); }
+    try {
+      PN.createChannel({ id: "letschat_push", name: "Letschat messages", description: "Alerts for new Letschat messages", importance: 5, visibility: 0, vibration: true }).catch(noop);
+    } catch (e) {}
+    PN.checkPermissions().then(function (r) {
+      var st = r && r.receive;
+      if (st === "granted") return go();
+      if (st === "prompt" || st === "prompt-with-rationale") {
+        return PN.requestPermissions().then(function (x) { if (x && x.receive === "granted") go(); else fcmStarted = false; });
+      }
+      fcmStarted = false; // refused in Android settings: the Push notifications switch will open them
+    }).catch(function () { fcmStarted = false; });
+  }
+  try {
+    if (PN && PN.addListener) {
+      PN.addListener("registration", function (t) {
+        if (!t || !t.value) return;
+        fcmToken = String(t.value);
+        try { localStorage.setItem(FCM_TOKEN_KEY, fcmToken); } catch (e) {}
+        fcmSentKey = "";
+        sendFcm();
+      });
+      PN.addListener("registrationError", function () { fcmStarted = false; });
+      // tapping a push opens that chat (the app reads ?open=<conversation id> after the page loads)
+      PN.addListener("pushNotificationActionPerformed", function (a) {
+        var d = a && a.notification && a.notification.data;
+        var id = d && d.chatId ? String(d.chatId) : "";
+        if (id) { try { location.assign(location.origin + "/?open=" + encodeURIComponent(id)); } catch (e) {} }
+      });
+    }
+  } catch (e) {}
+
   function syncService() {
     sendSession();
     if (!BG) return;
@@ -83,8 +156,10 @@
     if (li && !serviceOn && bgWanted()) {
       serviceOn = true;
       BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }).then(function () {
+        serviceStartedOnce = true;
         setTimeout(offerOverlay, 1500);
         setTimeout(offerBattery, 40000);
+        setTimeout(setupFcm, 800); // after the notification permission question of the service, never at the same time
       }).catch(function () { serviceOn = false; });
     } else if (!li && serviceOn) {
       serviceOn = false;
@@ -92,6 +167,9 @@
       BG.stop().catch(noop);
       if (BB) BB.hide().catch(noop);
     }
+    if (li && (serviceStartedOnce || !bgWanted())) setupFcm();
+    if (!li) fcmStarted = false;
+    sendFcm();
   }
   setInterval(syncService, 5000);
   syncService();
@@ -227,7 +305,7 @@
             setPref(ALERTS_KEY, true);
             if (BB && BB.setAlerts) BB.setAlerts({ enabled: true }).catch(noop);
             if (BG && BG.requestNotificationPermission) {
-              BG.requestNotificationPermission().then(function () { setTimeout(refreshRows, 600); }).catch(noop);
+              BG.requestNotificationPermission().then(function () { fcmStarted = false; setTimeout(function () { refreshRows(); setupFcm(); }, 600); }).catch(noop);
             }
             return;
           }
@@ -235,6 +313,7 @@
           setPref(ALERTS_KEY, on);
           paintSwitch(btn, on);
           if (BB && BB.setAlerts) BB.setAlerts({ enabled: on }).catch(noop);
+          if (on) { fcmSentKey = ""; fcmStarted = false; setupFcm(); sendFcm(); } else { unsubscribeFcm(); }
         });
       });
   }
@@ -253,6 +332,7 @@
           setPref(BGSERVICE_KEY, true);
           serviceOn = true;
           BG.start({ title: "Letschat Africa", text: "Connected. Tap to open." }).then(function () {
+            serviceStartedOnce = true;
             setTimeout(refreshRows, 600);
             BG.isIgnoringBatteryOptimizations().then(function (b) {
               if (!b || !b.ignoring) BG.requestIgnoreBatteryOptimizations().catch(noop); // opens Android's battery screen
