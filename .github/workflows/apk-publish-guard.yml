@@ -1,0 +1,38 @@
+name: APK publish guard
+# Blocks a debug-signed, wrong-key or non-updatable APK from being committed for website download (client/*.apk).
+# Runs on pull requests and pushes that touch an APK. Nothing is built, published or released here.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "client/*.apk"
+      - "tools/check-published-apks.sh"
+      - ".github/workflows/apk-publish-guard.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "client/*.apk"
+      - "tools/check-published-apks.sh"
+      - ".github/workflows/apk-publish-guard.yml"
+permissions:
+  contents: read
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_SHA256: F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pick the previous version to compare against
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "BASE_REF=origin/${{ github.base_ref }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            echo "BASE_REF=${{ github.event.before }}" >> "$GITHUB_ENV"
+          fi
+      - name: Check every APK under client/
+        run: bash tools/check-published-apks.sh

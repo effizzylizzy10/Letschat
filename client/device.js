@@ -236,7 +236,7 @@
   function isDesktop() { return !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) && !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
   function infoCard(id, title, lines, buttons) {
     if (document.getElementById(id) || document.getElementById("lc-perm-card")) return;
-    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
+    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;max-height:85vh;overflow-y:auto;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
     card.id = id; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", title);
     card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:6px", title));
     lines.forEach(function (t) { card.appendChild(el("div", "font-size:13.5px;line-height:1.45;color:#C5CEDA;margin-bottom:6px", t)); });
@@ -364,7 +364,9 @@
           if (!ok) return toast("The Android app file is not available yet. Please try again later.", 4500);
           infoCard("lc-install-guide", "Get the Letschat app for Android",
             ["Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
-             "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway."],
+             "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway.",
+             "If Android says App not installed, an older Letschat is usually still on the phone: hold the Letschat icon, tap App info, then Uninstall, and open the downloaded file again.",
+             "If the download fails or says Something went wrong, open this page in Chrome and try again."],
             [{ label: "Cancel" }, { label: "Download app", primary: true, fn: downloadApk }]);
         });
       }
@@ -400,6 +402,41 @@
     document.body.appendChild(bar);
   }
   setTimeout(androidBar, 2500);
+
+  // 5f. Early test copies of the Android app. The first Letschat app files (24 and 25 Oct 2026) were signed with a temporary "debug" key, and
+  //     Android never lets a file signed with another key update an installed app: those phones answer "App not installed" to every newer
+  //     Letschat.apk. Those copies open this website inside the app, so once the app proves it is one of them, this card says how to switch
+  //     to the real app (uninstall once, download again). It shows only on positive proof, so a real app, a browser and anything unclear never see it:
+  //       25 Oct copy: the app plugin reports build 1 (the real app reports 101 or higher)
+  //       24 Oct copy: a Capacitor app with no Letschat plugins and without "LetschatApp" in its browser name (every later file has both)
+  function nativeApp() {
+    try { var C = window.Capacitor; return !!(C && typeof C.isNativePlatform === "function" && C.isNativePlatform()); } catch (e) { return false; }
+  }
+  function isOldTestApp() {
+    try {
+      if (!nativeApp()) return Promise.resolve(false);
+      var P = window.Capacitor.Plugins || {}, A = P.App;
+      if (A && typeof A.getInfo === "function") {
+        return Promise.resolve(A.getInfo()).then(function (i) { var b = parseInt(i && i.build, 10); return b > 0 && b < 100; }, function () { return false; });
+      }
+      return Promise.resolve(!P.ChatBubble && !/LetschatApp/.test(navigator.userAgent));
+    } catch (e) { return Promise.resolve(false); }
+  }
+  function showOldAppCard() {
+    var OLD = "lc-old-app", site = location.host || "the Letschat website";
+    infoCard(OLD, "Update the Letschat app",
+      ["This phone has an early test copy of the Letschat app. Android cannot update it, so a newer Letschat file says App not installed.",
+       "Switch once: hold the Letschat icon, tap App info, then Uninstall. Your chats are saved on your account, so just sign in again.",
+       "Then open Chrome, go to " + site + " and tap Download. After that, updates install normally."],
+      [{ label: "Remind me later", fn: function () { snooze(OLD, 1); } }, { label: "OK, got it", primary: true, fn: function () { snooze(OLD, 7); } }]);
+  }
+  var oldTries = 0, oldPoll = setInterval(function () {
+    if (++oldTries > 30) return clearInterval(oldPoll);            // about two minutes of trying, then stop
+    if (snoozed("lc-old-app")) return clearInterval(oldPoll);
+    if (oldTries < 3 || document.hidden || document.getElementById("lc-perm-card")) return; // let the app start and the permission card go first
+    clearInterval(oldPoll);
+    isOldTestApp().then(function (old) { if (old) showOldAppCard(); }).catch(function () {});
+  }, 4000);
 
   // 4. keep the app running: if the app never finished starting, reload once (and again when the connection returns)
   function stuck() { var b = document.getElementById("boot"); return !!(b && document.body.contains(b)); }

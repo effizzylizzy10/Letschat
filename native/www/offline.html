@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Letschat Africa</title>
+<style>
+  html,body{margin:0;height:100%;background:#05070A;color:#E6EDF3;font:16px/1.45 Arial,sans-serif}
+  .box{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;box-sizing:border-box}
+  h1{font-size:22px;margin:0 0 8px}
+  p{margin:6px 0;color:#9AA7B5;max-width:320px}
+  button{margin-top:20px;padding:12px 28px;border:0;border-radius:24px;background:#35D0BA;color:#05070A;font-size:16px;font-weight:bold}
+  #st{margin-top:14px;font-size:14px;color:#6B7785}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#35D0BA;margin-right:6px;animation:p 1s infinite alternate}
+  @keyframes p{from{opacity:.25}to{opacity:1}}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Can't reach Letschat</h1>
+  <p>Your phone could not connect to the server. Check that mobile data or Wi-Fi is on and has internet.</p>
+  <p>We keep trying and will open the app by itself as soon as it connects.</p>
+  <button id="retry">Try again now</button>
+  <div id="st"><span class="dot"></span><span id="msg">Trying to connect...</span></div>
+</div>
+<script>
+(function () {
+  var TARGET = "https://letschat-taupe.vercel.app/";
+  var busy = false, tries = 0, timer = null;
+  var msg = document.getElementById("msg");
+
+  function go() { window.location.replace(TARGET); }
+
+  function check() {
+    if (busy) return;
+    busy = true;
+    tries++;
+    msg.textContent = "Trying to connect (attempt " + tries + ")...";
+    var done = false;
+    var ctl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctl) ctl.abort(); fail(); }, 12000);
+    function fail() {
+      if (done) return;
+      done = true; busy = false; clearTimeout(t);
+      msg.textContent = "Still no connection. Retrying...";
+      schedule();
+    }
+    try {
+      fetch(TARGET + "manifest.json?ts=" + Date.now(), { mode: "no-cors", cache: "no-store", signal: ctl ? ctl.signal : undefined })
+        .then(function () { if (done) return; done = true; busy = false; clearTimeout(t); go(); }, fail);
+    } catch (e) { fail(); }
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    // wait a little longer after each failed attempt (3 s up to 15 s)
+    timer = setTimeout(check, Math.min(3000 + tries * 2000, 15000));
+  }
+
+  document.getElementById("retry").addEventListener("click", function () { clearTimeout(timer); check(); });
+  window.addEventListener("online", function () { clearTimeout(timer); check(); });
+  schedule();
+})();
+</script>
+</body>
+</html>

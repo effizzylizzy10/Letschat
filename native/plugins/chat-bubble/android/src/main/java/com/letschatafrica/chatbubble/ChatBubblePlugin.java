@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
+import android.widget.Toast;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -18,6 +19,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
@@ -160,6 +162,117 @@ public class ChatBubblePlugin extends Plugin {
         try {
             a.recreate();
         } catch (Throwable ignored) {}
+    }
+
+    // ---- links tapped in a chat (sent or received) ----
+
+    /** The sites that always load inside the app (same list as capacitor.config.json > server.allowNavigation, kept here as a safety net). */
+    private static final String[] OWN_HOSTS = { "letschat-taupe.vercel.app", "letschat-9tw4.onrender.com", "accounts.google.com" };
+
+    /**
+     * Tapping a link used to close the whole app. Capacitor hands every link that leaves the app to Android, but it only catches the
+     * "no app can open this" error: any other error from that hand-over escapes and Android shows "Letschat Africa keeps stopping".
+     * Capacitor asks the plugins first, so the hand-over happens here instead, inside try/catch: the worst case is now a short message
+     * ("Could not open this link"), never a crash. Pages of Letschat itself and the sign-in pages (OWN_HOSTS and server.allowNavigation)
+     * still load inside the app: answering null means "use Capacitor's normal rule".
+     */
+    @Override
+    public Boolean shouldOverrideLoad(Uri url) {
+        try {
+            if (url == null) return null;
+            String scheme = url.getScheme();
+            if (scheme == null) return null;
+            scheme = scheme.toLowerCase(Locale.ROOT);
+            if (scheme.equals("http") || scheme.equals("https")) {
+                String host = url.getHost();
+                if (host == null || host.isEmpty()) return null;
+                if (isAppHost(host.toLowerCase(Locale.ROOT))) return null; // a Letschat page: loads inside the app
+                openOutside(url);
+                return Boolean.TRUE; // the app itself stays where it is
+            }
+            switch (scheme) {
+                case "data":
+                case "blob":
+                case "about":
+                case "javascript":
+                case "capacitor":
+                    return null; // the app's own pieces: Capacitor's normal rule
+                case "file":
+                case "content":
+                case "intent":
+                case "android-app":
+                    return Boolean.TRUE; // never passed on to Android from a chat
+                default:
+                    openOutside(url); // mailto:, tel:, sms:, geo:, whatsapp: ... open in the phone's own app
+                    return Boolean.TRUE;
+            }
+        } catch (Throwable t) {
+            return Boolean.TRUE; // whatever went wrong, the app must not close
+        }
+    }
+
+    /** True for addresses that belong to the app (they load inside it): its own site, the sign-in hosts and local pages. */
+    private boolean isAppHost(String host) {
+        if (host.equals("localhost") || host.equals("127.0.0.1")) return true;
+        for (String own : OWN_HOSTS) {
+            if (host.equals(own)) return true;
+        }
+        try {
+            String server = getBridge().getConfig().getServerUrl();
+            if (server != null) {
+                String serverHost = Uri.parse(server).getHost();
+                if (serverHost != null && host.equals(serverHost.toLowerCase(Locale.ROOT))) return true;
+            }
+            String[] allowed = getBridge().getConfig().getAllowNavigation();
+            if (allowed != null) {
+                for (String entry : allowed) {
+                    if (entry == null) continue;
+                    String rule = entry.trim().toLowerCase(Locale.ROOT);
+                    if (rule.isEmpty()) continue;
+                    if (rule.equals("*")) return true;
+                    if (rule.startsWith("*.")) {
+                        if (host.endsWith(rule.substring(1))) return true; // "*.firebaseapp.com" matches "x.firebaseapp.com"
+                    } else if (host.equals(rule)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // the list above is enough
+        }
+        return false;
+    }
+
+    /** Opens a link in the phone's browser (or the right app). Every step is wrapped: a refusal shows a short message instead of closing the app. */
+    private void openOutside(Uri url) {
+        boolean opened = false;
+        try {
+            Activity a = getActivity();
+            if (a != null && !a.isFinishing()) {
+                a.startActivity(new Intent(Intent.ACTION_VIEW, url));
+                opened = true;
+            }
+        } catch (Throwable ignored) {
+            // try again below as a new task
+        }
+        if (!opened) {
+            try {
+                Intent again = new Intent(Intent.ACTION_VIEW, url);
+                again.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(again);
+                opened = true;
+            } catch (Throwable ignored) {
+                // nothing on this phone can open it
+            }
+        }
+        if (!opened) {
+            final Context ctx = getContext();
+            mainHandler.post(() -> {
+                try {
+                    Toast.makeText(ctx, "Could not open this link", Toast.LENGTH_SHORT).show();
+                } catch (Throwable ignored) {}
+            });
+        }
     }
 
     @Override
