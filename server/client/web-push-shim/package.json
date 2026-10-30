@@ -1,0 +1,7 @@
+{
+  "name": "web-push",
+  "version": "3.6.7-letschat-fcm",
+  "description": "Drop-in web-push for the Letschat server: browser pushes go through the real web-push, Android app pushes go through Firebase Cloud Messaging",
+  "main": "index.js",
+  "private": true
+}
