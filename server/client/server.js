@@ -563,12 +563,13 @@ app.post("/api/creator/announce", authMiddleware, creatorOnly, async (req, res) 
   const title = String((req.body && req.body.title) || "").trim().slice(0, 80);
   const body = String((req.body && req.body.body) || "").trim().slice(0, 300);
   if (!title || !body) return res.status(400).json({ error: "Title and message are required" });
-  if (!PUSH_ON) return res.status(400).json({ error: "Push notifications are not set up yet (add the VAPID keys on the server)" });
+  if (!PUSH_ON) return res.status(400).json({ error: "Push notifications are not set up yet (add the VAPID keys and/or FIREBASE_SERVICE_ACCOUNT on the server)" });
   const db = readDB(); let sent = 0, failed = 0;
   for (const u of db.users) {
     for (const sub of (u.pushSubs || [])) {
       if (sent + failed >= 500) break;
-      try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "announce", url: "./" }), { TTL: 86400 }); sent++; } catch (e) { failed++; }
+      if (!canPush(sub)) continue; // that kind of device (browser or Android app) is not switched on here
+      if (await deliverPush(u.id, sub, { title, body, tag: "announce", url: "./" }, { TTL: 86400 })) sent++; else failed++;
     }
   }
   res.json({ sent, failed });
@@ -949,29 +950,65 @@ app.patch("/api/me/settings", authMiddleware, (req, res) => {
   if (p.lastSeen !== undefined) sendPresenceFor(user);
   res.json(settingsView(db, user));
 });
-// ===================== WEB PUSH (alerts when the app is closed) =====================
-// Needs env vars VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (and optionally VAPID_SUBJECT) on the host.
-// Without them push is simply switched off and everything else works as before.
+// ===================== PUSH (alerts when the app is closed) =====================
+// Two independent channels, each switched on by its own settings:
+//   VAPID_ON = browser Web Push. Needs VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (and optionally VAPID_SUBJECT).
+//   FCM_ON   = Android app via Firebase Cloud Messaging. Needs FIREBASE_SERVICE_ACCOUNT (handled by web-push-shim).
+// Either one works without the other. PUSH_ON just means "at least one channel is on".
 let webpush = null;
 try { webpush = require("web-push"); } catch { console.warn("web-push is not installed: run `npm install` to enable push notifications."); }
-const PUSH_ON = !!(webpush && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-if (PUSH_ON) webpush.setVapidDetails(process.env.VAPID_SUBJECT || "https://letschatafric.netlify.app", process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
-else console.warn("Push notifications are OFF: set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.");
+const FCM_PREFIX = (webpush && webpush.FCM_PREFIX) || "https://fcm-token.letschat.invalid/";
+let VAPID_ON = !!(webpush && typeof webpush.setVapidDetails === "function" && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+if (VAPID_ON) {
+  try { webpush.setVapidDetails(process.env.VAPID_SUBJECT || "https://letschatafric.netlify.app", process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY); }
+  catch (e) { VAPID_ON = false; console.warn("Browser push is OFF: the VAPID keys were rejected (" + String((e && e.message) || "invalid").slice(0, 120) + ")."); }
+} else console.warn("Browser push (VAPID) is OFF: set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.");
+let FCM_ON = false;
+try { FCM_ON = !!(webpush && typeof webpush.fcmEnabled === "function" && webpush.fcmEnabled()); } catch { FCM_ON = false; }
+const PUSH_ON = VAPID_ON || FCM_ON;
+console.log("Push channels: browser(VAPID)=" + (VAPID_ON ? "on" : "off") + ", Android(FCM)=" + (FCM_ON ? "on" : "off"));
+
+// an Android-app subscription is stored with a pseudo-endpoint: FCM_PREFIX + the Firebase token
+function isFcmSub(sub) { return !!(sub && typeof sub.endpoint === "string" && sub.endpoint.indexOf(FCM_PREFIX) === 0); }
+// can this saved subscription be sent to right now? (decided by its own channel only)
+function canPush(sub) { return isFcmSub(sub) ? FCM_ON : VAPID_ON; }
+function forgetPushSub(userId, endpoint) {
+  const d2 = readDB(), u2 = d2.users.find((x) => x.id === userId);
+  if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== endpoint); writeDB(d2); }
+}
+// send one push; resolves true when sent, false when not (a dead device, 404/410, is removed). Never rejects.
+function deliverPush(userId, sub, payload, options) {
+  if (!webpush || !canPush(sub)) return Promise.resolve(false);
+  let p;
+  try { p = webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys || {} }, JSON.stringify(payload), options); } catch (e) { return Promise.resolve(false); }
+  return Promise.resolve(p).then(() => true, (err) => {
+    if (err && (err.statusCode === 404 || err.statusCode === 410)) { try { forgetPushSub(userId, sub.endpoint); } catch (e) { /* best effort */ } }
+    return false;
+  });
+}
 
 app.get("/api/push/key", (req, res) => {
-  if (!PUSH_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
+  if (!VAPID_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
   res.json({ key: process.env.VAPID_PUBLIC_KEY });
 });
 app.post("/api/push/subscribe", authMiddleware, (req, res) => {
-  if (!PUSH_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
   const s = (req.body && req.body.subscription) || {};
   const k = s.keys || {};
-  if (typeof s.endpoint !== "string" || !/^https:\/\//.test(s.endpoint) || s.endpoint.length > 1000 || typeof k.p256dh !== "string" || typeof k.auth !== "string" || k.p256dh.length > 200 || k.auth.length > 100)
-    return res.status(400).json({ error: "Invalid push subscription" });
+  let entry;
+  if (isFcmSub(s)) { // Android app: Firebase token, no browser keys
+    if (!FCM_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
+    if (!/^[A-Za-z0-9_:.\-]{20,900}$/.test(s.endpoint.slice(FCM_PREFIX.length))) return res.status(400).json({ error: "Invalid push subscription" });
+    entry = { endpoint: s.endpoint, keys: {} };
+  } else { // normal browser Web Push subscription
+    if (!VAPID_ON) return res.status(503).json({ error: "Push notifications are not set up on the server yet" });
+    if (typeof s.endpoint !== "string" || !/^https:\/\//.test(s.endpoint) || s.endpoint.length > 1000 || typeof k.p256dh !== "string" || typeof k.auth !== "string" || k.p256dh.length > 200 || k.auth.length > 100)
+      return res.status(400).json({ error: "Invalid push subscription" });
+    entry = { endpoint: s.endpoint, keys: { p256dh: k.p256dh, auth: k.auth } };
+  }
   const db = readDB();
   const user = db.users.find((u) => u.id === req.user.id);
-  const subs = (user.pushSubs || []).filter((x) => x.endpoint !== s.endpoint);
-  subs.push({ endpoint: s.endpoint, keys: { p256dh: k.p256dh, auth: k.auth }, preview: req.body.preview !== false, groups: req.body.groups !== false, time: Date.now() });
+  const subs = (user.pushSubs || []).filter((x) => x.endpoint !== entry.endpoint);
+  subs.push({ endpoint: entry.endpoint, keys: entry.keys, preview: req.body.preview !== false, groups: req.body.groups !== false, time: Date.now() });
   user.pushSubs = subs.slice(-5); // at most 5 devices per person
   writeDB(db);
   res.json({ ok: true });
@@ -1001,16 +1038,11 @@ function pushMessage(db, convo, message, senderId) {
     const repliedToMe = !!(message.replyTo && message.replyTo.senderId === id);
     if (convo.chatRoom && !(message.mentions || []).includes(id) && !repliedToMe) continue; // Chat Room: only people who are @mentioned or replied to get a push
     for (const sub of u.pushSubs) {
+      if (!canPush(sub)) continue; // browser and Android-app subscriptions each follow their own channel
       if (convo.isGroup && sub.groups === false) continue;
       const mentioned = (message.mentions || []).includes(id);
       const body = sub.preview === false ? (mentioned ? "Mentioned you" : repliedToMe ? "Replied to you" : "New message") : (mentioned ? "\uD83D\uDCE3 Mentioned you: " : repliedToMe ? "\u21A9\uFE0F Replied to you: " : "") + String(message.text || "New message").slice(0, 140);
-      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title, body, tag: "conv-" + convo.id, url: "./", ai: !!message.ai }), { TTL: 86400, urgency: "high" })
-        .catch((err) => {
-          if (err && (err.statusCode === 404 || err.statusCode === 410)) { // device unsubscribed: forget it
-            const d2 = readDB(), u2 = d2.users.find((x) => x.id === id);
-            if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
-          }
-        });
+      deliverPush(id, sub, { title, body, tag: "conv-" + convo.id, url: "./", ai: !!message.ai }, { TTL: 86400, urgency: "high" }); // a dead device (404/410) is forgotten inside
     }
   }
 }
@@ -1822,13 +1854,7 @@ function pushStatusFollowers(db, posterId, s) {
     if (u.id === posterId || !(u.statusNotify || []).includes(posterId) || !(u.pushSubs || []).length || (u.blocked || []).includes(posterId) || !canSeeStatusItem(db, u.id, s)) continue;
     const body = s.text ? String(s.text).slice(0, 90) : "Posted a photo";
     for (const sub of u.pushSubs) {
-      webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title: poster.name + " posted a status", body, tag: "status-" + posterId, url: "./" }), { TTL: 3600, urgency: "normal" })
-        .catch((err) => {
-          if (err && (err.statusCode === 404 || err.statusCode === 410)) {
-            const d2 = readDB(), u2 = d2.users.find((x) => x.id === u.id);
-            if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
-          }
-        });
+      deliverPush(u.id, sub, { title: poster.name + " posted a status", body, tag: "status-" + posterId, url: "./" }, { TTL: 3600, urgency: "normal" });
     }
   }
 }
@@ -2740,13 +2766,7 @@ function pushLive(toId, fromUser, title, tag) {
   const db = readDB(), u = db.users.find((x) => x.id === toId);
   if (!u || !(u.pushSubs || []).length) return;
   for (const sub of u.pushSubs) {
-    webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title: ((fromUser && fromUser.name) || "Someone") + " is live now", body: title || "Tap to watch", tag, url: "./" }), { TTL: 600, urgency: "normal" })
-      .catch((err) => {
-        if (err && (err.statusCode === 404 || err.statusCode === 410)) {
-          const d2 = readDB(), u2 = d2.users.find((x) => x.id === toId);
-          if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
-        }
-      });
+    deliverPush(toId, sub, { title: ((fromUser && fromUser.name) || "Someone") + " is live now", body: title || "Tap to watch", tag, url: "./" }, { TTL: 600, urgency: "normal" });
   }
 }
 // ---- push alert for a call: wakes the other phone even when the app is closed (short TTL so a stale ring never shows later) ----
@@ -2755,13 +2775,7 @@ function pushCall(toId, fromUser, label, tag) {
   const db = readDB(), u = db.users.find((x) => x.id === toId);
   if (!u || !(u.pushSubs || []).length) return;
   for (const sub of u.pushSubs) {
-    webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify({ title: (fromUser && fromUser.name) || "Letschat Africa", body: label, tag, url: "./", call: true }), { TTL: 45, urgency: "high" })
-      .catch((err) => {
-        if (err && (err.statusCode === 404 || err.statusCode === 410)) {
-          const d2 = readDB(), u2 = d2.users.find((x) => x.id === toId);
-          if (u2 && u2.pushSubs) { u2.pushSubs = u2.pushSubs.filter((x) => x.endpoint !== sub.endpoint); writeDB(d2); }
-        }
-      });
+    deliverPush(toId, sub, { title: (fromUser && fromUser.name) || "Letschat Africa", body: label, tag, url: "./", call: true }, { TTL: 45, urgency: "high" });
   }
 }
 // a 1:1 call whose other person was offline when it started: hand it over the moment they open the app
