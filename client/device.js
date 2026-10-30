@@ -257,7 +257,7 @@
     if (!standalone()) return;
     // installed on a computer (Chrome / Edge): the person turns on "start when I sign in" once
     if (isDesktop() && !ls("lc-ka-autostart") && !snoozed("lc-ka-autostart-later") && /chrome|edg/i.test(navigator.userAgent)) {
-      infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose “Start app when you sign in”. Letschat then opens by itself every time you sign in to your computer."],
+      infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose \u201cStart app when you sign in\u201d. Letschat then opens by itself every time you sign in to your computer."],
         [{ label: "Later", fn: function () { snooze("lc-ka-autostart-later", 7); } }, { label: "Done", primary: true, fn: function () { lsSet("lc-ka-autostart", "1"); } }]);
     }
   }
@@ -288,7 +288,7 @@
     else if (isIOS()) {
       steps = b === "safari"
         ? ["1. Tap the Share button (the square with an arrow, at the bottom or top of the screen).", "2. Scroll down and tap Add to Home Screen.", "3. Tap Add. Letschat now opens like a normal app."]
-        : ["1. Tap the Share button (the square with an arrow) in the address bar, or open the ⋯ menu and choose Share.", "2. Tap Add to Home Screen, then Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
+        : ["1. Tap the Share button (the square with an arrow) in the address bar, or open the \u22EF menu and choose Share.", "2. Tap Add to Home Screen, then Add. Letschat now opens like a normal app.", "No Add to Home Screen option? Open this page in Safari and try again."];
       steps.push("iPhone and iPad do not use APK files: Add to Home Screen is the iPhone app.");
     } else if (android && b === "operamini") steps = ["Opera Mini saves data by not running full apps, so Letschat works best in Chrome, Firefox or the full Opera browser.", "Open this page in one of them and tap Install, or download the Letschat app file (APK) with the Download app button."];
     else if (android && b === "opera") steps = ["1. Tap the menu (three dots or the Opera icon).", "2. Tap Add to or Home screen, then Add.", "Or open this page in Chrome and tap Install."];
@@ -386,7 +386,7 @@
     logo.src = "icons/favicon-48.png?v=2"; logo.alt = "";
     var label = el("span", "flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", ios ? "Letschat for iPhone" : "Letschat for Android");
     var go = el("button", "flex:none;height:36px;padding:0 16px;border-radius:8px;border:1px solid #D0D7DE;background:#F6F8FA;color:#1F2328;font:600 15px Inter,Arial,sans-serif;cursor:pointer;", ios ? "Install" : "Download");
-    var x = el("button", "flex:none;width:36px;height:36px;border:0;background:transparent;color:#0969DA;font:400 26px/1 Arial,sans-serif;cursor:pointer;", "×");
+    var x = el("button", "flex:none;width:36px;height:36px;border:0;background:transparent;color:#0969DA;font:400 26px/1 Arial,sans-serif;cursor:pointer;", "\u00D7");
     x.setAttribute("aria-label", "Close");
     function hide() { bar.remove(); document.documentElement.style.removeProperty("--lc-bar"); }
     go.onclick = function () { hide(); snooze("lc-android-bar", 3); if (window.LetschatInstall) window.LetschatInstall.install(); };
@@ -402,6 +402,41 @@
     document.body.appendChild(bar);
   }
   setTimeout(androidBar, 2500);
+
+  // 5f. Early test copies of the Android app. The first Letschat app files (24 and 25 Oct 2026) were signed with a temporary "debug" key, and
+  //     Android never lets a file signed with another key update an installed app: those phones answer "App not installed" to every newer
+  //     Letschat.apk. Those copies open this website inside the app, so once the app proves it is one of them, this card says how to switch
+  //     to the real app (uninstall once, download again). It shows only on positive proof, so a real app, a browser and anything unclear never see it:
+  //       25 Oct copy: the app plugin reports build 1 (the real app reports 101 or higher)
+  //       24 Oct copy: a Capacitor app with no Letschat plugins and without "LetschatApp" in its browser name (every later file has both)
+  function nativeApp() {
+    try { var C = window.Capacitor; return !!(C && typeof C.isNativePlatform === "function" && C.isNativePlatform()); } catch (e) { return false; }
+  }
+  function isOldTestApp() {
+    try {
+      if (!nativeApp()) return Promise.resolve(false);
+      var P = window.Capacitor.Plugins || {}, A = P.App;
+      if (A && typeof A.getInfo === "function") {
+        return Promise.resolve(A.getInfo()).then(function (i) { var b = parseInt(i && i.build, 10); return b > 0 && b < 100; }, function () { return false; });
+      }
+      return Promise.resolve(!P.ChatBubble && !/LetschatApp/.test(navigator.userAgent));
+    } catch (e) { return Promise.resolve(false); }
+  }
+  function showOldAppCard() {
+    var OLD = "lc-old-app", site = location.host || "the Letschat website";
+    infoCard(OLD, "Update the Letschat app",
+      ["This phone has an early test copy of the Letschat app. Android cannot update it, so a newer Letschat file says App not installed.",
+       "Switch once: hold the Letschat icon, tap App info, then Uninstall. Your chats are saved on your account, so just sign in again.",
+       "Then open Chrome, go to " + site + " and tap Download. After that, updates install normally."],
+      [{ label: "Remind me later", fn: function () { snooze(OLD, 1); } }, { label: "OK, got it", primary: true, fn: function () { snooze(OLD, 7); } }]);
+  }
+  var oldTries = 0, oldPoll = setInterval(function () {
+    if (++oldTries > 30) return clearInterval(oldPoll);            // about two minutes of trying, then stop
+    if (snoozed("lc-old-app")) return clearInterval(oldPoll);
+    if (oldTries < 3 || document.hidden || document.getElementById("lc-perm-card")) return; // let the app start and the permission card go first
+    clearInterval(oldPoll);
+    isOldTestApp().then(function (old) { if (old) showOldAppCard(); }).catch(function () {});
+  }, 4000);
 
   // 4. keep the app running: if the app never finished starting, reload once (and again when the connection returns)
   function stuck() { var b = document.getElementById("boot"); return !!(b && document.body.contains(b)); }
