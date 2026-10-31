@@ -7,9 +7,10 @@
       and on Tecno / Infinix / itel phones, once, to open the phone's Auto-start screen (those phones close background apps unless allowed there),
    4. adds the "Floating chat bubble" switch to Settings > Notifications (the bubble shows the sender's photo, a red unread badge
       and, now, the WhatsApp-style message pop-up with the message, reply box, Close and View). On by default; the choice is kept in localStorage "letschat-native:bubble".
+      Skipped when the website already shows its own "Chat head (floating bubble)" switch.
    5. makes the "Push notifications" and "Background alerts" switches work inside the app. The website only knows browser web-push, which the
       Android WebView does not have (it showed "Not supported in this browser"), so here those two switches drive the phone's own
-      notifications and the background service instead.
+      notifications and the background service instead. Rows are found by their title text whatever tags the page uses.
    6. INSTANT PUSH: registers this phone with Firebase Cloud Messaging and gives the token to the Letschat server through the same
       /push/subscribe route the website uses (endpoint = FCM_PREFIX + token; the server's web-push shim sends those through Firebase).
       Messages then arrive within a second or two even when the app is closed. Needs google-services.json in the build; without it
@@ -240,15 +241,30 @@
   hookSockets();
 
   // ---- Settings > Notifications ----
-  // The page is a React app we do not edit, so rows are found by their title and changed in place with the same look.
+  // The page is a React app we do not edit, so rows are found by their title text (any tag) and changed in place with the same look.
+  var SW_SEL = "button[role=switch],[role=switch],input[type=checkbox],button[aria-checked]";
   function rowByTitle(title) {
     try {
-      var t = document.evaluate("//div[normalize-space(text())='" + title + "']", document, null, 9, null).singleNodeValue;
-      var row = t && t.parentElement && t.parentElement.parentElement;
-      return row && row.querySelector("button[role=switch]") ? row : null;
-    } catch (e) { return null; }
+      var snap = document.evaluate("//*[not(self::script) and not(self::style) and normalize-space(text())='" + title + "']", document, null, 7, null);
+      for (var i = 0; i < snap.snapshotLength; i++) {
+        var t = snap.snapshotItem(i), node = t;
+        for (var d = 0; d < 7 && node.parentElement; d++) {
+          node = node.parentElement;
+          var n = node.querySelectorAll(SW_SEL).length;
+          if (n === 1) return { row: node, title: t, sw: node.querySelector(SW_SEL) };
+          if (n > 1) break; // climbed past this row into the whole list
+        }
+      }
+    } catch (e) {}
+    return null;
   }
-  function findRow() { return rowByTitle("Show message preview"); }
+  // The small grey line under a row's title (the element after the title, inside the same row).
+  function descOf(r) {
+    var t = r.title;
+    return (t.nextElementSibling && !t.nextElementSibling.querySelector(SW_SEL) && t.nextElementSibling) ||
+      (t.parentElement && t.parentElement.nextElementSibling && !t.parentElement.nextElementSibling.querySelector(SW_SEL) && t.parentElement.nextElementSibling) || null;
+  }
+  function findRow() { var r = rowByTitle("Show message preview"); return r && r.row; }
   function paintSwitch(btn, on) {
     var v = on ? "true" : "false";
     if (btn.getAttribute("aria-checked") !== v) btn.setAttribute("aria-checked", v);
@@ -258,6 +274,7 @@
   }
   function addSettingRow() {
     if (!BB || document.querySelector("[data-lc-bubble-row]")) return;
+    if (rowByTitle("Chat head (floating bubble)")) return; // the website already has its own chat head switch
     var src = findRow();
     if (!src) return;
     var row = src.cloneNode(true);
@@ -267,7 +284,8 @@
       box.children[0].textContent = "Floating chat bubble";
       box.children[1].textContent = "Show the sender's photo and message in a bubble over other apps when a message arrives.";
     }
-    var btn = row.querySelector("button[role=switch]");
+    var btn = row.querySelector(SW_SEL);
+    if (!btn) return;
     btn.disabled = false;
     btn.style.opacity = "1";
     btn.style.cursor = "pointer";
@@ -291,24 +309,30 @@
   // knows browser web-push, which the Android WebView does not have. Inside the app they now control the phone's own alerts.
   function setText(el, txt) { if (el && el.textContent !== txt) el.textContent = txt; }
   function fixNativeRow(title, desc, isOn, onClick) {
-    var row = rowByTitle(title);
-    if (!row) return;
-    var box = row.firstElementChild;
-    if (box && box.children.length > 1) {
-      setText(box.children[1], desc);
-      if (box.children[1].style && box.children[1].style.color) box.children[1].style.color = ""; // the orange warning colour
+    var r = rowByTitle(title);
+    if (!r) return;
+    var d = descOf(r);
+    if (d) {
+      setText(d, desc);
+      if (d.style && d.style.color) d.style.color = ""; // the orange warning colour
     }
-    var btn = row.querySelector("button[role=switch]");
+    var btn = r.sw;
     if (!btn) return;
     if (btn.disabled) btn.disabled = false;
+    if (btn.removeAttribute) btn.removeAttribute("disabled");
+    if (btn.getAttribute && btn.getAttribute("aria-disabled")) btn.setAttribute("aria-disabled", "false");
     btn.style.opacity = "1";
     btn.style.cursor = "pointer";
-    if (!btn.__lcNative) {
-      btn.__lcNative = true;
-      btn.addEventListener("click", function (ev) {
+    btn.style.pointerEvents = "auto";
+    if (r.row.style) { r.row.style.opacity = "1"; r.row.style.pointerEvents = "auto"; }
+    if (!r.row.__lcNative) {
+      r.row.__lcNative = true;
+      // The whole row listens (capture phase) so a tap on the switch OR its label is handled here before the website sees it.
+      r.row.addEventListener("click", function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
-        onClick(btn);
+        var cur = r.row.querySelector(SW_SEL);
+        if (cur) onClick(cur);
       }, true);
     }
     isOn().then(function (on) { paintSwitch(btn, on); }).catch(noop);
