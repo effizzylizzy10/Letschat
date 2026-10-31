@@ -30,3 +30,12 @@ window.LETSCHAT_CONFIG = {
   if (c.TURN_URLS && c.TURN_URLS.length && c.TURN_USERNAME && c.TURN_CREDENTIAL) ice.push({ urls: c.TURN_URLS, username: c.TURN_USERNAME, credential: c.TURN_CREDENTIAL });
   if (!c.ICE_SERVERS) c.ICE_SERVERS = ice;
 })(window.LETSCHAT_CONFIG);
+// Password manager support on the login / sign-up screens (autofill + "Save password?"): loads autofill.js next to this file.
+(function () {
+  try {
+    var s = document.createElement("script");
+    s.src = "autofill.js";
+    s.defer = true;
+    (document.head || document.documentElement).appendChild(s);
+  } catch (e) {}
+})();
