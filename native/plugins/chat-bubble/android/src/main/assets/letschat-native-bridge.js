@@ -15,13 +15,39 @@
       /push/subscribe route the website uses (endpoint = FCM_PREFIX + token; the server's web-push shim sends those through Firebase).
       Messages then arrive within a second or two even when the app is closed. Needs google-services.json in the build; without it
       registration fails quietly and the 8-second checker keeps working.
-   Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab). */
+   Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab).
+
+   PLUGIN ACCESS: the site is loaded from a web address, so Capacitor does not always put the native plugins on window.Capacitor.Plugins
+   (that list only holds plugins the website's own code registered). This script therefore talks to the native plugins directly through
+   Capacitor's nativePromise / nativeCallback, and uses Capacitor.Plugins only when a plugin is already there. */
 (function () {
   if (window.__lcNativeBridge) return;
   if (!/(^|\.)(letschat-taupe\.vercel\.app|letschatafric\.netlify\.app)$/.test(location.hostname)) return;
   var C = window.Capacitor;
-  if (!C || !C.Plugins) return;
-  var BG = C.Plugins.BackgroundService, BB = C.Plugins.ChatBubble, APP = C.Plugins.App, PN = C.Plugins.PushNotifications;
+  if (!C) return;
+
+  // A handle for a native plugin: the ready-made one when the page has it, otherwise one built on nativePromise / nativeCallback.
+  function plug(name) {
+    var P = C.Plugins && C.Plugins[name];
+    if (P) return P;
+    if (typeof C.nativePromise !== "function" || typeof Proxy !== "function") return null;
+    var cache = {};
+    return new Proxy({}, {
+      get: function (_, m) {
+        if (typeof m !== "string" || m === "then") return undefined;
+        if (!cache[m]) {
+          cache[m] = m === "addListener"
+            ? function (ev, cb) {
+                var id = C.nativeCallback(name, "addListener", { eventName: ev }, cb);
+                return Promise.resolve({ remove: function () { return C.nativeCallback(name, "removeListener", { eventName: ev, callbackId: id }); } });
+              }
+            : function (o) { return C.nativePromise(name, m, o || {}); };
+        }
+        return cache[m];
+      }
+    });
+  }
+  var BG = plug("BackgroundService"), BB = plug("ChatBubble"), APP = plug("App"), PN = plug("PushNotifications");
   if (!BG && !BB) return;
   window.__lcNativeBridge = true;
 
