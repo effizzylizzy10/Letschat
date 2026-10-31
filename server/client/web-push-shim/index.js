@@ -12,6 +12,9 @@
  *     This never needs VAPID keys. The message carries Android settings (for the app) and Web settings (for Chrome); each device uses its own.
  * So who gets a push, when (app in the background only), the message preview and group choices all keep using the existing server logic.
  *
+ * A payload may also carry "image" (a public https link): the Android notification then shows that picture (used by the friend suggestions,
+ * see suggest-push.js). Without "image" nothing changes.
+ *
  * Needs one Render environment variable for the Firebase channel: FIREBASE_SERVICE_ACCOUNT = the service-account JSON (pasted as is, or
  * base64 of it). Without it, Firebase pushes are off (503) and everything else keeps working.
  *
@@ -88,16 +91,19 @@ function sendFcm(token, payload) {
   try { p = JSON.parse(typeof payload === "string" ? payload : String(payload || "{}")) || {}; } catch (e) { p = {}; }
   const tag = String(p.tag || "");
   const tail = String(token || "").slice(-6); // log-safe: never the whole token
+  const image = /^https:\/\/[^\s]{4,1000}$/i.test(String(p.image || "")) ? String(p.image) : ""; // picture shown in the notification (public https only)
   const note = { channelId: CHANNEL_ID, sound: "default", defaultVibrateTimings: true };
   if (tag) note.tag = tag; // same chat = same notification (it updates instead of piling up)
+  if (image) note.imageUrl = image;
   const message = {
     token,
     notification: { title: String(p.title || "Letschat Africa").slice(0, 120), body: String(p.body || "New message").slice(0, 300) },
     // data values must be strings; call / ai let the browser's service worker keep call alerts on screen and show the robot icon
-    data: { tag, chatId: tag.indexOf("conv-") === 0 ? tag.slice(5) : "", url: String(p.url || "./"), call: p.call ? "1" : "", ai: p.ai ? "1" : "" },
+    data: { tag, chatId: tag.indexOf("conv-") === 0 ? tag.slice(5) : "", url: String(p.url || "./"), call: p.call ? "1" : "", ai: p.ai ? "1" : "", suggest: p.suggest ? "1" : "", image },
     android: { priority: "high", ttl: 86400000, notification: note },
     webpush: { headers: { Urgency: "high", TTL: "86400" } }, // Chrome: deliver now, keep for a day
   };
+  if (image) message.notification.imageUrl = image;
   let sent;
   try { sent = m.send(message); } catch (err) { sent = Promise.reject(err); }
   return Promise.resolve(sent).then((id) => {
