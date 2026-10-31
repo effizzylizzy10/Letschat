@@ -1,5 +1,6 @@
 name: Build native Android APK (Capacitor 8)
-# Tap Actions > "Build native Android APK (Capacitor 8)" > Run workflow.
+# Runs by itself on every push to main that changes native/, client/ or the signing/validation tools.
+# You can also tap Actions > "Build native Android APK (Capacitor 8)" > Run workflow.
 # About 10 minutes later the finished Letschat.apk is under "Artifacts".
 # It is signed with YOUR letschat key (from the two secrets below), so it installs over the old Letschat app.
 # Secrets needed: Settings > Secrets and variables > Actions >
@@ -10,6 +11,18 @@ name: Build native Android APK (Capacitor 8)
 # Capacitor 8 needs Node 22+, JDK 21 and Android SDK 36.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "native/**"
+      - "client/**"
+      - "tools/check-signing.sh"
+      - "tools/validate-apk.sh"
+      - ".github/workflows/build-native-apk.yml"
+concurrency:
+  group: native-apk-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -65,16 +78,4 @@ jobs:
             --out "$GITHUB_WORKSPACE/Letschat.apk" "$RUNNER_TEMP/aligned.apk"
           rm -f "$KS"
           GOT=$($BT/apksigner verify --print-certs "$GITHUB_WORKSPACE/Letschat.apk" | grep -i "SHA-256" | head -1 | sed 's/.*digest:[[:space:]]*//')
-          norm() { printf '%s' "$1" | tr -d ': \r\n' | tr 'a-f' 'A-F'; }
-          echo "APK certificate SHA-256: $GOT"
-          if [ "$(norm "$GOT")" != "$(norm "$EXPECTED_SHA256")" ]; then
-            echo "::error title=Wrong signature::The finished APK is not signed with the Letschat key, so it would not install over the app you have."
-            exit 1
-          fi
-          echo "Signed with the Letschat key: it installs over the existing app."
-      - name: Validate the finished APK
-        run: bash tools/validate-apk.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Letschat-apk
-          path: Letschat.apk
+          norm() { printf '%s' "
