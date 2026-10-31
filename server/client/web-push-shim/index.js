@@ -1,18 +1,19 @@
 "use strict";
 /*
- * Letschat instant push for the Android app.
+ * Letschat instant push for the Android app and for browsers (both through Firebase Cloud Messaging).
  *
  * server.js keeps calling webpush.sendNotification({ endpoint, keys }, payload, options) exactly as before. This file is installed under the
  * name "web-push" (see package.json: "web-push": "file:web-push-shim") and the real library is installed as "web-push-real".
  * Two channels, each independent of the other:
- *   - Browser Web Push (VAPID): a normal browser subscription goes straight to the real web-push (nothing changes for the website).
+ *   - Classic browser Web Push (VAPID): an old-style browser subscription goes straight to the real web-push.
  *     It never touches Firebase, and it works with no Firebase settings at all.
- *   - Android app (FCM): the app registers its Firebase token through the SAME /push/subscribe route, using an endpoint that starts with
- *     FCM_PREFIX followed by the token. Those are sent through Firebase Cloud Messaging here instead. This never needs VAPID keys.
+ *   - Firebase (FCM): the Android app AND the browser (push.js) register their Firebase token through the SAME /push/subscribe route, using an
+ *     endpoint that starts with FCM_PREFIX followed by the token. Those are sent through Firebase Cloud Messaging here instead.
+ *     This never needs VAPID keys. The message carries Android settings (for the app) and Web settings (for Chrome); each device uses its own.
  * So who gets a push, when (app in the background only), the message preview and group choices all keep using the existing server logic.
  *
- * Needs one Render environment variable for the Android channel: FIREBASE_SERVICE_ACCOUNT = the service-account JSON (pasted as is, or
- * base64 of it). Without it, app pushes are off (503) and everything else keeps working.
+ * Needs one Render environment variable for the Firebase channel: FIREBASE_SERVICE_ACCOUNT = the service-account JSON (pasted as is, or
+ * base64 of it). Without it, Firebase pushes are off (503) and everything else keeps working.
  *
  * Secrets: the service-account JSON (private key included) is never printed. Log lines carry only the project id and a redacted reason.
  * Send results are logged too (success, or the Firebase error code) with only the last 6 characters of the device token.
@@ -92,8 +93,10 @@ function sendFcm(token, payload) {
   const message = {
     token,
     notification: { title: String(p.title || "Letschat Africa").slice(0, 120), body: String(p.body || "New message").slice(0, 300) },
-    data: { tag, chatId: tag.indexOf("conv-") === 0 ? tag.slice(5) : "", url: String(p.url || "./") },
+    // data values must be strings; call / ai let the browser's service worker keep call alerts on screen and show the robot icon
+    data: { tag, chatId: tag.indexOf("conv-") === 0 ? tag.slice(5) : "", url: String(p.url || "./"), call: p.call ? "1" : "", ai: p.ai ? "1" : "" },
     android: { priority: "high", ttl: 86400000, notification: note },
+    webpush: { headers: { Urgency: "high", TTL: "86400" } }, // Chrome: deliver now, keep for a day
   };
   let sent;
   try { sent = m.send(message); } catch (err) { sent = Promise.reject(err); }
