@@ -73,9 +73,19 @@ jobs:
           KS="$RUNNER_TEMP/letschat.keystore"
           ./gradlew assembleRelease --no-daemon
           $BT/zipalign -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
-          $BT/apksigner sign --ks "$KS" --ks-key-alias letschat \
-            --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS \
-            --out "$GITHUB_WORKSPACE/Letschat.apk" "$RUNNER_TEMP/aligned.apk"
+          $BT/apksigner sign --ks "$KS" --ks-key-alias letschat --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out "$GITHUB_WORKSPACE/Letschat.apk" "$RUNNER_TEMP/aligned.apk"
           rm -f "$KS"
-          GOT=$($BT/apksigner verify --print-certs "$GITHUB_WORKSPACE/Letschat.apk" | grep -i "SHA-256" | head -1 | sed 's/.*digest:[[:space:]]*//')
-          norm() { printf '%s' "
+          GOT=$($BT/apksigner verify --print-certs "$GITHUB_WORKSPACE/Letschat.apk" | grep -i "SHA-256" | head -1 | sed 's/.*digest:[[:space:]]*//' | tr -d ':[:space:]' | tr 'a-f' 'A-F')
+          WANT=$(echo "$EXPECTED_SHA256" | tr -d ':' | tr 'a-f' 'A-F')
+          echo "APK certificate SHA-256: $GOT"
+          if [ "$GOT" != "$WANT" ]; then
+            echo "::error title=Wrong signature::The APK is not signed with the Letschat key."
+            exit 1
+          fi
+          echo "Signed with the Letschat key."
+      - name: Validate the finished APK
+        run: bash tools/validate-apk.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Letschat-apk
+          path: Letschat.apk
