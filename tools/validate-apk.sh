@@ -2,7 +2,8 @@
 # Opens the finished, signed Letschat.apk and checks it. Exits with an error (so no artifact is uploaded) if anything is wrong.
 # Checks: file exists, valid v2/v3 signature, certificate = Letschat key, package ID, versionCode/versionName
 # (same numbers apply.sh set from the run number), minSdk >= 24, targetSdk >= 35, not debuggable,
-# no mandatory camera/microphone/location/Bluetooth hardware. Prints only public information.
+# no mandatory camera/microphone/location/Bluetooth hardware, and the injected native bridge script parses as valid JavaScript
+# (a truncated bridge once shipped and silently killed the push / background switches). Prints only public information.
 #
 # Used from build-native-apk.yml, after the "Build, then sign" step:
 #   - name: Validate the finished APK
@@ -53,13 +54,26 @@ if grep -Eq "^uses-feature:'android\.hardware\.(camera|microphone|location|bluet
   fail "Camera, microphone, location or Bluetooth is declared as required hardware."
 fi
 
+# 3b. The injected native bridge must exist and be valid JavaScript, and must contain its last function (a cut-off file fails here).
+BR="$TMP/letschat-native-bridge.js"
+unzip -p "$APK" assets/letschat-native-bridge.js > "$BR" 2>/dev/null || fail "assets/letschat-native-bridge.js is missing from the APK."
+[ -s "$BR" ] || fail "assets/letschat-native-bridge.js is empty."
+if ! node --check "$BR" 2> "$TMP/bridge-check.txt"; then
+  cat "$TMP/bridge-check.txt"
+  fail "letschat-native-bridge.js has a JavaScript syntax error (the push, background and bubble switches would not work)."
+fi
+grep -q "bubbleTapped" "$BR" || fail "letschat-native-bridge.js looks cut off (the bubbleTapped handler at its end is missing)."
+grep -q "FCM_PREFIX" "$BR" || fail "letschat-native-bridge.js has no Firebase push code."
+echo "Native bridge script: valid."
+
 # 4. Report
 {
   echo "### Letschat APK validation"
   echo "- Package: \`$PKG\`"
-  echo "- versionCode / versionName: \`$VCODE\` / \`$VNAME\`"
+  echo "- versionCode / versionName: \`$VCODE\` / \`$VNAME\` (Android Settings > Apps > Letschat > App info shows this version, so you can tell which build is installed)"
   echo "- minSdk / targetSdk: \`$MINSDK\` / \`$TARGET\`"
   echo "- Certificate SHA-256: \`$GOT\`"
+  echo "- Native bridge script: valid JavaScript"
   echo "- Native library ABIs: \`$(unzip -Z1 "$APK" | grep '^lib/' | cut -d/ -f2 | sort -u | tr '\n' ' ' || true)\` (empty means none)"
   echo "- Permissions:"
   grep '^uses-permission' "$TMP/badging.txt" | sed -E "s/.*name='([^']*)'.*/  - \`\1\`/" || true
