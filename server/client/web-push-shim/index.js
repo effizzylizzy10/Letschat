@@ -15,6 +15,7 @@
  * base64 of it). Without it, app pushes are off (503) and everything else keeps working.
  *
  * Secrets: the service-account JSON (private key included) is never printed. Log lines carry only the project id and a redacted reason.
+ * Send results are logged too (success, or the Firebase error code) with only the last 6 characters of the device token.
  */
 let real = null;
 try { real = require("web-push-real"); } catch (e) { console.warn("[push] web-push-real is not installed: browser push is off, Android app push can still work"); }
@@ -81,10 +82,11 @@ function fail(message, statusCode) {
 
 function sendFcm(token, payload) {
   const m = getMessaging();
-  if (!m) return Promise.reject(fail("Firebase Cloud Messaging is not set up on the server", 503));
+  if (!m) { console.warn("[fcm] push skipped: Firebase Cloud Messaging is not set up on the server"); return Promise.reject(fail("Firebase Cloud Messaging is not set up on the server", 503)); }
   let p = {};
   try { p = JSON.parse(typeof payload === "string" ? payload : String(payload || "{}")) || {}; } catch (e) { p = {}; }
   const tag = String(p.tag || "");
+  const tail = String(token || "").slice(-6); // log-safe: never the whole token
   const note = { channelId: CHANNEL_ID, sound: "default", defaultVibrateTimings: true };
   if (tag) note.tag = tag; // same chat = same notification (it updates instead of piling up)
   const message = {
@@ -95,11 +97,16 @@ function sendFcm(token, payload) {
   };
   let sent;
   try { sent = m.send(message); } catch (err) { sent = Promise.reject(err); }
-  return Promise.resolve(sent).catch((err) => {
+  return Promise.resolve(sent).then((id) => {
+    console.log("[fcm] sent ok tag=" + (tag || "-") + " device=..." + tail);
+    return id;
+  }, (err) => {
     const code = (err && err.code) || "";
     const gone = code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token";
+    const clean = String(code).replace(/[^a-z0-9\/-]/gi, "") || "failed";
     // only the Firebase error code is reported, never the raw message
-    throw fail("FCM: " + (String(code).replace(/[^a-z0-9\/-]/gi, "") || "failed"), gone ? 410 : 502);
+    console.warn("[fcm] send failed: " + clean + " device=..." + tail + (gone ? " (token removed)" : ""));
+    throw fail("FCM: " + clean, gone ? 410 : 502);
   });
 }
 
