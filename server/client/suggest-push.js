@@ -139,6 +139,13 @@ async function run(force) {
         (force || now - (lastBurst.get(u.id) || 0) >= c.everyHours * HOUR))
       .sort((a, b) => (lastBurst.get(a.id) || 0) - (lastBurst.get(b.id) || 0))
       .slice(0, c.perRun);
+    if (force || due.length) { // say what was found, so a quiet run can be explained from the Render logs
+      const withPush = db.users.filter((u) => u && u.id && pushable(u).length).length;
+      const target = c.testUser ? db.users.find((u) => u && String(u.username || "").toLowerCase() === c.testUser) : null;
+      console.log("[suggest] check: " + db.users.length + " users, " + withPush + " with a push device" +
+        (c.testUser ? "; test user " + (target ? "found, " + (Array.isArray(target.pushSubs) ? target.pushSubs.length : 0) + " push device(s) registered, " + pushable(target).length + " usable" : "NOT found (check SUGGEST_TEST_USERNAME)") : "") +
+        "; " + due.length + " due");
+    }
     let people = 0, notes = 0;
     for (const v of due) {
       const picks = pick(v, db, partners, c);
@@ -190,8 +197,11 @@ function attach(context) {
   const every = setInterval(() => run(false), c.checkMin * 60 * 1000);
   if (every.unref) every.unref();
   if (c.testUser && String(process.env.SUGGEST_RUN_NOW || "") === "1") {
+    console.log("[suggest] test batch for " + c.testUser + " will be sent in 20 seconds");
     const t = setTimeout(() => run(true), 20 * 1000);
     if (t.unref) t.unref();
+  } else if (c.testUser) {
+    console.log("[suggest] test user is set but SUGGEST_RUN_NOW is not 1, so no test batch will be sent");
   }
 }
 
