@@ -22,7 +22,7 @@
  *   SUGGEST_TZ_OFFSET=1         hours from UTC for those local hours (Nigeria = 1)
  *   SUGGEST_CHECK_MIN=30        how often the server looks for people who are due
  *   SUGGEST_MAX_PER_RUN=200     most people handled in one look
- *   SUGGEST_TEST_USERNAME=me    send ONLY to this username (for testing)
+ *   SUGGEST_TEST_USERNAME=me    send ONLY to this person (username, display name or email) for testing
  *   SUGGEST_RUN_NOW=1           with SUGGEST_TEST_USERNAME: send one batch 20 seconds after the server starts, ignoring the time window
  */
 const fs = require("fs");
@@ -48,7 +48,7 @@ function cfg() {
     tz: num(process.env.SUGGEST_TZ_OFFSET, 1),
     checkMin: Math.max(5, num(process.env.SUGGEST_CHECK_MIN, 30)),
     perRun: Math.max(1, Math.floor(num(process.env.SUGGEST_MAX_PER_RUN, 200))),
-    testUser: String(process.env.SUGGEST_TEST_USERNAME || "").trim().toLowerCase(),
+    testUser: String(process.env.SUGGEST_TEST_USERNAME || "").trim().replace(/^@/, "").toLowerCase(),
     base: String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, ""),
   };
 }
@@ -72,6 +72,8 @@ function saveState() {
 
 const fullName = (u) => String((u && (u.name || u.username)) || "").trim().slice(0, 40);
 const firstName = (u) => fullName(u).split(/\s+/)[0] || "there";
+// the test person may be given by username, display name or email
+const isTest = (u, c) => !!u && [u.username, u.name, u.email].some((x) => String(x || "").trim().toLowerCase() === c.testUser);
 const pushable = (u) => (Array.isArray(u && u.pushSubs) ? u.pushSubs : []).filter((s) => s && s.endpoint && ctx.canPush(s));
 
 // a public https address for the person's photo, or null when they have none (notification images must be public https links)
@@ -135,15 +137,16 @@ async function run(force) {
     const partners = partnersMap(db);
     const due = db.users
       .filter((u) => u && u.id && pushable(u).length &&
-        (!c.testUser || String(u.username || "").toLowerCase() === c.testUser) &&
+        (!c.testUser || isTest(u, c)) &&
         (force || now - (lastBurst.get(u.id) || 0) >= c.everyHours * HOUR))
       .sort((a, b) => (lastBurst.get(a.id) || 0) - (lastBurst.get(b.id) || 0))
       .slice(0, c.perRun);
     if (force || due.length) { // say what was found, so a quiet run can be explained from the Render logs
       const withPush = db.users.filter((u) => u && u.id && pushable(u).length).length;
-      const target = c.testUser ? db.users.find((u) => u && String(u.username || "").toLowerCase() === c.testUser) : null;
+      const target = c.testUser ? db.users.find((u) => isTest(u, c)) : null;
+      const names = db.users.filter((u) => u && u.id && pushable(u).length).map((u) => u.username || u.name || "?").slice(0, 10).join(", ");
       console.log("[suggest] check: " + db.users.length + " users, " + withPush + " with a push device" +
-        (c.testUser ? "; test user " + (target ? "found, " + (Array.isArray(target.pushSubs) ? target.pushSubs.length : 0) + " push device(s) registered, " + pushable(target).length + " usable" : "NOT found (check SUGGEST_TEST_USERNAME)") : "") +
+        (c.testUser ? "; test user " + (target ? "found, " + (Array.isArray(target.pushSubs) ? target.pushSubs.length : 0) + " push device(s) registered, " + pushable(target).length + " usable" : "NOT found; users with a push device: " + (names || "none")) : "") +
         "; " + due.length + " due");
     }
     let people = 0, notes = 0;
