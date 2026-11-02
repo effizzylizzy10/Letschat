@@ -4,8 +4,10 @@
  *
  * How it works (no change to app.js needed):
  *  1. A capture-phase click listener on the document catches taps on any <a href> that points to YouTube.
- *  2. window.open() and the Capacitor Browser plugin are wrapped, so links opened from code also play in the app.
- *  3. The player is a full-screen overlay with the official YouTube embed (youtube-nocookie.com). Android Back, the Escape
+ *  2. Plain-text YouTube links (not made into <a> by the app) are caught too: the tap position is mapped to the text under the
+ *     finger, and only a tap ON the link text starts the player (tapping the rest of a message or chat row behaves as before).
+ *  3. window.open() and the Capacitor Browser plugin are wrapped, so links opened from code also play in the app.
+ *  4. The player is a full-screen overlay with the official YouTube embed (youtube-nocookie.com). Android Back, the Escape
  *     key and the X button close it. "Open in YouTube" is always shown for videos whose owner blocked embedding.
  * Old-phone friendly: plain ES5, no libraries.
  */
@@ -16,6 +18,8 @@
 
   var ID_RE = /^[A-Za-z0-9_-]{6,15}$/;
   var LIST_RE = /^[A-Za-z0-9_-]{10,60}$/;
+  // a YouTube address inside plain text, with or without "https://" and "www."
+  var TEXT_URL_RE = /(?:https?:\/\/)?(?:[a-z0-9-]+\.)*(?:youtube\.com|youtube-nocookie\.com|youtu\.be)\/[^\s<>"'()\[\]{}]+/ig;
   var overlay = null, pushed = false, prevOverflow = "";
 
   // "1h2m3s", "90s" or "90" -> seconds
@@ -30,6 +34,8 @@
   // Returns { id, list, start, shorts, url } for a YouTube link, or null for anything else.
   function parse(href) {
     if (!href || typeof href !== "string") return null;
+    href = href.trim();
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(href) && /^(?:[a-z0-9-]+\.)*(?:youtube\.com|youtube-nocookie\.com|youtu\.be)\//i.test(href)) href = "https://" + href;
     var u;
     try { u = new URL(href, location.href); } catch (e) { return null; }
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
@@ -135,21 +141,59 @@
 
   window.addEventListener("popstate", function () { if (overlay) { pushed = false; close(true); } });
 
-  // 1. taps on links (capture phase: runs before the app's own handlers)
+  // The text node (and character position) under a tap, or null
+  function textAt(x, y) {
+    try {
+      if (document.caretRangeFromPoint) {
+        var r = document.caretRangeFromPoint(x, y);
+        if (r && r.startContainer && r.startContainer.nodeType === 3) return { node: r.startContainer, offset: r.startOffset };
+      } else if (document.caretPositionFromPoint) {
+        var p = document.caretPositionFromPoint(x, y);
+        if (p && p.offsetNode && p.offsetNode.nodeType === 3) return { node: p.offsetNode, offset: p.offset };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // A YouTube address written as plain text, only when the tap is on that text
+  function plainTextLink(e) {
+    if (typeof e.clientX !== "number" || (e.clientX === 0 && e.clientY === 0)) return null;
+    var at = textAt(e.clientX, e.clientY);
+    if (!at) return null;
+    var text = at.node.nodeValue || "";
+    if (!text || text.length > 4000) return null;
+    var host = at.node.parentElement;
+    if (host && host.closest && host.closest("input,textarea,select,[contenteditable=\"true\"],[contenteditable=\"\"],#lc-yt-player")) return null;
+    var m, re = new RegExp(TEXT_URL_RE.source, "ig");
+    while ((m = re.exec(text))) {
+      var s = m.index, end = s + m[0].length;
+      // the tap must land on (or touch the edge of) the address; trailing punctuation is not part of it
+      if (at.offset >= s && at.offset <= end) {
+        var v = parse(m[0].replace(/[.,;:!?]+$/, ""));
+        if (v) return v;
+      }
+    }
+    return null;
+  }
+
+  // 1 + 2. taps on links (capture phase: runs before the app's own handlers)
   document.addEventListener("click", function (e) {
-    if (e.defaultPrevented && !overlay) { /* the app already handled it; still ours to take over below */ }
     if (e.button && e.button !== 0) return;
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     var t = e.target;
     if (!t || !t.closest) return;
-    var a = t.closest("a[href]");
-    if (!a || a.getAttribute("data-lc-yt-skip")) return;
-    var v = parse(a.href);
+    if (overlay && overlay.contains(t)) return;
+    var v = null, a = t.closest("a[href]");
+    if (a) {
+      if (a.getAttribute("data-lc-yt-skip")) return;
+      v = parse(a.href);
+    }
+    if (!v) v = plainTextLink(e);
     if (!v) return;
     if (open(v)) { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); }
   }, true);
 
-  // 2. links opened from code
+  // 3. links opened from code
   var realOpen = window.open;
   window.open = function (url) {
     var v = typeof url === "string" ? parse(url) : null;
