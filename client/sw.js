@@ -1,4 +1,4 @@
-// Letschat Africa service worker (v72: Data Saver aware, maskable icons saved for offline, safer cleanup, v69: instant start from the saved app, background refresh, early server wake-up, fully offline-safe:
+// Letschat Africa service worker (v73: saves ytplayer.js (in-app YouTube player) for offline and keeps it fresh, v72: Data Saver aware, maskable icons saved for offline, safer cleanup, v69: instant start from the saved app, background refresh, early server wake-up, fully offline-safe:
 //   React / Firebase / Socket.IO are saved at install time, so the very first offline open boots; offline.js keeps chats and queued messages)
 // Built for: modern phones, iPhone Safari, Phoenix and other Chromium forks, old Android / KaiOS keypad phones.
 // - Page and app code: served from the device at once (no waiting for the network), then refreshed in the background. Every deploy
@@ -12,7 +12,7 @@
 //   keeps fewer photos, so it uses little storage and little data.
 // - Never touches the API, sockets, Lite pages (/lite), sends, uploads or audio/video range requests.
 // - Syntax stays simple on purpose (no optional catch binding, no async/await): old browsers must still be able to parse it.
-var VERSION = "letschat-shell-v72"; // bump (v57, v58...) to make every device drop its old copy
+var VERSION = "letschat-shell-v73"; // bump (v57, v58...) to make every device drop its old copy
 var CACHE = VERSION;
 var IMGS = "letschat-images-v1";    // profile, status and market photos
 var LIBS = "letschat-libs-v1";      // pinned library versions never change, so this cache is kept across updates
@@ -28,7 +28,7 @@ var MAX_IMAGES = LITE ? 60 : 400;
 // icon, sound or picture never blocks an update.
 var SHELL = ["./", "./index.html", "./app.js", "./config.js", "./polyfills.js", "./compat.js", "./responsive.js", "./responsive.css", "./device.js", "./offline.js", "./brain.js", "./manifest.json"];
 if (!LITE) SHELL.push("./push.js", "./reactions.js", "./live.js");
-var EXTRAS = ["./app.legacy.js", "./icons/icon-192.png", "./icons/icon-maskable-192.png", "./icons/favicon-48.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE || SAVE ? [] : ["./icons/icon-512.png", "./icons/icon-maskable-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
+var EXTRAS = ["./ytplayer.js", "./app.legacy.js", "./icons/icon-192.png", "./icons/icon-maskable-192.png", "./icons/favicon-48.png", "./icons/ai-bot-128.png", "./icons/update-banner.jpg", "./icons/chat-room.jpg"].concat(LITE || SAVE ? [] : ["./icons/icon-512.png", "./icons/icon-maskable-512.png", "./icons/ai-bot.png", "./swoosh.mp3", "./typing.wav", "./wallpaper-dark.webp", "./wallpaper-color.webp"]);
 
 // Third-party files whose URL contains an exact version number: safe to keep forever.
 var PINNED = [
@@ -54,7 +54,7 @@ var FONT_CSS = /^https:\/\/fonts\.googleapis\.com\//;
 var FONT_FILE = /^https:\/\/fonts\.gstatic\.com\//;
 
 // the app's own code and small config files: saved copy first (instant), refreshed in the background
-var FRESH = /\/(app|app\.legacy|config|push|reactions|live|offline|brain|responsive|compat|device|polyfills)\.(js|css)$|\/manifest\.json$/;
+var FRESH = /\/(app|app\.legacy|config|push|reactions|live|offline|brain|responsive|compat|device|polyfills|ytplayer)\.(js|css)$|\/manifest\.json$/;
 
 // photos served by the API (versioned URLs)
 var IMAGE_API = /\/api\/(?:v1\/)?(?:users\/[^/]+\/(?:avatar|cover)|groups\/[^/]+\/avatar|status\/[^/]+\/photo|market\/[^/]+\/photo|catalog\/[^/]+\/[^/]+\/photo)/;
