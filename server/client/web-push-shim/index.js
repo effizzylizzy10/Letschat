@@ -125,7 +125,7 @@ function buildMessage(token, p) {
   const badge = Number.isFinite(Number(p.badge)) && Number(p.badge) >= 0 ? Math.min(99999, Math.floor(Number(p.badge))) : null;
   const ttlMs = isCall ? CALL_TTL_MS : MESSAGE_TTL_MS;
 
-  const note = { channelId: CHANNEL_ID, sound: "default", defaultVibrateTimings: true, visibility: "private" };
+  const note = { channelId: CHANNEL_ID, sound: "default", defaultVibrateTimings: true };
   if (tag) note.tag = tag; // same chat = same notification (it updates instead of piling up)
   if (image) note.imageUrl = image;
   if (badge !== null && badge > 0) note.notificationCount = badge;
@@ -145,19 +145,17 @@ function buildMessage(token, p) {
     },
     android: { priority: "high", ttl: ttlMs, notification: note },
     apns: {
-      headers: {
+      headers: Object.assign({
         "apns-priority": "10",
         "apns-push-type": "alert",
         "apns-expiration": String(Math.floor((Date.now() + ttlMs) / 1000)),
-        ...(tag ? { "apns-collapse-id": tag.slice(0, 64) } : {}),
-      },
+      }, tag ? { "apns-collapse-id": tag.slice(0, 64) } : {}),
       payload: { aps },
-      ...(image ? { fcmOptions: { imageUrl: image } } : {}),
     },
     webpush: { headers: { Urgency: "high", TTL: String(Math.floor(ttlMs / 1000)) } }, // Chrome: deliver now, keep it for a day (a call: 45 s)
   };
+  if (image) { message.notification.imageUrl = image; message.apns.fcmOptions = { imageUrl: image }; }
   if (tag && !isCall) message.android.collapseKey = tag.slice(0, 64);
-  if (image) message.notification.imageUrl = image;
   return message;
 }
 
