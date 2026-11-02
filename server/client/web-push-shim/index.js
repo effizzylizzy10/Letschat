@@ -19,6 +19,9 @@
  *   "call"   true for a ringing call: short lifetime (a call that is 45 s old is no longer ringing), never merged with another alert
  *   "badge"  a number: the unread count shown on the app icon (iOS badge, Android notification count)
  *   "type"   a short text such as "message", "group", "call" (passed to the app as data)
+ *   "silent" true: no sound on iPhone and in browsers (set from the person's Sound switch). On Android 8+ the sound belongs to the
+ *            notification channel, so the app applies that switch itself; the server cannot change it per message.
+ *   "noVibrate" true: no vibration in browsers (same note for Android)
  * Without them nothing changes.
  *
  * Reliability (v2):
@@ -130,7 +133,8 @@ function buildMessage(token, p) {
   if (image) note.imageUrl = image;
   if (badge !== null && badge > 0) note.notificationCount = badge;
 
-  const aps = { sound: "default", "mutable-content": 1, category: isCall ? "LETSCHAT_CALL" : "LETSCHAT_MESSAGE" };
+  const aps = { "mutable-content": 1, category: isCall ? "LETSCHAT_CALL" : "LETSCHAT_MESSAGE" };
+  if (!p.silent) aps.sound = "default";
   if (tag) aps["thread-id"] = tag; // iOS groups notifications of one chat together
   if (badge !== null) aps.badge = badge;
   if (isCall) aps["interruption-level"] = "time-sensitive";
@@ -142,6 +146,7 @@ function buildMessage(token, p) {
     data: {
       tag, chatId: tag.indexOf("conv-") === 0 ? tag.slice(5) : "", url: String(p.url || "./"), call: isCall ? "1" : "", ai: p.ai ? "1" : "",
       suggest: p.suggest ? "1" : "", image, type: String(p.type || (isCall ? "call" : "message")).slice(0, 40), badge: badge === null ? "" : String(badge),
+      silent: p.silent ? "1" : "", noVibrate: p.noVibrate ? "1" : "",
     },
     android: { priority: "high", ttl: ttlMs, notification: note },
     apns: {
@@ -154,6 +159,7 @@ function buildMessage(token, p) {
     },
     webpush: { headers: { Urgency: "high", TTL: String(Math.floor(ttlMs / 1000)) } }, // Chrome: deliver now, keep it for a day (a call: 45 s)
   };
+  if (p.silent || p.noVibrate) message.webpush.notification = Object.assign({}, p.silent ? { silent: true } : {}, p.noVibrate ? { vibrate: [] } : {});
   if (image) { message.notification.imageUrl = image; message.apns.fcmOptions = { imageUrl: image }; }
   if (tag && !isCall) message.android.collapseKey = tag.slice(0, 64);
   return message;
