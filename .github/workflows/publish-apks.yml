@@ -1,0 +1,66 @@
+name: Publish latest APKs to the repo
+# After "Build native Android APK (Capacitor 8)" or "Build legacy Android APK" finishes green on main, this takes the
+# freshly built, Letschat-signed APK and replaces the copy committed for website download:
+#   Letschat-apk         -> client/Letschat.apk
+#   Letschat-legacy-apk  -> client/Letschat-legacy.apk
+# Before committing it runs the same publish guard as pull requests (tools/check-published-apks.sh): right package ID,
+# not debuggable, signed with the Letschat key, and a higher versionCode than the one it replaces. If a check fails
+# nothing is committed. A commit made here does not start another build (GitHub does not chain runs started by
+# the built-in token), so there is no build loop. Vercel still deploys the new file.
+# You can also tap Actions > "Publish latest APKs to the repo" > Run workflow to publish the newest green builds now.
+on:
+  workflow_run:
+    workflows:
+      - "Build native Android APK (Capacitor 8)"
+      - "Build legacy Android APK (Android 5-6, Trusted Web Activity)"
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: publish-apks
+  cancel-in-progress: false
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_SHA256: F5:A5:15:F3:EA:6A:31:7B:05:9C:7F:10:7E:AE:7F:94:0B:61:95:75:58:B1:CC:57:5F:E8:07:E7:CC:FD:F7:D8
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Download the newest green build of each APK
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/new"
+          fetch() { # $1 = workflow file, $2 = artifact name, $3 = file name
+            RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$1" --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            if [ -z "$RUN" ]; then echo "No green run of $1 on main yet: $3 left as it is."; return 0; fi
+            echo "$3 comes from run $RUN of $1"
+            gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "$2" --dir "$RUNNER_TEMP/new/$2" || { echo "Artifact $2 of run $RUN is gone (expired?): $3 left as it is."; return 0; }
+            cp "$RUNNER_TEMP/new/$2/$3" "client/$3"
+          }
+          fetch build-native-apk.yml Letschat-apk Letschat.apk
+          fetch build-apk.yml Letschat-legacy-apk Letschat-legacy.apk
+      - name: Check the APKs (same guard as pull requests)
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- client/Letschat.apk client/Letschat-legacy.apk; then echo "Both APKs are already the latest build."; exit 0; fi
+          export BASE_REF=HEAD
+          bash tools/check-published-apks.sh
+      - name: Commit the new APKs to main
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- client/Letschat.apk client/Letschat-legacy.apk; then echo "Nothing to publish."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client/Letschat.apk client/Letschat-legacy.apk
+          git commit -m "Publish latest APK build(s) to client/"
+          git pull --rebase origin main
+          git push origin HEAD:main
