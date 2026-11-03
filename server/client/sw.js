@@ -12,7 +12,7 @@
 //   keeps fewer photos, so it uses little storage and little data.
 // - Never touches the API, sockets, Lite pages (/lite), sends, uploads or audio/video range requests.
 // - Syntax stays simple on purpose (no optional catch binding, no async/await): old browsers must still be able to parse it.
-var VERSION = "letschat-shell-v72"; // bump (v57, v58...) to make every device drop its old copy
+var VERSION = "letschat-shell-v73"; // bump (v57, v58...) to make every device drop its old copy
 var CACHE = VERSION;
 var IMGS = "letschat-images-v1";    // profile, status and market photos
 var LIBS = "letschat-libs-v1";      // pinned library versions never change, so this cache is kept across updates
@@ -225,20 +225,25 @@ self.addEventListener("fetch", function (e) {
 });
 
 // ---- Web push: show a notification even when the app is closed ----
+// Two message shapes arrive here: classic web push is flat { title, body, tag, url }, and Firebase (FCM) is
+// { notification: { title, body }, data: { tag, url, ... } }. Both are shown the same way.
 self.addEventListener("push", function (e) {
   wakeServer();
   var d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data ? e.data.text() : "" }; }
-  e.waitUntil(self.registration.showNotification(d.title || "Letschat Africa", {
-    body: d.body || "New message",
-    tag: d.tag || "letschat",       // same chat = one notification, updated
+  var n = d.notification || {}, x = d.data || {};
+  var title = d.title || n.title, body = d.body || n.body, tag = d.tag || x.tag, url = d.url || x.url;
+  var call = d.call || x.call, ai = d.ai || x.ai;
+  e.waitUntil(self.registration.showNotification(title || "Letschat Africa", {
+    body: body || "New message",
+    tag: tag || "letschat",         // same chat = one notification, updated
     renotify: true,
-    requireInteraction: !!d.call,                          // a call alert stays on screen until it is tapped or dismissed
-    vibrate: d.call ? [400, 200, 400, 200, 400] : undefined,
-    icon: d.ai ? "icons/ai-bot-128.png" : "icons/icon-192.png", // replies written by the AI show the robot
+    requireInteraction: !!call,                            // a call alert stays on screen until it is tapped or dismissed
+    vibrate: call ? [400, 200, 400, 200, 400] : undefined,
+    icon: ai ? "icons/ai-bot-128.png" : "icons/icon-192.png", // replies written by the AI show the robot
     badge: "icons/icon-192.png",
     timestamp: Date.now(),
-    data: { url: d.url || "./" }
+    data: { url: url || "./" }
   }));
 });
 

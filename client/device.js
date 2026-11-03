@@ -17,9 +17,12 @@
   function persist() { try { return navigator.storage && navigator.storage.persist ? navigator.storage.persist() : Promise.resolve(false); } catch (e) { return Promise.resolve(false); } }
   persist();
 
-  // 2. permissions the app needs to run smoothly (notifications, camera, microphone, storage).
-  // The app asks once after sign-in, in one card, and ONLY for what is still missing: when everything is already allowed there is no prompt at all.
-  var SNOOZE = "lc-perm-snooze", PROMPTED = "lc-perm-prompted";
+  // 2. permissions the app needs to run smoothly (notifications, camera, microphone, location and, in the Android app, "Display over other apps").
+  // The app asks ONCE, ever: one card after sign-in, listing only what is still missing, and it is never shown again, whatever the person answers
+  // ("Allow" or "Later"). Anything left off can be turned on later in the phone's app settings. Camera, microphone, location and notifications are
+  // asked through Android's own permission dialogs (the Capacitor bridge); "Display over other apps" opens Android's settings screen through the
+  // Letschat chat-bubble plugin, and that comes last so it never fights with a permission dialog.
+  var SNOOZE = "lc-perm-snooze", PROMPTED = "lc-perm-prompted", ONCE = "lc-perm-once";
   function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
   function queryPerm(name) {
     try { if (navigator.permissions && navigator.permissions.query) return navigator.permissions.query({ name: name }).then(function (r) { return r.state; }, function () { return "unknown"; }); } catch (e) {}
@@ -27,21 +30,29 @@
   }
   function ls(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  // the Android app's chat-bubble plugin (only there): can tell whether Letschat may draw over other apps and open that settings screen
+  function bubble() { try { var B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ChatBubble; return B && B.checkOverlayPermission && B.requestOverlayPermission ? B : null; } catch (e) { return null; } }
+  function overlayState() {
+    var B = bubble();
+    if (!B) return Promise.resolve("na");
+    try { return Promise.resolve(B.checkOverlayPermission()).then(function (r) { return r && r.granted ? "granted" : "prompt"; }, function () { return "unknown"; }); } catch (e) { return Promise.resolve("unknown"); }
+  }
   // each item: state is "granted" | "denied" | "prompt" (the browser will ask) | "unknown" (this browser cannot tell) | "na" (not available here)
   function permissionStates() {
     var notif = "na";
     if ("Notification" in window && !(isIOS() && !standalone())) notif = Notification.permission === "default" ? "prompt" : Notification.permission;
     var hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     var hasGeo = !!navigator.geolocation;
-    return Promise.all([hasMedia ? queryPerm("camera") : "na", hasMedia ? queryPerm("microphone") : "na", hasGeo ? queryPerm("geolocation") : "na"]).then(function (r) {
-      return { notifications: notif, camera: r[0], microphone: r[1], location: r[2] };
+    return Promise.all([hasMedia ? queryPerm("camera") : "na", hasMedia ? queryPerm("microphone") : "na", hasGeo ? queryPerm("geolocation") : "na", overlayState()]).then(function (r) {
+      return { notifications: notif, camera: r[0], microphone: r[1], location: r[2], overlay: r[3] };
     });
   }
   var LABELS = {
     notifications: ["Notifications", "new messages and incoming calls"],
     camera: ["Camera", "video calls, photos and Go Live"],
     microphone: ["Microphone", "voice notes and calls"],
-    location: ["Location", "sharing your location and finding people nearby"]
+    location: ["Location", "sharing your location and finding people nearby"],
+    overlay: ["Display over other apps", "the floating chat bubble"]
   };
   function missingFrom(st) {
     var out = [];
@@ -82,14 +93,19 @@
       });
     }
     steps.push(function () { return persist(); });
+    // last: "Display over other apps" is a settings screen, not a dialog, so it goes after every real permission dialog
+    if (missing.indexOf("overlay") >= 0) {
+      steps.push(function () { var B = bubble(); return B ? Promise.resolve(B.requestOverlayPermission()).catch(function () {}) : null; });
+    }
     return steps.reduce(function (p, fn) { return p.then(function () { return fn(); }).catch(function () {}); }, Promise.resolve());
   }
   function showPermissionCard(missing, denied) {
     if (document.getElementById("lc-perm-card")) return;
+    lsSet(ONCE, "1"); // asked: never shown again, whatever the person answers (and even if the app is closed with the card open)
     var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
     card.id = "lc-perm-card"; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", "Allow permissions");
     card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:4px", "Allow permissions"));
-    card.appendChild(el("div", "font-size:13px;color:#8891A0;margin-bottom:10px", "Letschat needs these to run smoothly:"));
+    card.appendChild(el("div", "font-size:13px;color:#8891A0;margin-bottom:10px", "Letschat needs these to run smoothly. You are asked only once:"));
     missing.forEach(function (k) {
       var row = el("div", "display:flex;gap:8px;align-items:baseline;margin:0 0 6px;font-size:14px");
       row.appendChild(el("span", "font-weight:600;color:#35D0BA", LABELS[k][0]));
@@ -100,7 +116,7 @@
     var row = el("div", "display:flex;gap:8px;margin-top:12px");
     function btn(label, bg, color, fn) { var b = el("button", "flex:1;border:0;border-radius:20px;padding:11px 0;font:600 14px Inter,system-ui,sans-serif;cursor:pointer;background:" + bg + ";color:" + color, label); b.onclick = fn; return b; }
     function close() { card.remove(); }
-    row.appendChild(btn("Later", "#262E3A", "#F5F7FA", function () { lsSet(SNOOZE, String(Date.now() + 24 * 3600 * 1000)); close(); }));
+    row.appendChild(btn("Later", "#262E3A", "#F5F7FA", function () { close(); }));
     row.appendChild(btn("Allow", "#35D0BA", "#0E1116", function () {
       lsSet(PROMPTED, "1"); close();
       requestAll(missing).then(function () { lsSet(PROMPTED, "1"); });
@@ -108,6 +124,7 @@
     card.appendChild(row); document.body.appendChild(card);
   }
   function checkPermissions() {
+    if (ls(ONCE)) return Promise.resolve(); // already asked once: never again
     var until = parseInt(ls(SNOOZE) || "0", 10);
     if (until && Date.now() < until) return Promise.resolve();
     return permissionStates().then(function (st) {
@@ -232,11 +249,11 @@
       });
     } catch (e) {}
   }
-  // 5c. help cards: install the app (so it can run in the background) and start it with the computer
+  // 5c. help cards: start the app with the computer (installed desktop app only)
   function isDesktop() { return !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) && !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
   function infoCard(id, title, lines, buttons) {
     if (document.getElementById(id) || document.getElementById("lc-perm-card")) return;
-    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
+    var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;max-height:85vh;overflow-y:auto;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
     card.id = id; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", title);
     card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:6px", title));
     lines.forEach(function (t) { card.appendChild(el("div", "font-size:13.5px;line-height:1.45;color:#C5CEDA;margin-bottom:6px", t)); });
@@ -252,18 +269,9 @@
   function snooze(k, days) { lsSet(k, String(Date.now() + days * 86400000)); }
   function keepRunningHelp() {
     if (!session()) return;
-    if (!standalone()) {
-      if (snoozed("lc-ka-install")) return;
-      if (window.__lcInstall) {
-        infoCard("lc-ka-card", "Install Letschat", ["Installed, Letschat opens like a normal app, keeps working in the background and keeps your message and call alerts coming."],
-          [{ label: "Not now", fn: function () { snooze("lc-ka-install", 3); } },
-           { label: "Install", primary: true, fn: function () { window.LetschatInstall.install(); } }]);
-      } else if (isIOS()) {
-        infoCard("lc-ka-card", "Install Letschat", ["Tap the Share button, then Add to Home Screen. The installed app runs in the background and gives you alerts."],
-          [{ label: "Later", fn: function () { snooze("lc-ka-install", 7); } }, { label: "Got it", primary: true, fn: function () { snooze("lc-ka-install", 60); } }]);
-      }
-      return;
-    }
+    // The automatic "Install Letschat" web (PWA) card is switched off: people are no longer prompted to install the web app.
+    // On Android the real app file comes from the "Letschat for Android" bar at the top of the page.
+    if (!standalone()) return;
     // installed on a computer (Chrome / Edge): the person turns on "start when I sign in" once
     if (isDesktop() && !ls("lc-ka-autostart") && !snoozed("lc-ka-autostart-later") && /chrome|edg/i.test(navigator.userAgent)) {
       infoCard("lc-ka-card", "Start Letschat with your computer", ["Open about://apps in the browser, right-click Letschat and choose \u201cStart app when you sign in\u201d. Letschat then opens by itself every time you sign in to your computer."],
@@ -327,16 +335,31 @@
     Promise.all(pend).then(function () { infoCard("lc-install-debug", "Install check", out, [{ label: "Close", primary: true }]); });
   }, 6000);
   window.addEventListener("appinstalled", function () { toast("Letschat installed", 3000); });
-  // Android app file: put Letschat.apk next to index.html (see ANDROID-APK.md). The download button only shows when the file really exists.
+  // Android app files (see ANDROID-APK.md and ANDROID-COMPATIBILITY.md). The right file depends on the Android version:
+  //   Android 7 and newer (API 24+)  -> Letschat.apk         (native Capacitor 8 app)
+  //   Android 5 and 6 (API 21-23)    -> Letschat-legacy.apk  (Trusted Web Activity build, minSdk 21)
+  //   Android 4.4 and older          -> no APK, browser install only
+  // Android 5 and 6 phones run a Chrome that predates the frozen "Android 10" user agent, so the version in it is the real one.
+  // The download button only shows when the file really exists on the site.
+  function androidMajor() { var m = /Android[ \/](\d+)/i.exec(navigator.userAgent); return m ? parseInt(m[1], 10) : 0; }
+  function apkName() {
+    var v = androidMajor();
+    if (!v) return "Letschat.apk"; // version not shown in the user agent: assume a modern phone
+    if (v < 5) return "";
+    return v < 7 ? "Letschat-legacy.apk" : "Letschat.apk";
+  }
   function apkAvailable() {
+    var f = apkName();
+    if (!f) return Promise.resolve(false);
     try {
-      return fetch("./Letschat.apk", { method: "HEAD", cache: "no-store" }).then(function (r) {
+      return fetch("./" + f, { method: "HEAD", cache: "no-store" }).then(function (r) {
         return r.ok && !/text\/html/i.test(r.headers.get("content-type") || "");
       }).catch(function () { return false; });
     } catch (e) { return Promise.resolve(false); }
   }
   function downloadApk() {
-    var a = document.createElement("a"); a.href = "./Letschat.apk"; a.download = "Letschat.apk"; a.style.display = "none";
+    var f = apkName() || "Letschat.apk";
+    var a = document.createElement("a"); a.href = "./" + f; a.download = f; a.style.display = "none";
     document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 1500);
     toast("Downloading Letschat. Open the file when it finishes.", 6000);
   }
@@ -352,17 +375,19 @@
     installed: function () { return standalone(); },
     install: function () {
       if (standalone()) return toast("Letschat is already installed", 2500);
-      // Android: the real app (Letschat.apk) comes first. If the file is not on the site yet, fall back to Chrome's web install.
+      // Android: only the real app file (Letschat.apk, or Letschat-legacy.apk on Android 5-6). The web (PWA) install is no longer offered here.
       if (/android/i.test(navigator.userAgent) && !inAppBrowser()) {
         return apkAvailable().then(function (ok) {
-          if (!ok) return browserInstall();
+          if (!ok) return toast("The Android app file is not available yet. Please try again later.", 4500);
           infoCard("lc-install-guide", "Get the Letschat app for Android",
             ["Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
-             "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway."],
-            [{ label: "Use web version instead", fn: browserInstall }, { label: "Download app", primary: true, fn: downloadApk }]);
+             "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway.",
+             "If Android says App not installed, an older Letschat is usually still on the phone: hold the Letschat icon, tap App info, then Uninstall, and open the downloaded file again.",
+             "If the download fails or says Something went wrong, open this page in Chrome and try again."],
+            [{ label: "Cancel" }, { label: "Download app", primary: true, fn: downloadApk }]);
         });
       }
-      // Other devices: Chrome's one-tap install when it offers it
+      // Other devices (computer, iPhone): the browser's own install, only when the person taps Install
       browserInstall();
     }
   };
@@ -394,6 +419,41 @@
     document.body.appendChild(bar);
   }
   setTimeout(androidBar, 2500);
+
+  // 5f. Early test copies of the Android app. The first Letschat app files (24 and 25 Oct 2026) were signed with a temporary "debug" key, and
+  //     Android never lets a file signed with another key update an installed app: those phones answer "App not installed" to every newer
+  //     Letschat.apk. Those copies open this website inside the app, so once the app proves it is one of them, this card says how to switch
+  //     to the real app (uninstall once, download again). It shows only on positive proof, so a real app, a browser and anything unclear never see it:
+  //       25 Oct copy: the app plugin reports build 1 (the real app reports 101 or higher)
+  //       24 Oct copy: a Capacitor app with no Letschat plugins and without "LetschatApp" in its browser name (every later file has both)
+  function nativeApp() {
+    try { var C = window.Capacitor; return !!(C && typeof C.isNativePlatform === "function" && C.isNativePlatform()); } catch (e) { return false; }
+  }
+  function isOldTestApp() {
+    try {
+      if (!nativeApp()) return Promise.resolve(false);
+      var P = window.Capacitor.Plugins || {}, A = P.App;
+      if (A && typeof A.getInfo === "function") {
+        return Promise.resolve(A.getInfo()).then(function (i) { var b = parseInt(i && i.build, 10); return b > 0 && b < 100; }, function () { return false; });
+      }
+      return Promise.resolve(!P.ChatBubble && !/LetschatApp/.test(navigator.userAgent));
+    } catch (e) { return Promise.resolve(false); }
+  }
+  function showOldAppCard() {
+    var OLD = "lc-old-app", site = location.host || "the Letschat website";
+    infoCard(OLD, "Update the Letschat app",
+      ["This phone has an early test copy of the Letschat app. Android cannot update it, so a newer Letschat file says App not installed.",
+       "Switch once: hold the Letschat icon, tap App info, then Uninstall. Your chats are saved on your account, so just sign in again.",
+       "Then open Chrome, go to " + site + " and tap Download. After that, updates install normally."],
+      [{ label: "Remind me later", fn: function () { snooze(OLD, 1); } }, { label: "OK, got it", primary: true, fn: function () { snooze(OLD, 7); } }]);
+  }
+  var oldTries = 0, oldPoll = setInterval(function () {
+    if (++oldTries > 30) return clearInterval(oldPoll);            // about two minutes of trying, then stop
+    if (snoozed("lc-old-app")) return clearInterval(oldPoll);
+    if (oldTries < 3 || document.hidden || document.getElementById("lc-perm-card")) return; // let the app start and the permission card go first
+    clearInterval(oldPoll);
+    isOldTestApp().then(function (old) { if (old) showOldAppCard(); }).catch(function () {});
+  }, 4000);
 
   // 4. keep the app running: if the app never finished starting, reload once (and again when the connection returns)
   function stuck() { var b = document.getElementById("boot"); return !!(b && document.body.contains(b)); }

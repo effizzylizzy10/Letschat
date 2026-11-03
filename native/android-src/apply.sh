@@ -16,6 +16,19 @@ python3 android-src/patch_manifest.py "$MANIFEST"
 echo "Done. Permissions and filters now in the manifest:"
 grep -E "uses-permission|<data " "$MANIFEST" || true
 
+# Instant push (Firebase Cloud Messaging): put the google-services.json from Firebase (Android app com.letschatafrica.app)
+# at native/android-src/google-services.json. Without it the app still builds and uses the 8-second background checker.
+if [ -f android-src/google-services.json ]; then
+  if ! grep -q '"package_name"[[:space:]]*:[[:space:]]*"com.letschatafrica.app"' android-src/google-services.json; then
+    echo "google-services.json is not for the package com.letschatafrica.app. In Firebase add an Android app with exactly that package name and download the file again."
+    exit 1
+  fi
+  cp android-src/google-services.json android/app/google-services.json
+  echo "google-services.json added: instant push is ON in this build"
+else
+  echo "No android-src/google-services.json: instant push is OFF in this build (the 8-second checker is used)"
+fi
+
 # Version number that goes up with every build, so Android installs the new APK as an UPDATE over the installed app
 # (same package + same signing key + higher versionCode = chats and settings are kept; a lower or equal code is refused).
 # In GitHub Actions the run number counts up by itself; elsewhere the current time in minutes does.

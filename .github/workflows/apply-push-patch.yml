@@ -1,0 +1,33 @@
+name: Apply push-channels patch (one-off)
+
+# Runs on pushes to this branch. If server/client/server-push-channels.patch exists it applies it to
+# server.js, syntax-checks, deletes the patch and commits. If the patch is already gone it does nothing.
+on:
+  push:
+    branches: [fix/separate-vapid-fcm-push]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply patch
+        run: |
+          P=server/client/server-push-channels.patch
+          if [ ! -f "$P" ]; then echo "Patch already applied, nothing to do."; exit 0; fi
+          git apply --check "$P"
+          git apply "$P"
+          node --check server/client/server.js
+          node --check server/client/web-push-shim/index.js
+          git rm -q "$P"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Apply server.js push channel changes (VAPID_ON / FCM_ON)"
+          git push

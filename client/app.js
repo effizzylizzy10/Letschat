@@ -9204,15 +9204,24 @@ function openChatByEmail(email) {
     try { window.dispatchEvent(new CustomEvent("lc-open-email", { detail: { email: String(email || "").trim() } })); }
     catch (e) { window.location.href = "mailto:" + email; }
 }
-const LINK_SPLIT_RE = /(https?:\/\/[^\s]+|[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,})/g;
+const LINK_SPLIT_RE = /((?:https?:\/\/|www\.)[^\s]+|[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}|\b(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.)+(?:com|net|org|app|io|dev|co|ng|africa|me|tv|xyz|info|biz|edu|gov|ly|site|online|store|shop|tech|ai|link|page|live|cloud|club|top|vip|uk|us|gh|ke|za|in|ca|de|fr|cc|ws|fm|gg|so|to|sh|ink|blog|news|world|fun|pro|space|website|digital|agency|studio|media|team|zone|today|network|click|wiki|gl|gd|be|ru|cn|jp|br|au|eg|tz|ug|rw|et)\b(?::\d+)?(?:[\/?#][^\s]*)?)/gi;
+function linkHref(part) {
+    return /^https?:\/\//i.test(part) ? part : "https://" + part;
+}
+function linkTrim(part) {
+    const m = /[).,!?;:'"\]]+$/.exec(part);
+    return m ? [part.slice(0, m.index), m[0]] : [part, ""];
+}
 function withLinks(node) {
     if (Array.isArray(node))
         return node.map((n, i) => (typeof n === "string" ? React.createElement(React.Fragment, { key: "l" + i }, withLinks(n)) : n));
-    if (typeof node !== "string" || (node.indexOf("http") < 0 && node.indexOf("@") < 0))
+    if (typeof node !== "string" || (node.indexOf(".") < 0 && node.indexOf("@") < 0))
         return node;
     return node.split(LINK_SPLIT_RE).map((part, i) => {
-        if (/^https?:\/\//.test(part))
-            return React.createElement("a", { key: i, href: part, target: "_blank", rel: "noopener noreferrer", style: { color: "#7FE3D3", textDecoration: "underline", wordBreak: "break-all" } }, part);
+        if (i % 2 === 1 && !/@/.test(part)) {
+            const [lk, tail] = linkTrim(part);
+            return React.createElement(React.Fragment, { key: i }, React.createElement("a", { href: linkHref(lk), target: "_blank", rel: "noopener noreferrer", onClick: (e) => e.stopPropagation(), style: { color: "#7FE3D3", textDecoration: "underline", wordBreak: "break-all" } }, lk), tail);
+        }
         if (i % 2 === 1 && /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(part))
             return React.createElement("a", { key: i, href: "mailto:" + part, onClick: (e) => { e.preventDefault(); e.stopPropagation(); openChatByEmail(part); }, style: { color: "#7FE3D3", textDecoration: "underline", wordBreak: "break-all", cursor: "pointer" } }, part);
         return part;
@@ -9383,12 +9392,15 @@ function ScheduleSheet({ conversationId, socket, onClose }) {
 // ---- link previews: a small card (picture, title, summary) under web links; the server fetches the page ----
 const _lpCache = new Map();
 function firstPreviewUrl(text) {
-    if (typeof text !== "string" || text.indexOf("http") < 0)
+    if (typeof text !== "string" || text.indexOf(".") < 0)
         return null;
-    const m = /https?:\/\/[^\s<>"]+/i.exec(text);
+    LINK_SPLIT_RE.lastIndex = 0;
+    let m = null, mm;
+    while ((mm = LINK_SPLIT_RE.exec(text))) { if (mm[0].indexOf("@") < 0) { m = mm; break; } if (mm[0] === "") LINK_SPLIT_RE.lastIndex++; }
+    LINK_SPLIT_RE.lastIndex = 0;
     if (!m)
         return null;
-    const url = m[0].replace(/[).,!?;:'"\]]+$/, "");
+    const url = linkHref(m[0].replace(/[).,!?;:'"\]]+$/, ""));
     try {
         const u = new URL(url);
         if (u.origin === window.location.origin || /[?&](call|open)=/.test(u.search))
@@ -10974,10 +10986,6 @@ const shareContact = async () => {
         e.target.value = "";
         if (!f)
             return;
-        const okExt = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf|odt)$/i.test(f.name || "");
-        const okMime = /^(application\/pdf|text\/plain|text\/csv|application\/msword|application\/rtf|application\/vnd\.(openxmlformats-officedocument|ms-|oasis\.opendocument))/.test(f.type || "");
-        if (!okExt && !okMime)
-            return setError("Document can only share documents and PDF files");
         sendFile(f);
     };
     const sendPoll = (poll) => {
@@ -11330,7 +11338,7 @@ const shareContact = async () => {
             React.createElement("input", { ref: fileRef, type: "file", onChange: pickFile, style: { display: "none" } }),
             React.createElement("input", { ref: camRef, type: "file", accept: "image/*", capture: "environment", onChange: pickFile, style: { display: "none" } }),
             React.createElement("input", { ref: galRef, type: "file", accept: "image/*,video/*", onChange: pickGallery, style: { display: "none" } }),
-            React.createElement("input", { ref: docRef, type: "file", accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,application/pdf", onChange: pickDoc, style: { display: "none" } }),
+            React.createElement("input", { ref: docRef, type: "file", accept: "*/*", onChange: pickDoc, style: { display: "none" } }),
             React.createElement("div", { style: { background: "#1E2530", borderRadius: 28, padding: "12px 10px 8px 18px", display: "flex", flexDirection: "column", gap: 4, counterIncrement: "lcgap-4" } },
                 React.createElement("textarea", { ref: inputRef, rows: 1, onFocus: () => setEmojiOpen(false), value: draft, maxLength: MAX_MSG_CHARS, className: "lc-plain", onChange: e => { typingChangeSound(e, draft); setDraft(e.target.value); notifyTyping(true); }, onKeyDown: e => { typingKeySound(e); if (e.key === "Escape" && editing)
                         cancelEdit(); }, onPaste: e => { const it = Array.from((e.clipboardData && e.clipboardData.items) || []).find(i => i.kind === "file" && /^image\//.test(i.type)); const f = it && it.getAsFile(); if (f) {

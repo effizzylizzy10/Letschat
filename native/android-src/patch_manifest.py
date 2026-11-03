@@ -50,12 +50,36 @@ for p in PERMISSIONS:
 for f in FEATURES:
     if 'android:name="%s"' % f not in s:
         add += '    <uses-feature android:name="%s" android:required="false" />\n' % f
+
+# Android 11+ hides other apps from an app unless it asks. Letschat hands links to the phone's browsers (Custom Tabs, "Open with"),
+# so it asks to see the apps that can open a web link.
+if "<queries>" not in s:
+    add += """    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
+"""
+
 if add:
     assert "</manifest>" in s, "no </manifest> in AndroidManifest.xml"
     s = s.replace("</manifest>", add + "</manifest>", 1)
 
-# Open email sign-in links (Firebase) and links to the website inside the app
-FILTERS = """
+# Links that open in the app:
+# 1. email sign-in links (Firebase)
+# 2. links to Letschat's own site
+# 3. ANY web link (http/https, any site, e.g. storybookcreator.netlify.app): Letschat shows up in Android's "Open with" list next to
+#    Chrome, Firefox, Opera and the other browsers, and the person picks. Nothing is verified (no autoVerify) on purpose: a verified
+#    link would open straight in the app and skip the list. The page script in client/index.html opens Letschat pages inside the app
+#    and every other site in an in-app browser tab, and ignores anything it cannot read, so a link can never close the app.
+FIREBASE_FILTER = """
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -69,9 +93,28 @@ FILTERS = """
                 <data android:scheme="https" android:host="letschat-taupe.vercel.app" />
             </intent-filter>
 """
+OPEN_ALL_FILTER = """
+            <!-- letschat-open-all-links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+"""
+
+# a manifest patched by an older version of this script: turn the automatic opening off so the "Open with" list shows
+s = s.replace('<intent-filter android:autoVerify="true">', '<intent-filter>')
+
+new_filters = ""
 if "letschatafrica-1df0c.firebaseapp.com" not in s:
+    new_filters += FIREBASE_FILTER
+if "letschat-open-all-links" not in s:
+    new_filters += OPEN_ALL_FILTER
+if new_filters:
     assert "</activity>" in s, "no </activity> in AndroidManifest.xml"
-    s = s.replace("</activity>", FILTERS + "        </activity>", 1)
+    s = s.replace("</activity>", new_filters + "        </activity>", 1)
 
 if 'android:launchMode="singleTask"' not in s:
     print("WARNING: MainActivity is not singleTask; the chat bubble may open a second copy of the app")

@@ -86,6 +86,23 @@
           "value": "no-cache"
         }
       ]
+    },
+    {
+      "source": "/Letschat-legacy.apk",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/vnd.android.package-archive"
+        },
+        {
+          "key": "Content-Disposition",
+          "value": "attachment; filename=\"Letschat-legacy.apk\""
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     }
   ]
 }

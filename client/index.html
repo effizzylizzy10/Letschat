@@ -144,21 +144,44 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=2" />
   <meta name="theme-color" content="#0E1116" />
   <script>window.__lcInstall = null; window.addEventListener("beforeinstallprompt", function (e) { /* On Android the real app (Letschat.apk) is offered first, so Chrome's own install bar is switched off there; the event is still kept so the web install stays available as a second choice. Other devices keep Chrome's normal bar. */ if (/android/i.test(navigator.userAgent)) { try { e.preventDefault(); } catch (x) {} } window.__lcInstall = e; }); window.addEventListener("appinstalled", function () { window.__lcInstall = null; });</script>
-  <script>/* Native Letschat app only: when Android opens an email sign-in link in the app, rebuild it as a normal page address so Firebase can finish the sign-in. */
+  <script>/* Native Letschat app only: every web link Android hands to the app (Letschat's own pages, email sign-in links, and any other site the person picks "Letschat" for in the "Open with" list).
+     Email sign-in links are rebuilt as a normal page address so Firebase can finish the sign-in. Letschat's own pages load inside the app.
+     Every other site (storybookcreator.netlify.app ...) opens in an in-app browser tab (Capacitor Browser) with a Close button that returns to Letschat.
+     Nothing here can throw, and the same link is never opened twice within 4 seconds, so a link can neither close the app nor bounce between Letschat and the browser list. */
   (function () {
     var C = window.Capacitor, A = C && C.Plugins && C.Plugins.App;
     if (!A || !A.addListener) return;
+    var lastUrl = "", lastAt = 0;
+    function signIn(url) {
+      var inner = url.searchParams.get("link"), t = inner ? new URL(inner) : url, p = t.searchParams;
+      var key = p.get("apiKey"), code = p.get("oobCode");
+      if (!key || !code) return false;
+      var cont = p.get("continueUrl"), path = "/";
+      try { if (cont) path = new URL(cont).pathname || "/"; } catch (e) {}
+      var b = new URL(location.origin + path);
+      b.searchParams.set("apiKey", key); b.searchParams.set("oobCode", code);
+      b.searchParams.set("mode", p.get("mode") || "signIn"); b.searchParams.set("lang", p.get("lang") || "en");
+      location.href = b.href;
+      return true;
+    }
     function go(u) {
       try {
-        var url = new URL(u), inner = url.searchParams.get("link"), t = inner ? new URL(inner) : url, p = t.searchParams;
-        var key = p.get("apiKey"), code = p.get("oobCode");
-        if (!key || !code) return;
-        var cont = p.get("continueUrl"), path = "/";
-        try { if (cont) path = new URL(cont).pathname || "/"; } catch (e) {}
-        var b = new URL(location.origin + path);
-        b.searchParams.set("apiKey", key); b.searchParams.set("oobCode", code);
-        b.searchParams.set("mode", p.get("mode") || "signIn"); b.searchParams.set("lang", p.get("lang") || "en");
-        location.href = b.href;
+        if (!u) return;
+        var url = new URL(u);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return;
+        if (signIn(url)) return;
+        var host = url.hostname.toLowerCase();
+        if (/(^|\.)firebaseapp\.com$/.test(host)) return; // sign-in helper pages: nothing to open
+        if (host === (location.hostname || "").toLowerCase()) { // a Letschat page: show it inside the app
+          if ((url.pathname === "/" || url.pathname === "/index.html") && !url.search && !url.hash) return; // the app is already open
+          location.href = url.href;
+          return;
+        }
+        var now = Date.now();
+        if (u === lastUrl && now - lastAt < 4000) return;
+        lastUrl = u; lastAt = now;
+        var B = C.Plugins && C.Plugins.Browser;
+        if (B && B.open) { var r = B.open({ url: url.href }); if (r && r.catch) r.catch(function () {}); }
       } catch (e) {}
     }
     A.addListener("appUrlOpen", function (e) { if (e && e.url) go(e.url); });
@@ -320,6 +343,8 @@
   <script defer src="responsive.js"></script>
   <!-- Offline layer: saved chats / messages, the outbox for messages written without a connection, and the "Offline" pill. Must load before app.js. -->
   <script defer src="offline.js"></script>
+  <!-- In-app YouTube player: every YouTube link (watch, youtu.be, shorts, live, playlists) plays inside Letschat instead of opening the browser or the YouTube app -->
+  <script defer src="ytplayer.js"></script>
 
   <!-- Libraries (plain scripts; no build step, no Babel, no import maps) -->
   <script defer crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>

@@ -106,99 +106,124 @@ window.LETSCHAT_CONFIG = {
   }, 1000);
 })(window.LETSCHAT_CONFIG);
 
-// ---- Updates tab: small pencil button <-> camera (fabmorph2) ----
-// Leaving the Updates tab: the small pencil button on that screen spins and turns into a camera, then the app switches tab.
-// Coming back to the Updates tab: the button shows the camera and it spins back into the pencil.
-// Uses the Web Animations API, so it stays visible even when the phone has "remove animations" on.
+// ---- Chats / Updates tabs: the floating buttons slide into the big button before the tab changes (like WhatsApp) ----
+// Chats: the LetsChat AI robot slides down into the new-chat pencil button, THEN the next tab opens.
+// Updates: the small text-status pencil slides down into the camera button, THEN the next tab opens.
+// Coming back to Chats / Updates the small button slides out of the big one again (the big one grows back a little).
+// Speed and easing are measured from the WhatsApp recording: about 140 ms in, 170 ms out, ease-in-out, 68 px. The tab opens 150 ms after the tap.
+// It is drawn with the Web Animations API (element.animate), so it stays visible when the phone has "remove animations" on
+// (the app switches every CSS animation and transition off in that case). Tiny screens (lc-small) and browsers without element.animate
+// simply change tab at once, as before. To obey "remove animations" too, add  matchMedia("(prefers-reduced-motion: reduce)").matches  to can().
 (function () {
-  var clickAt = 0;
-  var PENCIL = '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>';
-  var CAMERA = '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>';
-  var SEL = 'button[aria-label="Text status"]';
-  var IN = [
-    { transform: "rotate(-220deg) scale(0)", opacity: 0, offset: 0 },
-    { transform: "rotate(-220deg) scale(0)", opacity: 0, offset: 0.35 },
-    { transform: "rotate(10deg) scale(1.3)", opacity: 1, offset: 0.75 },
-    { transform: "rotate(0deg) scale(1)", opacity: 1, offset: 1 }
-  ];
-  var OUT = [
-    { transform: "rotate(0deg) scale(1)", opacity: 1, offset: 0 },
-    { transform: "rotate(220deg) scale(1.2)", opacity: 1, offset: 0.3 },
-    { transform: "rotate(260deg) scale(0)", opacity: 0, offset: 0.55 },
-    { transform: "rotate(260deg) scale(0)", opacity: 0, offset: 1 }
-  ];
-  function icon(inner, color, size) {
-    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">' + inner + '</svg>';
-  }
-  function small() { return document.documentElement.classList.contains("lc-small"); }
+  var EXIT_MS = 140, ENTER_MS = 170, POP_MS = 150, HOLD_MS = 150;
+  var EASE = "cubic-bezier(.42,0,.58,1)", POP_EASE = "cubic-bezier(.2,.8,.2,1)";
+  var MINI = 'button[aria-label="Chat with LetsChat AI"], button[aria-label="Text status"]';   // the little button of each tab
+  var lastTap = 0;     // when a tab was last tapped (or Back pressed): only a screen that opens right after that gets the slide-out
+  var pending = null;  // while the little button slides in: { origin, target, mini, main, anims, timer }
 
-  // leaving=true: the pencil (real icon) spins out and a camera spins in. leaving=false: a camera spins out and the pencil spins in.
-  function morph(btn, leaving, done) {
-    var fired = false;
-    function finish() { if (fired) return; fired = true; if (done) done(); }
-    if (!btn.animate || btn.__lcMorphing) { finish(); return; }
-    btn.__lcMorphing = true;
-    var ms = leaving ? 750 : 1000, ease = "cubic-bezier(.2,.8,.2,1)";
-    var prevPos = btn.style.position;
-    if (getComputedStyle(btn).position === "static") btn.style.position = "relative";
-    var ghost = document.createElement("span");
-    ghost.setAttribute("aria-hidden", "true");
-    ghost.style.cssText = "position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;pointer-events:none";
-    ghost.innerHTML = icon(CAMERA, "#06210F", 24);
-    btn.appendChild(ghost);
-    var kids = [].slice.call(btn.children).filter(function (k) { return k !== ghost; });
-    var bgPen = "#1F2630", bgCam = "#21C063";
-    kids.forEach(function (k) {
-      k.animate(leaving ? OUT : IN, { duration: ms, easing: "ease-in-out", fill: "forwards" });
-    });
-    var g = ghost.animate(leaving ? IN : OUT, { duration: ms, easing: "ease-in-out", fill: "forwards" });
-    btn.animate([
-      { backgroundColor: leaving ? bgPen : bgCam, transform: "scale(.85)", offset: 0 },
-      { backgroundColor: leaving ? bgPen : bgCam, transform: "scale(1.25)", offset: 0.45 },
-      { backgroundColor: leaving ? bgCam : bgPen, transform: "scale(1)", offset: 1 }
-    ], { duration: ms, easing: ease, fill: leaving ? "forwards" : "none" });
-    btn.animate([
-      { boxShadow: "0 0 0 0 rgba(33,192,99,.6)", offset: 0 },
-      { boxShadow: "0 0 0 22px rgba(0,0,0,0)", offset: 1 }
-    ], { duration: ms * 0.8, delay: ms * 0.25, easing: "ease-out" });
-    function cleanup() {
-      try {
-        if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
-        btn.getAnimations().forEach(function (a) { a.cancel(); });
-        kids.forEach(function (k) { k.getAnimations().forEach(function (a) { a.cancel(); }); });
-        btn.style.position = prevPos;
-      } catch (e) {}
-      btn.__lcMorphing = false;
+  // the camera button must stay in front of the pencil while the pencil slides behind it (the Chats pencil button already is)
+  try {
+    var css = document.createElement("style");
+    css.setAttribute("data-lc", "fabtabs");
+    css.textContent = 'button[aria-label="Text status"]+button{position:relative}';
+    (document.head || document.documentElement).appendChild(css);
+  } catch (e) {}
+
+  function can() { return !!(Element.prototype.animate && !document.documentElement.classList.contains("lc-small")); }
+  function mainOf(mini) { var n = mini.nextElementSibling; while (n && n.tagName !== "BUTTON") n = n.nextElementSibling; return n; }
+  // where the big button sits compared with the little one (the little one slides until the two are centred on each other); 68 px straight down by default
+  function toMain(mini, main) {
+    var x = 0, y = 68;
+    try {
+      if (main && main.offsetParent === mini.offsetParent) {
+        x = (main.offsetLeft + main.offsetWidth / 2) - (mini.offsetLeft + mini.offsetWidth / 2);
+        y = (main.offsetTop + main.offsetHeight / 2) - (mini.offsetTop + mini.offsetHeight / 2);
+      }
+    } catch (e) {}
+    return "translate(" + x + "px," + y + "px)";
+  }
+
+  // leaving: the little button slides down behind the big one (it only fades in the last moment, to hide its glow)
+  function slideIn(mini, main) {
+    var anims = [];
+    try {
+      mini.style.pointerEvents = "none"; if (main) main.style.pointerEvents = "none";
+      anims.push(mini.animate([{ opacity: 1, offset: 0.85 }, { transform: toMain(mini, main), opacity: 0, offset: 1 }], { duration: EXIT_MS, easing: EASE, fill: "forwards" }));
+    } catch (e) {}
+    return anims;
+  }
+  // arriving: the little button slides up out from behind the big one, which grows back from 82 %
+  function slideOut(mini) {
+    var main = mainOf(mini);
+    try {
+      mini.animate([{ transform: toMain(mini, main), opacity: 0, offset: 0 }, { opacity: 1, offset: 0.3 }, { transform: "translate(0px,0px)", opacity: 1, offset: 1 }], { duration: ENTER_MS, easing: EASE, fill: "backwards" });
+      if (main) main.animate([{ transform: "scale(0.82)" }, { transform: "scale(1)" }], { duration: POP_MS, easing: POP_EASE, fill: "backwards" });
+    } catch (e) {}
+  }
+
+  // the little button has slid in: now let the tab change happen
+  function finish() {
+    var p = pending; pending = null;
+    if (!p || !p.target) return;
+    var t = p.target;
+    try { t.__lcFabPass = true; t.click(); } catch (e) {}
+    setTimeout(function () { t.__lcFabPass = false; }, 0);
+  }
+  // the tab we were still on was tapped again: slide the little button back out and stay
+  function cancel() {
+    var p = pending; pending = null;
+    if (!p) return;
+    clearTimeout(p.timer);
+    for (var i = 0; i < p.anims.length; i++) {
+      (function (a) { try { a.onfinish = function () { a.cancel(); }; a.reverse(); } catch (e) {} })(p.anims[i]);
     }
-    g.onfinish = function () {
-      finish();
-      if (leaving) setTimeout(cleanup, 400); else cleanup();   // when leaving, the screen is replaced right after
-    };
-    setTimeout(finish, ms + 150);                                // never leave the tab stuck
+    try { p.mini.style.pointerEvents = ""; if (p.main) p.main.style.pointerEvents = ""; } catch (e) {}
   }
 
   // tab taps
   document.addEventListener("click", function (e) {
-    var t = e.target, tab = t && t.closest && t.closest(".lc-tab");
+    var tab = e.target && e.target.closest && e.target.closest(".lc-tab");
     if (!tab) return;
-    if (tab.__lcPass) { tab.__lcPass = false; clickAt = Date.now(); return; }
-    clickAt = Date.now();
-    var fab = document.querySelector(SEL);
-    if (!fab || tab.classList.contains("on") || small() || !fab.animate || fab.__lcMorphing) return;
-    e.stopPropagation(); e.preventDefault();       // hold the tab switch until the pencil has turned into the camera
-    morph(fab, true, function () { tab.__lcPass = true; tab.click(); });
+    try {
+      if (tab.__lcFabPass) { tab.__lcFabPass = false; lastTap = Date.now(); return; }   // our own tap, sent after the slide-in
+      if (pending) {                                    // the little button is already sliding in
+        e.stopPropagation(); e.preventDefault();
+        if (tab === pending.origin) cancel();           // the tab we are still on: stay
+        else pending.target = tab;                      // another tab: go there instead
+        return;
+      }
+      lastTap = Date.now();
+      if (tab.classList.contains("on") || !can()) return;
+      var mini = document.querySelector(MINI);
+      if (!mini || !mini.getClientRects().length) return;   // this tab has no floating button: change tab at once
+      var main = mainOf(mini), anims = slideIn(mini, main);
+      pending = { origin: document.querySelector(".lc-tab.on"), target: tab, mini: mini, main: main, anims: anims, timer: setTimeout(finish, HOLD_MS) };
+      e.stopPropagation(); e.preventDefault();          // hold the tab change until the little button has slid in
+    } catch (err) {}
   }, true);
 
-  // coming back to Updates: the small button appears right after a tab tap
-  function check(el) {
-    if (el.nodeType !== 1 || Date.now() - clickAt > 1500 || small()) return;
-    var b = el.matches && el.matches(SEL) ? el : el.querySelector && el.querySelector(SEL);
-    if (b && !b.__lcSeen) { b.__lcSeen = true; morph(b, false); }
+  // Android Back from Calls / Updates / ... to Chats: the tab changes at once, but the little button still slides out
+  window.addEventListener("popstate", function () {
+    try {
+      var on = document.querySelector(".lc-tab.on"), first = document.querySelector(".lc-tab");
+      if (on && first && on !== first) lastTap = Date.now();
+    } catch (e) {}
+  }, true);
+
+  // a screen with a little button was just added right after a tab tap: slide the button out of the big one
+  function arrived(node) {
+    if (node.nodeType !== 1 || Date.now() - lastTap > 800) return;
+    var mini = node.matches && node.matches(MINI) ? node : (node.querySelector && node.querySelector(MINI));
+    if (!mini || mini.__lcSeen || !can()) return;
+    mini.__lcSeen = true;
+    slideOut(mini);
   }
   function start() {
-    new MutationObserver(function (ms) {
-      for (var i = 0; i < ms.length; i++) for (var j = 0; j < ms[i].addedNodes.length; j++) check(ms[i].addedNodes[j]);
-    }).observe(document.documentElement, { childList: true, subtree: true });
+    try {
+      new MutationObserver(function (list) {
+        for (var i = 0; i < list.length; i++) for (var j = 0; j < list[i].addedNodes.length; j++) arrived(list[i].addedNodes[j]);
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    } catch (e) {}
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();

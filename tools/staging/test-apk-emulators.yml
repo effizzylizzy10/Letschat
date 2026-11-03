@@ -1,0 +1,124 @@
+name: Test APK on Android emulators
+# Installs the finished APK on virtual phones (Android 7 to 16) and opens it three ways. Fails on an install error, a crash or a freeze.
+# Runs by itself after "Build native Android APK (Capacitor 8)" finishes, or tap Actions > this workflow > Run workflow
+# (it then tests the newest successful build). The legacy APK (Android 5 and 6) is tested from client/Letschat-legacy.apk.
+# Screenshots and logs of every phone are under "Artifacts" of the run. Nothing is published or changed.
+# To use it: copy this file to .github/workflows/test-apk-emulators.yml (the connection that prepared it cannot write there).
+on:
+  workflow_run:
+    workflows: ["Build native Android APK (Capacitor 8)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Optional: id of a finished native build run to test (empty = newest successful build)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: emulator-test-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  find-apk:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.pick.outputs.run_id }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          RID="${EVENT_RUN_ID:-}"
+          [ -z "$RID" ] && RID="${INPUT_RUN_ID:-}"
+          if [ -z "$RID" ]; then
+            RID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-native-apk.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          fi
+          if [ -z "$RID" ] || [ "$RID" = "null" ]; then
+            echo "::error::No finished build found. Run \"Build native Android APK (Capacitor 8)\" first."
+            exit 1
+          fi
+          echo "Testing the APK from build run $RID"
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
+  native:
+    name: Android ${{ matrix.label }} (API ${{ matrix.api-level }})
+    needs: find-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api-level: 24, label: "7.0" }
+          - { api-level: 26, label: "8.0" }
+          - { api-level: 28, label: "9" }
+          - { api-level: 30, label: "11" }
+          - { api-level: 33, label: "13" }
+          - { api-level: 34, label: "14" }
+          - { api-level: 35, label: "15" }
+          - { api-level: 36, label: "16" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Letschat-apk
+          path: apk
+          run-id: ${{ needs.find-apk.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Enable hardware acceleration (KVM)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start the virtual phone and run the smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash tools/emulator-smoke-test.sh apk/Letschat.apk ${{ matrix.api-level }} results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-${{ matrix.label }}-api${{ matrix.api-level }}
+          path: results
+          if-no-files-found: ignore
+
+  legacy:
+    name: Legacy APK on Android ${{ matrix.label }} (API ${{ matrix.api-level }})
+    needs: find-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api-level: 21, label: "5.0" }
+          - { api-level: 23, label: "6.0" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable hardware acceleration (KVM)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start the virtual phone and run the smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86
+          disable-animations: true
+          script: bash tools/emulator-smoke-test.sh client/Letschat-legacy.apk ${{ matrix.api-level }} results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-android-${{ matrix.label }}-api${{ matrix.api-level }}
+          path: results
+          if-no-files-found: ignore
