@@ -20,6 +20,8 @@ PERMISSIONS = [
     "READ_MEDIA_VISUAL_USER_SELECTED",   # "select photos" choice on Android 14+
     ("READ_EXTERNAL_STORAGE", 32),        # older Android versions only
     ("WRITE_EXTERNAL_STORAGE", 28),       # saving files on Android 9 and older
+    # phonebook: finding which of the person's contacts are on Letschat
+    "READ_CONTACTS",
     # notifications, location sharing, haptics
     "POST_NOTIFICATIONS",
     "ACCESS_FINE_LOCATION",
