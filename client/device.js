@@ -17,9 +17,12 @@
   function persist() { try { return navigator.storage && navigator.storage.persist ? navigator.storage.persist() : Promise.resolve(false); } catch (e) { return Promise.resolve(false); } }
   persist();
 
-  // 2. permissions the app needs to run smoothly (notifications, camera, microphone, storage).
-  // The app asks once after sign-in, in one card, and ONLY for what is still missing: when everything is already allowed there is no prompt at all.
-  var SNOOZE = "lc-perm-snooze", PROMPTED = "lc-perm-prompted";
+  // 2. permissions the app needs to run smoothly (notifications, camera, microphone, location and, in the Android app, "Display over other apps").
+  // The app asks ONCE, ever: one card after sign-in, listing only what is still missing, and it is never shown again, whatever the person answers
+  // ("Allow" or "Later"). Anything left off can be turned on later in the phone's app settings. Camera, microphone, location and notifications are
+  // asked through Android's own permission dialogs (the Capacitor bridge); "Display over other apps" opens Android's settings screen through the
+  // Letschat chat-bubble plugin, and that comes last so it never fights with a permission dialog.
+  var SNOOZE = "lc-perm-snooze", PROMPTED = "lc-perm-prompted", ONCE = "lc-perm-once";
   function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
   function queryPerm(name) {
     try { if (navigator.permissions && navigator.permissions.query) return navigator.permissions.query({ name: name }).then(function (r) { return r.state; }, function () { return "unknown"; }); } catch (e) {}
@@ -27,21 +30,29 @@
   }
   function ls(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  // the Android app's chat-bubble plugin (only there): can tell whether Letschat may draw over other apps and open that settings screen
+  function bubble() { try { var B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ChatBubble; return B && B.checkOverlayPermission && B.requestOverlayPermission ? B : null; } catch (e) { return null; } }
+  function overlayState() {
+    var B = bubble();
+    if (!B) return Promise.resolve("na");
+    try { return Promise.resolve(B.checkOverlayPermission()).then(function (r) { return r && r.granted ? "granted" : "prompt"; }, function () { return "unknown"; }); } catch (e) { return Promise.resolve("unknown"); }
+  }
   // each item: state is "granted" | "denied" | "prompt" (the browser will ask) | "unknown" (this browser cannot tell) | "na" (not available here)
   function permissionStates() {
     var notif = "na";
     if ("Notification" in window && !(isIOS() && !standalone())) notif = Notification.permission === "default" ? "prompt" : Notification.permission;
     var hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     var hasGeo = !!navigator.geolocation;
-    return Promise.all([hasMedia ? queryPerm("camera") : "na", hasMedia ? queryPerm("microphone") : "na", hasGeo ? queryPerm("geolocation") : "na"]).then(function (r) {
-      return { notifications: notif, camera: r[0], microphone: r[1], location: r[2] };
+    return Promise.all([hasMedia ? queryPerm("camera") : "na", hasMedia ? queryPerm("microphone") : "na", hasGeo ? queryPerm("geolocation") : "na", overlayState()]).then(function (r) {
+      return { notifications: notif, camera: r[0], microphone: r[1], location: r[2], overlay: r[3] };
     });
   }
   var LABELS = {
     notifications: ["Notifications", "new messages and incoming calls"],
     camera: ["Camera", "video calls, photos and Go Live"],
     microphone: ["Microphone", "voice notes and calls"],
-    location: ["Location", "sharing your location and finding people nearby"]
+    location: ["Location", "sharing your location and finding people nearby"],
+    overlay: ["Display over other apps", "the floating chat bubble"]
   };
   function missingFrom(st) {
     var out = [];
@@ -82,14 +93,19 @@
       });
     }
     steps.push(function () { return persist(); });
+    // last: "Display over other apps" is a settings screen, not a dialog, so it goes after every real permission dialog
+    if (missing.indexOf("overlay") >= 0) {
+      steps.push(function () { var B = bubble(); return B ? Promise.resolve(B.requestOverlayPermission()).catch(function () {}) : null; });
+    }
     return steps.reduce(function (p, fn) { return p.then(function () { return fn(); }).catch(function () {}); }, Promise.resolve());
   }
   function showPermissionCard(missing, denied) {
     if (document.getElementById("lc-perm-card")) return;
+    lsSet(ONCE, "1"); // asked: never shown again, whatever the person answers (and even if the app is closed with the card open)
     var card = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
     card.id = "lc-perm-card"; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", "Allow permissions");
     card.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:4px", "Allow permissions"));
-    card.appendChild(el("div", "font-size:13px;color:#8891A0;margin-bottom:10px", "Letschat needs these to run smoothly:"));
+    card.appendChild(el("div", "font-size:13px;color:#8891A0;margin-bottom:10px", "Letschat needs these to run smoothly. You are asked only once:"));
     missing.forEach(function (k) {
       var row = el("div", "display:flex;gap:8px;align-items:baseline;margin:0 0 6px;font-size:14px");
       row.appendChild(el("span", "font-weight:600;color:#35D0BA", LABELS[k][0]));
@@ -100,7 +116,7 @@
     var row = el("div", "display:flex;gap:8px;margin-top:12px");
     function btn(label, bg, color, fn) { var b = el("button", "flex:1;border:0;border-radius:20px;padding:11px 0;font:600 14px Inter,system-ui,sans-serif;cursor:pointer;background:" + bg + ";color:" + color, label); b.onclick = fn; return b; }
     function close() { card.remove(); }
-    row.appendChild(btn("Later", "#262E3A", "#F5F7FA", function () { lsSet(SNOOZE, String(Date.now() + 24 * 3600 * 1000)); close(); }));
+    row.appendChild(btn("Later", "#262E3A", "#F5F7FA", function () { close(); }));
     row.appendChild(btn("Allow", "#35D0BA", "#0E1116", function () {
       lsSet(PROMPTED, "1"); close();
       requestAll(missing).then(function () { lsSet(PROMPTED, "1"); });
@@ -108,6 +124,7 @@
     card.appendChild(row); document.body.appendChild(card);
   }
   function checkPermissions() {
+    if (ls(ONCE)) return Promise.resolve(); // already asked once: never again
     var until = parseInt(ls(SNOOZE) || "0", 10);
     if (until && Date.now() < until) return Promise.resolve();
     return permissionStates().then(function (st) {
