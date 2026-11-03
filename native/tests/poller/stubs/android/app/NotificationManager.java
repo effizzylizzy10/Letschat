@@ -11,5 +11,8 @@ public class NotificationManager {
     public void createNotificationChannel(NotificationChannel c) { channels.put(c.id, c); }
     public boolean areNotificationsEnabled() { return ENABLED; }
     public void notify(int id, Notification n) { posted.add(n); }
+    /** The app posts its message notifications with a tag ("conv-<chat id>") so the server's push replaces them instead of doubling. */
+    public void notify(String tag, int id, Notification n) { posted.add(n); }
     public void cancel(int id) { cancelled.add(id); }
+    public void cancel(String tag, int id) { cancelled.add(id); }
 }
