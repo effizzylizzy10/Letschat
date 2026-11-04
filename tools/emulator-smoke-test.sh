@@ -12,6 +12,8 @@
 #   6. best effort: starts the background service as a foreground service (needs a rooted test emulator, which these are)
 # It never signs in, so it cannot tell whether messages, calls or alerts work. That needs a real phone.
 # Screenshots and logs go to emulator-results/android-<version>/ and the workflow uploads them.
+# When a step FAILS, the likely cause (crash lines, "process died", kill reasons) is also printed in the red annotation and in the
+# run summary, so the reason can be read on the run page without downloading the logs.
 
 APK="${1:-}"
 API="${2:-?}"
@@ -23,6 +25,7 @@ STEPS="$DIR/steps.txt"
 WARNINGS=0
 ANR_SEEN=0
 WEBVIEW=""
+HINT=""
 mkdir -p "$DIR"
 
 say()  { printf '%s\n' "$*" | tee -a "$STEPS"; }
@@ -35,6 +38,12 @@ summary() {  # $1 = PASS or FAIL, $2 = one line
     echo "- $2"
     if [ -n "$WEBVIEW" ]; then echo "- WebView on this emulator: \`$WEBVIEW\`"; fi
     echo "- Warnings: $WARNINGS"
+    if [ -n "$HINT" ]; then
+      echo "- Likely cause (from the phone's log):"
+      echo '```'
+      printf '%s\n' "$HINT"
+      echo '```'
+    fi
   } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 }
 
@@ -44,10 +53,23 @@ warn() {
   echo "::warning title=Android ${NAME}::$*"
 }
 
+# The lines of the phone's log that usually explain why the app disappeared: a Java crash, a native crash, "Process ... has died",
+# the reason Android killed it, a refused foreground service or a permission error. Only the last few lines are kept.
+collect_hint() {
+  [ -s "$DIR/logcat.txt" ] || return 0
+  HINT=$(grep -E "FATAL EXCEPTION|AndroidRuntime|Caused by:|has died|am_proc_died|am_kill|am_crash|Fatal signal|ForegroundServiceStartNotAllowed|MissingForegroundServiceType|SecurityException|Force finishing|Killing [0-9]+:${PKG}" "$DIR/logcat.txt" \
+    | grep -E "${PKG}|AndroidRuntime|Caused by:|SecurityException|ForegroundService|Fatal signal" \
+    | tail -n 14 | cut -c1-260)
+}
+
 fail() {
   say "FAIL: $*"
-  echo "::error title=Android ${NAME} (API ${API})::$*"
   adb logcat -d -v threadtime > "$DIR/logcat.txt" 2>&1 || true
+  collect_hint
+  echo "::error title=Android ${NAME} (API ${API})::$*"
+  if [ -n "$HINT" ]; then
+    echo "::error title=Android ${NAME} likely cause::$(printf '%s' "$HINT" | tail -n 4 | tr '\n' '|' | cut -c1-900)"
+  fi
   shot "fail"
   summary "FAIL" "$*"
   exit 1
