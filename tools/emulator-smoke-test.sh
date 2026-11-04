@@ -14,6 +14,10 @@
 # Screenshots and logs go to emulator-results/android-<version>/ and the workflow uploads them.
 # When a step FAILS, the likely cause (crash lines, "process died", kill reasons) is also printed in the red annotation and in the
 # run summary, so the reason can be read on the run page without downloading the logs.
+#
+# Emulator noise: on the free CI emulators the Google Play services process sometimes dies by itself, and Android then also kills every
+# app that was using it ("depends on provider ... in dying proc"). That is not a Letschat crash, so the app is simply opened again (a
+# WARN is noted). A real crash (FATAL EXCEPTION / native crash) is still a FAIL, and so is an app that stays closed after the retry.
 
 APK="${1:-}"
 API="${2:-?}"
@@ -98,6 +102,21 @@ check_crash() {  # $1 = where we are
   return 0
 }
 
+# The app is not running. A real crash is a FAIL. When Android only killed it because Google Play services died on the emulator
+# ("Killing <pid>:<package> ... depends on provider ... in dying proc"), open it once more and go on; otherwise FAIL with $1.
+recover_or_fail() {  # $1 = the failure message
+  check_crash "app not running"   # a crash fails here with its own message
+  if grep -E "Killing [0-9]+:${PKG}" "$DIR/logcat.txt" | grep -q "dying proc"; then
+    warn "Android closed Letschat only because Google Play services restarted on this emulator (not an app crash). Opening it again."
+    adb logcat -c >/dev/null 2>&1 || true   # so the same kill line is not counted twice
+    adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > "$DIR/monkey.txt" 2>&1
+    sleep 20
+    if alive; then return 0; fi
+    fail "$1 (and it did not stay open after opening it again)"
+  fi
+  fail "$1"
+}
+
 in_front() {  # $1 = where we are
   local f
   f=$(adb shell dumpsys window 2>/dev/null | tr -d '\r' | grep -E "mCurrentFocus|mFocusedApp" | head -n 2)
@@ -141,7 +160,7 @@ say "2) Open after a fresh install (no permissions given yet)"
 open_app
 sleep 30
 shot "1-opened"
-alive || fail "the app is not running 30 seconds after it was opened (it closed or crashed on start)"
+alive || recover_or_fail "the app is not running 30 seconds after it was opened (it closed or crashed on start)"
 check_crash "first start"
 in_front "first start"
 
@@ -154,11 +173,11 @@ adb shell appops set "$PKG" SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1 || true
 sleep 3
 open_app   # giving some permissions restarts the app, so open it again
 sleep 20
-alive || fail "the app is not running after the permissions were given"
+alive || recover_or_fail "the app is not running after the permissions were given"
 adb shell input keyevent KEYCODE_HOME
 sleep 8
 shot "2-home-chat-head"
-alive || fail "Android closed the app after Home (it should keep running in the background)"
+alive || recover_or_fail "Android closed the app after Home (it should keep running in the background)"
 check_crash "after Home"
 adb shell dumpsys window windows 2>/dev/null | tr -d '\r' > "$DIR/windows.txt"
 if awk -v pkg="$PKG" '/^ *Window #[0-9]+ /{cur=(index($0,pkg)>0)} cur && /ty=(APPLICATION_OVERLAY|2038)/{f=1} END{exit (f ? 0 : 1)}' "$DIR/windows.txt"; then
@@ -171,7 +190,7 @@ fi
 say "4) Open again from the background, then press Back"
 open_app
 sleep 8
-alive || fail "the app is not running after opening it again"
+alive || recover_or_fail "the app is not running after opening it again"
 shot "3-reopened"
 in_front "reopened"
 adb shell input keyevent KEYCODE_BACK
@@ -185,7 +204,7 @@ adb shell am force-stop "$PKG"
 sleep 3
 open_app
 sleep 25
-alive || fail "cold start: the app is not running"
+alive || recover_or_fail "cold start: the app is not running"
 shot "5-cold-start"
 check_crash "cold start"
 
