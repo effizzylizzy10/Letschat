@@ -9,7 +9,11 @@
     "@capacitor/app": "^8.0.0",
     "@capacitor/browser": "^8.0.0",
     "@capacitor/core": "^8.0.0",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/keyboard": "^8.0.0",
+    "@capacitor/network": "^8.0.0",
     "@capacitor/push-notifications": "^8.0.0",
+    "@capacitor/share": "^8.0.0",
     "letschat-background-service": "file:plugins/background-service",
     "letschat-chat-bubble": "file:plugins/chat-bubble"
   },
