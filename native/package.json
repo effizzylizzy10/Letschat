@@ -12,7 +12,8 @@
     "@capacitor/push-notifications": "^8.1.3",
     "@capacitor/share": "^8.0.3",
     "letschat-background-service": "file:plugins/background-service",
-    "letschat-chat-bubble": "file:plugins/chat-bubble"
+    "letschat-chat-bubble": "file:plugins/chat-bubble",
+    "letschat-native-tools": "file:plugins/native-tools"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.0"
