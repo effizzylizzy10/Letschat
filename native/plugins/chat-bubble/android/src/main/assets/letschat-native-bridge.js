@@ -1,5 +1,5 @@
 /* Letschat native glue. Injected by the ChatBubble plugin into the Letschat website inside the Android app only.
-   It does eight things:
+   It does nine things:
    1. starts the background service once a person is signed in (and stops it on sign-out),
    2. listens to the live chat connection and shows the message pop-up when a message arrives while the app is in the background
       (the floating chat head itself is put on screen by the native plugin as soon as the app is minimized or closed),
@@ -23,6 +23,10 @@
    8. applies the alert rules to the pop-up: no pop-up for "X joined the group" notices, muted chats, people you blocked, groups when
       "Group messages" is off, or the big Chat Room unless the message @mentions or replies to you; "Show message preview" off hides the
       message text. If anything needed for those rules cannot be read, the pop-up is shown (a pop-up too many beats a missed message).
+   9. small native extras, each used only when its plugin is in the app (nothing breaks when one is missing):
+      - Share: the Android Web Share API is missing in the WebView, so navigator.share() opens Android's own share sheet (text and links);
+      - Haptics: a short, light vibration when a message you sent is confirmed by the live connection (best effort);
+      - Network: a thin red "No internet connection" bar at the top while the phone is offline.
    Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab).
 
    PLUGIN ACCESS: the site is loaded from a web address, so Capacitor does not always put the native plugins on window.Capacitor.Plugins
@@ -56,6 +60,7 @@
     });
   }
   var BG = plug("BackgroundService"), BB = plug("ChatBubble"), APP = plug("App"), PN = plug("PushNotifications");
+  var SH = plug("Share"), HP = plug("Haptics"), NET = plug("Network");
   if (!BG && !BB) return;
   window.__lcNativeBridge = true;
 
@@ -343,6 +348,57 @@
     for (var i = 0; i < names.length; i++) if (o && o[names[i]] != null && o[names[i]] !== "") return o[names[i]];
     return null;
   }
+
+  // ---- small native extras (Share, Haptics, Network): each one only when its plugin is in the app ----
+  // The Web Share API does not exist in the Android WebView, so a page that calls navigator.share() would do nothing.
+  // Text and links open Android's own share sheet; files are not supported here (canShare says so).
+  try {
+    if (SH && SH.share && typeof navigator !== "undefined" && typeof navigator.share !== "function") {
+      navigator.share = function (d) {
+        d = d || {};
+        if (d.files && d.files.length) return Promise.reject(new Error("Sharing files is not supported here"));
+        var text = d.text ? String(d.text) : "", url = d.url ? String(d.url) : "";
+        if (!text && !url) return Promise.reject(new TypeError("Nothing to share"));
+        return SH.share({ title: d.title ? String(d.title) : undefined, text: text || undefined, url: url || undefined, dialogTitle: "Share with" }).then(noop);
+      };
+      navigator.canShare = function (d) { return !(d && d.files && d.files.length); };
+    }
+  } catch (e) {}
+
+  // A short, light tap when a message I sent is confirmed by the live connection (best effort: it only happens when the server echoes
+  // my own message back to this phone). At most one tap every 400 ms.
+  var lastTick = 0;
+  function ownMessageTick(m) {
+    if (!HP || !HP.impact) return;
+    var me = myId(), sid = field(m, ["senderId", "sender_id", "fromId", "userId"]);
+    if (!me || !sid || String(sid) !== String(me)) return;
+    var now = Date.now();
+    if (now - lastTick < 400) return;
+    lastTick = now;
+    HP.impact({ style: "LIGHT" }).catch(noop);
+  }
+
+  // A thin red bar at the top of the page while the phone has no internet. Never blocks a tap (pointer-events none).
+  function offlineBar(connected) {
+    try {
+      var el = document.getElementById("lc-offline-bar");
+      if (connected) { if (el && el.parentNode) el.parentNode.removeChild(el); return; }
+      if (el || !document.body) return;
+      el = document.createElement("div");
+      el.id = "lc-offline-bar";
+      el.textContent = "No internet connection. Waiting to reconnect...";
+      el.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:2147483000;text-align:center;color:#fff;background:#b3261e;" +
+        "font:600 13px/1.3 sans-serif;pointer-events:none;padding:6px 12px;padding-top:calc(6px + env(safe-area-inset-top, 0px))";
+      document.body.appendChild(el);
+    } catch (e) {}
+  }
+  try {
+    if (NET && NET.getStatus) {
+      NET.getStatus().then(function (s) { offlineBar(!s || s.connected !== false); }).catch(noop);
+      if (NET.addListener) NET.addListener("networkStatusChange", function (s) { offlineBar(!s || s.connected !== false); });
+    }
+  } catch (e) {}
+
   // ---- the rules (same as the website's own alerts and the server's push alerts) ----
   // What the website's saved chat list says about a chat: group or not, the Chat Room or not, its name and photo, who the members are.
   function chatInfo(id) {
@@ -410,7 +466,9 @@
   }
 
   function onEvent(name, m) {
-    if (name !== "message:new" || !m || typeof m !== "object" || !background || !BB || !bubbleOn()) return;
+    if (name !== "message:new" || !m || typeof m !== "object") return;
+    if (!background) { ownMessageTick(m); return; } // Letschat is on screen: the page shows the message itself
+    if (!BB || !bubbleOn()) return;
     if (m.system) return; // "Amaka joined the group" and the like: the website gives no alert for these either
     var sender = field(m, ["sender", "from", "user"]);
     var sid = field(m, ["senderId", "sender_id", "fromId", "userId"]) || (sender && typeof sender === "object" ? field(sender, ["id", "_id"]) : sender);
