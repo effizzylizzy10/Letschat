@@ -1,0 +1,18 @@
+{
+  "name": "letschat-native-tools",
+  "version": "8.0.0",
+  "description": "Starter Letschat plugin: a working example (echo) to copy when a new native Android feature is needed",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "files": ["android/", "src/"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  },
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}
