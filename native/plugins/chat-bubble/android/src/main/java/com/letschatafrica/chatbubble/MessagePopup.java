@@ -52,15 +52,15 @@ import java.util.LinkedList;
 import java.util.Locale;
 
 /**
- * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge: a header (round photo, sender name, "1 of N",
- * call, video call and a three-dot dropdown menu), the received message bubble with its time, the bubble of the reply just sent, a row
- * of quick tiles (Photo, Gallery, Emoji, More), the reply pill with the send button, and the bottom bar Minimize / Open chat / Close.
+ * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge: a header (round photo, sender name, "1 of N"),
+ * the received message bubble with its time, the bubble of the reply just sent, the reply pill with the send button, and the bottom bar
+ * Open chat / Close.
+ * The call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
+ * again, remove its setVisibility(View.GONE) line in build(). The smiley in the reply box still opens the emoji strip.
  * Messages that arrive while the app is not on screen are queued and announced by a toast on the floating chat head. The card
- * stays closed until the person taps the chat head: the head then grows into the card (expandFrom). Minimize shrinks the card back
- * into the head and keeps the messages, Close shrinks it back and clears the queue, Open chat opens Letschat on that chat, sending a
- * reply posts it to the Letschat server and removes that chat's messages from the card.
- * The three-dot button and the More tile open the same dropdown (previous / next message, open chat, clear all). Photo, Gallery and the
- * call buttons open the chat in the app, where pictures are picked and calls are started.
+ * stays closed until the person taps the chat head: the head then grows into the card (expandFrom). Close shrinks the card back into
+ * the head and clears the queue, Open chat opens Letschat on that chat, sending a reply posts it to the Letschat server and removes
+ * that chat's messages from the card.
  */
 final class MessagePopup {
 
@@ -383,6 +383,7 @@ final class MessagePopup {
                 openCurrentChat(); // calls are started inside the chat
             }
         });
+        call.setVisibility(View.GONE); // hidden
         header.addView(call, new LinearLayout.LayoutParams(dp(44), dp(44)));
         View video = glyph(Glyph.VIDEO, Color.WHITE);
         tap(video, new Runnable() {
@@ -391,6 +392,7 @@ final class MessagePopup {
                 openCurrentChat();
             }
         });
+        video.setVisibility(View.GONE); // hidden
         header.addView(video, new LinearLayout.LayoutParams(dp(44), dp(44)));
         View dots = glyph(Glyph.DOTS_V, Color.WHITE);
         tap(dots, new Runnable() {
@@ -399,10 +401,11 @@ final class MessagePopup {
                 toggleMenu();
             }
         });
+        dots.setVisibility(View.GONE); // hidden
         header.addView(dots, new LinearLayout.LayoutParams(dp(40), dp(44)));
         root.addView(header, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // the dropdown under the header (three-dot button and the More tile)
+        // the dropdown under the header (three-dot button and the More tile; both are hidden for now, so it never opens)
         menuPanel = new LinearLayout(ctx);
         menuPanel.setOrientation(LinearLayout.VERTICAL);
         menuPanel.setPadding(dp(6), dp(6), dp(6), dp(6));
@@ -525,7 +528,7 @@ final class MessagePopup {
         srl.gravity = Gravity.END;
         root.addView(sentRow, srl);
 
-        // quick tiles: Photo, Gallery, Emoji, More
+        // quick tiles: Photo, Gallery, Emoji, More (hidden)
         LinearLayout tiles = new LinearLayout(ctx);
         tiles.setOrientation(LinearLayout.HORIZONTAL);
         tiles.addView(tile(Glyph.CAMERA, 0xFF5B9BFF, "Photo", new Runnable() {
@@ -552,11 +555,12 @@ final class MessagePopup {
                 toggleMenu();
             }
         }), tileParams(true));
+        tiles.setVisibility(View.GONE); // hidden
         LinearLayout.LayoutParams tsl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         tsl.topMargin = dp(14);
         root.addView(tiles, tsl);
 
-        // emoji strip (opened by the Emoji tile or the smiley in the reply box)
+        // emoji strip (opened by the smiley in the reply box)
         emojiStrip = new HorizontalScrollView(ctx);
         emojiStrip.setHorizontalScrollBarEnabled(false);
         LinearLayout emojiRow = new LinearLayout(ctx);
@@ -653,7 +657,7 @@ final class MessagePopup {
         rl.topMargin = dp(12);
         root.addView(replyRow, rl);
 
-        // bottom bar: Minimize | Open chat | Close
+        // bottom bar: Minimize (hidden) | Open chat | Close
         View line = new View(ctx);
         line.setBackgroundColor(C_LINE);
         LinearLayout.LayoutParams lnl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
@@ -664,12 +668,14 @@ final class MessagePopup {
 
         LinearLayout bar2 = new LinearLayout(ctx);
         bar2.setOrientation(LinearLayout.HORIZONTAL);
-        bar2.addView(bottomItem(Glyph.MINUS, "Minimize", new Runnable() {
+        LinearLayout minimize = bottomItem(Glyph.MINUS, "Minimize", new Runnable() {
             @Override
             public void run() {
                 collapseToHead(); // keeps the waiting messages
             }
-        }), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        });
+        minimize.setVisibility(View.GONE); // hidden
+        bar2.addView(minimize, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         bar2.addView(bottomItem(Glyph.OPEN, "Open chat", new Runnable() {
             @Override
             public void run() {
