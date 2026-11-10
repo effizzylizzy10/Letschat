@@ -15,7 +15,7 @@
   if (/Safari/.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|OPiOS|Android/i.test(ua)) add("lc-safari");
   if (/Phoenix|PHX\b/i.test(ua)) add("lc-phoenix");
 
-  // ---- lite mode: keypad phones and screens up to 320 px wide get a chat-only app (no fonts, reactions, push, extra tabs) ----
+  // ---- lite mode: keypad phones and screens up to 320 px wide get a compact app (no web fonts or push script; animations and reactions are kept) ----
   var keypadUA = /KaiOS|Series40|Series60|Nokia|Opera Mini|MIDP|UCWEB|NetFront|JioPhone|itel/i.test(ua);
   var sd = false; try { sd = !!(navigator.connection && navigator.connection.saveData); } catch (e) {}
   // Android 6 to 16 phones ALWAYS get the full app (Data Saver or a narrow screen no longer switches them to lite mode).
@@ -101,10 +101,11 @@
     if (!lite) {
       var f = d.createElement("link"); f.rel = "stylesheet"; f.href = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap"; d.head.appendChild(f);
       inject("push.js"); inject("reactions.js"); inject("live.js"); // optional extras: the app works without them
-    } else if (!keypadUA) {
-      // Data Saver phones and very small screens are "lite" but still show the Live tab. Without live.js that tab rendered NOTHING (blank screen),
-      // so load it here. Only real keypad phones (no Live tab) skip it.
-      inject("live.js");
+    } else {
+      // Lite mode keeps the full animated experience: the animated emoji reactions load here too.
+      inject("reactions.js");
+      // Lite phones that show the Live tab (everything except real keypad phones) also need live.js, or that tab renders NOTHING (blank screen).
+      if (!keypadUA) inject("live.js");
     }
     // modern phones get the small modern bundle; old ones the ES5 bundle (build.js makes app.legacy.js). If it is missing, app.js is used.
     if (modern) inject("app.js"); else { var L = d.createElement("script"); L.src = "app.legacy.js"; L.async = false; L.onerror = function () { inject("app.js"); }; d.body.appendChild(L); }

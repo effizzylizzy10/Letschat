@@ -40,20 +40,7 @@ html.lc-ios:not(.lc-small) input, html.lc-ios:not(.lc-small) textarea, html.lc-i
   }
 }
 
-/* ---------- 4. small phones and keypad phones (128 to 320 px wide): plain, compact, no effects ---------- */
-html.lc-small *, html.lc-small *::before, html.lc-small *::after {
-  -webkit-animation: none !important; animation: none !important;
-  -webkit-transition: none !important; transition: none !important;
-  -webkit-box-shadow: none !important; box-shadow: none !important;
-  text-shadow: none !important;
-  -webkit-filter: none !important; filter: none !important;
-  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
-  -webkit-mask-image: none !important; mask-image: none !important;
-  will-change: auto !important; scroll-behavior: auto !important;
-}
-html.lc-small *:active { -webkit-transform: none !important; transform: none !important; }
-html.lc-small .lc-tab svg, html.lc-small .lc-tab.on svg { -webkit-transform: none !important; transform: none !important; }
-html.lc-small .lc-glow, html.lc-small .app-footer::before { display: none !important; }
+/* ---------- 4. small phones and keypad phones (128 to 320 px wide): compact layout. Animations, transitions, shadows and effects are KEPT (full animation in lite mode too) ---------- */
 html.lc-small .lc-flip { width: 56px; height: 56px; margin-bottom: 10px; }
 html.lc-small .lc-flip-face { width: 56px; height: 56px; border-radius: 16px; }
 
