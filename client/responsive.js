@@ -18,7 +18,11 @@
   // ---- lite mode: keypad phones and screens up to 320 px wide get a chat-only app (no fonts, reactions, push, extra tabs) ----
   var keypadUA = /KaiOS|Series40|Series60|Nokia|Opera Mini|MIDP|UCWEB|NetFront|JioPhone|itel/i.test(ua);
   var sd = false; try { sd = !!(navigator.connection && navigator.connection.saveData); } catch (e) {}
-  var lite = keypadUA || (w.innerWidth || 999) <= 320 || sd;
+  // Android 6 to 16 phones ALWAYS get the full app (Data Saver or a narrow screen no longer switches them to lite mode).
+  // Chrome freezes the Android number in the user agent (for example "Android 10"), which is still inside 6-16.
+  var am = ua.match(/Android[ \/]+(\d+)/i), androidVer = am ? parseInt(am[1], 10) : 0;
+  var fullApp = !keypadUA && androidVer >= 6 && androidVer <= 16;
+  var lite = keypadUA || (!fullApp && ((w.innerWidth || 999) <= 320 || sd));
   w.__lcLite = lite;
   if (lite) add("lc-lite");
   if (keypadUA) add("lc-keypad");  // only real keypad phones lose the extra tabs; small screens and Data Saver keep all of them
