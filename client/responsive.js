@@ -97,6 +97,10 @@
     if (!lite) {
       var f = d.createElement("link"); f.rel = "stylesheet"; f.href = "https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap"; d.head.appendChild(f);
       inject("push.js"); inject("reactions.js"); inject("live.js"); // optional extras: the app works without them
+    } else if (!keypadUA) {
+      // Data Saver phones and very small screens are "lite" but still show the Live tab. Without live.js that tab rendered NOTHING (blank screen),
+      // so load it here. Only real keypad phones (no Live tab) skip it.
+      inject("live.js");
     }
     // modern phones get the small modern bundle; old ones the ES5 bundle (build.js makes app.legacy.js). If it is missing, app.js is used.
     if (modern) inject("app.js"); else { var L = d.createElement("script"); L.src = "app.legacy.js"; L.async = false; L.onerror = function () { inject("app.js"); }; d.body.appendChild(L); }
