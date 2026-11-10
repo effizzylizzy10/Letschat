@@ -56,11 +56,13 @@ import java.util.LinkedList;
 import java.util.Locale;
 
 /**
- * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge, on the LetsChat Africa doodle wallpaper
- * (client/popup-bg.jpg on the website: it is downloaded once, saved in the app's private files and drawn behind the card; until it
- * is there, or if it cannot be loaded, the card is plain dark blue): a header (round photo, sender name, and on the right a thin
- * divider with "1 of N" over the previous / next arrows, which step through the waiting messages), the received message bubble with
- * its time, the bubble of the reply just sent, the reply pill with the send button, and the bottom bar Open chat / Close.
+ * The Letschat message card, in the exact colours of the LetsChat Africa chat screen: a dark header band (round photo, sender name, and on
+ * the right a thin divider with "1 of N" over the previous / next arrows, which step through the waiting messages), a middle area on the
+ * black and white LetsChat Africa doodle wallpaper (client/wallpaper-dark.webp on the website: it is downloaded once, saved in the app's
+ * private files and drawn behind the card; until it is there, or if it cannot be loaded, the middle is plain black) holding the received
+ * message bubble with its time, the bubble of the reply just sent and the reply pill with the teal send button, and a dark bottom band
+ * with Open chat / Close.
+ * A tap anywhere outside the card minimizes it back into the chat head (the waiting messages are kept).
  * The call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
  * again, remove its setVisibility(View.GONE) line in build(). The smiley in the reply box still opens the emoji strip.
  * Messages that arrive while the app is not on screen are queued and announced by a toast on the floating chat head. The card
@@ -96,27 +98,45 @@ final class MessagePopup {
 
     private static final int MAX_ITEMS = 200;
     private static final int MAX_SEEN = 600;
-    /** The dark blue of the card. */
-    private static final int C_CARD = 0xFF152266;
+    // The colours below were read from the LetsChat Africa chat screen itself.
+    /** Chat background: black (the doodle wallpaper is drawn over it). */
+    private static final int C_CARD = 0xFF000000;
+    /** Header and bottom bar: the dark navy-black of the chat header. */
+    private static final int C_BAND = 0xFF0A0B10;
     /** Received bubble. */
-    private static final int C_RECV = 0xFF34479A;
-    /** Sent bubble and send button. */
-    private static final int C_SENT = 0xFF2F6BFF;
+    private static final int C_RECV = 0xFF1F2C34;
+    /** Sent bubble (dark green). */
+    private static final int C_SENT = 0xFF005C4D;
+    /** The round send button (the teal of the mic button). */
+    private static final int C_BTN = 0xFF35D1BB;
+    /** The icon on the teal send button. */
+    private static final int C_BTN_ICON = 0xFF0A0B10;
     /** Quick tiles and dropdown. */
-    private static final int C_TILE = 0xFF283C8C;
-    /** Reply pill. */
-    private static final int C_PILL = 0xFF243580;
-    private static final int C_GREEN = 0xFF30E070;
-    private static final int C_MUTED = 0xFFB4BEE6;
-    private static final int C_EDGE1 = 0xFF5B7CFF;
-    private static final int C_EDGE2 = 0xFFB44CFF;
-    private static final int C_LINE = 0xFF2F44A8;
+    private static final int C_TILE = 0xFF1E2432;
+    /** Reply pill (the message box colour). */
+    private static final int C_PILL = 0xFF1E2432;
+    /** Text and hint colours inside the reply pill. */
+    private static final int C_PILL_TEXT = 0xFFFFFFFF;
+    private static final int C_PILL_HINT = 0xFF848A98;
+    private static final int C_PILL_ICON = 0xFFB4BECA;
+    /** Header and bottom bar icons (arrows, Open chat, Close). */
+    private static final int C_ICON = 0xFFB4BEC8;
+    private static final int C_GREEN = 0xFF35D1BB;
+    /** Time under a received message. */
+    private static final int C_MUTED = 0xFFB0BAC3;
+    /** Time under a sent message. */
+    private static final int C_SENT_TIME = 0xFFA4C8C8;
+    /** The glowing edge of the card: teal to dark green. */
+    private static final int C_EDGE1 = 0xFF35D1BB;
+    private static final int C_EDGE2 = 0xFF005C4D;
+    /** The line between the middle and the bottom bar, and the divider in the header. */
+    private static final int C_LINE = 0xFF1E2432;
     /** Size the card has while it is "inside" the chat head: it grows from this to full size and shrinks back to it. */
     private static final float SHRUNK = 0.12f;
     private static final String[] EMOJIS = { "😀", "😂", "😍", "😘", "👍", "🙏", "😢", "😮", "🔥", "❤️", "🎉", "😎" };
-    /** The doodle wallpaper of the card: the file client/popup-bg.jpg of the website. */
-    private static final String WALL_URL = "https://letschat-taupe.vercel.app/popup-bg.jpg";
-    private static final String WALL_FILE = "popup-bg.jpg";
+    /** The doodle wallpaper of the card: the file client/wallpaper-dark.webp of the website (the same black and white doodle as the chat screen). */
+    private static final String WALL_URL = "https://letschat-taupe.vercel.app/wallpaper-dark.webp";
+    private static final String WALL_FILE = "popup-wall.webp";
 
     private static MessagePopup instance;
 
@@ -311,7 +331,7 @@ final class MessagePopup {
         card.setPivotY(py);
     }
 
-    /** Minimize, Close, or the last waiting message was answered: the card shrinks back into the chat head, which then pops up again. */
+    /** Minimize, a tap outside the card, Close, or the last waiting message was answered: the card shrinks back into the chat head, which then pops up again. */
     private void collapseToHead() {
         if (collapsing) return;
         final View card = root;
@@ -349,22 +369,40 @@ final class MessagePopup {
         root.setOrientation(LinearLayout.VERTICAL);
         // extra room on top: the chat head sits over the top left corner of the card
         root.setPadding(dp(14), dp(30), dp(14), dp(8));
-        CardBg cardBg = new CardBg(density);
+        final CardBg cardBg = new CardBg(density);
         root.setBackground(cardBg);
         loadWallpaper(cardBg); // the doodle wallpaper (drawn as soon as it is available)
+        // a tap anywhere outside the card (the window watches outside touches) minimizes the card back into the chat head
+        root.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent e) {
+                if (e.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                    collapseToHead();
+                    return true;
+                }
+                return false;
+            }
+        });
 
         // header: round photo, name, divider with "1 of N" over the previous / next arrows (call, video and three-dot menu are hidden)
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
+        // the dark header band reaches from the top of the card to just under the header row
+        header.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                cardBg.setTopBand(bottom + dp(8));
+            }
+        });
 
         avatarView = new ImageView(ctx);
         avatarUrl = "";
         avatarView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
-        ring.setColor(0xFF3A2A8C);
-        ring.setStroke(dp(2), 0xFF6B5CFF);
+        ring.setColor(C_PILL);
+        ring.setStroke(dp(2), C_GREEN);
         avatarView.setBackground(ring);
         avatarView.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
         avatarView.setClipToOutline(true);
@@ -392,7 +430,7 @@ final class MessagePopup {
 
         // navigation: thin divider, "1 of N" and the previous / next arrows underneath
         View navLine = new View(ctx);
-        navLine.setBackgroundColor(0xFF7F8CC8);
+        navLine.setBackgroundColor(C_PILL_HINT);
         LinearLayout.LayoutParams nll = new LinearLayout.LayoutParams(dp(1), dp(46));
         nll.rightMargin = dp(10);
         header.addView(navLine, nll);
@@ -407,7 +445,7 @@ final class MessagePopup {
         nav.addView(navCount, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         LinearLayout arrows = new LinearLayout(ctx);
         arrows.setOrientation(LinearLayout.HORIZONTAL);
-        navPrev = glyph(Glyph.CHEV_L, Color.WHITE);
+        navPrev = glyph(Glyph.CHEV_L, C_ICON);
         tap(navPrev, new Runnable() {
             @Override
             public void run() {
@@ -415,7 +453,7 @@ final class MessagePopup {
             }
         });
         arrows.addView(navPrev, new LinearLayout.LayoutParams(dp(44), dp(36)));
-        navNext = glyph(Glyph.CHEV_R, Color.WHITE);
+        navNext = glyph(Glyph.CHEV_R, C_ICON);
         tap(navNext, new Runnable() {
             @Override
             public void run() {
@@ -426,7 +464,7 @@ final class MessagePopup {
         nav.addView(arrows, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         header.addView(nav, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        View call = glyph(Glyph.PHONE, Color.WHITE);
+        View call = glyph(Glyph.PHONE, C_ICON);
         tap(call, new Runnable() {
             @Override
             public void run() {
@@ -435,7 +473,7 @@ final class MessagePopup {
         });
         call.setVisibility(View.GONE); // hidden
         header.addView(call, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        View video = glyph(Glyph.VIDEO, Color.WHITE);
+        View video = glyph(Glyph.VIDEO, C_ICON);
         tap(video, new Runnable() {
             @Override
             public void run() {
@@ -444,7 +482,7 @@ final class MessagePopup {
         });
         video.setVisibility(View.GONE); // hidden
         header.addView(video, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        View dots = glyph(Glyph.DOTS_V, Color.WHITE);
+        View dots = glyph(Glyph.DOTS_V, C_ICON);
         tap(dots, new Runnable() {
             @Override
             public void run() {
@@ -459,7 +497,7 @@ final class MessagePopup {
         menuPanel = new LinearLayout(ctx);
         menuPanel.setOrientation(LinearLayout.VERTICAL);
         menuPanel.setPadding(dp(6), dp(6), dp(6), dp(6));
-        menuPanel.setBackground(rounded(C_TILE, 18, C_EDGE1, 1));
+        menuPanel.setBackground(rounded(C_BAND, 18, C_LINE, 1));
         prevBtn = menuItem("Previous message");
         tap(prevBtn, new Runnable() {
             @Override
@@ -519,7 +557,7 @@ final class MessagePopup {
         quoteWho.setSingleLine(true);
         quoteWho.setEllipsize(TextUtils.TruncateAt.END);
         quoteText = new TextView(ctx);
-        quoteText.setTextColor(0xFFD3DAF5);
+        quoteText.setTextColor(C_MUTED);
         quoteText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         quoteText.setMaxLines(2);
         quoteText.setEllipsize(TextUtils.TruncateAt.END);
@@ -567,7 +605,7 @@ final class MessagePopup {
         sentView.setMaxWidth(Math.max(dp(120), width - dp(150)));
         sentRow.addView(sentView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         sentTime = new TextView(ctx);
-        sentTime.setTextColor(0xFFCFE0FF);
+        sentTime.setTextColor(C_SENT_TIME);
         sentTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         LinearLayout.LayoutParams stl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         stl.leftMargin = dp(12);
@@ -581,25 +619,25 @@ final class MessagePopup {
         // quick tiles: Photo, Gallery, Emoji, More (hidden)
         LinearLayout tiles = new LinearLayout(ctx);
         tiles.setOrientation(LinearLayout.HORIZONTAL);
-        tiles.addView(tile(Glyph.CAMERA, 0xFF5B9BFF, "Photo", new Runnable() {
+        tiles.addView(tile(Glyph.CAMERA, C_ICON, "Photo", new Runnable() {
             @Override
             public void run() {
                 openCurrentChat(); // pictures are picked inside the chat
             }
         }), tileParams(false));
-        tiles.addView(tile(Glyph.GALLERY, 0xFF5B9BFF, "Gallery", new Runnable() {
+        tiles.addView(tile(Glyph.GALLERY, C_ICON, "Gallery", new Runnable() {
             @Override
             public void run() {
                 openCurrentChat();
             }
         }), tileParams(false));
-        tiles.addView(tile(Glyph.SMILEY, 0xFFFFC53D, "Emoji", new Runnable() {
+        tiles.addView(tile(Glyph.SMILEY, C_ICON, "Emoji", new Runnable() {
             @Override
             public void run() {
                 toggleEmoji();
             }
         }), tileParams(false));
-        tiles.addView(tile(Glyph.DOTS_H, 0xFF8FA6FF, "More", new Runnable() {
+        tiles.addView(tile(Glyph.DOTS_H, C_ICON, "More", new Runnable() {
             @Override
             public void run() {
                 toggleMenu();
@@ -645,7 +683,7 @@ final class MessagePopup {
         pill.setGravity(Gravity.CENTER_VERTICAL);
         pill.setPadding(dp(14), dp(4), dp(8), dp(4));
         pill.setBackground(rounded(C_PILL, 32, 0, 0));
-        View smiley = glyph(Glyph.SMILEY, 0xFFB4BEFF);
+        View smiley = glyph(Glyph.SMILEY, C_PILL_ICON);
         tap(smiley, new Runnable() {
             @Override
             public void run() {
@@ -656,8 +694,8 @@ final class MessagePopup {
 
         input = new EditText(ctx);
         input.setBackgroundColor(Color.TRANSPARENT);
-        input.setTextColor(Color.WHITE);
-        input.setHintTextColor(0xFF9AA6DD);
+        input.setTextColor(C_PILL_TEXT);
+        input.setHintTextColor(C_PILL_HINT);
         input.setHint("Type a message...");
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -688,9 +726,9 @@ final class MessagePopup {
         FrameHolder send = new FrameHolder(ctx);
         GradientDrawable sendBg = new GradientDrawable();
         sendBg.setShape(GradientDrawable.OVAL);
-        sendBg.setColor(C_SENT);
+        sendBg.setColor(C_BTN);
         send.setBackground(sendBg);
-        send.addView(new Glyph(ctx, Glyph.SEND, Color.WHITE, density), new FrameHolder.LayoutParams(dp(58), dp(58)));
+        send.addView(new Glyph(ctx, Glyph.SEND, C_BTN_ICON, density), new FrameHolder.LayoutParams(dp(58), dp(58)));
         send.setAlpha(0.65f);
         actionBtn = send;
         tap(actionBtn, new Runnable() {
@@ -715,6 +753,13 @@ final class MessagePopup {
         lnl.leftMargin = -dp(14);
         lnl.rightMargin = -dp(14);
         root.addView(line, lnl);
+        // the dark bottom band starts at this line and reaches the bottom of the card
+        line.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                cardBg.setBottomFrom(top);
+            }
+        });
 
         LinearLayout bar2 = new LinearLayout(ctx);
         bar2.setOrientation(LinearLayout.HORIZONTAL);
@@ -745,7 +790,8 @@ final class MessagePopup {
             width,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            // FLAG_WATCH_OUTSIDE_TOUCH: the card is told about a tap outside it (the tap still reaches the app underneath)
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         );
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
@@ -828,7 +874,7 @@ final class MessagePopup {
         t.setOrientation(LinearLayout.VERTICAL);
         t.setGravity(Gravity.CENTER);
         t.setPadding(0, dp(10), 0, dp(6));
-        t.addView(glyph(kind, Color.WHITE), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        t.addView(glyph(kind, C_ICON), new LinearLayout.LayoutParams(dp(40), dp(40)));
         TextView tv = new TextView(ctx);
         tv.setText(label);
         tv.setTextColor(Color.WHITE);
@@ -956,7 +1002,7 @@ final class MessagePopup {
                         if (input != null) input.setText("");
                         hideKeyboard();
                         if (sentRow != null) {
-                            // show the sent reply in a blue bubble for a moment, like in a chat
+                            // show the sent reply in a green bubble for a moment, like in a chat
                             sentView.setText(text);
                             sentTime.setText(clock(System.currentTimeMillis()));
                             sentRow.setVisibility(View.VISIBLE);
@@ -1058,7 +1104,7 @@ final class MessagePopup {
 
     /**
      * Gives the card the doodle wallpaper. It is kept in memory once loaded; otherwise it is read from the app's private files, or
-     * downloaded once from the website and saved there. Any problem simply leaves the card plain dark blue. bg may be null (just preload).
+     * downloaded once from the website and saved there. Any problem simply leaves the middle of the card plain black. bg may be null (just preload).
      */
     private void loadWallpaper(final CardBg bg) {
         if (wallpaper != null) {
@@ -1114,7 +1160,7 @@ final class MessagePopup {
                         }
                     }
                 } catch (Throwable ignored) {
-                    // no wallpaper: the card stays plain dark blue
+                    // no wallpaper: the middle of the card stays plain black
                 }
                 final Bitmap fb = b;
                 ui.post(new Runnable() {
@@ -1198,7 +1244,7 @@ final class MessagePopup {
         int size = dp(104);
         Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(bmp);
-        int[] palette = { 0xFF3A2A8C, 0xFF35D0BA, 0xFF7C6CF0, 0xFFE8618C, 0xFF3FA9F5, 0xFF21C063 };
+        int[] palette = { 0xFF005C4D, 0xFF35D1BB, 0xFF1F2C34, 0xFF2E7D6B, 0xFF3FA9F5, 0xFF21C063 };
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         p.setColor(palette[(name.hashCode() & 0x7fffffff) % palette.length]);
         cv.drawRect(0, 0, size, size, p);
@@ -1214,8 +1260,9 @@ final class MessagePopup {
     // ---- drawing: the card background and the line icons ----
 
     /**
-     * The card: dark blue, covered by the doodle wallpaper once it is loaded (scaled to fill, cropped to the card, rounded corners),
-     * with a blue-to-purple double border (a thick outer line and a thinner inner one).
+     * The card: black, covered by the doodle wallpaper once it is loaded (scaled to fill, cropped to the card, rounded corners), with a
+     * dark band over the header at the top and over the bottom bar at the bottom (so the doodle shows in the middle), and a
+     * teal double border (a thick outer line and a thinner inner one).
      */
     private static final class CardBg extends Drawable {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1225,6 +1272,9 @@ final class MessagePopup {
         private final Path clip = new Path();
         private final float u;
         private Bitmap wall;
+        /** Where the header band ends and where the bottom band starts, measured from the top of the card in pixels (-1 = not known yet). */
+        private int topBand = -1;
+        private int bottomFrom = -1;
 
         CardBg(float unit) {
             u = unit;
@@ -1232,6 +1282,18 @@ final class MessagePopup {
 
         void setWall(Bitmap b) {
             wall = b;
+            invalidateSelf();
+        }
+
+        void setTopBand(int px) {
+            if (px == topBand) return;
+            topBand = px;
+            invalidateSelf();
+        }
+
+        void setBottomFrom(int px) {
+            if (px == bottomFrom) return;
+            bottomFrom = px;
             invalidateSelf();
         }
 
@@ -1245,6 +1307,8 @@ final class MessagePopup {
             p.setStyle(Paint.Style.FILL);
             p.setColor(C_CARD);
             c.drawRoundRect(r, rad, rad, p);
+            clip.reset();
+            clip.addRoundRect(r, rad, rad, Path.Direction.CW);
             Bitmap w = wall;
             if (w != null && !w.isRecycled()) {
                 // cover: scale the picture to fill the card and crop what sticks out, keeping the middle
@@ -1256,13 +1320,19 @@ final class MessagePopup {
                 int sx = (int) ((bw - sw) / 2f);
                 int sy = (int) ((bh - sh) / 2f);
                 src.set(sx, sy, (int) (sx + sw), (int) (sy + sh));
-                clip.reset();
-                clip.addRoundRect(r, rad, rad, Path.Direction.CW);
                 c.save();
                 c.clipPath(clip);
                 c.drawBitmap(w, src, r, bmpPaint);
                 c.restore();
             }
+            // the header band (top) and bottom bar (bottom), clipped to the rounded card
+            c.save();
+            c.clipPath(clip);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(C_BAND);
+            if (topBand > 0) c.drawRect(b.left, b.top, b.right, b.top + topBand, p);
+            if (bottomFrom > 0 && bottomFrom < b.height()) c.drawRect(b.left, b.top + bottomFrom, b.right, b.bottom, p);
+            c.restore();
             Shader edge = new LinearGradient(b.left, b.top, b.right, b.bottom, C_EDGE1, C_EDGE2, Shader.TileMode.CLAMP);
             p.setShader(edge);
             p.setStyle(Paint.Style.STROKE);
