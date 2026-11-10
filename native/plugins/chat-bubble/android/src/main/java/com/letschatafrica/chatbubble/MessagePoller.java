@@ -40,6 +40,8 @@ import org.json.JSONObject;
  * It does not depend on "Display over other apps" or on the Floating chat bubble setting. Tapping it opens Letschat on that chat.
  * The notifications are removed again when Letschat is opened. When the bubble is switched on and "Display over other apps" is
  * allowed, the WhatsApp-style chat head pop-up is shown as well.
+ * The notification has the Facebook Lite look: the sender's round profile photo on the left, the name on top and the message under it
+ * (see NoticeStyle.java; if the photo cannot be loaded the plain notification is shown).
  *
  * Instant push (Firebase) and this checker can both fire for the same message. The notification here uses the SAME tag as the
  * server's push ("conv-<chat id>", id 0) and the same channel, so Android replaces one with the other instead of showing two.
@@ -489,6 +491,27 @@ public final class MessagePoller {
     }
 
     /**
+     * Facebook Lite look: the sender's round profile photo on the left, the name on top, the message under it. The work is done by
+     * NoticeStyle.java, reached by name inside a try/catch so that a missing class or a photo that cannot be downloaded only leaves the
+     * plain notification (the offline tests compile this file alone, so there the class is simply not found and nothing changes).
+     */
+    private static void styleNotice(Context ctx, Notification.Builder b, String title, List<MessagePopup.Item> items) {
+        try {
+            int from = Math.max(0, items.size() - 5);
+            String[] texts = new String[items.size() - from];
+            for (int i = from; i < items.size(); i++) texts[i - from] = items.get(i).text;
+            Class<?> k = Class.forName("com.letschatafrica.chatbubble.NoticeStyle");
+            java.lang.reflect.Method m = k.getDeclaredMethod("apply", Context.class, Notification.Builder.class, String.class, String.class, String[].class);
+            m.setAccessible(true);
+            m.invoke(null, ctx, b, title, items.get(items.size() - 1).avatar, texts);
+        } catch (ClassNotFoundException e) {
+            // not packaged (offline tests): keep the plain notification
+        } catch (Throwable e) {
+            Log.w(TAG, "notification style not applied: " + e);
+        }
+    }
+
+    /**
      * The background alert: a normal Android notification for the new message(s) of one chat (one notification per chat, updated when more
      * arrive). Sound and vibration come from the "Letschat messages" channel; the person can change them in the phone's notification
      * settings. Tapping it opens Letschat on that chat.
@@ -531,6 +554,7 @@ public final class MessagePoller {
                 b.setDefaults(Notification.DEFAULT_ALL);
             }
             if (pi != null) b.setContentIntent(pi);
+            styleNotice(ctx, b, title, items); // round profile photo on the left (Facebook Lite look)
             // same tag + id 0 as the Firebase push for this chat, so the two replace each other instead of showing twice
             nm.notify("conv-" + chatId, 0, b.build());
             synchronized (postedNotices) {
