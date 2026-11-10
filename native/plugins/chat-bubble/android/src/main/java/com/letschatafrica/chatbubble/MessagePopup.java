@@ -62,6 +62,7 @@ import java.util.Locale;
  * private files and drawn behind the card; until it is there, or if it cannot be loaded, the middle is plain black) holding the received
  * message bubble with its time, the bubble of the reply just sent and the reply pill with the teal send button, and a dark bottom band
  * with Open chat / Close.
+ * A tap anywhere outside the card minimizes it back into the chat head (the waiting messages are kept).
  * The call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
  * again, remove its setVisibility(View.GONE) line in build(). The smiley in the reply box still opens the emoji strip.
  * Messages that arrive while the app is not on screen are queued and announced by a toast on the floating chat head. The card
@@ -330,7 +331,7 @@ final class MessagePopup {
         card.setPivotY(py);
     }
 
-    /** Minimize, Close, or the last waiting message was answered: the card shrinks back into the chat head, which then pops up again. */
+    /** Minimize, a tap outside the card, Close, or the last waiting message was answered: the card shrinks back into the chat head, which then pops up again. */
     private void collapseToHead() {
         if (collapsing) return;
         final View card = root;
@@ -371,6 +372,17 @@ final class MessagePopup {
         final CardBg cardBg = new CardBg(density);
         root.setBackground(cardBg);
         loadWallpaper(cardBg); // the doodle wallpaper (drawn as soon as it is available)
+        // a tap anywhere outside the card (the window watches outside touches) minimizes the card back into the chat head
+        root.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent e) {
+                if (e.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                    collapseToHead();
+                    return true;
+                }
+                return false;
+            }
+        });
 
         // header: round photo, name, divider with "1 of N" over the previous / next arrows (call, video and three-dot menu are hidden)
         LinearLayout header = new LinearLayout(ctx);
@@ -778,7 +790,8 @@ final class MessagePopup {
             width,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            // FLAG_WATCH_OUTSIDE_TOUCH: the card is told about a tap outside it (the tap still reaches the app underneath)
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         );
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
