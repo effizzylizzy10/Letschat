@@ -127,6 +127,7 @@
     // modern phones get the small modern bundle; old ones the ES5 bundle (build.js makes app.legacy.js). If it is missing, app.js is used.
     if (modern) inject("app.js"); else { var L = d.createElement("script"); L.src = "app.legacy.js"; L.async = false; L.onerror = function () { inject("app.js"); }; d.body.appendChild(L); }
     inject("device.js");
+    inject("phonematch.js"); // picks the app file (APK) that best matches the phone's Android version and model
     inject("brain.js"); // offline AI brain: loaded after the app starts so it never delays the first screen
   }
   function go() { fixAll(0, function () { whenSaverKnown(start); }); setTimeout(start, 30000); } // never wait forever: the app shows its own error if something is still missing
