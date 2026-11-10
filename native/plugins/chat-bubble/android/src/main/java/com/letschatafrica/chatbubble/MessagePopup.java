@@ -40,6 +40,10 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -52,10 +56,11 @@ import java.util.LinkedList;
 import java.util.Locale;
 
 /**
- * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge: a header (round photo, sender name, and on the
- * right a thin divider with "1 of N" over the round-less previous / next arrows, which step through the waiting messages), the
- * received message bubble with its time, the bubble of the reply just sent, the reply pill with the send button, and the bottom bar
- * Open chat / Close.
+ * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge, on the LetsChat Africa doodle wallpaper
+ * (client/popup-bg.jpg on the website: it is downloaded once, saved in the app's private files and drawn behind the card; until it
+ * is there, or if it cannot be loaded, the card is plain dark blue): a header (round photo, sender name, and on the right a thin
+ * divider with "1 of N" over the previous / next arrows, which step through the waiting messages), the received message bubble with
+ * its time, the bubble of the reply just sent, the reply pill with the send button, and the bottom bar Open chat / Close.
  * The call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
  * again, remove its setVisibility(View.GONE) line in build(). The smiley in the reply box still opens the emoji strip.
  * Messages that arrive while the app is not on screen are queued and announced by a toast on the floating chat head. The card
@@ -109,6 +114,9 @@ final class MessagePopup {
     /** Size the card has while it is "inside" the chat head: it grows from this to full size and shrinks back to it. */
     private static final float SHRUNK = 0.12f;
     private static final String[] EMOJIS = { "😀", "😂", "😍", "😘", "👍", "🙏", "😢", "😮", "🔥", "❤️", "🎉", "😎" };
+    /** The doodle wallpaper of the card: the file client/popup-bg.jpg of the website. */
+    private static final String WALL_URL = "https://letschat-taupe.vercel.app/popup-bg.jpg";
+    private static final String WALL_FILE = "popup-bg.jpg";
 
     private static MessagePopup instance;
 
@@ -139,6 +147,9 @@ final class MessagePopup {
     /** Screen position of the chat head's centre when the card was opened: the card grows from and shrinks to this point. */
     private int originX = -1;
     private int originY = -1;
+    /** The doodle wallpaper, once it is loaded (kept for the next cards). */
+    private Bitmap wallpaper;
+    private boolean wallLoading = false;
 
     private LinearLayout root;
     private WindowManager.LayoutParams lp;
@@ -219,6 +230,7 @@ final class MessagePopup {
             if (index > 0) index--;
         }
         items.add(item);
+        if (wallpaper == null) loadWallpaper(null); // start fetching the wallpaper while the chat head is still showing its toast
         if (root != null) {
             refresh(); // the card is already open: just update "N of M"
             return;
@@ -337,7 +349,9 @@ final class MessagePopup {
         root.setOrientation(LinearLayout.VERTICAL);
         // extra room on top: the chat head sits over the top left corner of the card
         root.setPadding(dp(14), dp(30), dp(14), dp(8));
-        root.setBackground(new CardBg(density));
+        CardBg cardBg = new CardBg(density);
+        root.setBackground(cardBg);
+        loadWallpaper(cardBg); // the doodle wallpaper (drawn as soon as it is available)
 
         // header: round photo, name, divider with "1 of N" over the previous / next arrows (call, video and three-dot menu are hidden)
         LinearLayout header = new LinearLayout(ctx);
@@ -1040,6 +1054,99 @@ final class MessagePopup {
         collapsing = false;
     }
 
+    // ---- wallpaper ----
+
+    /**
+     * Gives the card the doodle wallpaper. It is kept in memory once loaded; otherwise it is read from the app's private files, or
+     * downloaded once from the website and saved there. Any problem simply leaves the card plain dark blue. bg may be null (just preload).
+     */
+    private void loadWallpaper(final CardBg bg) {
+        if (wallpaper != null) {
+            if (bg != null) bg.setWall(wallpaper);
+            return;
+        }
+        if (wallLoading) {
+            // a load is already running: the card gets the picture on the next one
+            return;
+        }
+        wallLoading = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Bitmap b = null;
+                try {
+                    File f = new File(ctx.getFilesDir(), WALL_FILE);
+                    if (f.exists()) {
+                        InputStream in = new FileInputStream(f);
+                        try {
+                            b = decodeWall(readAll(in));
+                        } finally {
+                            in.close();
+                        }
+                        if (b == null) f.delete(); // a broken copy: fetch it again next time
+                    }
+                    if (b == null) {
+                        HttpURLConnection c = null;
+                        try {
+                            c = (HttpURLConnection) new URL(WALL_URL).openConnection();
+                            c.setConnectTimeout(8000);
+                            c.setReadTimeout(10000);
+                            if (c.getResponseCode() == 200) {
+                                InputStream in = c.getInputStream();
+                                byte[] data;
+                                try {
+                                    data = readAll(in);
+                                } finally {
+                                    in.close();
+                                }
+                                b = decodeWall(data);
+                                if (b != null) {
+                                    FileOutputStream out = new FileOutputStream(f);
+                                    try {
+                                        out.write(data);
+                                    } finally {
+                                        out.close();
+                                    }
+                                }
+                            }
+                        } finally {
+                            if (c != null) c.disconnect();
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // no wallpaper: the card stays plain dark blue
+                }
+                final Bitmap fb = b;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        wallLoading = false;
+                        if (fb == null) return;
+                        wallpaper = fb;
+                        if (bg != null) bg.setWall(fb);
+                    }
+                });
+            }
+        }, "letschat-popup-wallpaper").start();
+    }
+
+    private static byte[] readAll(InputStream in) throws java.io.IOException {
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            bo.write(buf, 0, n);
+            if (bo.size() > 6 * 1024 * 1024) throw new java.io.IOException("wallpaper too large");
+        }
+        return bo.toByteArray();
+    }
+
+    private static Bitmap decodeWall(byte[] data) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inPreferredConfig = Bitmap.Config.RGB_565;
+        return BitmapFactory.decodeByteArray(data, 0, data.length, o);
+    }
+
     // ---- photo ----
 
     private void setAvatar(final String url, String name) {
@@ -1106,14 +1213,26 @@ final class MessagePopup {
 
     // ---- drawing: the card background and the line icons ----
 
-    /** The card: dark blue with a blue-to-purple double border (a thick outer line and a thinner inner one). */
+    /**
+     * The card: dark blue, covered by the doodle wallpaper once it is loaded (scaled to fill, cropped to the card, rounded corners),
+     * with a blue-to-purple double border (a thick outer line and a thinner inner one).
+     */
     private static final class CardBg extends Drawable {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint bmpPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         private final RectF r = new RectF();
+        private final Rect src = new Rect();
+        private final Path clip = new Path();
         private final float u;
+        private Bitmap wall;
 
         CardBg(float unit) {
             u = unit;
+        }
+
+        void setWall(Bitmap b) {
+            wall = b;
+            invalidateSelf();
         }
 
         @Override
@@ -1126,6 +1245,24 @@ final class MessagePopup {
             p.setStyle(Paint.Style.FILL);
             p.setColor(C_CARD);
             c.drawRoundRect(r, rad, rad, p);
+            Bitmap w = wall;
+            if (w != null && !w.isRecycled()) {
+                // cover: scale the picture to fill the card and crop what sticks out, keeping the middle
+                float bw = w.getWidth();
+                float bh = w.getHeight();
+                float scale = Math.max(r.width() / bw, r.height() / bh);
+                float sw = r.width() / scale;
+                float sh = r.height() / scale;
+                int sx = (int) ((bw - sw) / 2f);
+                int sy = (int) ((bh - sh) / 2f);
+                src.set(sx, sy, (int) (sx + sw), (int) (sy + sh));
+                clip.reset();
+                clip.addRoundRect(r, rad, rad, Path.Direction.CW);
+                c.save();
+                c.clipPath(clip);
+                c.drawBitmap(w, src, r, bmpPaint);
+                c.restore();
+            }
             Shader edge = new LinearGradient(b.left, b.top, b.right, b.bottom, C_EDGE1, C_EDGE2, Shader.TileMode.CLAMP);
             p.setShader(edge);
             p.setStyle(Paint.Style.STROKE);
