@@ -40,6 +40,9 @@ import org.json.JSONObject;
  * It does not depend on "Display over other apps" or on the Floating chat bubble setting. Tapping it opens Letschat on that chat.
  * The notifications are removed again when Letschat is opened. When the bubble is switched on and "Display over other apps" is
  * allowed, the WhatsApp-style chat head pop-up is shown as well.
+ * The notification has the Facebook look (see NoticeLook.java): the sender's round photo (a coloured letter picture when there is no
+ * photo), the same photo as the picture of a short message, the Letschat green and the time. If anything goes wrong there, the plain
+ * notification is shown instead.
  *
  * Instant push (Firebase) and this checker can both fire for the same message. The notification here uses the SAME tag as the
  * server's push ("conv-<chat id>", id 0) and the same channel, so Android replaces one with the other instead of showing two.
@@ -489,6 +492,25 @@ public final class MessagePoller {
     }
 
     /**
+     * Facebook look: the sender's round photo, the photo as the picture of a short message, the Letschat green and the time. The work is
+     * done by NoticeLook.java, reached by name inside a try/catch so that a missing class or a photo that cannot be downloaded only leaves
+     * the plain notification (the offline tests compile this file alone, so there the class is simply not found and nothing changes).
+     * Runs on the checker's own thread, which is what lets NoticeLook download the photo.
+     */
+    private static void lookNotice(Notification.Builder b, String title, String photoUrl, String lines) {
+        try {
+            Class<?> k = Class.forName("com.letschatafrica.chatbubble.NoticeLook");
+            java.lang.reflect.Method m = k.getDeclaredMethod("dress", Notification.Builder.class, String.class, String.class, String.class);
+            m.setAccessible(true);
+            m.invoke(null, b, title, photoUrl, lines);
+        } catch (ClassNotFoundException e) {
+            // not packaged (offline tests): keep the plain notification
+        } catch (Throwable e) {
+            Log.w(TAG, "notification look not applied: " + e);
+        }
+    }
+
+    /**
      * The background alert: a normal Android notification for the new message(s) of one chat (one notification per chat, updated when more
      * arrive). Sound and vibration come from the "Letschat messages" channel; the person can change them in the phone's notification
      * settings. Tapping it opens Letschat on that chat.
@@ -531,6 +553,7 @@ public final class MessagePoller {
                 b.setDefaults(Notification.DEFAULT_ALL);
             }
             if (pi != null) b.setContentIntent(pi);
+            lookNotice(b, title, items.get(items.size() - 1).avatar, lines.toString()); // Facebook look: round photo, picture, colour, time
             // same tag + id 0 as the Firebase push for this chat, so the two replace each other instead of showing twice
             nm.notify("conv-" + chatId, 0, b.build());
             synchronized (postedNotices) {
