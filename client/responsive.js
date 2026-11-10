@@ -15,17 +15,34 @@
   if (/Safari/.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|OPiOS|Android/i.test(ua)) add("lc-safari");
   if (/Phoenix|PHX\b/i.test(ua)) add("lc-phoenix");
 
-  // ---- lite mode: keypad phones and screens up to 320 px wide get a compact app (no web fonts or push script; animations and reactions are kept) ----
+  // ---- lite mode: ONLY keypad phones, and phones that have Battery saver turned on. Data Saver and narrow screens no longer switch the app to lite. ----
+  // A web page cannot read the Battery saver switch directly, but Android makes the browser REFUSE the Screen Wake Lock while it is on,
+  // so we ask for the lock once at start-up (NotAllowedError = Battery saver is on) and release it straight away.
   var keypadUA = /KaiOS|Series40|Series60|Nokia|Opera Mini|MIDP|UCWEB|NetFront|JioPhone|itel/i.test(ua);
-  var sd = false; try { sd = !!(navigator.connection && navigator.connection.saveData); } catch (e) {}
-  // Android 6 to 16 phones ALWAYS get the full app (Data Saver or a narrow screen no longer switches them to lite mode).
-  // Chrome freezes the Android number in the user agent (for example "Android 10"), which is still inside 6-16.
-  var am = ua.match(/Android[ \/]+(\d+)/i), androidVer = am ? parseInt(am[1], 10) : 0;
-  var fullApp = !keypadUA && androidVer >= 6 && androidVer <= 16;
-  var lite = keypadUA || (!fullApp && ((w.innerWidth || 999) <= 320 || sd));
+  var lite = keypadUA;
   w.__lcLite = lite;
   if (lite) add("lc-lite");
   if (keypadUA) add("lc-keypad");  // only real keypad phones lose the extra tabs; small screens and Data Saver keep all of them
+
+  var saver = keypadUA ? false : null, saverWaiting = [];   // null = still checking
+  function saverDone(v) {
+    if (saver !== null) return;
+    saver = !!v;
+    if (saver && !lite) { lite = true; w.__lcLite = true; add("lc-lite"); }
+    var q = saverWaiting; saverWaiting = [];
+    for (var i = 0; i < q.length; i++) q[i]();
+  }
+  function whenSaverKnown(cb) { if (saver !== null) cb(); else saverWaiting.push(cb); }
+  if (saver === null) {
+    try {
+      if (!navigator.wakeLock || !navigator.wakeLock.request || d.visibilityState === "hidden") saverDone(false);
+      else {
+        setTimeout(function () { saverDone(false); }, 1500);  // never hold the app back for more than 1.5 s
+        navigator.wakeLock.request("screen").then(function (l) { try { l.release(); } catch (e) {} saverDone(false); },
+          function (e) { saverDone(!!e && e.name === "NotAllowedError"); });
+      }
+    } catch (e) { saverDone(false); }
+  }
 
   // ---- Opera Mini (extreme / mini mode runs no real JavaScript, so the full app cannot work): use Letschat Lite, plain HTML pages ----
   var operaMini = /Opera Mini/i.test(ua); try { operaMini = operaMini || Object.prototype.toString.call(w.operamini) === "[object OperaMini]"; } catch (e) {}
@@ -112,7 +129,7 @@
     inject("device.js");
     inject("brain.js"); // offline AI brain: loaded after the app starts so it never delays the first screen
   }
-  function go() { fixAll(0, start); setTimeout(start, 30000); } // never wait forever: the app shows its own error if something is still missing
+  function go() { fixAll(0, function () { whenSaverKnown(start); }); setTimeout(start, 30000); } // never wait forever: the app shows its own error if something is still missing
   // responsive.js is a deferred script, so document.readyState is already "interactive" while it runs, BEFORE the React / Firebase /
   // Socket.IO scripts listed after it in index.html. Starting now made it fetch a second copy of React from a backup host and the app
   // and ReactDOM ended up on different copies ("Cannot read properties of null (reading 'useState')"). Wait until every deferred
