@@ -35,11 +35,15 @@ import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
-import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -50,16 +54,18 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Locale;
-import java.util.Random;
 
 /**
- * The Letschat message card, in the neon "doodle" style: a black card covered with white doodles (stars, hearts, chat bubbles,
- * pencils, laptops), a glowing green header pill with the sender's round photo, name and "1 of N" with round previous / next
- * arrows, the little boy, the Letschat Africa logo and the girl, the message in a dark green bubble (with its time and the double
- * tick), a glowing reply pill (smiley, "Type a message...") with the green mic / send button, and the glowing Close and View buttons.
+ * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge, on the LetsChat Africa doodle wallpaper
+ * (client/popup-bg.jpg on the website: it is downloaded once, saved in the app's private files and drawn behind the card; until it
+ * is there, or if it cannot be loaded, the card is plain dark blue): a header (round photo, sender name, and on the right a thin
+ * divider with "1 of N" over the previous / next arrows, which step through the waiting messages), the received message bubble with
+ * its time, the bubble of the reply just sent, the reply pill with the send button, and the bottom bar Open chat / Close.
+ * The call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
+ * again, remove its setVisibility(View.GONE) line in build(). The smiley in the reply box still opens the emoji strip.
  * Messages that arrive while the app is not on screen are queued and announced by a toast on the floating chat head. The card
- * stays closed until the person taps the chat head: the head then grows into the card (expandFrom). Close shrinks the card back
- * into the head and clears the queue, View opens Letschat on that chat, sending a reply posts it to the Letschat server and removes
+ * stays closed until the person taps the chat head: the head then grows into the card (expandFrom). Close shrinks the card back into
+ * the head and clears the queue, Open chat opens Letschat on that chat, sending a reply posts it to the Letschat server and removes
  * that chat's messages from the card.
  */
 final class MessagePopup {
@@ -73,7 +79,7 @@ final class MessagePopup {
         final String text;
         final String replyName;
         final String replyText;
-        /** When the message reached the phone (shown as the time under the message). */
+        /** When the message reached the phone (shown as the time next to the message). */
         final long at;
 
         Item(String id, String chatId, String title, String avatar, String text, String replyName, String replyText) {
@@ -90,16 +96,27 @@ final class MessagePopup {
 
     private static final int MAX_ITEMS = 200;
     private static final int MAX_SEEN = 600;
-    /** The black of the card. */
-    private static final int C_CARD = 0xFF05070A;
-    /** The bright neon green of the glowing borders. */
-    private static final int C_NEON = 0xFF2BFF77;
-    private static final int C_GREEN = 0xFF21C063;
-    private static final int C_PANEL = 0xFF08130F;
-    private static final int C_BUBBLE = 0xFF0F3D33;
-    private static final int C_MUTED = 0xFF9FB7AC;
+    /** The dark blue of the card. */
+    private static final int C_CARD = 0xFF152266;
+    /** Received bubble. */
+    private static final int C_RECV = 0xFF34479A;
+    /** Sent bubble and send button. */
+    private static final int C_SENT = 0xFF2F6BFF;
+    /** Quick tiles and dropdown. */
+    private static final int C_TILE = 0xFF283C8C;
+    /** Reply pill. */
+    private static final int C_PILL = 0xFF243580;
+    private static final int C_GREEN = 0xFF30E070;
+    private static final int C_MUTED = 0xFFB4BEE6;
+    private static final int C_EDGE1 = 0xFF5B7CFF;
+    private static final int C_EDGE2 = 0xFFB44CFF;
+    private static final int C_LINE = 0xFF2F44A8;
     /** Size the card has while it is "inside" the chat head: it grows from this to full size and shrinks back to it. */
     private static final float SHRUNK = 0.12f;
+    private static final String[] EMOJIS = { "😀", "😂", "😍", "😘", "👍", "🙏", "😢", "😮", "🔥", "❤️", "🎉", "😎" };
+    /** The doodle wallpaper of the card: the file client/popup-bg.jpg of the website. */
+    private static final String WALL_URL = "https://letschat-taupe.vercel.app/popup-bg.jpg";
+    private static final String WALL_FILE = "popup-bg.jpg";
 
     private static MessagePopup instance;
 
@@ -130,6 +147,9 @@ final class MessagePopup {
     /** Screen position of the chat head's centre when the card was opened: the card grows from and shrinks to this point. */
     private int originX = -1;
     private int originY = -1;
+    /** The doodle wallpaper, once it is loaded (kept for the next cards). */
+    private Bitmap wallpaper;
+    private boolean wallLoading = false;
 
     private LinearLayout root;
     private WindowManager.LayoutParams lp;
@@ -137,15 +157,24 @@ final class MessagePopup {
     private String avatarUrl = "";
     private TextView nameView;
     private TextView counterView;
+    /** The "1 of N" text and the previous / next arrows in the header. */
+    private TextView navCount;
+    private View navPrev;
+    private View navNext;
     private TextView prevBtn;
     private TextView nextBtn;
+    private LinearLayout menuPanel;
+    private HorizontalScrollView emojiStrip;
     private LinearLayout quoteBox;
     private TextView quoteWho;
     private TextView quoteText;
     private TextView msgView;
     private TextView timeView;
+    private LinearLayout sentRow;
+    private TextView sentView;
+    private TextView sentTime;
     private EditText input;
-    private ActionButton actionBtn;
+    private View actionBtn;
 
     private MessagePopup(Context appContext) {
         ctx = appContext;
@@ -201,6 +230,7 @@ final class MessagePopup {
             if (index > 0) index--;
         }
         items.add(item);
+        if (wallpaper == null) loadWallpaper(null); // start fetching the wallpaper while the chat head is still showing its toast
         if (root != null) {
             refresh(); // the card is already open: just update "N of M"
             return;
@@ -281,7 +311,7 @@ final class MessagePopup {
         card.setPivotY(py);
     }
 
-    /** Close, or the last waiting message was answered: the card shrinks back into the chat head, which then pops up again. */
+    /** Minimize, Close, or the last waiting message was answered: the card shrinks back into the chat head, which then pops up again. */
     private void collapseToHead() {
         if (collapsing) return;
         final View card = root;
@@ -313,129 +343,183 @@ final class MessagePopup {
     private boolean build() {
         if (root != null) return true;
 
-        final int glowH = dp(5);
+        final int width = Math.min(screenW() - dp(8), dp(520));
 
         root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(8), dp(8), dp(8), dp(8));
-        root.setBackground(new Doodle(density));
+        // extra room on top: the chat head sits over the top left corner of the card
+        root.setPadding(dp(14), dp(30), dp(14), dp(8));
+        CardBg cardBg = new CardBg(density);
+        root.setBackground(cardBg);
+        loadWallpaper(cardBg); // the doodle wallpaper (drawn as soon as it is available)
 
-        // header pill: photo, name | "1 of N" and round arrows
+        // header: round photo, name, divider with "1 of N" over the previous / next arrows (call, video and three-dot menu are hidden)
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(11), dp(8), dp(11), dp(8));
-        header.setBackground(new Neon(C_PANEL, 0, C_NEON, dp(36), dp(2), glowH, false, density));
 
         avatarView = new ImageView(ctx);
         avatarUrl = "";
         avatarView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        avatarView.setPadding(dp(3), dp(3), dp(3), dp(3));
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
-        ring.setColor(0xFF0B1512);
-        ring.setStroke(dp(3), C_NEON);
+        ring.setColor(0xFF3A2A8C);
+        ring.setStroke(dp(2), 0xFF6B5CFF);
         avatarView.setBackground(ring);
         avatarView.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
         avatarView.setClipToOutline(true);
-        header.addView(avatarView, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        header.addView(avatarView, new LinearLayout.LayoutParams(dp(46), dp(46)));
 
+        LinearLayout names = new LinearLayout(ctx);
+        names.setOrientation(LinearLayout.VERTICAL);
         nameView = new TextView(ctx);
         nameView.setTextColor(Color.WHITE);
-        nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+        nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         nameView.setTypeface(Typeface.DEFAULT_BOLD);
         nameView.setSingleLine(true);
         nameView.setEllipsize(TextUtils.TruncateAt.END);
+        names.addView(nameView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        counterView = new TextView(ctx);
+        counterView.setTextColor(C_GREEN);
+        counterView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        counterView.setSingleLine(true);
+        counterView.setVisibility(View.GONE); // the count is now shown by the navigation on the right
+        names.addView(counterView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        nl.leftMargin = dp(10);
+        nl.leftMargin = dp(12);
         nl.rightMargin = dp(6);
-        header.addView(nameView, nl);
+        header.addView(names, nl);
 
-        View divider = new View(ctx);
-        divider.setBackgroundColor(0xFF4A5A55);
-        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(dp(1), dp(48));
-        dl.rightMargin = dp(8);
-        header.addView(divider, dl);
-
+        // navigation: thin divider, "1 of N" and the previous / next arrows underneath
+        View navLine = new View(ctx);
+        navLine.setBackgroundColor(0xFF7F8CC8);
+        LinearLayout.LayoutParams nll = new LinearLayout.LayoutParams(dp(1), dp(46));
+        nll.rightMargin = dp(10);
+        header.addView(navLine, nll);
         LinearLayout nav = new LinearLayout(ctx);
         nav.setOrientation(LinearLayout.VERTICAL);
         nav.setGravity(Gravity.CENTER_HORIZONTAL);
-        counterView = new TextView(ctx);
-        counterView.setTextColor(Color.WHITE);
-        counterView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        counterView.setTypeface(Typeface.DEFAULT_BOLD);
-        counterView.setGravity(Gravity.CENTER);
-        nav.addView(counterView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        navCount = new TextView(ctx);
+        navCount.setTextColor(Color.WHITE);
+        navCount.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        navCount.setSingleLine(true);
+        navCount.setGravity(Gravity.CENTER);
+        nav.addView(navCount, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         LinearLayout arrows = new LinearLayout(ctx);
         arrows.setOrientation(LinearLayout.HORIZONTAL);
-        prevBtn = arrow("‹");
-        nextBtn = arrow("›");
-        prevBtn.setOnClickListener(new View.OnClickListener() {
+        navPrev = glyph(Glyph.CHEV_L, Color.WHITE);
+        tap(navPrev, new Runnable() {
             @Override
-            public void onClick(View v) {
-                if (index > 0) {
-                    index--;
-                    refresh();
-                }
+            public void run() {
+                showPrev();
             }
         });
-        nextBtn.setOnClickListener(new View.OnClickListener() {
+        arrows.addView(navPrev, new LinearLayout.LayoutParams(dp(44), dp(36)));
+        navNext = glyph(Glyph.CHEV_R, Color.WHITE);
+        tap(navNext, new Runnable() {
             @Override
-            public void onClick(View v) {
-                if (index < items.size() - 1) {
-                    index++;
-                    refresh();
-                }
+            public void run() {
+                showNext();
             }
         });
-        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(dp(38), dp(38));
-        LinearLayout.LayoutParams na = new LinearLayout.LayoutParams(dp(38), dp(38));
-        na.leftMargin = dp(6);
-        arrows.addView(prevBtn, pa);
-        arrows.addView(nextBtn, na);
+        arrows.addView(navNext, new LinearLayout.LayoutParams(dp(44), dp(36)));
         nav.addView(arrows, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         header.addView(nav, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        View call = glyph(Glyph.PHONE, Color.WHITE);
+        tap(call, new Runnable() {
+            @Override
+            public void run() {
+                openCurrentChat(); // calls are started inside the chat
+            }
+        });
+        call.setVisibility(View.GONE); // hidden
+        header.addView(call, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        View video = glyph(Glyph.VIDEO, Color.WHITE);
+        tap(video, new Runnable() {
+            @Override
+            public void run() {
+                openCurrentChat();
+            }
+        });
+        video.setVisibility(View.GONE); // hidden
+        header.addView(video, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        View dots = glyph(Glyph.DOTS_V, Color.WHITE);
+        tap(dots, new Runnable() {
+            @Override
+            public void run() {
+                toggleMenu();
+            }
+        });
+        dots.setVisibility(View.GONE); // hidden
+        header.addView(dots, new LinearLayout.LayoutParams(dp(40), dp(44)));
         root.addView(header, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // the little pictures: the boy, the Letschat Africa logo and the girl
-        FrameLayout stickers = new FrameLayout(ctx);
-        Bitmap boy = PopupArt.boy();
-        Bitmap logo = PopupArt.logo();
-        Bitmap girl = PopupArt.girl();
-        if (boy != null) stickers.addView(sticker(boy), new FrameLayout.LayoutParams(dp(46), dp(58), Gravity.START | Gravity.BOTTOM));
-        if (logo != null) stickers.addView(sticker(logo), new FrameLayout.LayoutParams(dp(72), dp(74), Gravity.CENTER));
-        if (girl != null) stickers.addView(sticker(girl), new FrameLayout.LayoutParams(dp(44), dp(58), Gravity.END | Gravity.TOP));
-        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(76));
-        sl.topMargin = dp(2);
-        root.addView(stickers, sl);
+        // the dropdown under the header (three-dot button and the More tile; both are hidden for now, so it never opens)
+        menuPanel = new LinearLayout(ctx);
+        menuPanel.setOrientation(LinearLayout.VERTICAL);
+        menuPanel.setPadding(dp(6), dp(6), dp(6), dp(6));
+        menuPanel.setBackground(rounded(C_TILE, 18, C_EDGE1, 1));
+        prevBtn = menuItem("Previous message");
+        tap(prevBtn, new Runnable() {
+            @Override
+            public void run() {
+                showPrev();
+            }
+        });
+        menuPanel.addView(prevBtn, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        nextBtn = menuItem("Next message");
+        tap(nextBtn, new Runnable() {
+            @Override
+            public void run() {
+                showNext();
+            }
+        });
+        menuPanel.addView(nextBtn, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        TextView openItem = menuItem("Open chat");
+        tap(openItem, new Runnable() {
+            @Override
+            public void run() {
+                openCurrentChat();
+            }
+        });
+        menuPanel.addView(openItem, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        TextView clearItem = menuItem("Clear all");
+        tap(clearItem, new Runnable() {
+            @Override
+            public void run() {
+                clearAndCollapse();
+            }
+        });
+        menuPanel.addView(clearItem, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        menuPanel.setVisibility(View.GONE);
+        LinearLayout.LayoutParams mpl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        mpl.topMargin = dp(8);
+        root.addView(menuPanel, mpl);
 
-        // the message bubble: (quoted message,) the message, its time and the double tick
+        // the received message: (quoted message,) the message and its time
         LinearLayout bubble = new LinearLayout(ctx);
         bubble.setOrientation(LinearLayout.VERTICAL);
-        bubble.setPadding(dp(16), dp(10), dp(18), dp(8));
-        bubble.setMinimumWidth(dp(150));
-        bubble.setBackground(new Neon(C_BUBBLE, 0, 0xFF1F9E5A, dp(24), dp(2), dp(3), true, density));
+        bubble.setPadding(dp(16), dp(10), dp(16), dp(10));
+        bubble.setBackground(rounded(C_RECV, 22, 0, 0));
 
         quoteBox = new LinearLayout(ctx);
         quoteBox.setOrientation(LinearLayout.HORIZONTAL);
-        GradientDrawable quoteBg = new GradientDrawable();
-        quoteBg.setColor(0x55000000);
-        quoteBg.setCornerRadius(dp(10));
-        quoteBox.setBackground(quoteBg);
+        quoteBox.setBackground(rounded(0x55000000, 10, 0, 0));
         View bar = new View(ctx);
-        bar.setBackgroundColor(C_NEON);
+        bar.setBackgroundColor(C_GREEN);
         quoteBox.addView(bar, new LinearLayout.LayoutParams(dp(4), LinearLayout.LayoutParams.MATCH_PARENT));
         LinearLayout quoteCol = new LinearLayout(ctx);
         quoteCol.setOrientation(LinearLayout.VERTICAL);
         quoteCol.setPadding(dp(10), dp(6), dp(10), dp(6));
         quoteWho = new TextView(ctx);
-        quoteWho.setTextColor(C_NEON);
+        quoteWho.setTextColor(C_GREEN);
         quoteWho.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         quoteWho.setTypeface(Typeface.DEFAULT_BOLD);
         quoteWho.setSingleLine(true);
         quoteWho.setEllipsize(TextUtils.TruncateAt.END);
         quoteText = new TextView(ctx);
-        quoteText.setTextColor(0xFFC5D2CB);
+        quoteText.setTextColor(0xFFD3DAF5);
         quoteText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         quoteText.setMaxLines(2);
         quoteText.setEllipsize(TextUtils.TruncateAt.END);
@@ -447,40 +531,111 @@ final class MessagePopup {
         quoteBox.setVisibility(View.GONE);
         bubble.addView(quoteBox, ql);
 
+        LinearLayout textRow = new LinearLayout(ctx);
+        textRow.setOrientation(LinearLayout.HORIZONTAL);
+        textRow.setGravity(Gravity.BOTTOM);
         msgView = new TextView(ctx);
         msgView.setTextColor(Color.WHITE);
         msgView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        msgView.setTypeface(Typeface.DEFAULT_BOLD);
-        msgView.setGravity(Gravity.START);
         msgView.setMaxLines(6);
         msgView.setEllipsize(TextUtils.TruncateAt.END);
-        bubble.addView(msgView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        LinearLayout meta = new LinearLayout(ctx);
-        meta.setOrientation(LinearLayout.HORIZONTAL);
-        meta.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        msgView.setMaxWidth(Math.max(dp(120), width - dp(150)));
+        textRow.addView(msgView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         timeView = new TextView(ctx);
         timeView.setTextColor(C_MUTED);
-        timeView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        meta.addView(timeView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        TextView ticks = new TextView(ctx);
-        ticks.setText("✓✓");
-        ticks.setTextColor(C_NEON);
-        ticks.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        ticks.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams tkl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tkl.leftMargin = dp(6);
-        meta.addView(ticks, tkl);
-        bubble.addView(meta, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
+        timeView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tl.leftMargin = dp(12);
+        textRow.addView(timeView, tl);
+        bubble.addView(textRow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        bl.gravity = Gravity.END;
-        bl.leftMargin = dp(30);
-        bl.rightMargin = dp(6);
-        bl.bottomMargin = dp(8);
+        bl.topMargin = dp(12);
+        bl.gravity = Gravity.START;
         root.addView(bubble, bl);
 
-        // reply row: [smiley  text box] (green mic / send)
+        // the reply just sent (shown for a moment after Send)
+        sentRow = new LinearLayout(ctx);
+        sentRow.setOrientation(LinearLayout.HORIZONTAL);
+        sentRow.setGravity(Gravity.BOTTOM);
+        sentRow.setPadding(dp(16), dp(10), dp(16), dp(10));
+        sentRow.setBackground(rounded(C_SENT, 22, 0, 0));
+        sentView = new TextView(ctx);
+        sentView.setTextColor(Color.WHITE);
+        sentView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        sentView.setMaxLines(6);
+        sentView.setEllipsize(TextUtils.TruncateAt.END);
+        sentView.setMaxWidth(Math.max(dp(120), width - dp(150)));
+        sentRow.addView(sentView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        sentTime = new TextView(ctx);
+        sentTime.setTextColor(0xFFCFE0FF);
+        sentTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        LinearLayout.LayoutParams stl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        stl.leftMargin = dp(12);
+        sentRow.addView(sentTime, stl);
+        sentRow.setVisibility(View.GONE);
+        LinearLayout.LayoutParams srl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        srl.topMargin = dp(10);
+        srl.gravity = Gravity.END;
+        root.addView(sentRow, srl);
+
+        // quick tiles: Photo, Gallery, Emoji, More (hidden)
+        LinearLayout tiles = new LinearLayout(ctx);
+        tiles.setOrientation(LinearLayout.HORIZONTAL);
+        tiles.addView(tile(Glyph.CAMERA, 0xFF5B9BFF, "Photo", new Runnable() {
+            @Override
+            public void run() {
+                openCurrentChat(); // pictures are picked inside the chat
+            }
+        }), tileParams(false));
+        tiles.addView(tile(Glyph.GALLERY, 0xFF5B9BFF, "Gallery", new Runnable() {
+            @Override
+            public void run() {
+                openCurrentChat();
+            }
+        }), tileParams(false));
+        tiles.addView(tile(Glyph.SMILEY, 0xFFFFC53D, "Emoji", new Runnable() {
+            @Override
+            public void run() {
+                toggleEmoji();
+            }
+        }), tileParams(false));
+        tiles.addView(tile(Glyph.DOTS_H, 0xFF8FA6FF, "More", new Runnable() {
+            @Override
+            public void run() {
+                toggleMenu();
+            }
+        }), tileParams(true));
+        tiles.setVisibility(View.GONE); // hidden
+        LinearLayout.LayoutParams tsl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tsl.topMargin = dp(14);
+        root.addView(tiles, tsl);
+
+        // emoji strip (opened by the smiley in the reply box)
+        emojiStrip = new HorizontalScrollView(ctx);
+        emojiStrip.setHorizontalScrollBarEnabled(false);
+        LinearLayout emojiRow = new LinearLayout(ctx);
+        emojiRow.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < EMOJIS.length; i++) {
+            final String e = EMOJIS[i];
+            TextView t = new TextView(ctx);
+            t.setText(e);
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28);
+            t.setGravity(Gravity.CENTER);
+            tap(t, new Runnable() {
+                @Override
+                public void run() {
+                    insertEmoji(e);
+                }
+            });
+            emojiRow.addView(t, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        }
+        emojiStrip.addView(emojiRow);
+        emojiStrip.setVisibility(View.GONE);
+        LinearLayout.LayoutParams esl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        esl.topMargin = dp(8);
+        root.addView(emojiStrip, esl);
+
+        // reply row: [smiley  text box] (send)
         LinearLayout replyRow = new LinearLayout(ctx);
         replyRow.setOrientation(LinearLayout.HORIZONTAL);
         replyRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -488,31 +643,26 @@ final class MessagePopup {
         LinearLayout pill = new LinearLayout(ctx);
         pill.setOrientation(LinearLayout.HORIZONTAL);
         pill.setGravity(Gravity.CENTER_VERTICAL);
-        pill.setPadding(dp(8), dp(6), dp(8), dp(6));
-        pill.setBackground(new Neon(0xFF0A1512, 0, C_NEON, dp(32), dp(2), glowH, false, density));
-
-        TextView emoji = new TextView(ctx);
-        emoji.setText("☺");
-        emoji.setTextColor(Color.WHITE);
-        emoji.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
-        emoji.setGravity(Gravity.CENTER);
-        emoji.setOnClickListener(new View.OnClickListener() {
+        pill.setPadding(dp(14), dp(4), dp(8), dp(4));
+        pill.setBackground(rounded(C_PILL, 32, 0, 0));
+        View smiley = glyph(Glyph.SMILEY, 0xFFB4BEFF);
+        tap(smiley, new Runnable() {
             @Override
-            public void onClick(View v) {
-                focusInput();
+            public void run() {
+                toggleEmoji();
             }
         });
-        pill.addView(emoji, new LinearLayout.LayoutParams(dp(46), dp(46)));
+        pill.addView(smiley, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         input = new EditText(ctx);
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setTextColor(Color.WHITE);
-        input.setHintTextColor(C_MUTED);
+        input.setHintTextColor(0xFF9AA6DD);
         input.setHint("Type a message...");
-        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         input.setMaxLines(3);
-        input.setPadding(dp(4), dp(8), dp(12), dp(8));
+        input.setPadding(dp(8), dp(8), dp(12), dp(8));
         input.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent e) {
@@ -529,63 +679,68 @@ final class MessagePopup {
 
             @Override
             public void afterTextChanged(Editable s) {
-                if (actionBtn != null) actionBtn.setSend(s != null && s.toString().trim().length() > 0);
+                if (actionBtn != null && !sending) actionBtn.setAlpha(s != null && s.toString().trim().length() > 0 ? 1f : 0.65f);
             }
         });
         pill.addView(input, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        replyRow.addView(pill, new LinearLayout.LayoutParams(0, dp(66), 1f));
+        replyRow.addView(pill, new LinearLayout.LayoutParams(0, dp(62), 1f));
 
-        actionBtn = new ActionButton(ctx, density);
-        actionBtn.setOnClickListener(new View.OnClickListener() {
+        FrameHolder send = new FrameHolder(ctx);
+        GradientDrawable sendBg = new GradientDrawable();
+        sendBg.setShape(GradientDrawable.OVAL);
+        sendBg.setColor(C_SENT);
+        send.setBackground(sendBg);
+        send.addView(new Glyph(ctx, Glyph.SEND, Color.WHITE, density), new FrameHolder.LayoutParams(dp(58), dp(58)));
+        send.setAlpha(0.65f);
+        actionBtn = send;
+        tap(actionBtn, new Runnable() {
             @Override
-            public void onClick(View v) {
-                if (input.getText().toString().trim().length() > 0) sendReply();
-                else openCurrentChat(); // voice notes are recorded in the app itself
+            public void run() {
+                if (input != null && input.getText().toString().trim().length() > 0) sendReply();
+                else focusInput();
             }
         });
-        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(dp(70), dp(70));
-        al.leftMargin = dp(2);
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(dp(58), dp(58));
+        al.leftMargin = dp(10);
         replyRow.addView(actionBtn, al);
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        rl.topMargin = dp(2);
+        rl.topMargin = dp(12);
         root.addView(replyRow, rl);
 
-        // Close | View
-        LinearLayout buttons = new LinearLayout(ctx);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setGravity(Gravity.CENTER_VERTICAL);
-        buttons.setPadding(dp(8), dp(6), dp(8), dp(6));
-        buttons.setBackground(new Neon(0xFF08100D, 0, 0xFF1A8F52, dp(36), dp(2), dp(3), false, density));
-        LinearLayout close = neonButton("Close", false);
-        close.setOnClickListener(new View.OnClickListener() {
+        // bottom bar: Minimize (hidden) | Open chat | Close
+        View line = new View(ctx);
+        line.setBackgroundColor(C_LINE);
+        LinearLayout.LayoutParams lnl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        lnl.topMargin = dp(14);
+        lnl.leftMargin = -dp(14);
+        lnl.rightMargin = -dp(14);
+        root.addView(line, lnl);
+
+        LinearLayout bar2 = new LinearLayout(ctx);
+        bar2.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout minimize = bottomItem(Glyph.MINUS, "Minimize", new Runnable() {
             @Override
-            public void onClick(View v) {
-                items.clear(); // Close forgets the waiting messages; the card shrinks back into the chat head
-                index = 0;
-                collapseToHead();
+            public void run() {
+                collapseToHead(); // keeps the waiting messages
             }
         });
-        LinearLayout view = neonButton("View", true);
-        view.setOnClickListener(new View.OnClickListener() {
+        minimize.setVisibility(View.GONE); // hidden
+        bar2.addView(minimize, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bar2.addView(bottomItem(Glyph.OPEN, "Open chat", new Runnable() {
             @Override
-            public void onClick(View v) {
+            public void run() {
                 openCurrentChat();
             }
-        });
-        View vline = new View(ctx);
-        vline.setBackgroundColor(0xFF3A4A44);
-        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(58), 1f));
-        LinearLayout.LayoutParams vl = new LinearLayout.LayoutParams(dp(1), dp(46));
-        vl.leftMargin = dp(4);
-        vl.rightMargin = dp(4);
-        buttons.addView(vline, vl);
-        buttons.addView(view, new LinearLayout.LayoutParams(0, dp(58), 1f));
-        LinearLayout.LayoutParams btl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        btl.topMargin = dp(2);
-        root.addView(buttons, btl);
+        }), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bar2.addView(bottomItem(Glyph.CLOSE, "Close", new Runnable() {
+            @Override
+            public void run() {
+                clearAndCollapse(); // Close forgets the waiting messages
+            }
+        }), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(bar2, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
-        int width = Math.min(screenW() - dp(8), dp(520));
         lp = new WindowManager.LayoutParams(
             width,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -607,48 +762,126 @@ final class MessagePopup {
         }
     }
 
-    private ImageView sticker(Bitmap b) {
-        ImageView iv = new ImageView(ctx);
-        iv.setImageBitmap(b);
-        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        return iv;
+    /** A plain frame that behaves as one tap target (the round send button). */
+    private static final class FrameHolder extends android.widget.FrameLayout {
+        FrameHolder(Context c) {
+            super(c);
+        }
     }
 
-    /** A round glowing previous / next button. */
-    private TextView arrow(String glyph) {
+    private void tap(View v, final Runnable r) {
+        v.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View x) {
+                r.run();
+            }
+        });
+    }
+
+    private Glyph glyph(int kind, int color) {
+        return new Glyph(ctx, kind, color, density);
+    }
+
+    private GradientDrawable rounded(int color, int radiusDp, int strokeColor, int strokeDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(radiusDp));
+        if (strokeDp > 0) g.setStroke(dp(strokeDp), strokeColor);
+        return g;
+    }
+
+    private TextView menuItem(String label) {
         TextView t = new TextView(ctx);
-        t.setText(glyph);
-        t.setTextColor(C_NEON);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setGravity(Gravity.CENTER);
-        t.setIncludeFontPadding(false);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(0xFF0F2A1F);
-        bg.setStroke(dp(2), 0xFF1F9E5A);
-        t.setBackground(bg);
+        t.setText(label);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        t.setPadding(dp(14), 0, dp(14), 0);
         return t;
     }
 
-    /** The Close (dark, glowing border) and View (bright green) buttons, each with its round icon. */
-    private LinearLayout neonButton(String label, boolean primary) {
-        LinearLayout b = new LinearLayout(ctx);
-        b.setOrientation(LinearLayout.HORIZONTAL);
-        b.setGravity(Gravity.CENTER);
-        if (primary) b.setBackground(new Neon(0xFF3DEB7C, 0xFF14AA4C, 0xFF9BFFBF, dp(29), dp(2), dp(4), false, density));
-        else b.setBackground(new Neon(0xFF0B1F18, 0, C_NEON, dp(29), dp(2), dp(4), false, density));
-        IconView icon = new IconView(ctx, primary ? IconView.EYE : IconView.CLOSE, density);
-        b.addView(icon, new LinearLayout.LayoutParams(dp(34), dp(34)));
-        TextView t = new TextView(ctx);
-        t.setText(label);
-        t.setTextColor(primary ? 0xFF04140A : Color.WHITE);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tl.leftMargin = dp(10);
-        b.addView(t, tl);
-        return b;
+    private LinearLayout.LayoutParams tileParams(boolean last) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(84), 1f);
+        p.rightMargin = last ? 0 : dp(10);
+        return p;
+    }
+
+    /** One of the four quick tiles: an icon over a label. */
+    private LinearLayout tile(int kind, int color, String label, Runnable action) {
+        LinearLayout t = new LinearLayout(ctx);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setGravity(Gravity.CENTER);
+        t.setBackground(rounded(C_TILE, 20, 0, 0));
+        t.addView(glyph(kind, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        TextView tv = new TextView(ctx);
+        tv.setText(label);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        t.addView(tv, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        tap(t, action);
+        return t;
+    }
+
+    /** One of the three bottom buttons: a round icon over a label. */
+    private LinearLayout bottomItem(int kind, String label, Runnable action) {
+        LinearLayout t = new LinearLayout(ctx);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, dp(10), 0, dp(6));
+        t.addView(glyph(kind, Color.WHITE), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        TextView tv = new TextView(ctx);
+        tv.setText(label);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+        t.addView(tv, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        tap(t, action);
+        return t;
+    }
+
+    // ---- menu, emoji, navigation ----
+
+    private void setMenu(boolean on) {
+        if (menuPanel != null) menuPanel.setVisibility(on ? View.VISIBLE : View.GONE);
+    }
+
+    private void toggleMenu() {
+        if (menuPanel == null) return;
+        setMenu(menuPanel.getVisibility() != View.VISIBLE);
+    }
+
+    private void toggleEmoji() {
+        if (emojiStrip == null) return;
+        emojiStrip.setVisibility(emojiStrip.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+    }
+
+    private void insertEmoji(String e) {
+        if (input == null) return;
+        int pos = Math.max(0, input.getSelectionStart());
+        input.getText().insert(Math.min(pos, input.getText().length()), e);
+    }
+
+    /** The left arrow: the previous waiting message. */
+    private void showPrev() {
+        if (index > 0) {
+            index--;
+            refresh();
+        }
+        setMenu(false);
+    }
+
+    /** The right arrow: the next waiting message. */
+    private void showNext() {
+        if (index < items.size() - 1) {
+            index++;
+            refresh();
+        }
+        setMenu(false);
+    }
+
+    private void clearAndCollapse() {
+        items.clear();
+        index = 0;
+        collapseToHead();
     }
 
     // ---- showing the current message ----
@@ -662,11 +895,15 @@ final class MessagePopup {
         if (index < 0) index = 0;
         if (index > items.size() - 1) index = items.size() - 1;
         Item it = items.get(index);
-        counterView.setText((index + 1) + " of " + items.size());
-        prevBtn.setAlpha(index > 0 ? 1f : 0.35f);
-        nextBtn.setAlpha(index < items.size() - 1 ? 1f : 0.35f);
+        counterView.setText(items.size() == 1 ? "New message" : (index + 1) + " of " + items.size() + " new");
+        if (navCount != null) navCount.setText((index + 1) + " of " + items.size());
+        if (navPrev != null) navPrev.setAlpha(index > 0 ? 1f : 0.35f);
+        if (navNext != null) navNext.setAlpha(index < items.size() - 1 ? 1f : 0.35f);
+        prevBtn.setAlpha(index > 0 ? 1f : 0.4f);
+        nextBtn.setAlpha(index < items.size() - 1 ? 1f : 0.4f);
         nameView.setText(it.title.isEmpty() ? "Letschat" : it.title);
         setAvatar(it.avatar, it.title);
+        if (sentRow != null) sentRow.setVisibility(View.GONE);
         if (it.replyText.isEmpty()) {
             quoteBox.setVisibility(View.GONE);
         } else {
@@ -675,10 +912,14 @@ final class MessagePopup {
             quoteText.setText(it.replyText);
         }
         msgView.setText(it.text.isEmpty() ? "New message" : it.text);
+        timeView.setText(clock(it.at));
+    }
+
+    private String clock(long at) {
         try {
-            timeView.setText(new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(it.at)));
+            return new SimpleDateFormat("h:mm a", Locale.getDefault()).format(new Date(at));
         } catch (RuntimeException e) {
-            timeView.setText("");
+            return "";
         }
     }
 
@@ -712,16 +953,28 @@ final class MessagePopup {
                             Toast.makeText(ctx, "Could not send. Check your connection and try again.", Toast.LENGTH_SHORT).show();
                             return;
                         }
-                        Toast.makeText(ctx, "Sent", Toast.LENGTH_SHORT).show();
                         if (input != null) input.setText("");
                         hideKeyboard();
+                        if (sentRow != null) {
+                            // show the sent reply in a blue bubble for a moment, like in a chat
+                            sentView.setText(text);
+                            sentTime.setText(clock(System.currentTimeMillis()));
+                            sentRow.setVisibility(View.VISIBLE);
+                        }
                         Iterator<Item> iter = items.iterator();
                         while (iter.hasNext()) {
                             if (chat.equals(iter.next().chatId)) iter.remove(); // that chat is answered
                         }
                         if (index > items.size() - 1) index = items.size() - 1;
-                        if (items.isEmpty()) collapseToHead(); // nothing left to answer: the card shrinks back into the chat head
-                        else refresh();
+                        final View card = root;
+                        ui.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (card == null || root != card) return;
+                                if (items.isEmpty()) collapseToHead(); // nothing left to answer: the card shrinks back into the chat head
+                                else refresh();
+                            }
+                        }, 1100);
                     }
                 });
             }
@@ -780,17 +1033,118 @@ final class MessagePopup {
         avatarUrl = "";
         nameView = null;
         counterView = null;
+        navCount = null;
+        navPrev = null;
+        navNext = null;
         prevBtn = null;
         nextBtn = null;
+        menuPanel = null;
+        emojiStrip = null;
         quoteBox = null;
         quoteWho = null;
         quoteText = null;
         msgView = null;
         timeView = null;
+        sentRow = null;
+        sentView = null;
+        sentTime = null;
         input = null;
         actionBtn = null;
         sending = false;
         collapsing = false;
+    }
+
+    // ---- wallpaper ----
+
+    /**
+     * Gives the card the doodle wallpaper. It is kept in memory once loaded; otherwise it is read from the app's private files, or
+     * downloaded once from the website and saved there. Any problem simply leaves the card plain dark blue. bg may be null (just preload).
+     */
+    private void loadWallpaper(final CardBg bg) {
+        if (wallpaper != null) {
+            if (bg != null) bg.setWall(wallpaper);
+            return;
+        }
+        if (wallLoading) {
+            // a load is already running: the card gets the picture on the next one
+            return;
+        }
+        wallLoading = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Bitmap b = null;
+                try {
+                    File f = new File(ctx.getFilesDir(), WALL_FILE);
+                    if (f.exists()) {
+                        InputStream in = new FileInputStream(f);
+                        try {
+                            b = decodeWall(readAll(in));
+                        } finally {
+                            in.close();
+                        }
+                        if (b == null) f.delete(); // a broken copy: fetch it again next time
+                    }
+                    if (b == null) {
+                        HttpURLConnection c = null;
+                        try {
+                            c = (HttpURLConnection) new URL(WALL_URL).openConnection();
+                            c.setConnectTimeout(8000);
+                            c.setReadTimeout(10000);
+                            if (c.getResponseCode() == 200) {
+                                InputStream in = c.getInputStream();
+                                byte[] data;
+                                try {
+                                    data = readAll(in);
+                                } finally {
+                                    in.close();
+                                }
+                                b = decodeWall(data);
+                                if (b != null) {
+                                    FileOutputStream out = new FileOutputStream(f);
+                                    try {
+                                        out.write(data);
+                                    } finally {
+                                        out.close();
+                                    }
+                                }
+                            }
+                        } finally {
+                            if (c != null) c.disconnect();
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // no wallpaper: the card stays plain dark blue
+                }
+                final Bitmap fb = b;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        wallLoading = false;
+                        if (fb == null) return;
+                        wallpaper = fb;
+                        if (bg != null) bg.setWall(fb);
+                    }
+                });
+            }
+        }, "letschat-popup-wallpaper").start();
+    }
+
+    private static byte[] readAll(InputStream in) throws java.io.IOException {
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            bo.write(buf, 0, n);
+            if (bo.size() > 6 * 1024 * 1024) throw new java.io.IOException("wallpaper too large");
+        }
+        return bo.toByteArray();
+    }
+
+    private static Bitmap decodeWall(byte[] data) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inPreferredConfig = Bitmap.Config.RGB_565;
+        return BitmapFactory.decodeByteArray(data, 0, data.length, o);
     }
 
     // ---- photo ----
@@ -844,7 +1198,7 @@ final class MessagePopup {
         int size = dp(104);
         Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(bmp);
-        int[] palette = { 0xFF35D0BA, 0xFF7C6CF0, 0xFFF2B84B, 0xFFE8618C, 0xFF3FA9F5, 0xFF21C063 };
+        int[] palette = { 0xFF3A2A8C, 0xFF35D0BA, 0xFF7C6CF0, 0xFFE8618C, 0xFF3FA9F5, 0xFF21C063 };
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         p.setColor(palette[(name.hashCode() & 0x7fffffff) % palette.length]);
         cv.drawRect(0, 0, size, size, p);
@@ -857,82 +1211,69 @@ final class MessagePopup {
         return bmp;
     }
 
-    // ---- drawing helpers: the glowing rounded panels and the doodle background ----
+    // ---- drawing: the card background and the line icons ----
 
     /**
-     * A rounded panel with a neon-green glowing border: soft wider strokes of the same colour drawn outside the sharp border make the glow.
-     * The glow is drawn inside the view's own bounds (the panel is inset by the glow size), so the views using it keep a little padding.
-     * With fill2 set the panel is a vertical gradient; with tail a small speech-bubble tail sticks out of the bottom right corner.
+     * The card: dark blue, covered by the doodle wallpaper once it is loaded (scaled to fill, cropped to the card, rounded corners),
+     * with a blue-to-purple double border (a thick outer line and a thinner inner one).
      */
-    private static final class Neon extends Drawable {
+    private static final class CardBg extends Drawable {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint bmpPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         private final RectF r = new RectF();
-        private final Path tailPath = new Path();
-        private final int fill;
-        private final int fill2;
-        private final int stroke;
-        private final float radius;
-        private final float strokeW;
-        private final float glow;
-        private final boolean tail;
-        private final float unit;
+        private final Rect src = new Rect();
+        private final Path clip = new Path();
+        private final float u;
+        private Bitmap wall;
 
-        Neon(int fill, int fill2, int stroke, float radius, float strokeW, float glow, boolean tail, float unit) {
-            this.fill = fill;
-            this.fill2 = fill2;
-            this.stroke = stroke;
-            this.radius = radius;
-            this.strokeW = strokeW;
-            this.glow = glow;
-            this.tail = tail;
-            this.unit = unit;
+        CardBg(float unit) {
+            u = unit;
+        }
+
+        void setWall(Bitmap b) {
+            wall = b;
+            invalidateSelf();
         }
 
         @Override
         public void draw(Canvas c) {
             Rect b = getBounds();
             if (b.width() <= 0 || b.height() <= 0) return;
-            r.set(b.left + glow, b.top + glow, b.right - glow, b.bottom - glow);
-            float rad = Math.min(radius, Math.min(r.width(), r.height()) / 2f);
+            float rad = 28f * u;
+            r.set(b.left + 2f * u, b.top + 2f * u, b.right - 2f * u, b.bottom - 2f * u);
             p.setShader(null);
-            p.setStyle(Paint.Style.STROKE);
-            if (glow > 0f) {
-                int[] alphas = { 22, 40, 70 };
-                for (int i = 0; i < 3; i++) {
-                    p.setColor((stroke & 0x00FFFFFF) | (alphas[i] << 24));
-                    p.setStrokeWidth(strokeW + glow * 2f * (3 - i) / 3f);
-                    c.drawRoundRect(r, rad, rad, p);
-                }
-            }
             p.setStyle(Paint.Style.FILL);
-            if (fill2 != 0) p.setShader(new LinearGradient(0f, r.top, 0f, r.bottom, fill, fill2, Shader.TileMode.CLAMP));
-            else p.setColor(fill);
+            p.setColor(C_CARD);
             c.drawRoundRect(r, rad, rad, p);
-            p.setShader(null);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(strokeW);
-            p.setColor(stroke);
-            c.drawRoundRect(r, rad, rad, p);
-            if (tail) {
-                float t = unit;
-                tailPath.reset();
-                tailPath.moveTo(r.right - 26f * t, r.bottom - 1f * t);
-                tailPath.lineTo(b.right - 0.5f * t, b.bottom - 0.5f * t);
-                tailPath.lineTo(r.right - 1f * t, r.bottom - 24f * t);
-                tailPath.close();
-                p.setStyle(Paint.Style.FILL);
-                p.setColor(fill);
-                c.drawPath(tailPath, p);
-                p.setStyle(Paint.Style.STROKE);
-                p.setStrokeWidth(strokeW);
-                p.setColor(stroke);
-                p.setStrokeJoin(Paint.Join.ROUND);
-                tailPath.reset();
-                tailPath.moveTo(r.right - 26f * t, r.bottom);
-                tailPath.lineTo(b.right - 0.5f * t, b.bottom - 0.5f * t);
-                tailPath.lineTo(r.right, r.bottom - 24f * t);
-                c.drawPath(tailPath, p);
+            Bitmap w = wall;
+            if (w != null && !w.isRecycled()) {
+                // cover: scale the picture to fill the card and crop what sticks out, keeping the middle
+                float bw = w.getWidth();
+                float bh = w.getHeight();
+                float scale = Math.max(r.width() / bw, r.height() / bh);
+                float sw = r.width() / scale;
+                float sh = r.height() / scale;
+                int sx = (int) ((bw - sw) / 2f);
+                int sy = (int) ((bh - sh) / 2f);
+                src.set(sx, sy, (int) (sx + sw), (int) (sy + sh));
+                clip.reset();
+                clip.addRoundRect(r, rad, rad, Path.Direction.CW);
+                c.save();
+                c.clipPath(clip);
+                c.drawBitmap(w, src, r, bmpPaint);
+                c.restore();
             }
+            Shader edge = new LinearGradient(b.left, b.top, b.right, b.bottom, C_EDGE1, C_EDGE2, Shader.TileMode.CLAMP);
+            p.setShader(edge);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(3f * u);
+            c.drawRoundRect(r, rad, rad, p);
+            r.inset(7f * u, 7f * u);
+            p.setStrokeWidth(2f * u);
+            p.setAlpha(150);
+            c.drawRoundRect(r, rad - 7f * u, rad - 7f * u, p);
+            p.setShader(null);
+            p.setAlpha(255);
         }
 
         @Override
@@ -947,291 +1288,164 @@ final class MessagePopup {
         }
     }
 
-    /**
-     * The card's background: black with white doodles (stars, hearts, chat bubbles, pencils, laptops, sparkles) like the Letschat Africa
-     * sticker wallpaper. Every doodle is drawn from a fixed number for its grid cell, so the pattern never moves or flickers when the card
-     * grows or shrinks.
-     */
-    private static final class Doodle extends Drawable {
-        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint fillP = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path path = new Path();
-        private final Path clip = new Path();
-        private final RectF rf = new RectF();
-        private final float u;
-
-        Doodle(float unit) {
-            u = unit;
-            line.setStyle(Paint.Style.STROKE);
-            line.setStrokeWidth(1.4f * unit);
-            line.setStrokeCap(Paint.Cap.ROUND);
-            line.setStrokeJoin(Paint.Join.ROUND);
-            line.setColor(0xEBFFFFFF);
-            fillP.setStyle(Paint.Style.FILL);
-        }
-
-        @Override
-        public void draw(Canvas c) {
-            Rect b = getBounds();
-            if (b.width() <= 0 || b.height() <= 0) return;
-            float cs = 40f * u;
-            rf.set(b);
-            clip.reset();
-            clip.addRoundRect(rf, 20f * u, 20f * u, Path.Direction.CW);
-            c.save();
-            c.clipPath(clip);
-            fillP.setColor(C_CARD);
-            c.drawRect(rf, fillP);
-            int cols = (int) Math.ceil(b.width() / cs);
-            int rows = (int) Math.ceil(b.height() / cs);
-            for (int row = 0; row < rows; row++) {
-                for (int col = 0; col < cols; col++) {
-                    Random rnd = new Random(row * 131L + col * 7919L + 17L);
-                    int kind = rnd.nextInt(10);
-                    float cx = b.left + (col + 0.5f) * cs + (rnd.nextFloat() - 0.5f) * cs * 0.45f;
-                    float cy = b.top + (row + 0.5f) * cs + (rnd.nextFloat() - 0.5f) * cs * 0.45f;
-                    float rot = (rnd.nextFloat() - 0.5f) * 60f;
-                    float r = cs * (0.26f + rnd.nextFloat() * 0.1f);
-                    boolean tinted = rnd.nextBoolean();
-                    c.save();
-                    c.translate(cx, cy);
-                    c.rotate(rot);
-                    switch (kind) {
-                        case 0:
-                        case 1:
-                            star(c, r);
-                            break;
-                        case 2:
-                            heart(c, r, tinted);
-                            break;
-                        case 3:
-                        case 4:
-                            bubble(c, r);
-                            break;
-                        case 5:
-                            pencil(c, r, tinted);
-                            break;
-                        case 6:
-                            laptop(c, r);
-                            break;
-                        case 7:
-                            sparkle(c, r);
-                            break;
-                        case 8:
-                            c.drawCircle(0f, 0f, r * 0.35f, line);
-                            break;
-                        default:
-                            break; // an empty cell
-                    }
-                    c.restore();
-                }
-            }
-            c.restore();
-            // thin glowing edge of the whole card
-            line.setColor(0x802BFF77);
-            line.setStrokeWidth(1.5f * u);
-            c.drawRoundRect(rf.left + u, rf.top + u, rf.right - u, rf.bottom - u, 19f * u, 19f * u, line);
-            line.setColor(0xEBFFFFFF);
-            line.setStrokeWidth(1.4f * u);
-        }
-
-        private void star(Canvas c, float r) {
-            path.reset();
-            for (int i = 0; i < 10; i++) {
-                double a = -Math.PI / 2 + i * Math.PI / 5;
-                float rr = (i % 2 == 0) ? r : r * 0.45f;
-                float x = (float) (Math.cos(a) * rr);
-                float y = (float) (Math.sin(a) * rr);
-                if (i == 0) path.moveTo(x, y);
-                else path.lineTo(x, y);
-            }
-            path.close();
-            c.drawPath(path, line);
-        }
-
-        private void heart(Canvas c, float r, boolean red) {
-            path.reset();
-            path.moveTo(0f, r);
-            path.cubicTo(-r * 1.2f, r * 0.1f, -r * 0.9f, -r * 0.8f, 0f, -r * 0.35f);
-            path.cubicTo(r * 0.9f, -r * 0.8f, r * 1.2f, r * 0.1f, 0f, r);
-            path.close();
-            fillP.setColor(0xFFE53935);
-            if (red) c.drawPath(path, fillP);
-            c.drawPath(path, line);
-        }
-
-        private void bubble(Canvas c, float r) {
-            rf.set(-r * 1.1f, -r * 0.75f, r * 1.1f, r * 0.6f);
-            c.drawRoundRect(rf, r * 0.45f, r * 0.45f, line);
-            path.reset();
-            path.moveTo(-r * 0.5f, r * 0.6f);
-            path.lineTo(-r * 0.8f, r * 1.0f);
-            path.lineTo(-r * 0.1f, r * 0.6f);
-            c.drawPath(path, line);
-            fillP.setColor(0xEBFFFFFF);
-            for (int i = -1; i <= 1; i++) c.drawCircle(i * r * 0.5f, -r * 0.08f, r * 0.1f, fillP);
-        }
-
-        private void pencil(Canvas c, float r, boolean yellow) {
-            path.reset();
-            path.moveTo(-r * 1.2f, -r * 0.28f);
-            path.lineTo(r * 0.7f, -r * 0.28f);
-            path.lineTo(r * 1.2f, 0f);
-            path.lineTo(r * 0.7f, r * 0.28f);
-            path.lineTo(-r * 1.2f, r * 0.28f);
-            path.close();
-            fillP.setColor(0xFFF2B84B);
-            if (yellow) c.drawPath(path, fillP);
-            c.drawPath(path, line);
-            c.drawLine(r * 0.7f, -r * 0.28f, r * 0.7f, r * 0.28f, line);
-        }
-
-        private void laptop(Canvas c, float r) {
-            rf.set(-r, -r * 0.8f, r, r * 0.35f);
-            c.drawRoundRect(rf, r * 0.12f, r * 0.12f, line);
-            path.reset();
-            path.moveTo(-r * 1.2f, r * 0.55f);
-            path.lineTo(r * 1.2f, r * 0.55f);
-            path.lineTo(r * 1.35f, r * 0.85f);
-            path.lineTo(-r * 1.35f, r * 0.85f);
-            path.close();
-            c.drawPath(path, line);
-        }
-
-        private void sparkle(Canvas c, float r) {
-            for (int i = 0; i < 3; i++) {
-                double a = -Math.PI / 2 + (i - 1) * 0.55;
-                c.drawLine((float) (Math.cos(a) * r * 0.5f), (float) (Math.sin(a) * r * 0.5f), (float) (Math.cos(a) * r), (float) (Math.sin(a) * r), line);
-            }
-        }
-
-        @Override
-        public void setAlpha(int alpha) {}
-
-        @Override
-        public void setColorFilter(ColorFilter cf) {}
-
-        @Override
-        public int getOpacity() {
-            return PixelFormat.OPAQUE;
-        }
-    }
-
-    // ---- the round icons on the Close and View buttons ----
-
-    private static final class IconView extends View {
-        static final int CLOSE = 0;
-        static final int EYE = 1;
+    /** The simple line icons of the card (phone, video, dots, camera, gallery, smiley, send, minimize, open, close, arrows), drawn in one colour. */
+    private static final class Glyph extends View {
+        static final int PHONE = 0;
+        static final int VIDEO = 1;
+        static final int DOTS_V = 2;
+        static final int DOTS_H = 3;
+        static final int CAMERA = 4;
+        static final int GALLERY = 5;
+        static final int SMILEY = 6;
+        static final int SEND = 7;
+        static final int MINUS = 8;
+        static final int OPEN = 9;
+        static final int CLOSE = 10;
+        static final int CHEV_L = 11;
+        static final int CHEV_R = 12;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path = new Path();
+        private final RectF rf = new RectF();
         private final int kind;
+        private final int color;
         private final float unit;
 
-        IconView(Context c, int kind, float unit) {
+        Glyph(Context c, int kind, int color, float unit) {
             super(c);
             this.kind = kind;
+            this.color = color;
             this.unit = unit;
         }
 
         @Override
         protected void onDraw(Canvas cv) {
-            float w = getWidth();
-            float h = getHeight();
-            float s = Math.min(w, h);
-            float cx = w / 2f;
-            float cy = h / 2f;
+            float s = Math.min(getWidth(), getHeight()) * 0.78f;
+            float x0 = getWidth() / 2f - s / 2f;
+            float y0 = getHeight() / 2f - s / 2f;
+            paint.setColor(color);
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.2f * unit);
+            paint.setStrokeWidth(Math.max(2f * unit, s * 0.075f));
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setColor(Color.WHITE);
-            cv.drawCircle(cx, cy, s / 2f - 1.6f * unit, paint);
-            if (kind == CLOSE) {
-                float d = s * 0.17f;
-                cv.drawLine(cx - d, cy - d, cx + d, cy + d, paint);
-                cv.drawLine(cx + d, cy - d, cx - d, cy + d, paint);
-            } else {
-                float ew = s * 0.27f;
-                path.reset();
-                path.moveTo(cx - ew, cy);
-                path.quadTo(cx, cy - s * 0.3f, cx + ew, cy);
-                path.quadTo(cx, cy + s * 0.3f, cx - ew, cy);
-                cv.drawPath(path, paint);
-                paint.setStyle(Paint.Style.FILL);
-                cv.drawCircle(cx, cy, s * 0.085f, paint);
-            }
-        }
-    }
-
-    // ---- the green round button: microphone, or a send arrow once there is text ----
-
-    private static final class ActionButton extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path path = new Path();
-        private final float unit;
-        private boolean send = false;
-
-        ActionButton(Context c, float unit) {
-            super(c);
-            this.unit = unit;
-        }
-
-        void setSend(boolean on) {
-            if (send != on) {
-                send = on;
-                invalidate();
-            }
-        }
-
-        @Override
-        protected void onDraw(Canvas cv) {
-            float w = getWidth();
-            float h = getHeight();
-            float s = Math.min(w, h);
-            float cx = w / 2f;
-            float cy = h / 2f;
-            float glow = 5f * unit;
-            float rad = s / 2f - glow;
-            // glow
-            paint.setShader(null);
-            paint.setStyle(Paint.Style.STROKE);
-            int[] alphas = { 22, 40, 70 };
-            for (int i = 0; i < 3; i++) {
-                paint.setColor((C_NEON & 0x00FFFFFF) | (alphas[i] << 24));
-                paint.setStrokeWidth(2f * unit + glow * 2f * (3 - i) / 3f);
-                cv.drawCircle(cx, cy, rad, paint);
-            }
-            // green body
-            paint.setStyle(Paint.Style.FILL);
-            paint.setShader(new LinearGradient(0f, cy - rad, 0f, cy + rad, 0xFF3DEB7C, 0xFF12A650, Shader.TileMode.CLAMP));
-            cv.drawCircle(cx, cy, rad, paint);
-            paint.setShader(null);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2f * unit);
-            paint.setColor(C_NEON);
-            cv.drawCircle(cx, cy, rad, paint);
-            // white microphone or send arrow
-            paint.setColor(Color.WHITE);
-            if (send) {
-                paint.setStyle(Paint.Style.FILL);
-                path.reset();
-                path.moveTo(cx - 0.17f * s, cy - 0.2f * s);
-                path.lineTo(cx + 0.22f * s, cy);
-                path.lineTo(cx - 0.17f * s, cy + 0.2f * s);
-                path.lineTo(cx - 0.09f * s, cy);
-                path.close();
-                cv.drawPath(path, paint);
-            } else {
-                paint.setStyle(Paint.Style.FILL);
-                RectF body = new RectF(cx - 0.09f * s, cy - 0.27f * s, cx + 0.09f * s, cy + 0.06f * s);
-                cv.drawRoundRect(body, 0.09f * s, 0.09f * s, paint);
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(0.05f * s);
-                paint.setStrokeCap(Paint.Cap.ROUND);
-                RectF arc = new RectF(cx - 0.16f * s, cy - 0.16f * s, cx + 0.16f * s, cy + 0.16f * s);
-                cv.drawArc(arc, 0f, 180f, false, paint);
-                cv.drawLine(cx, cy + 0.16f * s, cx, cy + 0.25f * s, paint);
-                cv.drawLine(cx - 0.07f * s, cy + 0.25f * s, cx + 0.07f * s, cy + 0.25f * s, paint);
+            switch (kind) {
+                case PHONE:
+                    path.reset();
+                    path.moveTo(x0 + .20f * s, y0 + .18f * s);
+                    path.lineTo(x0 + .38f * s, y0 + .18f * s);
+                    path.lineTo(x0 + .45f * s, y0 + .38f * s);
+                    path.lineTo(x0 + .36f * s, y0 + .46f * s);
+                    path.cubicTo(x0 + .40f * s, y0 + .56f * s, x0 + .44f * s, y0 + .60f * s, x0 + .54f * s, y0 + .64f * s);
+                    path.lineTo(x0 + .62f * s, y0 + .55f * s);
+                    path.lineTo(x0 + .82f * s, y0 + .62f * s);
+                    path.lineTo(x0 + .82f * s, y0 + .80f * s);
+                    path.cubicTo(x0 + .45f * s, y0 + .82f * s, x0 + .18f * s, y0 + .55f * s, x0 + .20f * s, y0 + .18f * s);
+                    path.close();
+                    cv.drawPath(path, paint);
+                    break;
+                case VIDEO:
+                    rf.set(x0 + .10f * s, y0 + .28f * s, x0 + .66f * s, y0 + .72f * s);
+                    cv.drawRoundRect(rf, .10f * s, .10f * s, paint);
+                    path.reset();
+                    path.moveTo(x0 + .70f * s, y0 + .46f * s);
+                    path.lineTo(x0 + .92f * s, y0 + .32f * s);
+                    path.lineTo(x0 + .92f * s, y0 + .68f * s);
+                    path.lineTo(x0 + .70f * s, y0 + .54f * s);
+                    path.close();
+                    cv.drawPath(path, paint);
+                    break;
+                case DOTS_V:
+                    paint.setStyle(Paint.Style.FILL);
+                    for (int i = 0; i < 3; i++) cv.drawCircle(x0 + .5f * s, y0 + (.2f + .3f * i) * s, .075f * s, paint);
+                    break;
+                case DOTS_H:
+                    paint.setStyle(Paint.Style.FILL);
+                    for (int i = 0; i < 3; i++) cv.drawCircle(x0 + (.2f + .3f * i) * s, y0 + .5f * s, .075f * s, paint);
+                    break;
+                case CAMERA:
+                    rf.set(x0 + .08f * s, y0 + .30f * s, x0 + .92f * s, y0 + .80f * s);
+                    cv.drawRoundRect(rf, .10f * s, .10f * s, paint);
+                    path.reset();
+                    path.moveTo(x0 + .34f * s, y0 + .30f * s);
+                    path.lineTo(x0 + .40f * s, y0 + .18f * s);
+                    path.lineTo(x0 + .60f * s, y0 + .18f * s);
+                    path.lineTo(x0 + .66f * s, y0 + .30f * s);
+                    cv.drawPath(path, paint);
+                    cv.drawCircle(x0 + .5f * s, y0 + .55f * s, .15f * s, paint);
+                    break;
+                case GALLERY:
+                    rf.set(x0 + .10f * s, y0 + .12f * s, x0 + .90f * s, y0 + .88f * s);
+                    cv.drawRoundRect(rf, .10f * s, .10f * s, paint);
+                    cv.drawCircle(x0 + .36f * s, y0 + .38f * s, .07f * s, paint);
+                    path.reset();
+                    path.moveTo(x0 + .10f * s, y0 + .74f * s);
+                    path.lineTo(x0 + .38f * s, y0 + .52f * s);
+                    path.lineTo(x0 + .56f * s, y0 + .68f * s);
+                    path.lineTo(x0 + .68f * s, y0 + .58f * s);
+                    path.lineTo(x0 + .90f * s, y0 + .76f * s);
+                    cv.drawPath(path, paint);
+                    break;
+                case SMILEY:
+                    cv.drawCircle(x0 + .5f * s, y0 + .5f * s, .42f * s, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                    cv.drawCircle(x0 + .37f * s, y0 + .42f * s, .045f * s, paint);
+                    cv.drawCircle(x0 + .63f * s, y0 + .42f * s, .045f * s, paint);
+                    paint.setStyle(Paint.Style.STROKE);
+                    rf.set(x0 + .28f * s, y0 + .30f * s, x0 + .72f * s, y0 + .72f * s);
+                    cv.drawArc(rf, 25f, 130f, false, paint);
+                    break;
+                case SEND:
+                    path.reset();
+                    path.moveTo(x0 + .90f * s, y0 + .12f * s);
+                    path.lineTo(x0 + .10f * s, y0 + .46f * s);
+                    path.lineTo(x0 + .42f * s, y0 + .58f * s);
+                    path.lineTo(x0 + .54f * s, y0 + .90f * s);
+                    path.close();
+                    cv.drawPath(path, paint);
+                    cv.drawLine(x0 + .42f * s, y0 + .58f * s, x0 + .90f * s, y0 + .12f * s, paint);
+                    break;
+                case MINUS:
+                    cv.drawCircle(x0 + .5f * s, y0 + .5f * s, .44f * s, paint);
+                    cv.drawLine(x0 + .30f * s, y0 + .5f * s, x0 + .70f * s, y0 + .5f * s, paint);
+                    break;
+                case OPEN:
+                    path.reset();
+                    path.moveTo(x0 + .45f * s, y0 + .22f * s);
+                    path.lineTo(x0 + .28f * s, y0 + .22f * s);
+                    path.quadTo(x0 + .16f * s, y0 + .22f * s, x0 + .16f * s, y0 + .34f * s);
+                    path.lineTo(x0 + .16f * s, y0 + .72f * s);
+                    path.quadTo(x0 + .16f * s, y0 + .84f * s, x0 + .28f * s, y0 + .84f * s);
+                    path.lineTo(x0 + .66f * s, y0 + .84f * s);
+                    path.quadTo(x0 + .78f * s, y0 + .84f * s, x0 + .78f * s, y0 + .72f * s);
+                    path.lineTo(x0 + .78f * s, y0 + .55f * s);
+                    cv.drawPath(path, paint);
+                    cv.drawLine(x0 + .52f * s, y0 + .48f * s, x0 + .88f * s, y0 + .12f * s, paint);
+                    path.reset();
+                    path.moveTo(x0 + .62f * s, y0 + .12f * s);
+                    path.lineTo(x0 + .88f * s, y0 + .12f * s);
+                    path.lineTo(x0 + .88f * s, y0 + .38f * s);
+                    cv.drawPath(path, paint);
+                    break;
+                case CHEV_L:
+                    paint.setStrokeWidth(Math.max(2.5f * unit, s * 0.13f));
+                    path.reset();
+                    path.moveTo(x0 + .62f * s, y0 + .20f * s);
+                    path.lineTo(x0 + .32f * s, y0 + .50f * s);
+                    path.lineTo(x0 + .62f * s, y0 + .80f * s);
+                    cv.drawPath(path, paint);
+                    break;
+                case CHEV_R:
+                    paint.setStrokeWidth(Math.max(2.5f * unit, s * 0.13f));
+                    path.reset();
+                    path.moveTo(x0 + .38f * s, y0 + .20f * s);
+                    path.lineTo(x0 + .68f * s, y0 + .50f * s);
+                    path.lineTo(x0 + .38f * s, y0 + .80f * s);
+                    cv.drawPath(path, paint);
+                    break;
+                default:
+                    cv.drawCircle(x0 + .5f * s, y0 + .5f * s, .44f * s, paint);
+                    cv.drawLine(x0 + .37f * s, y0 + .37f * s, x0 + .63f * s, y0 + .63f * s, paint);
+                    cv.drawLine(x0 + .63f * s, y0 + .37f * s, x0 + .37f * s, y0 + .63f * s, paint);
+                    break;
             }
         }
     }
