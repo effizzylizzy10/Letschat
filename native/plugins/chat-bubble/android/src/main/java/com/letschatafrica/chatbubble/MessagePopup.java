@@ -52,8 +52,9 @@ import java.util.LinkedList;
 import java.util.Locale;
 
 /**
- * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge: a header (round photo, sender name, "1 of N"),
- * the received message bubble with its time, the bubble of the reply just sent, the reply pill with the send button, and the bottom bar
+ * The Letschat message card, in the dark blue style with a blue-to-purple glowing edge: a header (round photo, sender name, and on the
+ * right a thin divider with "1 of N" over the round-less previous / next arrows, which step through the waiting messages), the
+ * received message bubble with its time, the bubble of the reply just sent, the reply pill with the send button, and the bottom bar
  * Open chat / Close.
  * The call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
  * again, remove its setVisibility(View.GONE) line in build(). The smiley in the reply box still opens the emoji strip.
@@ -145,6 +146,10 @@ final class MessagePopup {
     private String avatarUrl = "";
     private TextView nameView;
     private TextView counterView;
+    /** The "1 of N" text and the previous / next arrows in the header. */
+    private TextView navCount;
+    private View navPrev;
+    private View navNext;
     private TextView prevBtn;
     private TextView nextBtn;
     private LinearLayout menuPanel;
@@ -334,7 +339,7 @@ final class MessagePopup {
         root.setPadding(dp(14), dp(30), dp(14), dp(8));
         root.setBackground(new CardBg(density));
 
-        // header: round photo, name + "1 of N", call, video call, three-dot menu
+        // header: round photo, name, divider with "1 of N" over the previous / next arrows (call, video and three-dot menu are hidden)
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -364,17 +369,48 @@ final class MessagePopup {
         counterView.setTextColor(C_GREEN);
         counterView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         counterView.setSingleLine(true);
-        tap(counterView, new Runnable() {
-            @Override
-            public void run() {
-                cycleNext(); // tapping "2 of 5" shows the next waiting message
-            }
-        });
+        counterView.setVisibility(View.GONE); // the count is now shown by the navigation on the right
         names.addView(counterView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         nl.leftMargin = dp(12);
         nl.rightMargin = dp(6);
         header.addView(names, nl);
+
+        // navigation: thin divider, "1 of N" and the previous / next arrows underneath
+        View navLine = new View(ctx);
+        navLine.setBackgroundColor(0xFF7F8CC8);
+        LinearLayout.LayoutParams nll = new LinearLayout.LayoutParams(dp(1), dp(46));
+        nll.rightMargin = dp(10);
+        header.addView(navLine, nll);
+        LinearLayout nav = new LinearLayout(ctx);
+        nav.setOrientation(LinearLayout.VERTICAL);
+        nav.setGravity(Gravity.CENTER_HORIZONTAL);
+        navCount = new TextView(ctx);
+        navCount.setTextColor(Color.WHITE);
+        navCount.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        navCount.setSingleLine(true);
+        navCount.setGravity(Gravity.CENTER);
+        nav.addView(navCount, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout arrows = new LinearLayout(ctx);
+        arrows.setOrientation(LinearLayout.HORIZONTAL);
+        navPrev = glyph(Glyph.CHEV_L, Color.WHITE);
+        tap(navPrev, new Runnable() {
+            @Override
+            public void run() {
+                showPrev();
+            }
+        });
+        arrows.addView(navPrev, new LinearLayout.LayoutParams(dp(44), dp(36)));
+        navNext = glyph(Glyph.CHEV_R, Color.WHITE);
+        tap(navNext, new Runnable() {
+            @Override
+            public void run() {
+                showNext();
+            }
+        });
+        arrows.addView(navNext, new LinearLayout.LayoutParams(dp(44), dp(36)));
+        nav.addView(arrows, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        header.addView(nav, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         View call = glyph(Glyph.PHONE, Color.WHITE);
         tap(call, new Runnable() {
@@ -810,6 +846,7 @@ final class MessagePopup {
         input.getText().insert(Math.min(pos, input.getText().length()), e);
     }
 
+    /** The left arrow: the previous waiting message. */
     private void showPrev() {
         if (index > 0) {
             index--;
@@ -818,18 +855,13 @@ final class MessagePopup {
         setMenu(false);
     }
 
+    /** The right arrow: the next waiting message. */
     private void showNext() {
         if (index < items.size() - 1) {
             index++;
             refresh();
         }
         setMenu(false);
-    }
-
-    private void cycleNext() {
-        if (items.size() < 2) return;
-        index = (index + 1) % items.size();
-        refresh();
     }
 
     private void clearAndCollapse() {
@@ -850,6 +882,9 @@ final class MessagePopup {
         if (index > items.size() - 1) index = items.size() - 1;
         Item it = items.get(index);
         counterView.setText(items.size() == 1 ? "New message" : (index + 1) + " of " + items.size() + " new");
+        if (navCount != null) navCount.setText((index + 1) + " of " + items.size());
+        if (navPrev != null) navPrev.setAlpha(index > 0 ? 1f : 0.35f);
+        if (navNext != null) navNext.setAlpha(index < items.size() - 1 ? 1f : 0.35f);
         prevBtn.setAlpha(index > 0 ? 1f : 0.4f);
         nextBtn.setAlpha(index < items.size() - 1 ? 1f : 0.4f);
         nameView.setText(it.title.isEmpty() ? "Letschat" : it.title);
@@ -984,6 +1019,9 @@ final class MessagePopup {
         avatarUrl = "";
         nameView = null;
         counterView = null;
+        navCount = null;
+        navPrev = null;
+        navNext = null;
         prevBtn = null;
         nextBtn = null;
         menuPanel = null;
@@ -1113,7 +1151,7 @@ final class MessagePopup {
         }
     }
 
-    /** The simple line icons of the card (phone, video, dots, camera, gallery, smiley, send, minimize, open, close), drawn in one colour. */
+    /** The simple line icons of the card (phone, video, dots, camera, gallery, smiley, send, minimize, open, close, arrows), drawn in one colour. */
     private static final class Glyph extends View {
         static final int PHONE = 0;
         static final int VIDEO = 1;
@@ -1126,6 +1164,8 @@ final class MessagePopup {
         static final int MINUS = 8;
         static final int OPEN = 9;
         static final int CLOSE = 10;
+        static final int CHEV_L = 11;
+        static final int CHEV_R = 12;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path = new Path();
         private final RectF rf = new RectF();
@@ -1246,6 +1286,22 @@ final class MessagePopup {
                     path.moveTo(x0 + .62f * s, y0 + .12f * s);
                     path.lineTo(x0 + .88f * s, y0 + .12f * s);
                     path.lineTo(x0 + .88f * s, y0 + .38f * s);
+                    cv.drawPath(path, paint);
+                    break;
+                case CHEV_L:
+                    paint.setStrokeWidth(Math.max(2.5f * unit, s * 0.13f));
+                    path.reset();
+                    path.moveTo(x0 + .62f * s, y0 + .20f * s);
+                    path.lineTo(x0 + .32f * s, y0 + .50f * s);
+                    path.lineTo(x0 + .62f * s, y0 + .80f * s);
+                    cv.drawPath(path, paint);
+                    break;
+                case CHEV_R:
+                    paint.setStrokeWidth(Math.max(2.5f * unit, s * 0.13f));
+                    path.reset();
+                    path.moveTo(x0 + .38f * s, y0 + .20f * s);
+                    path.lineTo(x0 + .68f * s, y0 + .50f * s);
+                    path.lineTo(x0 + .38f * s, y0 + .80f * s);
                     cv.drawPath(path, paint);
                     break;
                 default:
