@@ -20,6 +20,7 @@
       /push/subscribe route the website uses (endpoint = FCM_PREFIX + token; the server's web-push shim sends those through Firebase).
       Messages then arrive within a second or two even when the app is closed. Needs google-services.json in the build; without it
       registration fails quietly and the 8-second checker keeps working.
+      The registration carries app:true, so the server knows this person has the app and sends their alerts to the app only (not also to Chrome).
    8. applies the alert rules to the pop-up: no pop-up for "X joined the group" notices, muted chats, people you blocked, groups when
       "Group messages" is off, or the big Chat Room unless the message @mentions or replies to you; "Show message preview" off hides the
       message text. If anything needed for those rules cannot be read, the pop-up is shown (a pop-up too many beats a missed message).
@@ -259,6 +260,7 @@
     fcmSentKey = key;
     pushApi("/push/subscribe", {
       subscription: { endpoint: FCM_PREFIX + fcmToken, keys: { p256dh: "fcm", auth: "fcm" } },
+      app: true, // tells the server this person has the app: their alerts then go to the app only, not to Chrome
       preview: p.preview,
       groups: p.groups
     }).then(function (r) { if (!r.ok) fcmSentKey = ""; }).catch(function () { fcmSentKey = ""; });

@@ -5,8 +5,8 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "postinstall": "node patch-suggest.js && node patch-post-notify.js",
-    "prestart": "node patch-suggest.js && node patch-post-notify.js",
+    "postinstall": "node patch-suggest.js && node patch-post-notify.js && node patch-app-only-push.js",
+    "prestart": "node patch-suggest.js && node patch-post-notify.js && node patch-app-only-push.js",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
