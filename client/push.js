@@ -4,13 +4,19 @@
 // (old browser, Firebase blocked, or the token request fails) it quietly falls back to the classic VAPID web push used before.
 // AUTOMATIC: once a person is signed in, push switches itself on (the browser's "Allow notifications" question appears on their first tap).
 // Turning "Push notifications" off in Tools is remembered, and then it stays off until they turn it on again.
+// APP INSTALLED: when Chrome can see that the Letschat Android app is installed on this phone (manifest related_applications +
+// assetlinks.json), the browser drops its own push and does not ask for notification permission, so each message is notified once, by the app,
+// and never also by Chrome. If the app is uninstalled, automatic push comes back by itself.
 (function () {
   var API = (window.LETSCHAT_CONFIG || {}).API_URL;
   var FCM_PREFIX = "https://fcm-token.letschat.invalid/"; // same pseudo-endpoint prefix the Android app and the server use
   var FCM_KEY = "letschat-africa:fcm-web-token";
   var OFF_KEY = "letschat-africa:push-off"; // set when the person turns push off on purpose
+  var APP_ID = "com.letschatafrica.app";      // the Android app's package name (same as in manifest.json and assetlinks.json)
+  var APP_KEY = "letschat-africa:push-app";   // "1" while the app was last seen installed on this phone
   var current = null; // socket of the logged-in session
   var armed = false;
+  var appCheck = null; // this page's answer to "is the app installed?"
 
   function token() { try { var s = JSON.parse(localStorage.getItem("letschat-africa:session")); return s && s.token; } catch (e) { return null; } }
   function prefs() { try { return JSON.parse(localStorage.getItem("letschat-africa:notifs")) || {}; } catch (e) { return {}; } }
@@ -18,6 +24,8 @@
   function storeFcm(t) { try { if (t) localStorage.setItem(FCM_KEY, t); else localStorage.removeItem(FCM_KEY); } catch (e) {} }
   function pushOff() { try { return localStorage.getItem(OFF_KEY) === "1"; } catch (e) { return false; } }
   function setOff(v) { try { if (v) localStorage.setItem(OFF_KEY, "1"); else localStorage.removeItem(OFF_KEY); } catch (e) {} }
+  function appFlag() { try { return localStorage.getItem(APP_KEY) === "1"; } catch (e) { return false; } }
+  function setAppFlag(v) { try { if (v) localStorage.setItem(APP_KEY, "1"); else localStorage.removeItem(APP_KEY); } catch (e) {} }
   function noop() {}
   function call(path, method, body, auth) {
     var h = { "Content-Type": "application/json" };
@@ -39,6 +47,23 @@
     return navigator.serviceWorker.getRegistration().then(function (r) {
       return r || navigator.serviceWorker.register("./sw.js");
     }).then(function () { return navigator.serviceWorker.ready; });
+  }
+
+  // Is the Letschat Android app installed on this phone? Resolves true / false, or null when this browser cannot tell
+  // (only Chrome on Android can, and only on the real site, where assetlinks.json links the website to the app).
+  function appInstalled() {
+    if (appCheck) return appCheck;
+    appCheck = new Promise(function (resolve) {
+      try {
+        if (typeof navigator.getInstalledRelatedApps !== "function") return resolve(null);
+        navigator.getInstalledRelatedApps().then(function (list) {
+          for (var i = 0; list && i < list.length; i++) if (list[i] && list[i].id === APP_ID) return resolve(true);
+          resolve(false);
+        }, function () { resolve(null); });
+      } catch (e) { resolve(null); }
+      setTimeout(function () { resolve(null); }, 4000); // a browser that never answers must not block push for good
+    });
+    return appCheck;
   }
 
   // ---- classic browser push (VAPID): used as the fallback ----
@@ -132,8 +157,8 @@
     });
   }
 
-  function disable() {
-    setOff(true); // the person chose this: automatic push stays off until they switch it on again
+  // Takes this browser off push: the server forgets it and the browser unsubscribes. It does NOT record a choice of the person.
+  function drop() {
     var t = storedFcm();
     return registration().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
       var work = Promise.resolve();
@@ -150,9 +175,15 @@
     }
   }
 
+  function disable() {
+    setOff(true); // the person chose this: automatic push stays off until they switch it on again
+    return drop();
+  }
+
   // quietly keep the server's copy of this device's subscription fresh (and its preview/group choices)
   function sync() {
     if (!supported() || Notification.permission !== "granted" || !token()) return;
+    if (appFlag()) return; // the app is on this phone: this browser stays off push (auto() re-checks and switches it back on if the app is gone)
     registration().then(function (reg) {
       var saved = storedFcm();
       if (saved) {
@@ -169,8 +200,21 @@
     }).catch(noop);
   }
 
-  // AUTOMATIC push: signed in and not switched off on purpose -> turn it on by itself
+  // AUTOMATIC push: signed in and not switched off on purpose -> turn it on by itself (unless the Android app is installed on this phone)
   function auto() {
+    if (!supported() || !token() || pushOff() || Notification.permission === "denied") return;
+    appInstalled().then(function (installed) {
+      if (installed === true) {
+        // the app notifies this phone: no browser notification (and no permission question) as well
+        setAppFlag(true);
+        drop().catch(noop);
+        return;
+      }
+      if (installed === false) setAppFlag(false); // the app is not (or no longer) installed: browser push works as before
+      autoOn();
+    });
+  }
+  function autoOn() {
     if (!supported() || !token() || pushOff() || Notification.permission === "denied") return;
     if (Notification.permission === "granted") {
       // permission already given: register this device without asking anything (only when it is not registered yet)
