@@ -36,6 +36,12 @@
   ],
   "id": "./",
   "prefer_related_applications": false,
+  "related_applications": [
+    {
+      "platform": "play",
+      "id": "com.letschatafrica.app"
+    }
+  ],
   "lang": "en",
   "dir": "ltr",
   "categories": [
