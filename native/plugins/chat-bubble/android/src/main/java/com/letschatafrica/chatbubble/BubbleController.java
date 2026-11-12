@@ -51,7 +51,7 @@ import java.net.URL;
  * the bottom pulls it in; letting go there shrinks it away until the next message. The head is never faded: it always stays fully opaque.
  * A tap on the head (or on its toast) makes it grow into the WhatsApp-style message card (see MessagePopup) when messages are
  * waiting; the head is tucked away while the card is open and pops back when the card closes. With nothing waiting, a tap opens the
- * app on its Calls tab (the page is told tab "calls" in the bubbleTapped event).
+ * app on its Chats tab (the page is told tab "chats" in the bubbleTapped event).
  *
  * ONE LOOK: the head shows the Letschat logo (the "LA" app icon) by default and for Letschat's own messages (no yellow "L" letter
  * any more). A real sender's photo (or their coloured first letter) replaces it when a message from them arrives. Whatever the head
@@ -60,7 +60,7 @@ import java.net.URL;
 final class BubbleController {
 
     interface TapListener {
-        /** chatId: the chat to open ("" for none). tab: the tab to open when there is no chat ("calls", or "" for none). */
+        /** chatId: the chat to open ("" for none). tab: the tab to open when there is no chat ("chats", or "" for none). */
         void onTap(String chatId, String tab);
     }
 
@@ -204,11 +204,14 @@ final class BubbleController {
         ui.post(this::removeView);
     }
 
-    /** "View" in the message pop-up: opens Letschat and tells the page which chat to show. */
+    /**
+     * The name on the message card (or "View"): opens Letschat on that chat. With no chat id (nothing to open) Letschat opens
+     * on its Chats tab instead.
+     */
     void openChat(final String id) {
         ui.post(() -> {
             chatId = id == null ? "" : id;
-            openApp("");
+            openApp(chatId.isEmpty() ? "chats" : "");
         });
     }
 
@@ -224,7 +227,7 @@ final class BubbleController {
 
     /**
      * A tap on the head or on its toast: with waiting messages the head grows into the message card; with none waiting Letschat opens
-     * on its Calls tab (any chat id left over from an earlier message is dropped, so an old chat never opens by mistake).
+     * on its Chats tab (any chat id left over from an earlier message is dropped, so an old chat never opens by mistake).
      */
     private void onHeadTapped() {
         if (expanded) return; // the card is already opening: a quick second tap must not rebuild it
@@ -233,7 +236,7 @@ final class BubbleController {
         int[] c = headCenter();
         if (c != null && popup.hasMessages() && popup.expandFrom(c[0], c[1])) return;
         chatId = "";
-        openApp("calls");
+        openApp("chats");
     }
 
     /** The message card is opening out of the head: the head shrinks away into it (size only, never faded) and stops catching touches. */
@@ -554,7 +557,7 @@ final class BubbleController {
                         hideTarget();
                         holder.setScaleX(1f);
                         holder.setScaleY(1f);
-                        onHeadTapped(); // waiting messages: the head grows into the message card; otherwise Letschat opens on the Calls tab
+                        onHeadTapped(); // waiting messages: the head grows into the message card; otherwise Letschat opens on the Chats tab
                     } else if (inDismissZone) {
                         dismissAnimated(); // the X stays on screen until the head has shrunk into it
                     } else {
