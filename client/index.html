@@ -309,7 +309,50 @@
     html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; }
     /* phone on its side: slimmer footer so the chat gets the room */
     @media (max-height: 460px) and (orientation: landscape) { .app-footer { height: calc(34px + env(safe-area-inset-bottom, 0px)); } .app-footer-text { font-size: 10px; } }
-    #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding: 34vh 16px 0; }
+    #boot { margin: 0; padding: 0; }
+    /* ===== Letschat Africa loading screen (#ls-splash). It sits inside #boot, which React replaces when the app starts; the script near the end of <body> removes it as a safety net. ===== */
+    #ls-splash{
+      position:fixed;top:0;right:0;bottom:0;left:0;z-index:9999;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      padding:24px 24px 6vh;
+      background:#00040c;color:#8da2b8;text-align:center;
+      font:500 14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-tap-highlight-color:transparent;
+    }
+    #ls-splash .ls-logo{
+      display:block;width:80vw;max-width:340px;height:auto;max-height:40vh;object-fit:contain;
+      animation:ls-fade .5s ease-out both;
+    }
+    #ls-splash .ls-loading{
+      display:flex;justify-content:center;align-items:baseline;
+      margin:22px 0 0;padding-left:.28em;
+      font-size:17px;font-weight:700;letter-spacing:.28em;text-transform:uppercase;
+    }
+    #ls-splash .ls-ch{
+      display:inline-block;color:#01f5df;color:var(--c);opacity:.4;
+      animation:ls-wave 1.5s ease-in-out infinite;animation-delay:calc(var(--i) * .09s);
+    }
+    #ls-splash .ls-dot{
+      width:.3em;height:.3em;margin-left:.4em;border-radius:50%;background:currentColor;
+    }
+    #ls-splash .ls-lite{margin:34px 0 0;font-size:13px}
+    #ls-splash .ls-lite a{
+      display:inline-block;padding:6px 2px;color:#01f5df;font-weight:600;
+      text-decoration:underline;text-underline-offset:3px;
+    }
+    #ls-splash .ls-sr{
+      position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+      clip:rect(0 0 0 0);white-space:nowrap;border:0;
+    }
+    @keyframes ls-wave{
+      0%,55%,100%{opacity:.4;transform:translateY(0)}
+      25%{opacity:1;transform:translateY(-5px)}
+    }
+    @keyframes ls-fade{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+    @media (prefers-reduced-motion:reduce){
+      #ls-splash .ls-logo{animation:none}
+      #ls-splash .ls-ch{animation:none;opacity:1}
+    }
     #error-box {
       display: none; position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: #1a0000; color: #ff8080;
       font-family: monospace; font-size: 13px; padding: 16px; white-space: pre-wrap;
@@ -358,10 +401,51 @@
 
 </head>
 <body>
-  <main id="root"><div id="boot" role="status"><h1 style="font:700 20px Sora,Inter,sans-serif;color:#F5F7FA;margin:0 0 8px">Letschat Africa</h1><p style="margin:0">Loading…</p><p style="margin:14px 0 0;font-size:13px">Slow or basic phone? <a href="https://letschat-9tw4.onrender.com/lite" style="color:#35D0BA">Open Letschat Lite</a></p></div></main>
+  <main id="root"><div id="boot">
+    <div id="ls-splash" role="status" aria-live="polite">
+      <!-- Logo: swap this src for splash-logo.webp (640x444) once that file is added next to index.html -->
+      <img class="ls-logo" src="icons/icon-512.png" width="512" height="512" alt="Letschat Africa" decoding="async" fetchpriority="high">
+      <p class="ls-loading" aria-hidden="true">
+        <span class="ls-ch" style="--i:0;--c:#01f5df">L</span>
+        <span class="ls-ch" style="--i:1;--c:#19f4c1">O</span>
+        <span class="ls-ch" style="--i:2;--c:#31f4a4">A</span>
+        <span class="ls-ch" style="--i:3;--c:#49f386">D</span>
+        <span class="ls-ch" style="--i:4;--c:#61f269">I</span>
+        <span class="ls-ch" style="--i:5;--c:#7dee50">N</span>
+        <span class="ls-ch" style="--i:6;--c:#9ee73d">G</span>
+        <span class="ls-ch ls-dot" style="--i:7;--c:#bee02a"></span>
+        <span class="ls-ch ls-dot" style="--i:8;--c:#dfd816"></span>
+        <span class="ls-ch ls-dot" style="--i:9;--c:#ffd103"></span>
+      </p>
+      <span class="ls-sr">Loading</span>
+      <p class="ls-lite">Slow or basic phone? <a href="https://letschat-9tw4.onrender.com/lite">Open Letschat Lite</a></p>
+    </div>
+  </div></main>
   <noscript><p style="color:#9BA7B4;font-family:sans-serif;text-align:center;padding:20px">Letschat Africa needs JavaScript. Please turn it on and reload.</p></noscript>
   <div id="error-box"></div>
 
+  <!-- Loading screen auto-hide: React normally replaces #boot by itself when the app starts; this is a safety net that removes it as soon as anything else is drawn into #root,
+       so it can never cover the app. window.hideLetschatSplash() does the same on demand. -->
+  <script>
+    (function () {
+      function hide() {
+        var s = document.getElementById("ls-splash"), b = document.getElementById("boot");
+        if (!s && !b) return;
+        if (s) { s.style.transition = "opacity .25s ease"; s.style.opacity = "0"; s.style.pointerEvents = "none"; }
+        setTimeout(function () {
+          var x = document.getElementById("boot") || document.getElementById("ls-splash");
+          if (x && x.parentNode) x.parentNode.removeChild(x);
+        }, 280);
+      }
+      window.hideLetschatSplash = hide;
+      var root = document.getElementById("root");
+      if (!root || !window.MutationObserver) return;
+      new MutationObserver(function () {
+        var kids = root.children;
+        for (var i = 0; i < kids.length; i++) { if (kids[i].id !== "boot") { hide(); return; } }
+      }).observe(root, { childList: true });
+    })();
+  </script>
 
   <!-- Accessibility: gives unlabelled fields/icons a name for screen readers, as they appear on screen -->
   <script>
