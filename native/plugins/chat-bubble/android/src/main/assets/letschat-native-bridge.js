@@ -24,7 +24,7 @@
    8. applies the alert rules to the pop-up: no pop-up for "X joined the group" notices, muted chats, people you blocked, groups when
       "Group messages" is off, or the big Chat Room unless the message @mentions or replies to you; "Show message preview" off hides the
       message text. If anything needed for those rules cannot be read, the pop-up is shown (a pop-up too many beats a missed message).
-   Tapping the chat head with no message waiting opens Letschat on the Calls tab (see openCallsTab).
+   Tapping the chat head with no message waiting opens Letschat on the Chats tab (see openTab).
 
    PLUGIN ACCESS: the site is loaded from a web address, so Capacitor does not always put the native plugins on window.Capacitor.Plugins
    (that list only holds plugins the website's own code registered). This script therefore talks to the native plugins directly through
@@ -620,31 +620,34 @@
   addSettingRow();
   refreshRows();
 
-  // ---- chat head tapped with no message waiting: open the Calls tab ----
+  // ---- chat head tapped with no message waiting: open the Chats tab ----
   // The bottom bar belongs to the React app, so the tab is found by its name and tapped like a finger would. After a cold start the
   // bar is not there yet, so it is looked for every 300 ms for up to 15 seconds (it never runs when nobody is signed in).
-  var callsTimer = null;
-  function findCallsTab() {
+  // The Calls tab is still understood (tab "calls"), the chat head itself now asks for "chats".
+  var tabTimer = null;
+  function findTab(name) {
+    var re = new RegExp("^\\s*" + name + "\\s*$", "i");
     try {
       var tabs = document.querySelectorAll(".lc-tab");
       for (var i = 0; i < tabs.length; i++) {
-        if (/^\s*calls\s*$/i.test(tabs[i].textContent || "")) return tabs[i];
+        if (re.test(tabs[i].textContent || "")) return tabs[i];
       }
-      var n = document.evaluate("//*[normalize-space(text())='Calls']", document, null, 9, null).singleNodeValue;
+      var label = name.charAt(0).toUpperCase() + name.slice(1);
+      var n = document.evaluate("//*[normalize-space(text())='" + label + "']", document, null, 9, null).singleNodeValue;
       return n ? (n.closest(".lc-tab, button, [role=tab], a") || n) : null;
     } catch (e) { return null; }
   }
-  function openCallsTab() {
-    if (callsTimer) clearInterval(callsTimer);
+  function openTab(name) {
+    if (tabTimer) clearInterval(tabTimer);
     var tries = 0;
     function attempt() {
-      var t = findCallsTab();
-      if (t) { clearInterval(callsTimer); callsTimer = null; try { t.click(); } catch (e) {} return true; }
-      if (++tries > 50) { clearInterval(callsTimer); callsTimer = null; }
+      var t = findTab(name);
+      if (t) { clearInterval(tabTimer); tabTimer = null; try { t.click(); } catch (e) {} return true; }
+      if (++tries > 50) { clearInterval(tabTimer); tabTimer = null; }
       return false;
     }
     if (attempt()) return;
-    callsTimer = setInterval(attempt, 300);
+    tabTimer = setInterval(attempt, 300);
   }
 
   function setActive(active) {
@@ -658,13 +661,13 @@
   try { if (APP && APP.addListener) APP.addListener("appStateChange", function (s) { setActive(!!(s && s.isActive)); }); } catch (e) {}
   try { if (BB && BB.addListener) {
     BB.addListener("appState", function (s) { setActive(!!(s && s.active)); });
-    // "View" in the message pop-up (and a tapped message notification): open that chat (the app reads ?open=<conversation id> after the page loads).
-    // The head tapped with nothing waiting (no chat id, tab "calls"): open the Calls tab instead.
+    // The name on the message pop-up, "View" and a tapped message notification: open that chat (the app reads ?open=<conversation id> after the page loads).
+    // The head tapped with nothing waiting (no chat id, tab "chats"): open the Chats tab instead.
     BB.addListener("bubbleTapped", function (d) {
       unread = 0;
       var id = d && d.chatId ? String(d.chatId) : "";
       if (id) { try { location.assign(location.origin + "/?open=" + encodeURIComponent(id)); } catch (e) {} return; }
-      if (d && d.tab === "calls") openCallsTab();
+      if (d && (d.tab === "chats" || d.tab === "calls")) openTab(d.tab);
     });
   } } catch (e) {}
   document.addEventListener("visibilitychange", function () { if (!document.hidden) setActive(true); });
