@@ -60,15 +60,16 @@ import java.util.Locale;
  * the right a thin divider with "1 of N" over the previous / next arrows, which step through the waiting messages), a middle area on the
  * black and white LetsChat Africa doodle wallpaper (client/wallpaper-dark.webp on the website: it is downloaded once, saved in the app's
  * private files and drawn behind the card; until it is there, or if it cannot be loaded, the middle is plain black) holding the received
- * message bubble with its time, the bubble of the reply just sent and the reply pill with the teal send button, and a dark bottom band
- * with Open chat / Close.
+ * message bubble with its time, the bubble of the reply just sent and the reply pill with the small call button and the small teal send button,
+ * and a dark bottom band with a centred Close button.
+ * Tapping the round photo zooms it to a large picture (tap again to close it). Tapping the sender's name opens that chat in Letschat.
  * A tap anywhere outside the card minimizes it back into the chat head (the waiting messages are kept).
- * The call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
+ * The header call, video and three-dot buttons, the Photo / Gallery / Emoji / More tiles and Minimize are built but hidden (GONE): to show one
  * again, remove its setVisibility(View.GONE) line in build(). The smiley in the reply box still opens the emoji strip.
  * Messages that arrive while the app is not on screen are queued and announced by a toast on the floating chat head. The card
  * stays closed until the person taps the chat head: the head then grows into the card (expandFrom). Close shrinks the card back into
- * the head and clears the queue, Open chat opens Letschat on that chat, sending a reply posts it to the Letschat server and removes
- * that chat's messages from the card.
+ * the head and clears the queue, the call button opens Letschat on that chat (calls are started inside the chat), sending a reply posts it
+ * to the Letschat server and removes that chat's messages from the card.
  */
 final class MessagePopup {
 
@@ -119,7 +120,7 @@ final class MessagePopup {
     private static final int C_PILL_TEXT = 0xFFFFFFFF;
     private static final int C_PILL_HINT = 0xFF848A98;
     private static final int C_PILL_ICON = 0xFFB4BECA;
-    /** Header and bottom bar icons (arrows, Open chat, Close). */
+    /** Header and bottom bar icons (arrows, Close). */
     private static final int C_ICON = 0xFFB4BEC8;
     private static final int C_GREEN = 0xFF35D1BB;
     /** Time under a received message. */
@@ -131,6 +132,8 @@ final class MessagePopup {
     private static final int C_EDGE2 = 0xFF005C4D;
     /** The line between the middle and the bottom bar, and the divider in the header. */
     private static final int C_LINE = 0xFF1E2432;
+    /** Size (dp) of the round send and call buttons beside the reply pill. */
+    private static final int ROUND_BTN = 46;
     /** Size the card has while it is "inside" the chat head: it grows from this to full size and shrinks back to it. */
     private static final float SHRUNK = 0.12f;
     private static final String[] EMOJIS = { "😀", "😂", "😍", "😘", "👍", "🙏", "😢", "😮", "🔥", "❤️", "🎉", "😎" };
@@ -175,6 +178,8 @@ final class MessagePopup {
     private WindowManager.LayoutParams lp;
     private ImageView avatarView;
     private String avatarUrl = "";
+    /** The enlarged profile picture (its own full-screen window over the card), or null when it is not shown. */
+    private android.widget.FrameLayout zoomView;
     private TextView nameView;
     private TextView counterView;
     /** The "1 of N" text and the previous / next arrows in the header. */
@@ -336,6 +341,7 @@ final class MessagePopup {
         if (collapsing) return;
         final View card = root;
         hideKeyboard();
+        hideAvatarZoom();
         if (card == null) {
             BubbleController.get(ctx).onCardClosed(items.size());
             return;
@@ -377,6 +383,7 @@ final class MessagePopup {
             @Override
             public boolean onTouch(View v, MotionEvent e) {
                 if (e.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                    if (zoomView != null) return true; // a tap on the enlarged photo only closes the photo, not the card
                     collapseToHead();
                     return true;
                 }
@@ -406,6 +413,13 @@ final class MessagePopup {
         avatarView.setBackground(ring);
         avatarView.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
         avatarView.setClipToOutline(true);
+        // a tap on the round photo zooms it
+        tap(avatarView, new Runnable() {
+            @Override
+            public void run() {
+                showAvatarZoom();
+            }
+        });
         header.addView(avatarView, new LinearLayout.LayoutParams(dp(46), dp(46)));
 
         LinearLayout names = new LinearLayout(ctx);
@@ -423,6 +437,13 @@ final class MessagePopup {
         counterView.setSingleLine(true);
         counterView.setVisibility(View.GONE); // the count is now shown by the navigation on the right
         names.addView(counterView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        // a tap on the name opens that chat in Letschat
+        tap(names, new Runnable() {
+            @Override
+            public void run() {
+                openCurrentChat();
+            }
+        });
         LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         nl.leftMargin = dp(12);
         nl.rightMargin = dp(6);
@@ -471,7 +492,7 @@ final class MessagePopup {
                 openCurrentChat(); // calls are started inside the chat
             }
         });
-        call.setVisibility(View.GONE); // hidden
+        call.setVisibility(View.GONE); // hidden (the call button now sits beside the send button)
         header.addView(call, new LinearLayout.LayoutParams(dp(44), dp(44)));
         View video = glyph(Glyph.VIDEO, C_ICON);
         tap(video, new Runnable() {
@@ -673,7 +694,7 @@ final class MessagePopup {
         esl.topMargin = dp(8);
         root.addView(emojiStrip, esl);
 
-        // reply row: [smiley  text box] (send)
+        // reply row: [smiley  text box] (call) (send)
         LinearLayout replyRow = new LinearLayout(ctx);
         replyRow.setOrientation(LinearLayout.HORIZONTAL);
         replyRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -723,12 +744,30 @@ final class MessagePopup {
         pill.addView(input, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         replyRow.addView(pill, new LinearLayout.LayoutParams(0, dp(62), 1f));
 
+        // the call button, next to the send button (calls are started inside the chat, so it opens that chat)
+        FrameHolder callBtn = new FrameHolder(ctx);
+        GradientDrawable callBg = new GradientDrawable();
+        callBg.setShape(GradientDrawable.OVAL);
+        callBg.setColor(C_PILL);
+        callBtn.setBackground(callBg);
+        callBtn.addView(new Glyph(ctx, Glyph.PHONE, C_ICON, density), new FrameHolder.LayoutParams(dp(ROUND_BTN), dp(ROUND_BTN)));
+        tap(callBtn, new Runnable() {
+            @Override
+            public void run() {
+                openCurrentChat();
+            }
+        });
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(dp(ROUND_BTN), dp(ROUND_BTN));
+        cl.leftMargin = dp(8);
+        replyRow.addView(callBtn, cl);
+
+        // the send button (smaller than before)
         FrameHolder send = new FrameHolder(ctx);
         GradientDrawable sendBg = new GradientDrawable();
         sendBg.setShape(GradientDrawable.OVAL);
         sendBg.setColor(C_BTN);
         send.setBackground(sendBg);
-        send.addView(new Glyph(ctx, Glyph.SEND, C_BTN_ICON, density), new FrameHolder.LayoutParams(dp(58), dp(58)));
+        send.addView(new Glyph(ctx, Glyph.SEND, C_BTN_ICON, density), new FrameHolder.LayoutParams(dp(ROUND_BTN), dp(ROUND_BTN)));
         send.setAlpha(0.65f);
         actionBtn = send;
         tap(actionBtn, new Runnable() {
@@ -738,14 +777,14 @@ final class MessagePopup {
                 else focusInput();
             }
         });
-        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(dp(58), dp(58));
-        al.leftMargin = dp(10);
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(dp(ROUND_BTN), dp(ROUND_BTN));
+        al.leftMargin = dp(8);
         replyRow.addView(actionBtn, al);
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         rl.topMargin = dp(12);
         root.addView(replyRow, rl);
 
-        // bottom bar: Minimize (hidden) | Open chat | Close
+        // bottom bar: Minimize (hidden) | Close (centred)
         View line = new View(ctx);
         line.setBackgroundColor(C_LINE);
         LinearLayout.LayoutParams lnl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
@@ -763,6 +802,7 @@ final class MessagePopup {
 
         LinearLayout bar2 = new LinearLayout(ctx);
         bar2.setOrientation(LinearLayout.HORIZONTAL);
+        bar2.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout minimize = bottomItem(Glyph.MINUS, "Minimize", new Runnable() {
             @Override
             public void run() {
@@ -771,12 +811,7 @@ final class MessagePopup {
         });
         minimize.setVisibility(View.GONE); // hidden
         bar2.addView(minimize, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        bar2.addView(bottomItem(Glyph.OPEN, "Open chat", new Runnable() {
-            @Override
-            public void run() {
-                openCurrentChat();
-            }
-        }), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        // Close fills the whole bar and centres its icon and label, so it sits in the bottom middle
         bar2.addView(bottomItem(Glyph.CLOSE, "Close", new Runnable() {
             @Override
             public void run() {
@@ -808,7 +843,7 @@ final class MessagePopup {
         }
     }
 
-    /** A plain frame that behaves as one tap target (the round send button). */
+    /** A plain frame that behaves as one tap target (the round send and call buttons). */
     private static final class FrameHolder extends android.widget.FrameLayout {
         FrameHolder(Context c) {
             super(c);
@@ -868,7 +903,7 @@ final class MessagePopup {
         return t;
     }
 
-    /** One of the three bottom buttons: a round icon over a label. */
+    /** A bottom button: a round icon over a label. */
     private LinearLayout bottomItem(int kind, String label, Runnable action) {
         LinearLayout t = new LinearLayout(ctx);
         t.setOrientation(LinearLayout.VERTICAL);
@@ -882,6 +917,68 @@ final class MessagePopup {
         t.addView(tv, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         tap(t, action);
         return t;
+    }
+
+    // ---- zoomed profile picture ----
+
+    /** Shows the sender's photo large, on a dimmed full-screen layer above the card. A tap anywhere closes it again. */
+    private void showAvatarZoom() {
+        if (zoomView != null || avatarView == null || root == null) return;
+        try {
+            Bitmap bmp = avatarUrl.isEmpty() ? null : avatars.get(avatarUrl);
+            if (bmp == null) {
+                String n = (index >= 0 && index < items.size()) ? items.get(index).title.trim() : "";
+                bmp = letterBitmap(n.isEmpty() ? "L" : n);
+            }
+            final android.widget.FrameLayout shade = new android.widget.FrameLayout(ctx);
+            shade.setBackgroundColor(0xCC000000);
+            final ImageView big = new ImageView(ctx);
+            big.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            big.setImageBitmap(bmp);
+            GradientDrawable bigRing = new GradientDrawable();
+            bigRing.setShape(GradientDrawable.OVAL);
+            bigRing.setColor(C_PILL);
+            bigRing.setStroke(dp(3), C_GREEN);
+            big.setBackground(bigRing);
+            big.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
+            big.setClipToOutline(true);
+            int size = Math.min(screenW() - dp(56), dp(340));
+            shade.addView(big, new android.widget.FrameLayout.LayoutParams(size, size, Gravity.CENTER));
+            tap(shade, new Runnable() {
+                @Override
+                public void run() {
+                    hideAvatarZoom();
+                }
+            });
+            int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
+            WindowManager.LayoutParams zlp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            );
+            wm.addView(shade, zlp);
+            zoomView = shade;
+            // the photo grows out of its small place in the header
+            big.setScaleX(0.25f);
+            big.setScaleY(0.25f);
+            shade.setAlpha(0f);
+            shade.animate().alpha(1f).setDuration(180).start();
+            big.animate().scaleX(1f).scaleY(1f).setDuration(240).setInterpolator(new DecelerateInterpolator(1.8f)).start();
+        } catch (RuntimeException e) {
+            zoomView = null;
+        }
+    }
+
+    private void hideAvatarZoom() {
+        final android.widget.FrameLayout z = zoomView;
+        if (z == null) return;
+        zoomView = null;
+        try {
+            z.animate().cancel();
+            wm.removeView(z);
+        } catch (RuntimeException ignored) {}
     }
 
     // ---- menu, emoji, navigation ----
@@ -1067,6 +1164,7 @@ final class MessagePopup {
     }
 
     private void removeView() {
+        hideAvatarZoom();
         if (root != null) {
             try {
                 root.animate().cancel();
