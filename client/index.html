@@ -371,7 +371,15 @@
     }
     // capture phase (true) is required to see <script> load failures
     window.addEventListener("error", function (e) {
-      if (e.target && e.target.tagName === "SCRIPT") { showErr("FAILED TO LOAD SCRIPT:\n" + e.target.src); return; }
+      var t = e.target;
+      if (t && t !== window && t.tagName) {
+        // A file failed to load: this event comes from the element, not from JavaScript, so it has no message or line number.
+        // A missing script stops the app, so that one is shown. A missing picture, icon or stylesheet must never cover the app with the red
+        // error screen (it used to, for the loading-screen logo), so it is only written to the console.
+        if (t.tagName === "SCRIPT") showErr("FAILED TO LOAD SCRIPT:\n" + t.src);
+        else { try { console.warn("Could not load " + String(t.tagName).toLowerCase() + ": " + (t.currentSrc || t.src || t.href || "")); } catch (x) {} }
+        return;
+      }
       if (!document.getElementById("boot") || /ResizeObserver/.test(e.message || "")) { try { console.warn(e.message); } catch (x) {} return; }
       showErr("ERROR:\n" + e.message + "\n\nFile: " + e.filename + "\nLine: " + e.lineno + ":" + e.colno + "\n\n" + (e.error && e.error.stack ? e.error.stack : ""));
     }, true);
@@ -404,7 +412,7 @@
 <body>
   <main id="root"><div id="boot">
     <div id="ls-splash" role="status" aria-live="polite">
-      <!-- Logo: uses splash-logo.webp (640x444) when that file exists next to index.html, otherwise icons/icon-512.png, otherwise no picture -->
+      <!-- Logo: splash-logo.webp (640x444) sits next to index.html (replace the file to change the picture). If it ever fails to load, the picture falls back to icons/icon-512.png and then hides. -->
       <img class="ls-logo" src="splash-logo.webp" width="640" height="444" alt="Letschat Africa" decoding="async" fetchpriority="high" onerror="if(!this.getAttribute('data-f')){this.setAttribute('data-f','1');this.removeAttribute('width');this.removeAttribute('height');this.src='icons/icon-512.png';}else{this.style.display='none';}">
       <p class="ls-loading" aria-hidden="true">
         <span class="ls-ch" style="--i:0;--c:#01f5df">L</span>
