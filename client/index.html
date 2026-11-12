@@ -309,7 +309,8 @@
     html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; }
     /* phone on its side: slimmer footer so the chat gets the room */
     @media (max-height: 460px) and (orientation: landscape) { .app-footer { height: calc(34px + env(safe-area-inset-bottom, 0px)); } .app-footer-text { font-size: 10px; } }
-    #boot { margin: 0; padding: 0; }
+    /* #boot keeps its old look because compat.js writes the "phone too old" message into it; the loading screen below is fixed-position, so this padding does not move it */
+    #boot { color: #9BA7B4; font-family: sans-serif; font-size: 14px; text-align: center; padding: 34vh 16px 0; }
     /* ===== Letschat Africa loading screen (#ls-splash). It sits inside #boot, which React replaces when the app starts; the script near the end of <body> removes it as a safety net. ===== */
     #ls-splash{
       position:fixed;top:0;right:0;bottom:0;left:0;z-index:9999;
@@ -403,8 +404,8 @@
 <body>
   <main id="root"><div id="boot">
     <div id="ls-splash" role="status" aria-live="polite">
-      <!-- Logo: swap this src for splash-logo.webp (640x444) once that file is added next to index.html -->
-      <img class="ls-logo" src="icons/icon-512.png" width="512" height="512" alt="Letschat Africa" decoding="async" fetchpriority="high">
+      <!-- Logo: uses splash-logo.webp (640x444) when that file exists next to index.html, otherwise icons/icon-512.png, otherwise no picture -->
+      <img class="ls-logo" src="splash-logo.webp" width="640" height="444" alt="Letschat Africa" decoding="async" fetchpriority="high" onerror="if(!this.getAttribute('data-f')){this.setAttribute('data-f','1');this.removeAttribute('width');this.removeAttribute('height');this.src='icons/icon-512.png';}else{this.style.display='none';}">
       <p class="ls-loading" aria-hidden="true">
         <span class="ls-ch" style="--i:0;--c:#01f5df">L</span>
         <span class="ls-ch" style="--i:1;--c:#19f4c1">O</span>
@@ -425,24 +426,25 @@
   <div id="error-box"></div>
 
   <!-- Loading screen auto-hide: React normally replaces #boot by itself when the app starts; this is a safety net that removes it as soon as anything else is drawn into #root,
-       so it can never cover the app. window.hideLetschatSplash() does the same on demand. -->
+       so it can never cover the app. window.hideLetschatSplash() hides just the loading screen on demand (#boot stays until the app replaces it, so device.js can still tell if the app never started). -->
   <script>
     (function () {
-      function hide() {
-        var s = document.getElementById("ls-splash"), b = document.getElementById("boot");
-        if (!s && !b) return;
+      function hide(removeBoot) {
+        var s = document.getElementById("ls-splash");
         if (s) { s.style.transition = "opacity .25s ease"; s.style.opacity = "0"; s.style.pointerEvents = "none"; }
         setTimeout(function () {
-          var x = document.getElementById("boot") || document.getElementById("ls-splash");
+          var x = document.getElementById("ls-splash");
           if (x && x.parentNode) x.parentNode.removeChild(x);
+          var b = document.getElementById("boot");
+          if (removeBoot === true && b && b.parentNode) b.parentNode.removeChild(b);
         }, 280);
       }
-      window.hideLetschatSplash = hide;
+      window.hideLetschatSplash = function () { hide(false); };
       var root = document.getElementById("root");
       if (!root || !window.MutationObserver) return;
       new MutationObserver(function () {
         var kids = root.children;
-        for (var i = 0; i < kids.length; i++) { if (kids[i].id !== "boot") { hide(); return; } }
+        for (var i = 0; i < kids.length; i++) { if (kids[i].id !== "boot") { hide(true); return; } }
       }).observe(root, { childList: true });
     })();
   </script>
