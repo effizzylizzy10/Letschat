@@ -1,0 +1,56 @@
+name: Build Windows installer (Letschat-Setup.exe)
+
+# Builds the Windows app from the desktop/ folder (Electron window around the Letschat website) into Letschat-Setup.exe.
+# Run it by hand: Actions > "Build Windows installer (Letschat-Setup.exe)" > Run workflow. It also runs when desktop/ changes.
+# Afterwards: download the "Letschat-Setup-exe" artifact, unzip it, put Letschat-Setup.exe in client/ next to Letschat.apk and redeploy the website.
+# The website then offers it to 64-bit Windows 10 and 11 PCs (see client/phonematch.js).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/build-windows-exe.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Use the Letschat icon
+        shell: bash
+        working-directory: desktop
+        run: |
+          mkdir -p build
+          cp ../client/icons/icon-512.png build/icon.png
+
+      - name: Install
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Build the installer
+        working-directory: desktop
+        run: npm run dist
+
+      - name: Check the installer
+        shell: bash
+        working-directory: desktop
+        run: |
+          f=dist/Letschat-Setup.exe
+          [ -s "$f" ] || { echo "::error title=Build failed::$f is missing or empty."; ls -la dist || true; exit 1; }
+          size=$(stat -c %s "$f")
+          echo "Letschat-Setup.exe: $size bytes"
+          [ "$size" -gt 20000000 ] || { echo "::error title=Build failed::$f is only $size bytes, an Electron installer is far bigger."; exit 1; }
+          [ "$(head -c 2 "$f")" = "MZ" ] || { echo "::error title=Build failed::$f is not a Windows program."; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Letschat-Setup-exe
+          path: desktop/dist/Letschat-Setup.exe
+          if-no-files-found: error
