@@ -103,7 +103,7 @@ self.addEventListener("activate", function (e) {
 });
 
 // the app's own code: show the saved copy straight away and refresh it in the background (first ever open: use the network).
-// Navigation preload (when the browser has it) supplies the page request that was already started while this worker was waking up.
+// Navigation preload (when the browser has it) supplies the page request that was already started while this worker was waiting up.
 function shellFirst(e, req, c, key, isPage) {
   return c.match(key, { ignoreSearch: true }).then(function (hit) {
     var pre = isPage && e.preloadResponse ? e.preloadResponse : Promise.resolve(undefined);
@@ -210,7 +210,7 @@ self.addEventListener("fetch", function (e) {
   }
 
   var p = url.pathname;
-  if (/\.apk$/i.test(p)) return;                         // the Android app download goes straight to the network
+  if (/\.(apk|exe)$/i.test(p)) return;                   // the Android app (.apk) and Windows installer (.exe) downloads go straight to the network
   if (p.indexOf("/socket.io") === 0 || p.indexOf("/api") === 0 || p.indexOf("/lite") === 0) return; // realtime, API, Lite pages
 
   var isPage = req.mode === "navigate";
