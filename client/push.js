@@ -4,15 +4,19 @@
 // (old browser, Firebase blocked, or the token request fails) it quietly falls back to the classic VAPID web push used before.
 // AUTOMATIC: once a person is signed in, push switches itself on (the browser's "Allow notifications" question appears on their first tap).
 // Turning "Push notifications" off in Tools is remembered, and then it stays off until they turn it on again.
-// APP DETECTED: when the server says this person has the Android app (a device registered with app:true), Chrome's push is switched off
-// by itself (and the "Allow notifications" question is not asked), so alerts come from the app only. If the app goes away (the server drops
-// its dead token), the next check switches Chrome's push back on by itself. This is separate from the person's own on/off choice above.
+// APP DETECTED: when the server says this person has the Letschat app (native, legacy or PWA APK: a device registered as an app), Chrome's
+// push is switched off by itself (and the "Allow notifications" question is not asked), so alerts come from the app only. If the app goes
+// away (the server drops its dead token), the next check switches Chrome's push back on by itself. This is separate from the person's own
+// on/off choice above.
+// PWA APK: the APK opens this same website, so it shares Chrome's push registration for this address. When the page was opened from the APK
+// (document.referrer is android-app://...) it registers with apk:true and never switches its own push off.
 (function () {
   var API = (window.LETSCHAT_CONFIG || {}).API_URL;
   var FCM_PREFIX = "https://fcm-token.letschat.invalid/"; // same pseudo-endpoint prefix the Android app and the server use
   var FCM_KEY = "letschat-africa:fcm-web-token";
   var OFF_KEY = "letschat-africa:push-off"; // set when the person turns push off on purpose
   var APP_KEY = "letschat-africa:push-app"; // set when push was switched off by itself because the Android app is detected
+  var APK_KEY = "letschat-africa:in-apk";   // set once this page was opened from the PWA APK
   var current = null; // socket of the logged-in session
   var armed = false;
 
@@ -24,6 +28,12 @@
   function setOff(v) { try { if (v) localStorage.setItem(OFF_KEY, "1"); else localStorage.removeItem(OFF_KEY); } catch (e) {} }
   function appHold() { try { return localStorage.getItem(APP_KEY) === "1"; } catch (e) { return false; } }
   function setAppHold(v) { try { if (v) localStorage.setItem(APP_KEY, "1"); else localStorage.removeItem(APP_KEY); } catch (e) {} }
+  // true when this page runs inside the PWA APK (remembered, because the referrer is only there on the first load)
+  function inApk() {
+    var fromApp = false;
+    try { fromApp = (document.referrer || "").indexOf("android-app://") === 0; } catch (e) {}
+    try { if (fromApp) localStorage.setItem(APK_KEY, "1"); return fromApp || localStorage.getItem(APK_KEY) === "1"; } catch (e) { return fromApp; }
+  }
   function noop() {}
   function call(path, method, body, auth) {
     var h = { "Content-Type": "application/json" };
@@ -50,7 +60,7 @@
   // ---- classic browser push (VAPID): used as the fallback ----
   function send(sub) {
     var p = prefs();
-    return call("/push/subscribe", "POST", { subscription: sub.toJSON(), preview: p.preview !== false, groups: p.groups !== false }, true);
+    return call("/push/subscribe", "POST", { subscription: sub.toJSON(), preview: p.preview !== false, groups: p.groups !== false, apk: inApk() || undefined }, true);
   }
 
   // ---- Firebase Cloud Messaging for the browser ----
@@ -90,7 +100,7 @@
     var p = prefs();
     return call("/push/subscribe", "POST", {
       subscription: { endpoint: FCM_PREFIX + t, keys: { p256dh: "fcm", auth: "fcm" } },
-      preview: p.preview !== false, groups: p.groups !== false
+      preview: p.preview !== false, groups: p.groups !== false, apk: inApk() || undefined
     }, true);
   }
   function forget(endpoint) { return endpoint ? call("/push/unsubscribe", "POST", { endpoint: endpoint }, true).catch(noop) : Promise.resolve(); }
@@ -102,7 +112,9 @@
     return call("/push/app", "GET", null, true).then(function (r) { return !!(r && r.app === true); }, function () { return null; });
   }
   // Checks for the app and keeps Chrome's push in line with the answer. Resolves true when the app is detected (Chrome's push is then off).
+  // Inside the PWA APK itself this page IS the app: its push stays on (it is the registration the server counts as the app).
   function checkApp() {
+    if (inApk()) { setAppHold(false); return Promise.resolve(false); }
     return appDetected().then(function (app) {
       if (app === null) return appHold(); // unknown: change nothing, keep the last known state
       if (app) {
@@ -158,6 +170,7 @@
   }
   // the person's own switch: while the Android app is detected, Chrome stays off and says why (it fails open if the check cannot be made)
   function enable() {
+    if (inApk()) { setAppHold(false); return enableNow(); } // inside the PWA APK: this is the app, so it can always switch itself on
     return appDetected().then(function (app) {
       if (app === true) {
         setAppHold(true);
@@ -193,7 +206,7 @@
 
   // quietly keep the server's copy of this device's subscription fresh (and its preview/group choices)
   function sync() {
-    if (!supported() || Notification.permission !== "granted" || !token() || appHold()) return; // appHold: Chrome stays off while the app is detected
+    if (!supported() || Notification.permission !== "granted" || !token() || (appHold() && !inApk())) return; // appHold: Chrome stays off while the app is detected
     registration().then(function (reg) {
       var saved = storedFcm();
       if (saved) {
