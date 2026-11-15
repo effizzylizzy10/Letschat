@@ -1,7 +1,11 @@
 // Letschat phone match (plain ES5, loads right after device.js).
-// Detects the phone's Android version, model and CPU, then makes the "Letschat for Android" bar and the install card offer the app file
-// that best matches that phone:
-//   Android 7 and newer -> Letschat.apk          Android 5 and 6 -> Letschat-legacy.apk          Android 4.4 and older -> no app file (web version)
+// Scans the phone (Android version, model, CPU, memory) and makes the "Letschat for Android" bar and the install card offer the best install for it.
+// Order of preference, each one only if this phone is compatible AND the file really exists on the site:
+//   1. Letschat.apk         full native app      (Android 7 and newer, not on very low memory phones)
+//   2. Letschat-legacy.apk  compatible app       (Android 5 and newer)
+//   3. web app (PWA)        browser install      (any phone; the only choice on Android 4.4 and older)
+// If the first choice is not compatible or not on the site, the next one is offered automatically ("bounces back").
+// A web page cannot see whether an APK install failed on the phone, so the card also has a "Didn't install? Try ..." button for the next choice.
 // Chrome 110+ freezes the Android number in the user agent ("Android 10"), so the real version, model and CPU come from User-Agent Client Hints.
 (function () {
   var ua = navigator.userAgent || "";
@@ -14,10 +18,10 @@
     document.body.appendChild(t); setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, ms || 4000);
   }
 
-  // ---- 1. detect the phone ----
+  // ---- 1. scan the phone ----
   var m = /Android[ \/](\d+)/i.exec(ua);
   var model = (function () { var r = /Android[ \d.]*;\s*([^;)]+?)(?: Build|\)|;)/i.exec(ua); var t = r ? r[1].replace(/^\s+|\s+$/g, "") : ""; return /^(K|Mobile|Tablet)$/i.test(t) ? "" : t; })();
-  var DEV = { android: m ? parseInt(m[1], 10) : 0, model: model, arch: "", ready: false };
+  var DEV = { android: m ? parseInt(m[1], 10) : 0, model: model, arch: "", ram: navigator.deviceMemory || 0, cores: navigator.hardwareConcurrency || 0, ready: false };
   window.LetschatDevice = DEV;
   var waiting = [];
   function done() { if (DEV.ready) return; DEV.ready = true; var q = waiting; waiting = []; for (var i = 0; i < q.length; i++) { try { q[i](); } catch (e) {} } }
@@ -36,37 +40,89 @@
     } else done();
   } catch (e) { done(); }
 
-  // ---- 2. pick the app file ----
-  function apkName() { var v = DEV.android; if (!v) return "Letschat.apk"; if (v < 5) return ""; return v < 7 ? "Letschat-legacy.apk" : "Letschat.apk"; }
-  function why(f) { return f === "Letschat-legacy.apk" ? "Best match: the compatible app for Android 5 and 6 (Letschat-legacy.apk)." : "Best match: the full Letschat app for Android 7 and newer (Letschat.apk)."; }
-  function phoneLine() { return "Your phone: " + (DEV.model ? DEV.model + ", " : "") + "Android " + (DEV.android || "(version not shown)") + (DEV.arch ? ", " + DEV.arch : "") + "."; }
+  // ---- 2. work out which installs fit this phone, in order of preference ----
+  // very low memory phones (512 MB or less) skip the full native app (it runs a background service and the floating bubble) and get the lighter compatible app
+  function lowRam() { return !!DEV.ram && DEV.ram < 1; }
+  function options() {
+    var v = DEV.android, o = [];
+    if ((!v || v >= 7) && !lowRam()) o.push({ id: "native", file: "Letschat.apk", name: "full app" });
+    if (!v || v >= 5) o.push({ id: "legacy", file: "Letschat-legacy.apk", name: "compatible app" });
+    o.push({ id: "pwa", name: "web app" });
+    return o;
+  }
+  function phoneLine() {
+    return "Your phone: " + (DEV.model ? DEV.model + ", " : "") + "Android " + (DEV.android || "(version not shown)") + (DEV.arch ? ", " + DEV.arch : "") + (DEV.ram ? ", about " + DEV.ram + " GB memory" : "") + ".";
+  }
+  function why(o) {
+    if (o.id === "native") return "Best match: the full Letschat app for Android 7 and newer (Letschat.apk).";
+    if (o.id === "legacy") return lowRam() && (!DEV.android || DEV.android >= 7)
+      ? "Best match: the lighter compatible app, because this phone has very little memory (Letschat-legacy.apk)."
+      : "Best match: the compatible app for Android 5 and 6 (Letschat-legacy.apk).";
+    return "Best match: the web app, installed straight from your browser. No file to download.";
+  }
   function available(f) {
     try { return fetch("./" + f, { method: "HEAD", cache: "no-store" }).then(function (r) { return r.ok && !/text\/html/i.test(r.headers.get("content-type") || ""); }).catch(function () { return false; }); }
     catch (e) { return Promise.resolve(false); }
   }
+  // the compatible options whose file really exists, still in order of preference (the web app is always last)
+  function resolve() {
+    var ok = [];
+    return options().reduce(function (p, o) {
+      return p.then(function () {
+        if (!o.file) { ok.push(o); return; }
+        return available(o.file).then(function (a) { if (a) ok.push(o); });
+      });
+    }, Promise.resolve()).then(function () { return ok; });
+  }
+
+  // ---- 3. install actions and the card ----
   function download(f) {
     var a = document.createElement("a"); a.href = "./" + f; a.download = f; a.style.display = "none";
     document.body.appendChild(a); a.click(); setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 1500);
     toast("Downloading Letschat. Open the file when it finishes.", 6000);
   }
-  function card(f) {
-    if (document.getElementById("lc-phone-match")) return;
+  function closeCard() { var old = document.getElementById("lc-phone-match"); if (old && old.parentNode) old.parentNode.removeChild(old); }
+  function pwaInstall() {
+    var p = window.__lcInstall; // Chrome's one-tap install event, kept by index.html
+    if (p && p.prompt) { window.__lcInstall = null; try { p.prompt(); return; } catch (e) {} }
+    showCard({ title: "Install the Letschat web app", lines: ["1. Tap the three dots menu of your browser.", "2. Tap Install app (or Add to Home screen).", "3. Tap Install. Letschat then opens like a normal app.", "Not seeing it? Open this page in Chrome and try again."], list: [{ id: "guide" }], noFallback: true });
+  }
+  // list = the options still to try; list[0] is the recommended one, list[1] is where "Didn't install?" goes next
+  function showCard(spec) {
+    closeCard();
+    var list = spec.list, first = list[0], isApk = !!first.file;
     var c = el("div", "position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:100001;max-width:460px;max-height:85vh;overflow-y:auto;margin:0 auto;background:#161B22;border:1px solid #262E3A;border-radius:18px;padding:16px;font-family:Inter,system-ui,sans-serif;color:#F5F7FA;box-shadow:0 12px 40px rgba(0,0,0,.55)");
-    c.id = "lc-phone-match"; c.setAttribute("role", "dialog"); c.setAttribute("aria-label", "Get the Letschat app for Android");
-    c.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:6px", "Get the Letschat app for Android"));
-    var lines = [phoneLine() + " " + why(f),
-      "Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
-      "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway.",
-      "If Android says App not installed, an older Letschat is usually still on the phone: hold the Letschat icon, tap App info, then Uninstall, and open the downloaded file again.",
-      "If the download fails or says Something went wrong, open this page in Chrome and try again."];
-    for (var i = 0; i < lines.length; i++) c.appendChild(el("div", "font-size:13.5px;line-height:1.45;color:" + (i === 0 ? "#F5F7FA;font-weight:600" : "#C5CEDA") + ";margin-bottom:6px", lines[i]));
+    c.id = "lc-phone-match"; c.setAttribute("role", "dialog");
+    var title = spec.title || (isApk ? "Get the Letschat app for Android" : "Install Letschat");
+    c.setAttribute("aria-label", title);
+    c.appendChild(el("div", "font:700 16px Sora,Inter,sans-serif;margin-bottom:6px", title));
+    var lines = spec.lines || (isApk
+      ? [phoneLine() + " " + why(first),
+         "Tap Download app, then open the file. If Android says installs are blocked, tap Settings, allow your browser to install apps, then come back and tap Download again.",
+         "Android may warn that the app is from an unknown source. That is normal for apps outside Google Play: tap Install anyway.",
+         "If Android says App not installed, an older Letschat is usually still on the phone: hold the Letschat icon, tap App info, then Uninstall, and open the downloaded file again.",
+         "If the download fails or says Something went wrong, open this page in Chrome and try again."]
+      : [phoneLine() + " " + why(first), "Tap Install web app. Letschat then opens like a normal app, with no file to download."]);
+    for (var i = 0; i < lines.length; i++) c.appendChild(el("div", "font-size:13.5px;line-height:1.45;color:" + (i === 0 && !spec.lines ? "#F5F7FA;font-weight:600" : "#C5CEDA") + ";margin-bottom:6px", lines[i]));
+    function btn(label, primary, fn) { var b = el("button", "flex:1;border:0;border-radius:20px;padding:11px 0;font:600 14px Inter,system-ui,sans-serif;cursor:pointer;background:" + (primary ? "#35D0BA" : "#262E3A") + ";color:" + (primary ? "#0E1116" : "#F5F7FA"), label); b.onclick = function () { closeCard(); if (fn) fn(); }; return b; }
     var row = el("div", "display:flex;gap:8px;margin-top:10px");
-    function btn(label, primary, fn) { var b = el("button", "flex:1;border:0;border-radius:20px;padding:11px 0;font:600 14px Inter,system-ui,sans-serif;cursor:pointer;background:" + (primary ? "#35D0BA" : "#262E3A") + ";color:" + (primary ? "#0E1116" : "#F5F7FA"), label); b.onclick = function () { if (c.parentNode) c.parentNode.removeChild(c); if (fn) fn(); }; return b; }
-    row.appendChild(btn("Cancel", false)); row.appendChild(btn("Download app", true, function () { download(f); }));
-    c.appendChild(row); document.body.appendChild(c);
+    if (first.id === "guide") row.appendChild(btn("Done", true));
+    else {
+      row.appendChild(btn("Cancel", false));
+      row.appendChild(btn(isApk ? "Download app" : "Install web app", true, function () { if (isApk) download(first.file); else pwaInstall(); }));
+    }
+    c.appendChild(row);
+    // bounce back: the next compatible choice, for when the first one would not install
+    if (!spec.noFallback && list.length > 1) {
+      var next = list[1];
+      var t = el("button", "display:block;width:100%;margin-top:10px;border:0;background:transparent;color:#35D0BA;font:600 13.5px Inter,system-ui,sans-serif;cursor:pointer;padding:6px 0", "Didn't install? Try the " + next.name + (next.file ? " (" + next.file + ")" : ""));
+      t.onclick = function () { showCard({ list: list.slice(1) }); };
+      c.appendChild(t);
+    }
+    document.body.appendChild(c);
   }
 
-  // ---- 3. take over the install button (the bar's Download button calls LetschatInstall.install) ----
+  // take over the install button (the bar's Download button calls LetschatInstall.install)
   function hook() {
     var I = window.LetschatInstall;
     if (!I || I.__phoneMatch) return !!(I && I.__phoneMatch);
@@ -74,10 +130,12 @@
     I.__phoneMatch = true;
     I.install = function () {
       if (standalone() || inAppBrowser()) return orig && orig.apply(I, arguments);
-      return new Promise(function (r) { whenReady(r); }).then(function () {
-        var f = apkName();
-        if (!f) { toast("This Android version is too old for the app file, so the web version is used instead.", 5000); return orig && orig.apply(I, arguments); }
-        return available(f).then(function (ok) { if (!ok) return toast("The Android app file is not available yet. Please try again later.", 4500); card(f); });
+      return new Promise(function (r) { whenReady(r); }).then(resolve).then(function (list) {
+        if (list[0].id === "pwa") { // no app file fits this phone (too old) or none is on the site yet: web app
+          if (DEV.android && DEV.android < 5) toast("This Android version is too old for the app file, so the web version is used instead.", 5000);
+          return pwaInstall();
+        }
+        showCard({ list: list });
       });
     };
     return true;
