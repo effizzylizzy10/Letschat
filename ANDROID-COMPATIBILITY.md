@@ -1,13 +1,30 @@
 # Android versions and APK files
 
 Letschat Africa ships two Android packages with the SAME package ID (`com.letschatafrica.app`) and the SAME signing key.
-The website (`client/device.js`) offers the right one by Android version.
+The website (`client/phonematch.js`, with `client/device.js` as the base) scans the phone and offers the best install for it.
 
 | Android version | API | File | How it is built | Status |
 |---|---|---|---|---|
 | 7.0 and newer | 24+ | `Letschat.apk` | `build-native-apk.yml` (Capacitor 8, JDK 21, SDK 36) | Existing build, unchanged |
 | 5.0 to 6.0.1 | 21-23 | `Letschat-legacy.apk` | `build-apk.yml` (Bubblewrap Trusted Web Activity, minSdk 21) | Configured, NOT yet built or run on a device |
 | 4.4 and older | 19 and older | none | none | Browser / PWA only (see COMPATIBILITY.md) |
+
+## How the website picks the install (`client/phonematch.js`)
+Order of preference: 1. `Letschat.apk` (native), 2. `Letschat-legacy.apk`, 3. web app (PWA). Each option is offered only if the phone is
+compatible AND the file is really on the site; otherwise the next one is offered automatically. The card also has a
+"Didn't install? Try ..." button, because a web page cannot see an APK install fail on the phone.
+
+What the scan reads:
+- Android version, model and CPU from User-Agent Client Hints (Chrome 110+ freezes the version in the user agent); other browsers fall back to the user agent and `navigator.platform`.
+- CPU family (ARM, x86, other) and 32/64-bit, CPU cores (`hardwareConcurrency`) and memory (`deviceMemory`, rounded by the browser).
+
+Rules:
+- Native app: Android 7 or newer and not a "light" phone. Version not shown: assumed modern.
+- Compatible (legacy) app: Android 5 or newer. Android 7+ phones that are "light" get it instead of the native app.
+- A "light" phone has 512 MB of memory or less, or a 32-bit CPU with 2 or fewer cores and 2 GB or less (or memory not shown).
+- Android 4.4 and older, or no APK on the site: web app.
+- The CPU family (ARM or x86) never blocks an APK. Neither build has an ABI filter or its own native libraries (no `abiFilters` found in the repository), so both run on every CPU family. If a native library is added later, add an ABI check to `options()` in `phonematch.js`.
+- Limits: browsers without Client Hints (Firefox, older Chrome) can only guess the CPU from `navigator.platform`. A 32-bit browser on a 64-bit chip reports 32-bit, which is the right answer for running 32-bit programs but not for the chip.
 
 ## Why two builds
 Capacitor 8 sets minSdk 24 (`tools/validate-apk.sh` also enforces 24), and the two in-repo plugins
@@ -44,5 +61,5 @@ Both APKs are signed with the release key and are meant for device testing first
 
 ## What has and has not been tested
 - Done: reading every Android config file, workflow and script in the repository.
-- NOT done (this change was prepared without a build machine): running either workflow, building any APK, or testing on an emulator or phone for any Android version.
+- NOT done (this change was prepared without a build machine): running either workflow, building any APK, or testing on an emulator or phone for any Android version. This includes the install picker in `phonematch.js` and the legacy APK.
 - Nothing here claims Android 5, 6 or any other version works until the workflow runs and a device test passes.
