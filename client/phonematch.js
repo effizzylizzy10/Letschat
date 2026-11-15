@@ -10,10 +10,12 @@
 // browsers without hints (Firefox, old Chrome) fall back to navigator.platform ("Linux aarch64", "Linux armv8l", "Linux x86_64"...).
 // CPU note: neither APK carries native libraries or an ABI filter (see ANDROID-COMPATIBILITY.md), so the CPU family can never block an APK. It is shown on the
 // card and, together with 32/64-bit, cores and memory, decides whether this is a "light" phone that gets the lighter compatible app instead of the full one.
-// Windows PCs: when Letschat-Setup.exe is on the site the Install button offers it (see windowsExe below); if the file is not there, the browser's own install is used.
+// Windows PCs (Windows 10 or 11, 64-bit): when Letschat-Setup.exe is on the site the Install button offers it (see windowsExe below); if the file is not there,
+// the browser's own install is used. The installer is built by .github/workflows/build-windows-exe.yml from the desktop/ folder.
 (function () {
   var ua = navigator.userAgent || "";
-  if (!/android/i.test(ua)) { if (/Windows NT/i.test(ua)) windowsExe(); return; } // iPhones and other computers keep the existing behaviour
+  // iPhones and other computers keep the existing behaviour. Windows 7, 8 and 32-bit Windows cannot run the installer (Electron needs 64-bit Windows 10+), so they keep it too.
+  if (!/android/i.test(ua)) { if (/Windows NT 10/i.test(ua) && /Win64|x64|WOW64/i.test(ua)) windowsExe(); return; }
   function inAppBrowser() { return /FBAN|FBAV|Instagram|Line\/|Snapchat|TikTok|MicroMessenger|; wv\)|WhatsApp/i.test(ua); }
   function standalone() { try { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true || /LetschatApp/.test(ua); } catch (e) { return false; } }
   function el(tag, css, text) { var n = document.createElement(tag); if (css) n.style.cssText = css; if (text != null) n.textContent = text; return n; }
@@ -191,11 +193,12 @@
   }, 500);
 
   // ---- 5. Windows PC: the installer (.exe) ----
-  // Runs on Windows only. When Letschat-Setup.exe is on the site, the Install button offers it, with the browser's own web app install as the second choice.
+  // Runs on 64-bit Windows 10 and 11 only. When Letschat-Setup.exe is on the site, the Install button offers it, with the browser's own web app install as the second choice.
   // When the file is not on the site (or the check fails), nothing changes: the browser's own install is used, exactly as before.
+  // The installed Windows app (desktop/main.js) adds "LetschatDesktop" to its browser name, so inside it the button only says Letschat is already installed.
   function windowsExe() {
     var F = "Letschat-Setup.exe";
-    function installed() { try { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || /LetschatApp/.test(ua); } catch (e) { return false; } }
+    function installed() { try { return (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || /LetschatDesktop/.test(ua); } catch (e) { return false; } }
     function card(fallback) {
       var old = document.getElementById("lc-pc-install"); if (old && old.parentNode) old.parentNode.removeChild(old);
       var c = document.createElement("div");
@@ -230,6 +233,7 @@
       I.install = function () {
         var args = arguments;
         function web() { return orig && orig.apply(I, args); }
+        if (/LetschatDesktop/.test(ua)) return toast("Letschat is already installed", 2500); // inside the Windows app itself
         if (installed()) return web();
         return available(F).then(function (ok) { if (ok) card(web); else web(); });
       };
