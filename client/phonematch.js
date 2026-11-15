@@ -1,12 +1,15 @@
 // Letschat phone match (plain ES5, loads right after device.js).
-// Scans the phone (Android version, model, CPU, memory) and makes the "Letschat for Android" bar and the install card offer the best install for it.
+// Scans the phone (Android version, model, CPU family and 32/64-bit, CPU cores, memory) and makes the "Letschat for Android" bar and the install card offer the best install for it.
 // Order of preference, each one only if this phone is compatible AND the file really exists on the site:
-//   1. Letschat.apk         full native app      (Android 7 and newer, not on very low memory phones)
+//   1. Letschat.apk         full native app      (Android 7 and newer, not on light phones)
 //   2. Letschat-legacy.apk  compatible app       (Android 5 and newer)
 //   3. web app (PWA)        browser install      (any phone; the only choice on Android 4.4 and older)
 // If the first choice is not compatible or not on the site, the next one is offered automatically ("bounces back").
 // A web page cannot see whether an APK install failed on the phone, so the card also has a "Didn't install? Try ..." button for the next choice.
-// Chrome 110+ freezes the Android number in the user agent ("Android 10"), so the real version, model and CPU come from User-Agent Client Hints.
+// Chrome 110+ freezes the Android number in the user agent ("Android 10"), so the real version, model and CPU come from User-Agent Client Hints;
+// browsers without hints (Firefox, old Chrome) fall back to navigator.platform ("Linux aarch64", "Linux armv8l", "Linux x86_64"...).
+// CPU note: neither APK carries native libraries or an ABI filter (see ANDROID-COMPATIBILITY.md), so the CPU family can never block an APK. It is shown on the
+// card and, together with 32/64-bit, cores and memory, decides whether this is a "light" phone that gets the lighter compatible app instead of the full one.
 (function () {
   var ua = navigator.userAgent || "";
   if (!/android/i.test(ua)) return; // iPhones and computers keep the existing behaviour
@@ -21,8 +24,18 @@
   // ---- 1. scan the phone ----
   var m = /Android[ \/](\d+)/i.exec(ua);
   var model = (function () { var r = /Android[ \d.]*;\s*([^;)]+?)(?: Build|\)|;)/i.exec(ua); var t = r ? r[1].replace(/^\s+|\s+$/g, "") : ""; return /^(K|Mobile|Tablet)$/i.test(t) ? "" : t; })();
-  var DEV = { android: m ? parseInt(m[1], 10) : 0, model: model, arch: "", ram: navigator.deviceMemory || 0, cores: navigator.hardwareConcurrency || 0, ready: false };
+  // family: "arm" | "x86" | "other" | "" (not known). bits: 32 | 64 | 0 (not known). ram is in GB as the browser rounds it (0.25, 0.5, 1, 2, 4, 8), 0 when not shown.
+  var DEV = { android: m ? parseInt(m[1], 10) : 0, model: model, family: "", bits: 0, arch: "", ram: navigator.deviceMemory || 0, cores: navigator.hardwareConcurrency || 0, ready: false };
   window.LetschatDevice = DEV;
+  // CPU from navigator.platform: "Linux aarch64" = ARM 64, "Linux armv8l" / "armv7l" = ARM 32-bit programs (even on a 64-bit chip), "Linux x86_64" = x86 64, "Linux i686" = x86 32
+  (function () {
+    var p = String(navigator.platform || "");
+    if (/aarch64|arm64/i.test(p)) { DEV.family = "arm"; DEV.bits = 64; }
+    else if (/arm|armv/i.test(p)) { DEV.family = "arm"; DEV.bits = 32; }
+    else if (/x86_64|amd64/i.test(p)) { DEV.family = "x86"; DEV.bits = 64; }
+    else if (/i[3-6]86|x86/i.test(p)) { DEV.family = "x86"; DEV.bits = 32; }
+    else if (/mips|riscv|ppc/i.test(p)) { DEV.family = "other"; }
+  })();
   var waiting = [];
   function done() { if (DEV.ready) return; DEV.ready = true; var q = waiting; waiting = []; for (var i = 0; i < q.length; i++) { try { q[i](); } catch (e) {} } }
   function whenReady(cb) { if (DEV.ready) cb(); else waiting.push(cb); }
@@ -34,29 +47,52 @@
         var pv = parseInt(String(h.platformVersion || "").split(".")[0], 10);
         if (pv > 0 && pv < 40) DEV.android = pv;
         if (h.model) DEV.model = h.model;
-        if (h.architecture) DEV.arch = h.architecture + (h.bitness ? "-" + h.bitness : "");
+        if (h.architecture === "arm" || h.architecture === "x86") DEV.family = h.architecture; // the browser's answer beats the platform-string guess
+        if (h.bitness === "64") DEV.bits = 64; else if (h.bitness === "32") DEV.bits = 32;
         done();
       }, done);
     } else done();
   } catch (e) { done(); }
+  function cpuLabel() {
+    var f = DEV.family === "arm" ? "ARM" : DEV.family === "x86" ? "x86" : DEV.family === "other" ? "other CPU" : "";
+    return [f, DEV.bits ? DEV.bits + "-bit" : ""].join(" ").replace(/^\s+|\s+$/g, "");
+  }
 
   // ---- 2. work out which installs fit this phone, in order of preference ----
-  // very low memory phones (512 MB or less) skip the full native app (it runs a background service and the floating bubble) and get the lighter compatible app
-  function lowRam() { return !!DEV.ram && DEV.ram < 1; }
+  // A "light" phone gets the lighter compatible app instead of the full native app (which runs a background service and the floating bubble). Light means:
+  //   - 512 MB of memory or less, or
+  //   - a 32-bit CPU with 2 or fewer cores and 2 GB of memory or less (when the browser shows memory), or
+  //   - a 32-bit CPU with 2 or fewer cores and the memory not shown
+  // The CPU family (ARM or x86) never makes a phone light: both APKs run on every CPU family.
+  function lightPhone() {
+    if (DEV.ram && DEV.ram < 1) return true;
+    var weakCpu = DEV.bits === 32 && DEV.cores > 0 && DEV.cores <= 2;
+    return weakCpu && (!DEV.ram || DEV.ram <= 2);
+  }
+  function lightReason() {
+    if (DEV.ram && DEV.ram < 1) return "very little memory";
+    return "an older 32-bit processor";
+  }
   function options() {
     var v = DEV.android, o = [];
-    if ((!v || v >= 7) && !lowRam()) o.push({ id: "native", file: "Letschat.apk", name: "full app" });
+    if ((!v || v >= 7) && !lightPhone()) o.push({ id: "native", file: "Letschat.apk", name: "full app" });
     if (!v || v >= 5) o.push({ id: "legacy", file: "Letschat-legacy.apk", name: "compatible app" });
     o.push({ id: "pwa", name: "web app" });
     return o;
   }
   function phoneLine() {
-    return "Your phone: " + (DEV.model ? DEV.model + ", " : "") + "Android " + (DEV.android || "(version not shown)") + (DEV.arch ? ", " + DEV.arch : "") + (DEV.ram ? ", about " + DEV.ram + " GB memory" : "") + ".";
+    var bits = [];
+    if (DEV.model) bits.push(DEV.model);
+    bits.push("Android " + (DEV.android || "(version not shown)"));
+    if (cpuLabel()) bits.push(cpuLabel());
+    if (DEV.cores) bits.push(DEV.cores + " cores");
+    if (DEV.ram) bits.push("about " + DEV.ram + " GB memory");
+    return "Your phone: " + bits.join(", ") + ".";
   }
   function why(o) {
     if (o.id === "native") return "Best match: the full Letschat app for Android 7 and newer (Letschat.apk).";
-    if (o.id === "legacy") return lowRam() && (!DEV.android || DEV.android >= 7)
-      ? "Best match: the lighter compatible app, because this phone has very little memory (Letschat-legacy.apk)."
+    if (o.id === "legacy") return lightPhone() && (!DEV.android || DEV.android >= 7)
+      ? "Best match: the lighter compatible app, because this phone has " + lightReason() + " (Letschat-legacy.apk)."
       : "Best match: the compatible app for Android 5 and 6 (Letschat-legacy.apk).";
     return "Best match: the web app, installed straight from your browser. No file to download.";
   }
